@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  # La base de données centrale
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: epos-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=pfe_password
+      - POSTGRES_DB=epos_master
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d # Script pour créer les DBs
+    networks:
+      - epos-network
+
+  # Interface visuelle pour gérer la DB (Accessible sur http://localhost:5050)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: epos-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@epos.tn
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    depends_on:
+      - postgres-db
+    networks:
+      - epos-network
+
+networks:
+  epos-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

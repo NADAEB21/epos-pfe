@@ -1,0 +1,13 @@
+# --- IDEs globaux ---
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Docker & Données ---
+infrastructure/postgres_data/
+*.log
+
+# --- Système ---
+.DS_Store
+Thumbs.db
+desktop.ini

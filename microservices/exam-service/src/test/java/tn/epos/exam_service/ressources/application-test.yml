@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/exam_db
+    username: admin
+    password: pfe_password
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true

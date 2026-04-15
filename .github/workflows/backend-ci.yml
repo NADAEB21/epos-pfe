@@ -2,9 +2,9 @@ name: EPOS Backend CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'feature/**' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
   build:
@@ -12,6 +12,7 @@ jobs:
 
     strategy:
       matrix:
+        # We include all services now
         service: [discovery-server, api-gateway, auth-service, exam-service, scoring-service]
 
     steps:
@@ -26,10 +27,9 @@ jobs:
 
       - name: Build with Maven
         run: |
-          if [ -d "microservices/${{ matrix.service }}" ]; then
-            cd microservices/${{ matrix.service }}
-            # We skip tests for the very first push because there are no DBs in GitHub yet
-            mvn clean package -DskipTests 
-          else
-            echo "Service ${{ matrix.service }} not found, skipping."
-          fi
+          # EXPLANATION FOR DUMMY MODE:
+          # We don't "cd" into the folder anymore. 
+          # We stay at the root to use the Parent POM.
+          # -pl :project-name tells Maven "Build ONLY this specific service"
+          # -am tells Maven "Build any dependencies needed for this service"
+          mvn clean package -DskipTests -pl :${{ matrix.service }} -am

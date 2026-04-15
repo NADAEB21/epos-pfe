@@ -1,0 +1,16 @@
+package tn.epos.auth_service.audit;
+
+public enum AuditAction {
+    LOGIN_SUCCESS,
+    LOGIN_FAILURE,
+    ACCOUNT_LOCKED,
+    LOGOUT,
+    TOKEN_REFRESHED,
+    TOKEN_REUSE_DETECTED,
+    PASSWORD_RESET_REQUESTED,
+    PASSWORD_RESET_CONFIRMED,
+    USER_CREATED,
+    USER_DEACTIVATED,
+    ROLE_ASSIGNED,
+    ROLE_REVOKED
+}

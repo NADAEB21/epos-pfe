@@ -1,0 +1,108 @@
+package tn.epos.exam_service.controllers;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import tn.epos.exam_service.dto.request.GrilleRequest;
+import tn.epos.exam_service.dto.request.ItemRequest;
+import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.exam_service.dto.response.GrilleResponse;
+import tn.epos.exam_service.dto.response.ItemResponse;
+import tn.epos.exam_service.services.GrilleService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequiredArgsConstructor
+@Tag(name = "Grilles & Critères", description = "Gestion des grilles d'évaluation et critères pondérés")
+public class GrilleController {
+    private final GrilleService grilleService;
+
+    @PostMapping("/api/stations/{stationId}/grille")
+    @Operation(summary = "Créer la grille d'une station",
+            description = "Vous pouvez inclure les items directement dans la requête (création groupée)")
+    public ResponseEntity<ApiResponse<GrilleResponse>> creer(
+            @PathVariable Long stationId,
+            @Valid @RequestBody GrilleRequest request) {
+
+        GrilleResponse response = grilleService.creerPourStation(stationId, request);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Grille créée avec succès", response));
+    }
+
+    @GetMapping("/api/stations/{stationId}/grille")
+    @Operation(summary = "Récupérer la grille d'une station avec ses critères")
+    public ResponseEntity<ApiResponse<GrilleResponse>> trouverParStation(@PathVariable Long stationId) {
+        return ResponseEntity.ok(ApiResponse.success(grilleService.trouverParStation(stationId)));
+    }
+
+    @GetMapping("/api/grilles/{id}")
+    @Operation(summary = "Récupérer une grille par ID")
+    public ResponseEntity<ApiResponse<GrilleResponse>> trouverParId(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(grilleService.trouverParId(id)));
+    }
+
+    @PutMapping("/api/grilles/{id}")
+    @Operation(summary = "Modifier une grille",
+            description = "Modifie nom, noteMax et description. Pour les items, utilisez les endpoints /items")
+    public ResponseEntity<ApiResponse<GrilleResponse>> modifier(
+            @PathVariable Long id,
+            @Valid @RequestBody GrilleRequest request) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success("Grille modifiée avec succès", grilleService.modifier(id, request))
+        );
+    }
+
+    @DeleteMapping("/api/grilles/{id}")
+    @Operation(summary = "Supprimer une grille et tous ses critères")
+    public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
+        grilleService.supprimer(id);
+        return ResponseEntity.ok(ApiResponse.success("Grille supprimée avec succès", null));
+    }
+
+    // items
+    @PostMapping("/api/grilles/{grilleId}/items")
+    @Operation(summary = "Ajouter un critère à une grille",
+            description = "BINAIRE : Fait/Non fait. NUMERIQUE : valeur entre 0 et valeurMax. "
+                    + "L'ordre est attribué automatiquement. "
+                    + "La somme des pondérations ne peut pas dépasser noteMax.")
+    public ResponseEntity<ApiResponse<ItemResponse>> ajouterItem(
+            @PathVariable Long grilleId,
+            @Valid @RequestBody ItemRequest request) {
+
+        ItemResponse response = grilleService.ajouterItem(grilleId, request);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Critère ajouté avec succès", response));
+    }
+
+    @GetMapping("/api/grilles/{grilleId}/items")
+    @Operation(summary = "Lister les critères d'une grille", description = "Triés par ordre croissant")
+    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerItems(@PathVariable Long grilleId) {
+        return ResponseEntity.ok(ApiResponse.success(grilleService.listerItems(grilleId)));
+    }
+
+    @PutMapping("/api/items/{id}")
+    @Operation(summary = "Modifier un critère d'évaluation")
+    public ResponseEntity<ApiResponse<ItemResponse>> modifierItem(
+            @PathVariable Long id,
+            @Valid @RequestBody ItemRequest request) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success("Critère modifié avec succès", grilleService.modifierItem(id, request))
+        );
+    }
+
+    @DeleteMapping("/api/items/{id}")
+    @Operation(summary = "Supprimer un critère", description = "Les critères suivants sont réordonnés automatiquement")
+    public ResponseEntity<ApiResponse<Void>> supprimerItem(@PathVariable Long id) {
+        grilleService.supprimerItem(id);
+        return ResponseEntity.ok(ApiResponse.success("Critère supprimé avec succès", null));
+    }
+}

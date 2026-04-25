@@ -30,6 +30,7 @@ public class GrilleServiceImpl implements GrilleService {
     private final GrilleEvaluationRepository grilleRepository;
     private final ItemEvaluationRepository itemRepository;
     private final StationRepository stationRepository;
+    private static final String RESOURCE_NAME = "Grille";
 
 
     // crud grille
@@ -89,7 +90,7 @@ public class GrilleServiceImpl implements GrilleService {
     @Transactional(readOnly = true)
     public GrilleResponse trouverParId(Long id) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Grille", id));
+                .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, id));
         return toResponse(grille);
     }
 
@@ -132,7 +133,7 @@ public class GrilleServiceImpl implements GrilleService {
     @Override
     public ItemResponse ajouterItem(Long grilleId, ItemRequest request) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(grilleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Grille", grilleId));
+                .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
 
         // Règle : interdire si examen non modifiable
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
@@ -173,7 +174,7 @@ public class GrilleServiceImpl implements GrilleService {
     @Transactional(readOnly = true)
     public List<ItemResponse> listerItems(Long grilleId) {
         if (!grilleRepository.existsById(grilleId)) {
-            throw new ResourceNotFoundException("Grille", grilleId);
+            throw new ResourceNotFoundException(RESOURCE_NAME, grilleId);
         }
         return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId)
                 .stream()
@@ -238,7 +239,7 @@ public class GrilleServiceImpl implements GrilleService {
     // MÉTHODES PRIVÉES
     private GrilleEvaluation trouverEntite(Long id) {
         return grilleRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Grille", id));
+                .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, id));
     }
 
     private ItemEvaluation trouverItem(Long itemId) {

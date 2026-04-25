@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.exam_service.controllers.StationController;
 import tn.epos.exam_service.dto.request.StationRequest;
@@ -28,6 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(StationController.class)
 @ActiveProfiles("test")
+@TestPropertySource(locations = "classpath:application-test.properties") // <--- FORCE le chargement du fichier
 @DisplayName("StationController - Tests unitaires")
 class StationControllerTest {
 

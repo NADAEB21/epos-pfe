@@ -37,7 +37,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@ActiveProfiles("test")
 @DisplayName("GrilleService - Tests unitaires")
 class GrilleServiceImplTest {
 

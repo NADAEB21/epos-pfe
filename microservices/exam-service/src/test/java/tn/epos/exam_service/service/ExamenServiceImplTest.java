@@ -28,7 +28,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@ActiveProfiles("test")
 @DisplayName("ExamenService - Tests unitaires")
 class ExamenServiceImplTest {
 

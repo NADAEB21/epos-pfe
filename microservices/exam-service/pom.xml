@@ -72,6 +72,15 @@
 		</dependency>
 	</dependencies>
 
+	<properties>
+		<sonar.exclusions>
+			src/main/java/tn/epos/exam_service/entities/**,
+			src/main/java/tn/epos/exam_service/dto/**,
+			src/main/java/tn/epos/exam_service/exception/**,
+			src/main/java/tn/epos/exam_service/enums/**
+		</sonar.exclusions>
+	</properties>
+
 	<build>
 		<plugins>
 			<plugin>

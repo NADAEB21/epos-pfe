@@ -73,11 +73,13 @@
 	</dependencies>
 
 	<properties>
+		<java.version>21</java.version>
 		<sonar.exclusions>
-			src/main/java/tn/epos/exam_service/entities/**,
-			src/main/java/tn/epos/exam_service/dto/**,
-			src/main/java/tn/epos/exam_service/exception/**,
-			src/main/java/tn/epos/exam_service/enums/**
+			**/entities/**,
+			**/dto/**,
+			**/exception/**,
+			**/enums/**,
+			**/*Application.java
 		</sonar.exclusions>
 	</properties>
 

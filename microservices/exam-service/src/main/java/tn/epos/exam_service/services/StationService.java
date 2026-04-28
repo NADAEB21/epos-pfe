@@ -1,0 +1,22 @@
+package tn.epos.exam_service.services;
+
+import tn.epos.exam_service.dto.request.StationRequest;
+import tn.epos.exam_service.dto.response.StationResponse;
+
+import java.util.List;
+public interface StationService {
+    /** Ajouter une station à un examen */
+    StationResponse ajouter(Long examenId, StationRequest request);
+
+    /** Lister toutes les stations d'un examen */
+    List<StationResponse> listerParExamen(Long examenId);
+
+    /** Récupérer une station avec sa grille */
+    StationResponse trouverParId(Long id);
+
+    /** Modifier une station */
+    StationResponse modifier(Long id, StationRequest request);
+
+    /** Supprimer une station (et sa grille en cascade) */
+    void supprimer(Long id);
+}

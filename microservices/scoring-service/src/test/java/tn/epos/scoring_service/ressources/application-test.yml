@@ -6,4 +6,12 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
-    show-sql: true
+    show-sql: false
+
+eureka:
+  client:
+    enabled: false
+
+logging:
+  level:
+    tn.epos.scoring_service: INFO

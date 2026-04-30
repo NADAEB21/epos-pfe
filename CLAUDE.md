@@ -1,111 +1,109 @@
 # EPOS — Auth Service Implementation Brief
 
 ## Project Context
-EPOS (Evaluation Platform for Operational Skills) — digitalization of pharmacy 
-practical exams for Faculté de Pharmacie de Monastir.
+EPOS (Evaluation Platform for Operational Skills) — digitalization 
+of pharmacy practical exams for Faculté de Pharmacie de Monastir.
 Microservices architecture. This is the auth-service (port 8081).
 
 ## Tech Stack
 - Spring Boot 3.2+, Java 17
-- Spring Security + JWT
+- Spring Security + JWT (JJWT 0.12.6)
 - PostgreSQL (database: auth_db)
-- Spring Cloud (registers with Eureka on port 8761)
+- Spring Cloud (Eureka client, registers as "auth-service")
+- Docker Compose for infrastructure
 
 ## Data Model — Auth Service
 
 ### User
 - Long id
-- String email (unique, used for login)
+- String email (unique, login identifier)
 - String password_hash (bcrypt)
 - String nom, prenom
-- Boolean is_active (false after 3 failed login attempts)
+- Boolean is_active (false after 3 failed attempts — account locked)
+- Integer failed_login_attempts (counter, reset on success)
 - DateTime created_at
-- NO role field — roles are in UserRole entity
+- NO role field — roles live in UserRole entity
 
 ### UserRole (join entity — core of RBAC)
 - Long id
 - Long user_id (FK → User)
 - RoleType role (enum)
-- Long matiere_id (nullable — FK ext to exam-service)
-  - null = global scope (SUPER_ADMIN)
+- Long matiere_id (nullable)
+  - null = global scope (SUPER_ADMIN, EVALUATEUR)
   - non-null = subject-scoped (RESPONSABLE_MATIERE only)
+- @PrePersist: throws IllegalStateException if 
+  RESPONSABLE_MATIERE has null matiere_id
 
 ### RoleType (enum)
-- SUPER_ADMIN (matiere_id must always be null)
+- SUPER_ADMIN (matiere_id always null)
 - RESPONSABLE_MATIERE (matiere_id required)
 - EVALUATEUR (matiere_id always null)
 
 ### RefreshToken
-- Long id
-- Long user_id (FK → User)
-- String token_hash (store hash, never raw token)
+- Long id, Long user_id FK
+- String token_hash (SHA-256 of raw opaque token)
 - DateTime expires_at (7 days)
 - Boolean revoked
-- Rotated on every use
+- String family_id (UUID — ties rotation chain for breach detection)
+- Rotated on every use — old token immediately revoked
 
 ### PasswordResetToken
-- Long id
-- Long user_id (FK → User)
-- String token_hash
+- Long id, Long user_id FK
+- String token_hash (SHA-256)
 - DateTime expires_at (30 minutes)
 - Boolean used (single use only)
 
 ## JWT Structure
 Access token: 24h expiry
-Refresh token: 7 days, rotated on use
-
-JWT claims must include:
+Payload:
 {
   "sub": "user@email.com",
   "userId": 1,
-  "authorities": [
-    "ROLE_RESPONSABLE_MATIERE:5",
-    "ROLE_EVALUATEUR"
-  ]
+  "authorities": ["ROLE_RESPONSABLE_MATIERE:5", "ROLE_EVALUATEUR"]
 }
+Scoped authority format: "ROLE_[ROLETYPE]:[matiere_id]"
+Global authority format: "ROLE_[ROLETYPE]"
 
-Format: "ROLE_[ROLETYPE]:[matiere_id]" for scoped roles
-Format: "ROLE_[ROLETYPE]" for global roles
-
-## Security Rules
-- Lock account (is_active = false) after 3 failed login attempts
-- Password policy: min 8 chars, 1 uppercase, 1 digit
-- Refresh token: if expired/revoked token is presented → revoke 
-  entire family (security breach assumed)
-- PasswordResetToken: single use, 30 min expiry, 
-  invalidate all existing tokens for user on new request
+## Security Rules (ALL IMPLEMENTED)
+- Account locked after 3 failed attempts
+  - incrementFailedAttempts() uses REQUIRES_NEW transaction
+  - lockAccount() uses REQUIRES_NEW transaction
+  - getFailedLoginAttempts() uses scalar JPQL to bypass JPA cache
+- Opaque refresh tokens stored as SHA-256 hash
+- Token rotation: revoke on use, issue new in same family
+- Breach detection: revoked token reused → revokeAllByFamilyId
+- Logout: revokeAllByUserId
+- Password policy: min 8 chars, 1 uppercase, 1 digit (validated in DTO)
+- Delegation: RESPONSABLE_MATIERE can only assign within same matiere_id
 
 ## Delegation Rules (enforced in UserService)
-- SUPER_ADMIN: can assign any role, matiere_id always null
-- RESPONSABLE_MATIERE: can only assign RESPONSABLE_MATIERE 
-  or EVALUATEUR within same matiere_id scope
-- EVALUATEUR: no delegation rights
+- SUPER_ADMIN: can assign any role globally
+- RESPONSABLE_MATIERE: can assign RESPONSABLE_MATIERE (same scope) 
+  or EVALUATEUR (global) — cannot assign SUPER_ADMIN
+- EVALUATEUR: no delegation rights at all
 
-## API Endpoints to Implement
-POST   /api/v1/auth/login
-POST   /api/v1/auth/refresh
-POST   /api/v1/auth/logout
-POST   /api/v1/auth/password-reset/request
-POST   /api/v1/auth/password-reset/confirm
-GET    /api/v1/users (SUPER_ADMIN only)
-POST   /api/v1/users (SUPER_ADMIN or scoped RESPONSABLE_MATIERE)
-PUT    /api/v1/users/{id}/roles (with delegation constraint check)
-DELETE /api/v1/users/{id} (SUPER_ADMIN only)
-
-## Implementation Order
-1. Entities (User, UserRole, RefreshToken, PasswordResetToken)
-2. Repositories
-3. JwtService (generate + validate tokens, build authorities list)
-4. UserDetailsService (load user + roles → build authorities)
-5. SecurityConfig (filter chain, public vs protected routes)
-6. AuthService (login, refresh, logout logic)
-7. UserService (CRUD + delegation constraint logic)
-8. Controllers
-9. Exception handling (custom exceptions + @ControllerAdvice)
-10. application.yml configuration
+## API Endpoints
+POST   /api/v1/auth/login              (public)
+POST   /api/v1/auth/refresh            (public)
+POST   /api/v1/auth/logout             (authenticated)
+POST   /api/v1/auth/password-reset/request  (public)
+POST   /api/v1/auth/password-reset/confirm  (public)
+GET    /api/v1/users                   (SUPER_ADMIN only)
+POST   /api/v1/users                   (SUPER_ADMIN or RESPONSABLE_MATIERE)
+PUT    /api/v1/users/{id}/roles        (SUPER_ADMIN or RESPONSABLE_MATIERE)
+DELETE /api/v1/users/{id}              (SUPER_ADMIN only)
 
 ## Package Structure
-com.epos.auth
+com.epos.auth_service
+├── audit/
+│   ├── AuditLog.java
+│   ├── AuditAction.java (LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT,
+│   │                     ACCOUNT_LOCKED, TOKEN_REFRESHED,
+│   │                     TOKEN_REUSE_DETECTED, PASSWORD_RESET_REQUESTED,
+│   │                     PASSWORD_RESET_CONFIRMED, USER_CREATED,
+│   │                     ROLE_ASSIGNED, ROLE_REVOKED, USER_DEACTIVATED)
+│   ├── AuditLogRepository.java
+│   └── AuditService.java (@Async, bounded thread pool)
 ├── config/
 │   └── SecurityConfig.java
 ├── controller/
@@ -113,108 +111,110 @@ com.epos.auth
 │   └── UserController.java
 ├── dto/
 │   ├── LoginRequest.java
-│   ├── LoginResponse.java
+│   ├── LoginResponse.java (accessToken, refreshToken, tokenType)
 │   ├── RefreshRequest.java
-│   └── UserCreateRequest.java
+│   ├── PasswordResetRequestDto.java
+│   ├── PasswordResetConfirmDto.java
+│   ├── UserCreateRequest.java (password validated by regex)
+│   ├── UserResponse.java
+│   ├── RoleAssignmentDto.java
+│   └── ApiResponse.java (success, data, message wrapper)
 ├── entity/
 │   ├── User.java
 │   ├── UserRole.java
-│   ├── RoleType.java
+│   ├── RoleType.java (enum)
 │   ├── RefreshToken.java
 │   └── PasswordResetToken.java
 ├── exception/
-│   ├── AccountLockedException.java
-│   ├── InvalidTokenException.java
+│   ├── AccountLockedException.java (extends RuntimeException)
+│   ├── InvalidTokenException.java (extends RuntimeException)
 │   ├── UnauthorizedDelegationException.java
-│   └── GlobalExceptionHandler.java
+│   ├── EmailAlreadyExistsException.java
+│   ├── UserNotFoundException.java
+│   └── GlobalExceptionHandler.java (@RestControllerAdvice)
+│       400: MethodArgumentNotValidException
+│       401: BadCredentialsException, UsernameNotFoundException,
+│            InvalidTokenException
+│       403: AccountLockedException, UnauthorizedDelegationException,
+│            AccessDeniedException
+│       404: UserNotFoundException
+│       409: EmailAlreadyExistsException
+│       500: Exception (generic, logged at ERROR)
 ├── repository/
 │   ├── UserRepository.java
+│   │   - findByEmail, existsByEmail
+│   │   - incrementFailedAttempts (REQUIRES_NEW)
+│   │   - resetFailedAttempts (REQUIRES_NEW)
+│   │   - lockAccount (REQUIRES_NEW)
+│   │   - getFailedLoginAttempts (scalar JPQL, cache BYPASS hint)
 │   ├── UserRoleRepository.java
+│   │   - findByUserId
+│   │   - deleteByUserId
 │   ├── RefreshTokenRepository.java
+│   │   - findByTokenHash
+│   │   - revokeAllByUserId
+│   │   - revokeAllByFamilyId
 │   └── PasswordResetTokenRepository.java
+│       - findByTokenHash
+│       - invalidateAllByUserId
 └── service/
     ├── AuthService.java
+    │   login(): find → isActive check → passwordEncoder.matches()
+    │           → incrementFailedAttempts → getFailedLoginAttempts
+    │           → lockAccount if >=3 → issueTokenPair
+    │   refresh(): findByTokenHash → revoked? → breach → rotate
+    │   logout(): revokeAllByUserId
+    │   requestPasswordReset(): enumeration-safe, invalidates old tokens
+    │   confirmPasswordReset(): validates hash/expiry/used → encode → save
     ├── JwtService.java
+    │   - generateAccessToken(user, roles) → builds authorities claim
+    │   - generateRefreshTokenValue() → SecureRandom 256-bit opaque
+    │   - hashToken(raw) → SHA-256 hex
+    │   - generateFamilyId() → UUID
+    │   - validateToken(token) → boolean
+    │   - extractClaims(token) → Claims
     ├── UserService.java
+    │   - getAllUsers() (readOnly)
+    │   - createUser(request, authentication) → delegation check
+    │   - assignRoles(id, roles, authentication) → delegation check
+    │   - deactivateUser(id) → soft delete + revoke tokens
+    │   - validateDelegation(actingAuth, targetRoles)
+    │   - getActingUserScope(auth) → Set<Long> matiereIds
     └── UserDetailsServiceImpl.java
+        - loadUserByUsername → load User + UserRole → build authorities
 
-## Notes
-- Eureka client: register as "auth-service"
-- All responses wrapped in standard ApiResponse<T>
-- Use @PreAuthorize with custom authority strings for scope checking
-- matiere_id in JWT authority string must be validated server-side 
-  on every protected request — do not trust client claims
+## Important Transaction Notes
+- login() is @Transactional — throws unchecked exceptions
+- incrementFailedAttempts, resetFailedAttempts, lockAccount 
+  all use Propagation.REQUIRES_NEW so they commit independently
+  even when the outer login() transaction rolls back on exception
+- getFailedLoginAttempts uses scalar JPQL + cache BYPASS hint 
+  to avoid reading stale JPA first-level cache after REQUIRES_NEW commit
 
-## AuditLog Implementation
+## Current State (April 2026)
+### FULLY IMPLEMENTED AND TESTED ✅
+- All entities, repositories, services, controllers
+- Complete login flow with account lockout
+- Refresh token rotation with breach detection
+- Logout with full token revocation
+- Password reset (request + confirm)
+- JWT with scoped authorities
+- Delegation constraints in UserService
+- Async audit logging
+- GlobalExceptionHandler with correct HTTP codes
+- AccountLockedException extends RuntimeException (not AuthenticationException)
+- Docker init.sql with schema + seed data
+- CI/CD: GitHub Actions green, SonarCloud connected
+- Branch strategy: feature/* → develop → main
 
-### AuditLog Entity (infrastructure layer — not domain)
-- Long id
-- Long user_id (who did it)
-- AuditAction action (enum)
-- String target_entity (e.g. "User", "UserRole")
-- Long target_id (which record was affected)
-- String detail (JSON string — stores before/after values)
-- DateTime timestamp
+### NEXT PRIORITIES
+1. Unit tests (JUnit 5 + Mockito) — Phase 1
+2. Security hardening (rate limiting, JWT blacklist, 
+   security headers, password history) — Phase 2
+3. Integration tests (Testcontainers) — Phase 3
+4. Then: exam-service review + merge coordination
 
-### AuditAction Enum
-LOGIN
-LOGOUT
-LOGIN_FAILED
-ROLE_ASSIGNED
-ROLE_REVOKED
-PASSWORD_RESET
-ACCOUNT_LOCKED
-USER_CREATED
-USER_DEACTIVATED
-
-### How it's implemented
-- AuditLog gets its own entity and repository (AuditLogRepository)
-  BUT the repository is only injected into AuditService
-- AuditService is the ONLY class that writes to audit log
-- AuditService is called explicitly inside AuthService 
-  and UserService at critical points — NOT via JPA listener
-- Example in AuthService.login():
-  if (loginFailed) auditService.log(userId, LOGIN_FAILED, "User", userId, null)
-  if (accountLocked) auditService.log(userId, ACCOUNT_LOCKED, ...)
-  if (success) auditService.log(userId, LOGIN, ...)
-
-### Where AuditService is called
-- AuthService: LOGIN, LOGOUT, LOGIN_FAILED, ACCOUNT_LOCKED
-- UserService: USER_CREATED, ROLE_ASSIGNED, ROLE_REVOKED, USER_DEACTIVATED
-- AuthService (password reset): PASSWORD_RESET
-
-### Package location
-com.epos.auth.audit
-├── AuditLog.java (entity)
-├── AuditAction.java (enum)
-├── AuditLogRepository.java
-└── AuditService.java  
-
-## Current Implementation Status (last updated: 14 Apr 2026)
-
-### Auth-Service — IN PROGRESS
-✅ Entities (User, UserRole, RefreshToken, PasswordResetToken)
-✅ Repositories (with REQUIRES_NEW on incrementFailedAttempts, resetFailedAttempts)
-✅ JwtService (JJWT 0.12.6, opaque refresh token, familyId)
-✅ UserDetailsServiceImpl
-✅ SecurityConfig
-✅ AuthService (login rewritten with passwordEncoder.matches())
-✅ UserService (delegation logic + AuditService)
-✅ Controllers (AuthController, UserController)
-✅ GlobalExceptionHandler
-✅ application.yml
-✅ Docker init.sql (auth_db schema + seed data)
-✅ Login working (tested with Postman)
-✅ Account lockout triggering correctly
-
-🔧 KNOWN BUG: is_active not persisting to false on lock
-   Fix: add lockAccount() to UserRepository with 
-   Propagation.REQUIRES_NEW same pattern as incrementFailedAttempts
-   Replace user.setIsActive(false); userRepository.save(user);
-   with userRepository.lockAccount(user.getId());
-
-### Next Steps
-1. Fix lockAccount bug (first thing tomorrow)
-2. Test refresh token rotation + breach detection
-3. Commit auth-service to GitHub
-4. Start exam-service
+## Test Credentials (in auth_db)
+- admin@epos.tn / Admin@1234 → SUPER_ADMIN
+- resp@epos.tn / Resp@1234 → RESPONSABLE_MATIERE (matiere_id=1)
+- eval@epos.tn / Eval@1234 → EVALUATEUR

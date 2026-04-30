@@ -56,7 +56,6 @@ public class AuthService {
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
 
         log.debug("User loaded: {}, isActive: {}", user.getEmail(), user.getIsActive());
-        log.debug("Password match result: {}", passwordEncoder.matches(request.getPassword(), user.getPasswordHash()));
 
         // b. Reject locked accounts before touching the password
         if (!user.getIsActive()) {
@@ -66,6 +65,7 @@ public class AuthService {
         }
 
         // c. Manual password check — keeps the failure path inside our control
+        log.debug("Password match result: {}", passwordEncoder.matches(request.getPassword(), user.getPasswordHash()));
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             // d. Increment directly in DB to avoid lost-update races, then re-read
             userRepository.incrementFailedAttempts(user.getId());

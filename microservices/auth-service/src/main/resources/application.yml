@@ -1,0 +1,72 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/auth_db
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:pfe_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # schema managed by Liquibase/Flyway in production;
+                                  # use 'update' locally when no migration tool is wired
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_schema: public
+
+  # Async executor for AuditService
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 8
+        queue-capacity: 500
+      thread-name-prefix: audit-
+
+# ─── JWT ──────────────────────────────────────────────────────────────────────
+jwt:
+  # Minimum 32 bytes (256 bits) for HS256. Override via environment variable in production.
+  secret: ${JWT_SECRET:change-me-in-production-must-be-32-chars!!}
+  access-token-expiry-ms: 86400000    # 24 h
+  refresh-token-expiry-ms: 604800000  # 7 days
+
+# ─── Eureka ───────────────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+# ─── Actuator ─────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    tn.epos.auth_service: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN

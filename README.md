@@ -10,3 +10,14 @@
 ## How to start
 1. Clone the repo.
 2. Go to /infrastructure and run `docker-compose up -d`.
+
+## Security
+
+### Password hashing
+The auth-service uses **bcrypt** with an explicit cost factor of **12** (OWASP-recommended for current hardware, ~250–400 ms per hash). The cost is configurable via:
+
+- `security.bcrypt.cost` in `application.yml`
+- `BCRYPT_COST` environment variable (overrides the file)
+- `application-test.yml` sets cost `4` for fast CI runs
+
+Revisit the cost factor annually as hardware speeds up. Argon2 (`Argon2PasswordEncoder`) is a future option; migrating would mean switching the bean to `DelegatingPasswordEncoder` and re-hashing existing passwords on next login.

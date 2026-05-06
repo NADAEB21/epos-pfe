@@ -42,6 +42,13 @@ jwt:
   access-token-expiry-ms: 86400000    # 24 h
   refresh-token-expiry-ms: 604800000  # 7 days
 
+# ─── Password hashing ─────────────────────────────────────────────────────────
+security:
+  bcrypt:
+    # OWASP recommends ≥ 12 for current hardware (~250–400 ms / hash).
+    # Lower values (e.g. 4) are intended for fast test/CI runs only.
+    cost: ${BCRYPT_COST:12}
+
 # ─── Eureka ───────────────────────────────────────────────────────────────────
 eureka:
   client:

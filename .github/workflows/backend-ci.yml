@@ -1,28 +1,33 @@
 name: EPOS Backend CI
 
+# Trigger once per push to a tracked branch and once per PR open/sync.
+# We deliberately drop `feature/**` from the push filter so we don't run
+# twice (once for the push, once for the PR) on the same SHA.
 on:
   push:
-    branches: [ main, develop, 'feature/**' ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
 jobs:
-  build-and-analyze:
+  # -----------------------------------------------------------------------
+  # Build + test each service in parallel against its own Postgres.
+  # Coverage (jacoco.exec) is uploaded as an artifact for the sonar job.
+  # -----------------------------------------------------------------------
+  build-and-test:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
-        # On teste les services fonctionnels qui ont des bases de données
         service: [auth-service, exam-service, scoring-service]
 
-    # C'est ici qu'on lance la DB dans GitHub !
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: admin
           POSTGRES_PASSWORD: pfe_password
-          # On cree la DB correspondant au service en cours
           POSTGRES_DB: ${{ matrix.service == 'auth-service' && 'auth_db' || (matrix.service == 'exam-service' && 'exam_db' || 'scoring_db') }}
         ports:
           - 5432:5432
@@ -35,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -44,16 +49,69 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and Analyze with SonarCloud
+      - name: Build and test
+        run: |
+          mvn -B clean verify \
+            -pl :${{ matrix.service }} -am \
+            -Dspring.profiles.active=test
+
+      - name: Upload jacoco coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: microservices/${{ matrix.service }}/target/jacoco.exec
+          if-no-files-found: warn
+          retention-days: 1
+
+  # -----------------------------------------------------------------------
+  # Single SonarCloud analysis for the whole project.
+  # Runs once per workflow execution to avoid the "newer report already
+  # processed" race that the previous matrix-based design suffered from.
+  # -----------------------------------------------------------------------
+  sonar:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage
+
+      - name: Restore jacoco.exec into each module's target/
+        run: |
+          for svc in auth-service exam-service scoring-service; do
+            src="coverage/coverage-$svc/jacoco.exec"
+            if [ -f "$src" ]; then
+              mkdir -p "microservices/$svc/target"
+              cp "$src" "microservices/$svc/target/jacoco.exec"
+              echo "Restored coverage for $svc"
+            else
+              echo "::warning::No coverage artifact found for $svc"
+            fi
+          done
+
+      - name: SonarCloud analysis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          # ON ENLEVE -DskipTests pour que les tests tournent vraiment !
-          mvn clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+          # -DskipTests so tests don't re-run; the verify phase still triggers
+          # jacoco's report goal which converts each module's jacoco.exec into
+          # the XML report that sonar-maven-plugin reads.
+          mvn -B -DskipTests verify \
+            org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
             -Dsonar.projectKey=NADAEB21_epos-pfe \
             -Dsonar.organization=nadaeb21 \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.moduleKey=${{ matrix.service }} \
-            -pl :${{ matrix.service }} -am \
-            -Dspring.profiles.active=test
+            -Dsonar.host.url=https://sonarcloud.io

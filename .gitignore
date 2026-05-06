@@ -3,6 +3,9 @@
 .vscode/
 *.code-workspace
 
+# --- AI Tooling ---
+.claude/
+
 # --- Docker & Données ---
 infrastructure/postgres_data/
 *.log

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.context.ActiveProfiles;
+// import org.springframework.test.context.ActiveProfiles;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -20,6 +20,10 @@ import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.impl.StationServiceImpl;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -151,13 +155,14 @@ class StationServiceImplTest {
         @Test
         @DisplayName("Doit retourner les stations triées par ordre")
         void listerParExamen_devraitRetournerStations() {
+            Page<Station> page = new PageImpl<>(List.of(station));
             when(examenRepository.existsById(1L)).thenReturn(true);
-            when(stationRepository.findByExamenIdOrderByOrdreAsc(1L))
-                    .thenReturn(List.of(station));
+            when(stationRepository.findByExamenIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
+                    .thenReturn(page);
 
-            List<StationResponse> result = stationService.listerParExamen(1L);
+            Page<StationResponse> result = stationService.listerParExamen(1L, Pageable.unpaged());
 
-            assertThat(result).hasSize(1);
+            assertThat(result.getContent()).hasSize(1);
         }
 
         @Test
@@ -165,7 +170,7 @@ class StationServiceImplTest {
         void listerParExamen_devraitLeverExceptionSiExamenIntrouvable() {
             when(examenRepository.existsById(99L)).thenReturn(false);
 
-            assertThatThrownBy(() -> stationService.listerParExamen(99L))
+            assertThatThrownBy(() -> stationService.listerParExamen(99L, Pageable.unpaged()))
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }

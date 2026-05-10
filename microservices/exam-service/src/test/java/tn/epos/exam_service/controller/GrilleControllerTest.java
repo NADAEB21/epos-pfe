@@ -21,6 +21,12 @@ import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.GrilleService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import static org.mockito.ArgumentMatchers.eq;
+import org.springframework.context.annotation.Import;
+import tn.epos.exam_service.config.TestSecurityConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {GrilleController.class, GlobalExceptionHandler.class})
 @TestPropertySource(locations = "classpath:application-test.properties")
+@Import(TestSecurityConfig.class)
 @DisplayName("GrilleController - Tests unitaires")
 class GrilleControllerTest {
 
@@ -489,32 +496,34 @@ class GrilleControllerTest {
         @Test
         @DisplayName("200 - Liste des items retournée")
         void listerItems_devraitRetourner200() throws Exception {
-            when(grilleService.listerItems(1L))
-                    .thenReturn(List.of(itemBinaireResponse, itemNumeriqueResponse));
+            Page<ItemResponse> page = new PageImpl<>(List.of(itemBinaireResponse, itemNumeriqueResponse));
+            when(grilleService.listerItems(eq(1L), any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/grilles/1/items"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data.length()").value(2))
-                    .andExpect(jsonPath("$.data[0].type").value("BINAIRE"))
-                    .andExpect(jsonPath("$.data[1].type").value("NUMERIQUE"));
+                    .andExpect(jsonPath("$.data.content").isArray())
+                    .andExpect(jsonPath("$.data.content.length()").value(2))
+                    .andExpect(jsonPath("$.data.content[0].type").value("BINAIRE"))
+                    .andExpect(jsonPath("$.data.content[1].type").value("NUMERIQUE"));
         }
 
         @Test
         @DisplayName("200 - Liste vide si aucun item")
         void listerItems_listeVide_devraitRetourner200() throws Exception {
-            when(grilleService.listerItems(1L)).thenReturn(List.of());
+            Page<ItemResponse> page = new PageImpl<>(List.of());
+            when(grilleService.listerItems(eq(1L), any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/grilles/1/items"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data").isEmpty());
+                    .andExpect(jsonPath("$.data.content").isEmpty())
+                    .andExpect(jsonPath("$.data.totalElements").value(0));
         }
 
         @Test
         @DisplayName("404 - Grille introuvable")
         void listerItems_grilleIntrouvable_devraitRetourner404() throws Exception {
-            when(grilleService.listerItems(99L))
+            when(grilleService.listerItems(eq(99L), any(Pageable.class)))
                     .thenThrow(new ResourceNotFoundException("Grille", 99L));
 
             mockMvc.perform(get("/api/grilles/99/items"))

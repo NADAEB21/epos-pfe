@@ -10,6 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
@@ -22,6 +25,8 @@ import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.ExamenService;
+import org.springframework.context.annotation.Import;
+import tn.epos.exam_service.config.TestSecurityConfig;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -33,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {ExamenController.class, GlobalExceptionHandler.class})
 @TestPropertySource(locations = "classpath:application-test.properties")
+@Import(TestSecurityConfig.class)
 @DisplayName("ExamenController - Tests unitaires")
 class ExamenControllerTest {
 
@@ -139,40 +145,45 @@ class ExamenControllerTest {
         @Test
         @DisplayName("200 - Liste tous les examens sans filtre")
         void lister_sansStatut_devraitAppelerListerTous() throws Exception {
-            when(examenService.listerTous()).thenReturn(List.of(examenResponse));
+            Page<ExamenResponse> page = new PageImpl<>(List.of(examenResponse));
+            when(examenService.listerTous(any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/examens"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data[0].nom").value("Examen Test"));
+                    .andExpect(jsonPath("$.data.content").isArray())
+                    .andExpect(jsonPath("$.data.content[0].nom").value("Examen Test"))
+                    .andExpect(jsonPath("$.data.totalElements").value(1));
 
-            verify(examenService).listerTous();
-            verify(examenService, never()).listerParStatut(any());
+            verify(examenService).listerTous(any(Pageable.class));
+            verify(examenService, never()).listerParStatut(any(), any());
         }
 
         @Test
         @DisplayName("200 - Filtrage par statut BROUILLON")
         void lister_avecStatut_devraitAppelerListerParStatut() throws Exception {
-            when(examenService.listerParStatut(StatutExamen.BROUILLON))
-                    .thenReturn(List.of(examenResponse));
+            Page<ExamenResponse> page = new PageImpl<>(List.of(examenResponse));
+            when(examenService.listerParStatut(eq(StatutExamen.BROUILLON), any(Pageable.class)))
+                    .thenReturn(page);
 
             mockMvc.perform(get("/api/examens").param("statut", "BROUILLON"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data[0].statut").value("BROUILLON"));
+                    .andExpect(jsonPath("$.data.content[0].statut").value("BROUILLON"));
 
-            verify(examenService).listerParStatut(StatutExamen.BROUILLON);
-            verify(examenService, never()).listerTous();
+            verify(examenService).listerParStatut(eq(StatutExamen.BROUILLON), any(Pageable.class));
+            verify(examenService, never()).listerTous(any());
         }
 
         @Test
         @DisplayName("200 - Liste vide")
         void lister_listeVide_devraitRetourner200AvecListeVide() throws Exception {
-            when(examenService.listerTous()).thenReturn(List.of());
+            Page<ExamenResponse> page = new PageImpl<>(List.of());
+            when(examenService.listerTous(any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/examens"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data").isEmpty());
+                    .andExpect(jsonPath("$.data.content").isEmpty())
+                    .andExpect(jsonPath("$.data.totalElements").value(0));
         }
     }
 

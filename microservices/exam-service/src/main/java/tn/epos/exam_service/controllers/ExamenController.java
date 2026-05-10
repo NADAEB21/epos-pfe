@@ -5,6 +5,12 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import tn.epos.exam_service.dto.response.PageResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ApiResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
@@ -21,12 +27,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.MalformedURLException;
 import java.nio.file.Paths;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/examens")
 @RequiredArgsConstructor
 @Tag(name = "Examens", description = "Gestion des examens EPOS")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
 public class ExamenController {
     private final ExamenService examenService;
 
@@ -42,16 +48,18 @@ public class ExamenController {
     }
 
     @GetMapping
-    @Operation(summary = "Lister les examens", description = "Filtrage optionnel par statut")
-    public ResponseEntity<ApiResponse<List<ExamenResponse>>> lister(
+    @Operation(summary = "Lister les examens", description = "Filtrage optionnel par statut, avec pagination")
+    public ResponseEntity<ApiResponse<PageResponse<ExamenResponse>>> lister(
             @Parameter(description = "Filtrer par statut (optionnel)")
-            @RequestParam(required = false) StatutExamen statut) {
+            @RequestParam(required = false) StatutExamen statut,
+            @PageableDefault(size = 20, sort = "dateExamen", direction = Sort.Direction.DESC)
+            Pageable pageable) {
 
-        List<ExamenResponse> examens = (statut != null)
-                ? examenService.listerParStatut(statut)
-                : examenService.listerTous();
+        Page<ExamenResponse> examens = (statut != null)
+                ? examenService.listerParStatut(statut, pageable)
+                : examenService.listerTous(pageable);
 
-        return ResponseEntity.ok(ApiResponse.success(examens));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(examens)));
     }
 
     @GetMapping("/{id}")

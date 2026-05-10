@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @SpringBootApplication
 @EnableDiscoveryClient
-//@EnableJpaRepositories(basePackages = "tn.epos.exam_service.repositories")
+// @EnableJpaRepositories(basePackages = "tn.epos.exam_service.repositories")   //deactivated for pipline tests
 public class ExamServiceApplication {
 
 	public static void main(String[] args) {

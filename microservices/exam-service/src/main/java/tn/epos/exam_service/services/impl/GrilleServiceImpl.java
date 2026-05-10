@@ -2,6 +2,8 @@ package tn.epos.exam_service.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
@@ -172,14 +174,12 @@ public class GrilleServiceImpl implements GrilleService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ItemResponse> listerItems(Long grilleId) {
+    public Page<ItemResponse> listerItems(Long grilleId, Pageable pageable) {
         if (!grilleRepository.existsById(grilleId)) {
             throw new ResourceNotFoundException(RESOURCE_NAME, grilleId);
         }
-        return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId)
-                .stream()
-                .map(this::toItemResponse)
-                .collect(Collectors.toList());
+        return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId, pageable)
+                .map(this::toItemResponse);
     }
 
     @Override

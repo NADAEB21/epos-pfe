@@ -2,6 +2,8 @@ package tn.epos.exam_service.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -62,14 +64,12 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<StationResponse> listerParExamen(Long examenId) {
+    public Page<StationResponse> listerParExamen(Long examenId, Pageable pageable) {
         if (!examenRepository.existsById(examenId)) {
             throw new ResourceNotFoundException("Examen", examenId);
         }
-        return stationRepository.findByExamenIdOrderByOrdreAsc(examenId)
-                .stream()
-                .map(s -> toResponse(s, false))
-                .collect(Collectors.toList());
+        return stationRepository.findByExamenIdOrderByOrdreAsc(examenId, pageable)
+                .map(s -> toResponse(s, false));
     }
 
     @Override

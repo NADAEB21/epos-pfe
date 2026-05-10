@@ -2,6 +2,8 @@ package tn.epos.exam_service.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
@@ -58,20 +60,16 @@ public class ExamenServiceImpl implements ExamenService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ExamenResponse> listerTous() {
-        return examenRepository.findAll()
-                .stream()
-                .map(e -> toResponse(e, false))
-                .collect(Collectors.toList());
+    public Page<ExamenResponse> listerTous(Pageable pageable) {
+        return examenRepository.findAll(pageable)
+                .map(e -> toResponse(e, false));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ExamenResponse> listerParStatut(StatutExamen statut) {
-        return examenRepository.findByStatut(statut)
-                .stream()
-                .map(e -> toResponse(e, false))
-                .collect(Collectors.toList());
+    public Page<ExamenResponse> listerParStatut(StatutExamen statut, Pageable pageable) {
+        return examenRepository.findByStatut(statut, pageable)
+                .map(e -> toResponse(e, false));
     }
 
     @Override

@@ -76,9 +76,7 @@ class ExamenControllerTest {
         examenRequest.setNbEtudiantsParStation(4);
     }
 
-    // ================================================================
     // POST /api/examens
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/examens")
@@ -134,9 +132,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/examens
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/examens")
@@ -187,9 +183,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/examens/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/examens/{id}")
@@ -218,9 +212,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // PUT /api/examens/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("PUT /api/examens/{id}")
@@ -266,9 +258,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // PATCH /api/examens/{id}/statut
-    // ================================================================
 
     @Nested
     @DisplayName("PATCH /api/examens/{id}/statut")
@@ -307,9 +297,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // DELETE /api/examens/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("DELETE /api/examens/{id}")
@@ -347,9 +335,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // POST /api/examens/{id}/pdf
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/examens/{id}/pdf")
@@ -403,9 +389,7 @@ class ExamenControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/examens/{id}/pdf
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/examens/{id}/pdf")

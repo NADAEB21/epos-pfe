@@ -104,9 +104,7 @@ class GrilleControllerTest {
         itemNumeriqueRequest.setValeurMax(6.0);
     }
 
-    // ================================================================
     // POST /api/stations/{stationId}/grille
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/stations/{stationId}/grille")
@@ -198,9 +196,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/stations/{stationId}/grille
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/stations/{stationId}/grille")
@@ -233,9 +229,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/grilles/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/grilles/{id}")
@@ -265,9 +259,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // PUT /api/grilles/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("PUT /api/grilles/{id}")
@@ -325,9 +317,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // DELETE /api/grilles/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("DELETE /api/grilles/{id}")
@@ -369,9 +359,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // POST /api/grilles/{grilleId}/items
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/grilles/{grilleId}/items")
@@ -485,9 +473,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/grilles/{grilleId}/items
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/grilles/{grilleId}/items")
@@ -532,9 +518,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // PUT /api/items/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("PUT /api/items/{id}")
@@ -607,9 +591,7 @@ class GrilleControllerTest {
         }
     }
 
-    // ================================================================
     // DELETE /api/items/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("DELETE /api/items/{id}")

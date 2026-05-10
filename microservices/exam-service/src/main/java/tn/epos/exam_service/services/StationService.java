@@ -5,7 +5,6 @@ import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 
-import java.util.List;
 public interface StationService {
     /** Ajouter une station à un examen */
     StationResponse ajouter(Long examenId, StationRequest request);

@@ -131,6 +131,8 @@ public class GrilleServiceImpl implements GrilleService {
     }
 
 
+
+
     // crud items
     @Override
     public ItemResponse ajouterItem(Long grilleId, ItemRequest request) {
@@ -247,11 +249,10 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Item", itemId));
     }
 
-    /**
-     * Valide les règles spécifiques aux items :
-     * - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
-     * - BINAIRE   : valeurMax ignorée
-     */
+     // Valide les règles spécifiques aux items :
+     // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
+     // - BINAIRE   : valeurMax ignorée
+
     private void validerItem(ItemRequest request) {
         if (request.getType() == TypeItem.NUMERIQUE) {
             if (request.getValeurMax() == null) {
@@ -283,7 +284,7 @@ public class GrilleServiceImpl implements GrilleService {
                 .build();
     }
 
-    // ===== MAPPING ENTITY → DTO =====
+    // MAPPING ENTITY → DTO
 
     private GrilleResponse toResponse(GrilleEvaluation grille) {
         GrilleResponse response = new GrilleResponse();

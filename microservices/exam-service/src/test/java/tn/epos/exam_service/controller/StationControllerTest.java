@@ -67,9 +67,7 @@ class StationControllerTest {
         stationRequest.setDescription("Description station");
     }
 
-    // ================================================================
     // POST /api/examens/{examenId}/stations
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/examens/{examenId}/stations")
@@ -154,9 +152,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/examens/{examenId}/stations
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/examens/{examenId}/stations")
@@ -220,9 +216,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/stations/{id}")
@@ -264,9 +258,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // PUT /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("PUT /api/stations/{id}")
@@ -324,9 +316,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // DELETE /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("DELETE /api/stations/{id}")

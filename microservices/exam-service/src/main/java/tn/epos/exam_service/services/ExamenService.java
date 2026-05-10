@@ -7,7 +7,6 @@ import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 public interface ExamenService {
     /** Créer un nouvel examen (statut initial : BROUILLON) */
     ExamenResponse creer(ExamenRequest request);

@@ -7,7 +7,6 @@ import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 
-import java.util.List;
 public interface GrilleService {
     /** Créer et associer une grille à une station (avec items optionnels) */
     GrilleResponse creerPourStation(Long stationId, GrilleRequest request);

@@ -190,10 +190,9 @@ public class ExamenServiceImpl implements ExamenService {
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
     }
 
-    /**
-     * Valide les transitions de statut autorisées.
-     * Ordre attendu : BROUILLON → CONFIGURE → EN_COURS → TERMINE → ARCHIVE
-     */
+     // Valide les transitions de statut autorisées.
+     // Ordre attendu : BROUILLON → CONFIGURE → EN_COURS → TERMINE → ARCHIVE
+
     private void validerTransitionStatut(StatutExamen actuel, StatutExamen nouveau) {
         boolean valide = switch (actuel) {
             case BROUILLON  -> nouveau == StatutExamen.CONFIGURE;
@@ -218,10 +217,9 @@ public class ExamenServiceImpl implements ExamenService {
         }
     }
 
-    /**
-     * Convertit une entité Examen en DTO de réponse.
-     * @param avecStations true = inclure la liste des stations (endpoint détaillé)
-     */
+    // Convertit une entité Examen en DTO de réponse.
+    // @param avecStations true = inclure la liste des stations (endpoint détaillé)
+
     private ExamenResponse toResponse(Examen examen, boolean avecStations) {
         ExamenResponse response = new ExamenResponse();
         response.setId(examen.getId());

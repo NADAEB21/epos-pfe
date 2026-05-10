@@ -69,10 +69,9 @@ public class ItemEvaluation {
     private LocalDateTime updatedAt;
 
     // methodes
-    /**
-     * Pour un item NUMERIQUE, valeurMax doit être renseignée et ≤ pondération.
-     * Pour un item BINAIRE, valeurMax est ignorée (toujours 0 ou 1).
-     */
+    // Pour un item NUMERIQUE, valeurMax doit être renseignée et ≤ pondération.
+    // Pour un item BINAIRE, valeurMax est ignorée (toujours 0 ou 1).
+
     public boolean isValide() {
         if (type == TypeItem.NUMERIQUE) {
             return valeurMax != null && valeurMax > 0 && valeurMax <= ponderation;

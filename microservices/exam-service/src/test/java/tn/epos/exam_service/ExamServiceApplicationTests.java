@@ -19,6 +19,6 @@ class ExamServiceApplicationTests {
 
 	@Test
 	void contextLoads() {
-		// Pas besoin de code ici
+
 	}
 }

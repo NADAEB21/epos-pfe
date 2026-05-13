@@ -1,5 +1,7 @@
 package tn.epos.exam_service.repositories;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.entities.ItemEvaluation;
 import tn.epos.exam_service.enums.TypeItem;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,7 +16,8 @@ import java.util.List;
 public interface ItemEvaluationRepository extends JpaRepository<ItemEvaluation, Long> {
 
     // Tous les items d'une grille, triés par ordre
-    List<ItemEvaluation> findByGrilleIdOrderByOrdreAsc(Long grilleId);
+    List<ItemEvaluation> findByGrilleIdOrderByOrdreAsc(Long grilleId);          // usage interne
+    Page<ItemEvaluation> findByGrilleIdOrderByOrdreAsc(Long grilleId, Pageable pageable); // pagination
 
     // Items d'une grille filtrés par type (BINAIRE ou NUMERIQUE)
     List<ItemEvaluation> findByGrilleIdAndTypeOrderByOrdreAsc(Long grilleId, TypeItem type);

@@ -4,21 +4,27 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.ApiResponse;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
+import tn.epos.exam_service.dto.response.PageResponse;
 import tn.epos.exam_service.services.GrilleService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Grilles & Critères", description = "Gestion des grilles d'évaluation et critères pondérés")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
 public class GrilleController {
     private final GrilleService grilleService;
 
@@ -83,9 +89,14 @@ public class GrilleController {
     }
 
     @GetMapping("/api/grilles/{grilleId}/items")
-    @Operation(summary = "Lister les critères d'une grille", description = "Triés par ordre croissant")
-    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerItems(@PathVariable Long grilleId) {
-        return ResponseEntity.ok(ApiResponse.success(grilleService.listerItems(grilleId)));
+    @Operation(summary = "Lister les critères d'une grille", description = "Triés par ordre croissant, avec pagination")
+    public ResponseEntity<ApiResponse<PageResponse<ItemResponse>>> listerItems(
+            @PathVariable Long grilleId,
+            @PageableDefault(size = 50, sort = "ordre", direction = Sort.Direction.ASC)
+            Pageable pageable) {
+
+        Page<ItemResponse> items = grilleService.listerItems(grilleId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(items)));
     }
 
     @PutMapping("/api/items/{id}")

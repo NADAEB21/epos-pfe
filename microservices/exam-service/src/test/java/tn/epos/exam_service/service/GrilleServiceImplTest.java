@@ -8,7 +8,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.context.ActiveProfiles;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
@@ -26,6 +25,10 @@ import tn.epos.exam_service.repositories.GrilleEvaluationRepository;
 import tn.epos.exam_service.repositories.ItemEvaluationRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.impl.GrilleServiceImpl;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -384,12 +387,14 @@ class GrilleServiceImplTest {
         @Test
         @DisplayName("Doit retourner les items triés par ordre")
         void listerItems_devraitRetournerItems() {
+            Page<ItemEvaluation> page = new PageImpl<>(List.of(itemBinaire));
             when(grilleRepository.existsById(1L)).thenReturn(true);
-            when(itemRepository.findByGrilleIdOrderByOrdreAsc(1L)).thenReturn(List.of(itemBinaire));
+            when(itemRepository.findByGrilleIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
+                    .thenReturn(page);
 
-            List<ItemResponse> result = grilleService.listerItems(1L);
+            Page<ItemResponse> result = grilleService.listerItems(1L, Pageable.unpaged());
 
-            assertThat(result).hasSize(1);
+            assertThat(result.getContent()).hasSize(1);
         }
 
         @Test
@@ -397,7 +402,7 @@ class GrilleServiceImplTest {
         void listerItems_devraitLeverExceptionSiGrilleIntrouvable() {
             when(grilleRepository.existsById(99L)).thenReturn(false);
 
-            assertThatThrownBy(() -> grilleService.listerItems(99L))
+            assertThatThrownBy(() -> grilleService.listerItems(99L, Pageable.unpaged()))
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }

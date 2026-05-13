@@ -1,20 +1,21 @@
 package tn.epos.exam_service.services;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 public interface ExamenService {
     /** Créer un nouvel examen (statut initial : BROUILLON) */
     ExamenResponse creer(ExamenRequest request);
 
     /** Récupérer tous les examens (liste légère, sans stations) */
-    List<ExamenResponse> listerTous();
+    Page<ExamenResponse> listerTous(Pageable pageable);
 
     /** Récupérer les examens filtrés par statut */
-    List<ExamenResponse> listerParStatut(StatutExamen statut);
+    Page<ExamenResponse> listerParStatut(StatutExamen statut, Pageable pageable);
 
     /** Récupérer un examen par ID avec ses stations */
     ExamenResponse trouverParId(Long id);

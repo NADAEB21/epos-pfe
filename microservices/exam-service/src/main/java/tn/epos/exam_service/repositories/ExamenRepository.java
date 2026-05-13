@@ -6,17 +6,17 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Repository
 public interface ExamenRepository extends JpaRepository<Examen, Long> {
 
     // Filtrer par statut
-    List<Examen> findByStatut(StatutExamen statut);
+    Page<Examen> findByStatut(StatutExamen statut, Pageable pageable);
 
     // Filtrer par matière
-    List<Examen> findByMatiereIgnoreCase(String matiere);
+    Page<Examen> findByMatiereIgnoreCase(String matiere, Pageable pageable);
 
     // Vérifier si un examen avec ce nom existe déjà pour cette matière
     boolean existsByNomAndMatiere(String nom, String matiere);

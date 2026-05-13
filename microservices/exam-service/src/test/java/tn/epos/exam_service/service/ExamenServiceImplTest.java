@@ -9,7 +9,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.ActiveProfiles;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -18,6 +17,10 @@ import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.services.impl.ExamenServiceImpl;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -108,34 +111,38 @@ class ExamenServiceImplTest {
         @Test
         @DisplayName("Doit retourner la liste de tous les examens")
         void listerTous_devraitRetournerListe() {
-            when(examenRepository.findAll()).thenReturn(List.of(examenBrouillon));
+            Page<Examen> pageEntite = new PageImpl<>(List.of(examenBrouillon));
+            when(examenRepository.findAll(any(Pageable.class))).thenReturn(pageEntite);
 
-            List<ExamenResponse> result = examenService.listerTous();
+            Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
 
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getNom()).isEqualTo("Examen Test");
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).getNom()).isEqualTo("Examen Test");
         }
 
         @Test
         @DisplayName("Doit retourner liste vide si aucun examen")
         void listerTous_devraitRetournerListeVide() {
-            when(examenRepository.findAll()).thenReturn(List.of());
+            Page<Examen> pageVide = new PageImpl<>(List.of());
+            when(examenRepository.findAll(any(Pageable.class))).thenReturn(pageVide);
 
-            List<ExamenResponse> result = examenService.listerTous();
+            Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
 
-            assertThat(result).isEmpty();
+            assertThat(result.getContent()).isEmpty();
         }
 
         @Test
         @DisplayName("Doit filtrer par statut")
         void listerParStatut_devraitFiltrerParStatut() {
-            when(examenRepository.findByStatut(StatutExamen.BROUILLON))
-                    .thenReturn(List.of(examenBrouillon));
+            Page<Examen> page = new PageImpl<>(List.of(examenBrouillon));
+            when(examenRepository.findByStatut(eq(StatutExamen.BROUILLON), any(Pageable.class)))
+                    .thenReturn(page);
 
-            List<ExamenResponse> result = examenService.listerParStatut(StatutExamen.BROUILLON);
+            Page<ExamenResponse> result = examenService.listerParStatut(
+                    StatutExamen.BROUILLON, Pageable.unpaged());
 
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getStatut()).isEqualTo(StatutExamen.BROUILLON);
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).getStatut()).isEqualTo(StatutExamen.BROUILLON);
         }
     }
 

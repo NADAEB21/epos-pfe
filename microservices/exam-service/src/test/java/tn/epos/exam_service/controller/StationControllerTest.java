@@ -19,6 +19,12 @@ import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.StationService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import static org.mockito.ArgumentMatchers.eq;
+import org.springframework.context.annotation.Import;
+import tn.epos.exam_service.config.TestSecurityConfig;
 
 import java.util.List;
 
@@ -29,6 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {StationController.class, GlobalExceptionHandler.class})
 @TestPropertySource(locations = "classpath:application-test.properties")
+@Import(TestSecurityConfig.class)
 @DisplayName("StationController - Tests unitaires")
 class StationControllerTest {
 
@@ -60,9 +67,7 @@ class StationControllerTest {
         stationRequest.setDescription("Description station");
     }
 
-    // ================================================================
     // POST /api/examens/{examenId}/stations
-    // ================================================================
 
     @Nested
     @DisplayName("POST /api/examens/{examenId}/stations")
@@ -147,9 +152,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // GET /api/examens/{examenId}/stations
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/examens/{examenId}/stations")
@@ -158,30 +161,33 @@ class StationControllerTest {
         @Test
         @DisplayName("200 - Liste des stations retournée")
         void lister_devraitRetourner200() throws Exception {
-            when(stationService.listerParExamen(1L)).thenReturn(List.of(stationResponse));
+            Page<StationResponse> page = new PageImpl<>(List.of(stationResponse));
+            when(stationService.listerParExamen(eq(1L), any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/examens/1/stations"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data[0].nom").value("Station 3"))
-                    .andExpect(jsonPath("$.data[0].examenId").value(1));
+                    .andExpect(jsonPath("$.data.content").isArray())
+                    .andExpect(jsonPath("$.data.content[0].nom").value("Station 3"))
+                    .andExpect(jsonPath("$.data.content[0].examenId").value(1));
         }
 
         @Test
         @DisplayName("200 - Liste vide si aucune station")
         void lister_listeVide_devraitRetourner200() throws Exception {
-            when(stationService.listerParExamen(1L)).thenReturn(List.of());
+            Page<StationResponse> page = new PageImpl<>(List.of());
+            when(stationService.listerParExamen(eq(1L), any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/examens/1/stations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data").isEmpty());
+                    .andExpect(jsonPath("$.data.content").isEmpty())
+                    .andExpect(jsonPath("$.data.totalElements").value(0));
         }
 
         @Test
         @DisplayName("404 - Examen introuvable")
         void lister_examenIntrouvable_devraitRetourner404() throws Exception {
-            when(stationService.listerParExamen(99L))
+            when(stationService.listerParExamen(eq(99L), any(Pageable.class)))
                     .thenThrow(new ResourceNotFoundException("Examen", 99L));
 
             mockMvc.perform(get("/api/examens/99/stations"))
@@ -199,20 +205,18 @@ class StationControllerTest {
             station2.setOrdre(2);
             station2.setExamenId(1L);
 
-            when(stationService.listerParExamen(1L))
-                    .thenReturn(List.of(stationResponse, station2));
+            Page<StationResponse> page = new PageImpl<>(List.of(stationResponse, station2));
+            when(stationService.listerParExamen(eq(1L), any(Pageable.class))).thenReturn(page);
 
             mockMvc.perform(get("/api/examens/1/stations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data.length()").value(2))
-                    .andExpect(jsonPath("$.data[1].nom").value("Station 4"));
+                    .andExpect(jsonPath("$.data.content").isArray())
+                    .andExpect(jsonPath("$.data.content.length()").value(2))
+                    .andExpect(jsonPath("$.data.content[1].nom").value("Station 4"));
         }
     }
 
-    // ================================================================
     // GET /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("GET /api/stations/{id}")
@@ -254,9 +258,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // PUT /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("PUT /api/stations/{id}")
@@ -314,9 +316,7 @@ class StationControllerTest {
         }
     }
 
-    // ================================================================
     // DELETE /api/stations/{id}
-    // ================================================================
 
     @Nested
     @DisplayName("DELETE /api/stations/{id}")

@@ -53,7 +53,7 @@ public class AuthService {
 
         // a. Find user — unknown email gets the same generic error as wrong password
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
+                .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
 
         log.debug("User loaded: {}, isActive: {}", user.getEmail(), user.getIsActive());
 
@@ -78,11 +78,11 @@ public class AuthService {
                 throw new AccountLockedException("Account locked after too many failed attempts");
             }
 
+            // Counter detail stays on the server, in the audit log; never in the response.
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE,
                     "Failed attempt " + attempts + "/" + MAX_FAILED_ATTEMPTS, ipAddress);
-            throw new BadCredentialsException(
-                    "Invalid credentials (" + (MAX_FAILED_ATTEMPTS - attempts) + " attempt(s) remaining)");
+            throw new BadCredentialsException("Invalid email or password");
         }
 
         // e. Correct password — reset counter, issue tokens

@@ -48,8 +48,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({BadCredentialsException.class, UsernameNotFoundException.class})
     public ResponseEntity<ApiResponse<Void>> handleBadCredentials(RuntimeException ex) {
-        // Always return the same message — do not reveal which field was wrong
-        return error(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        // Always return the same message regardless of internal state —
+        // do not reveal which field was wrong, which user exists, or how many attempts remain.
+        return error(HttpStatus.UNAUTHORIZED, "Invalid email or password");
     }
 
     @ExceptionHandler(InvalidTokenException.class)

@@ -65,7 +65,6 @@ public class AuthService {
         }
 
         // c. Manual password check — keeps the failure path inside our control
-        log.debug("Password match result: {}", passwordEncoder.matches(request.getPassword(), user.getPasswordHash()));
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             // d. Increment directly in DB to avoid lost-update races, then re-read
             userRepository.incrementFailedAttempts(user.getId());

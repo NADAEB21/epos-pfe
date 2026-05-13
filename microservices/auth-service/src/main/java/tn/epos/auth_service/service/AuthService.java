@@ -17,6 +17,7 @@ import tn.epos.auth_service.entity.RefreshToken;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
 import tn.epos.auth_service.exception.AccountLockedException;
+import tn.epos.auth_service.exception.GlobalExceptionHandler;
 import tn.epos.auth_service.exception.InvalidTokenException;
 import tn.epos.auth_service.repository.PasswordResetTokenRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
@@ -53,7 +54,7 @@ public class AuthService {
 
         // a. Find user — unknown email gets the same generic error as wrong password
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
+                .orElseThrow(() -> new UsernameNotFoundException(GlobalExceptionHandler.INVALID_CREDENTIALS_MESSAGE));
 
         log.debug("User loaded: {}, isActive: {}", user.getEmail(), user.getIsActive());
 
@@ -82,7 +83,7 @@ public class AuthService {
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE,
                     "Failed attempt " + attempts + "/" + MAX_FAILED_ATTEMPTS, ipAddress);
-            throw new BadCredentialsException("Invalid email or password");
+            throw new BadCredentialsException(GlobalExceptionHandler.INVALID_CREDENTIALS_MESSAGE);
         }
 
         // e. Correct password — reset counter, issue tokens

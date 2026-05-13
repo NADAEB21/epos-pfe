@@ -19,6 +19,13 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /**
+     * The single generic message returned for any failed-auth path (401).
+     * Public so AuthService can use it when constructing the exception, keeping
+     * the wire contract identical regardless of which exception is thrown.
+     */
+    public static final String INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
+
     // -------------------------------------------------------------------------
     // 400 — Validation
     // -------------------------------------------------------------------------
@@ -48,9 +55,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({BadCredentialsException.class, UsernameNotFoundException.class})
     public ResponseEntity<ApiResponse<Void>> handleBadCredentials(RuntimeException ex) {
-        // Always return the same message regardless of internal state —
-        // do not reveal which field was wrong, which user exists, or how many attempts remain.
-        return error(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+        // The exception type tells an operator which path failed (wrong email vs wrong password);
+        // useful in logs for triaging spikes. The response body intentionally does NOT.
+        log.debug("Auth failed: {}", ex.getClass().getSimpleName());
+        return error(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE);
     }
 
     @ExceptionHandler(InvalidTokenException.class)

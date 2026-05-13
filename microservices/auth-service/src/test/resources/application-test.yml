@@ -17,6 +17,11 @@ jwt:
   expiration: 86400000
   refresh-expiration: 604800000
 
+app:
+  mail:
+    enabled: false
+    reset-base-url: http://test-frontend/reset-password
+
 security:
   bcrypt:
     cost: 4

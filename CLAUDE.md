@@ -247,10 +247,16 @@ Top-level epics, in priority order:
 3. **Security Hardening Phase 2** — rate limiting (#16), JWT blacklist on logout,
    security headers (#17 CORS), password history
 4. **Frontend Web (Responsable)** — Angular 17+ PWA dashboard
-5. **Mobile (Évaluateur)** — Angular PWA mobile (offline-first for scoring)
+5. **Mobile (Évaluateur)** — Flutter app, Android primary (offline-first scoring, cahier de charge mandate). See `docs/adr/0001-mobile-stack.md`.
 6. **AI/ML Module** — XGBoost anomalies + BART/T5 feedback (Python FastAPI)
 7. **DevOps & Observability** — Testcontainers integration tests (#28), structured logs, metrics
 8. **Documentation & Jury Deliverables** — README (#34), architecture diagrams, methodology trail
+
+## Architecture Decisions
+Canonical ADRs live in `docs/adr/`:
+- `0001-mobile-stack.md` — Flutter for évaluateur mobile (cahier de charge mandate)
+- `0002-offline-contract-per-actor.md` — Per-actor offline depth (deep for Flutter mobile, shallow for Angular PWA web)
+- `0003-api-contract-codegen.md` — OpenAPI single-source + Dart/TS codegen (Proposed — ratify end of Sprint 2)
 
 ## Test Credentials (in auth_db)
 - admin@epos.tn / Admin@1234 → SUPER_ADMIN

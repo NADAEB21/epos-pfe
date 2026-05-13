@@ -1,5 +1,7 @@
 package tn.epos.exam_service.repositories;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.entities.Station;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,7 +15,8 @@ import java.util.Optional;
 public interface StationRepository extends JpaRepository<Station, Long> {
 
     // Récupérer toutes les stations d'un examen, triées par ordre
-    List<Station> findByExamenIdOrderByOrdreAsc(Long examenId);
+    Page<Station> findByExamenIdOrderByOrdreAsc(Long examenId, Pageable pageable); // pour la pagination
+    List<Station> findByExamenIdOrderByOrdreAsc(Long examenId); // pour la réordination interne
 
     // Charger une station avec sa grille (évite N+1)
     @Query("SELECT s FROM Station s LEFT JOIN FETCH s.grille WHERE s.id = :id")

@@ -10,6 +10,9 @@
 infrastructure/postgres_data/
 *.log
 
+# --- Uploads (runtime-generated PDFs etc.) ---
+uploads/
+
 # --- Système ---
 .DS_Store
 Thumbs.db

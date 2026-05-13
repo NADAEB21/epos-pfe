@@ -1,11 +1,12 @@
 package tn.epos.exam_service.services;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 
-import java.util.List;
 public interface GrilleService {
     /** Créer et associer une grille à une station (avec items optionnels) */
     GrilleResponse creerPourStation(Long stationId, GrilleRequest request);
@@ -28,7 +29,7 @@ public interface GrilleService {
     ItemResponse ajouterItem(Long grilleId, ItemRequest request);
 
     /** Lister tous les items d'une grille */
-    List<ItemResponse> listerItems(Long grilleId);
+    Page<ItemResponse> listerItems(Long grilleId, Pageable pageable);
 
     /** Modifier un item */
     ItemResponse modifierItem(Long itemId, ItemRequest request);

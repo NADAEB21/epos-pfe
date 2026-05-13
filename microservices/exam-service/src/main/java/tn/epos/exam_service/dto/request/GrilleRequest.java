@@ -21,10 +21,8 @@ public class GrilleRequest {
     @Size(max = 300)
     private String description;
 
-    /**
-     * Items optionnels à créer directement avec la grille.
-     * Pratique pour initialiser une grille complète en une seule requête.
-     */
+    // Items optionnels à créer directement avec la grille : Pratique pour initialiser une grille complète en une seule requête.
+
     @Valid
     private List<ItemRequest> items = new ArrayList<>();
 }

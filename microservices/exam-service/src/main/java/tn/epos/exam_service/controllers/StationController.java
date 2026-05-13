@@ -4,19 +4,24 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.exam_service.dto.response.PageResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.services.StationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Stations", description = "Gestion des stations d'évaluation")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
 public class StationController {
     private final StationService stationService;
 
@@ -34,9 +39,14 @@ public class StationController {
     }
 
     @GetMapping("/api/examens/{examenId}/stations")
-    @Operation(summary = "Lister les stations d'un examen", description = "Triées par ordre croissant")
-    public ResponseEntity<ApiResponse<List<StationResponse>>> lister(@PathVariable Long examenId) {
-        return ResponseEntity.ok(ApiResponse.success(stationService.listerParExamen(examenId)));
+    @Operation(summary = "Lister les stations d'un examen", description = "Triées par ordre croissant, avec pagination")
+    public ResponseEntity<ApiResponse<PageResponse<StationResponse>>> lister(
+            @PathVariable Long examenId,
+            @PageableDefault(size = 20, sort = "ordre", direction = Sort.Direction.ASC)
+            Pageable pageable) {
+
+        Page<StationResponse> stations = stationService.listerParExamen(examenId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(stations)));
     }
 
     @GetMapping("/api/stations/{id}")

@@ -2,6 +2,8 @@ package tn.epos.exam_service.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
@@ -58,20 +60,16 @@ public class ExamenServiceImpl implements ExamenService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ExamenResponse> listerTous() {
-        return examenRepository.findAll()
-                .stream()
-                .map(e -> toResponse(e, false))
-                .collect(Collectors.toList());
+    public Page<ExamenResponse> listerTous(Pageable pageable) {
+        return examenRepository.findAll(pageable)
+                .map(e -> toResponse(e, false));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ExamenResponse> listerParStatut(StatutExamen statut) {
-        return examenRepository.findByStatut(statut)
-                .stream()
-                .map(e -> toResponse(e, false))
-                .collect(Collectors.toList());
+    public Page<ExamenResponse> listerParStatut(StatutExamen statut, Pageable pageable) {
+        return examenRepository.findByStatut(statut, pageable)
+                .map(e -> toResponse(e, false));
     }
 
     @Override
@@ -192,10 +190,9 @@ public class ExamenServiceImpl implements ExamenService {
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
     }
 
-    /**
-     * Valide les transitions de statut autorisées.
-     * Ordre attendu : BROUILLON → CONFIGURE → EN_COURS → TERMINE → ARCHIVE
-     */
+     // Valide les transitions de statut autorisées.
+     // Ordre attendu : BROUILLON → CONFIGURE → EN_COURS → TERMINE → ARCHIVE
+
     private void validerTransitionStatut(StatutExamen actuel, StatutExamen nouveau) {
         boolean valide = switch (actuel) {
             case BROUILLON  -> nouveau == StatutExamen.CONFIGURE;
@@ -220,10 +217,9 @@ public class ExamenServiceImpl implements ExamenService {
         }
     }
 
-    /**
-     * Convertit une entité Examen en DTO de réponse.
-     * @param avecStations true = inclure la liste des stations (endpoint détaillé)
-     */
+    // Convertit une entité Examen en DTO de réponse.
+    // @param avecStations true = inclure la liste des stations (endpoint détaillé)
+
     private ExamenResponse toResponse(Examen examen, boolean avecStations) {
         ExamenResponse response = new ExamenResponse();
         response.setId(examen.getId());

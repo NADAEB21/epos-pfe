@@ -17,11 +17,9 @@ public class ItemRequest {
     @DecimalMax(value = "20.0")
     private Double ponderation;
 
-    /**
-     * Obligatoire si type = NUMERIQUE.
-     * Ignoré si type = BINAIRE.
-     * Doit être > 0 et ≤ pondération.
-     */
+    // Obligatoire si type = NUMERIQUE. Ignoré si type = BINAIRE.
+    // Doit être > 0 et ≤ pondération.
+
     private Double valeurMax;
 
     @Size(max = 100)

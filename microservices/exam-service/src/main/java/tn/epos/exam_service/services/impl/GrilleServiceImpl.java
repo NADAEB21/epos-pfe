@@ -2,6 +2,8 @@ package tn.epos.exam_service.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
@@ -129,6 +131,8 @@ public class GrilleServiceImpl implements GrilleService {
     }
 
 
+
+
     // crud items
     @Override
     public ItemResponse ajouterItem(Long grilleId, ItemRequest request) {
@@ -172,14 +176,12 @@ public class GrilleServiceImpl implements GrilleService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ItemResponse> listerItems(Long grilleId) {
+    public Page<ItemResponse> listerItems(Long grilleId, Pageable pageable) {
         if (!grilleRepository.existsById(grilleId)) {
             throw new ResourceNotFoundException(RESOURCE_NAME, grilleId);
         }
-        return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId)
-                .stream()
-                .map(this::toItemResponse)
-                .collect(Collectors.toList());
+        return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId, pageable)
+                .map(this::toItemResponse);
     }
 
     @Override
@@ -247,11 +249,10 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Item", itemId));
     }
 
-    /**
-     * Valide les règles spécifiques aux items :
-     * - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
-     * - BINAIRE   : valeurMax ignorée
-     */
+     // Valide les règles spécifiques aux items :
+     // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
+     // - BINAIRE   : valeurMax ignorée
+
     private void validerItem(ItemRequest request) {
         if (request.getType() == TypeItem.NUMERIQUE) {
             if (request.getValeurMax() == null) {
@@ -283,7 +284,7 @@ public class GrilleServiceImpl implements GrilleService {
                 .build();
     }
 
-    // ===== MAPPING ENTITY → DTO =====
+    // MAPPING ENTITY → DTO
 
     private GrilleResponse toResponse(GrilleEvaluation grille) {
         GrilleResponse response = new GrilleResponse();

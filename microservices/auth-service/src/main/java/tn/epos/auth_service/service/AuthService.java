@@ -58,8 +58,9 @@ public class AuthService {
 
         log.debug("User loaded: {}, isActive: {}", user.getEmail(), user.getIsActive());
 
-        // b. Reject locked accounts before touching the password
-        if (!user.getIsActive()) {
+        // b. Reject locked accounts before touching the password.
+        // Boolean.TRUE.equals() guards against the wrapper being null (S5411).
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE, "Account locked", ipAddress);
             throw new AccountLockedException("Account is locked");
@@ -109,7 +110,7 @@ public class AuthService {
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new InvalidTokenException("Invalid refresh token"));
 
-        if (stored.getRevoked()) {
+        if (Boolean.TRUE.equals(stored.getRevoked())) {
             // Reuse of a revoked token → security breach assumed: nuke entire family
             refreshTokenRepository.revokeAllByFamilyId(stored.getFamilyId());
             auditService.log(
@@ -190,7 +191,7 @@ public class AuthService {
         PasswordResetToken resetToken = passwordResetTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new InvalidTokenException("Invalid reset token"));
 
-        if (resetToken.getUsed()) {
+        if (Boolean.TRUE.equals(resetToken.getUsed())) {
             throw new InvalidTokenException("Reset token has already been used");
         }
         if (resetToken.getExpiresAt().isBefore(LocalDateTime.now())) {

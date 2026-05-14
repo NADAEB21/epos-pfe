@@ -55,8 +55,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({BadCredentialsException.class, UsernameNotFoundException.class})
     public ResponseEntity<ApiResponse<Void>> handleBadCredentials(RuntimeException ex) {
-        // The exception type tells an operator which path failed (wrong email vs wrong password);
-        // useful in logs for triaging spikes. The response body intentionally does NOT.
+        // Log the exception type so operators can triage wrong-email vs wrong-password spikes.
+        // The response body deliberately stays generic.
         log.debug("Auth failed: {}", ex.getClass().getSimpleName());
         return error(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE);
     }

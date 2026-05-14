@@ -2,6 +2,7 @@ package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.ExamenParticipationService;
@@ -11,7 +12,6 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/participations")
-@CrossOrigin("*")
 public class ExamenParticipationController {
 
     @Autowired
@@ -19,12 +19,14 @@ public class ExamenParticipationController {
 
     // GET : http://localhost:8083/api/participations
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public List<ExamenParticipation> getAllParticipations() {
         return participationService.getAll();
     }
 
     // GET by ID : http://localhost:8083/api/participations/{id}
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ExamenParticipation> getById(@PathVariable Long id) {
         Optional<ExamenParticipation> participation = participationService.getById(id);
         return participation.map(ResponseEntity::ok)
@@ -33,12 +35,14 @@ public class ExamenParticipationController {
 
     // POST : http://localhost:8083/api/participations
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ExamenParticipation create(@RequestBody ExamenParticipation participation) {
         return participationService.save(participation);
     }
 
     // PUT : http://localhost:8083/api/participations/{id}
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ExamenParticipation> update(@PathVariable Long id,
                                                       @RequestBody ExamenParticipation participation) {
         Optional<ExamenParticipation> existing = participationService.getById(id);
@@ -56,6 +60,7 @@ public class ExamenParticipationController {
 
     // DELETE : http://localhost:8083/api/participations/{id}
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         Optional<ExamenParticipation> existing = participationService.getById(id);
         if (existing.isPresent()) {

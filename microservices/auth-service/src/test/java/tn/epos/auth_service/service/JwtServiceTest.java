@@ -11,6 +11,7 @@ import tn.epos.auth_service.entity.UserRole;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Pure unit tests for JwtService — no Spring context, no mocks.
@@ -140,5 +141,23 @@ class JwtServiceTest {
         String hashB = jwtService.hashToken("token-beta");
 
         assertThat(hashA).isNotEqualTo(hashB);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fail-fast on missing secret (issue #6)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void constructor_nullSecret_throwsIllegalStateException() {
+        assertThatThrownBy(() -> new JwtService(null, 86_400_000L, 604_800_000L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
+    void constructor_blankSecret_throwsIllegalStateException() {
+        assertThatThrownBy(() -> new JwtService("   ", 86_400_000L, 604_800_000L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
     }
 }

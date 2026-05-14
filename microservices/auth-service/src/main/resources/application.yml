@@ -37,8 +37,9 @@ spring:
 
 # ─── JWT ──────────────────────────────────────────────────────────────────────
 jwt:
-  # Minimum 32 bytes (256 bits) for HS256. Override via environment variable in production.
-  secret: ${JWT_SECRET:change-me-in-production-must-be-32-chars!!}
+  # MUST be set via env. Minimum 32 bytes (256 bits) for HS256.
+  # No default — application fails fast at startup if JWT_SECRET is missing.
+  secret: ${JWT_SECRET:}
   access-token-expiry-ms: 86400000    # 24 h
   refresh-token-expiry-ms: 604800000  # 7 days
 

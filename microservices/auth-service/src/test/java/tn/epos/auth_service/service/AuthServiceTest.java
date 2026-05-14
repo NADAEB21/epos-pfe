@@ -119,7 +119,7 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
                 .isExactlyInstanceOf(BadCredentialsException.class)
-                .hasMessageContaining("1 attempt(s) remaining");
+                .hasMessage("Invalid email or password");
 
         verify(userRepository).incrementFailedAttempts(1L);
         verify(userRepository, never()).lockAccount(any());

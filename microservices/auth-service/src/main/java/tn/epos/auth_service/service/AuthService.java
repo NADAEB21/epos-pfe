@@ -17,6 +17,7 @@ import tn.epos.auth_service.entity.RefreshToken;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
 import tn.epos.auth_service.exception.AccountLockedException;
+import tn.epos.auth_service.exception.GlobalExceptionHandler;
 import tn.epos.auth_service.exception.InvalidTokenException;
 import tn.epos.auth_service.repository.PasswordResetTokenRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
@@ -53,12 +54,13 @@ public class AuthService {
 
         // a. Find user — unknown email gets the same generic error as wrong password
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
+                .orElseThrow(() -> new UsernameNotFoundException(GlobalExceptionHandler.INVALID_CREDENTIALS_MESSAGE));
 
         log.debug("User loaded: {}, isActive: {}", user.getEmail(), user.getIsActive());
 
-        // b. Reject locked accounts before touching the password
-        if (!user.getIsActive()) {
+        // b. Reject locked accounts before touching the password.
+        // Boolean.TRUE.equals() guards against the wrapper being null (S5411).
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE, "Account locked", ipAddress);
             throw new AccountLockedException("Account is locked");
@@ -78,11 +80,11 @@ public class AuthService {
                 throw new AccountLockedException("Account locked after too many failed attempts");
             }
 
+            // Counter detail stays on the server, in the audit log; never in the response.
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE,
                     "Failed attempt " + attempts + "/" + MAX_FAILED_ATTEMPTS, ipAddress);
-            throw new BadCredentialsException(
-                    "Invalid credentials (" + (MAX_FAILED_ATTEMPTS - attempts) + " attempt(s) remaining)");
+            throw new BadCredentialsException(GlobalExceptionHandler.INVALID_CREDENTIALS_MESSAGE);
         }
 
         // e. Correct password — reset counter, issue tokens
@@ -108,7 +110,7 @@ public class AuthService {
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new InvalidTokenException("Invalid refresh token"));
 
-        if (stored.getRevoked()) {
+        if (Boolean.TRUE.equals(stored.getRevoked())) {
             // Reuse of a revoked token → security breach assumed: nuke entire family
             refreshTokenRepository.revokeAllByFamilyId(stored.getFamilyId());
             auditService.log(
@@ -189,7 +191,7 @@ public class AuthService {
         PasswordResetToken resetToken = passwordResetTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new InvalidTokenException("Invalid reset token"));
 
-        if (resetToken.getUsed()) {
+        if (Boolean.TRUE.equals(resetToken.getUsed())) {
             throw new InvalidTokenException("Reset token has already been used");
         }
         if (resetToken.getExpiresAt().isBefore(LocalDateTime.now())) {

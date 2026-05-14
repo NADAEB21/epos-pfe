@@ -22,7 +22,6 @@
             src/main/java/tn/epos/scoring_service/repositories/**,
             src/main/java/tn/epos/scoring_service/dto/**,
             src/main/java/tn/epos/scoring_service/exception/**,
-            src/main/java/tn/epos/scoring_service/config/**
         </sonar.exclusions>
     </properties>
 

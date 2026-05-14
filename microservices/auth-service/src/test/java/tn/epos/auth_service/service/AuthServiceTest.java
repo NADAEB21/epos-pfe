@@ -22,6 +22,7 @@ import tn.epos.auth_service.repository.PasswordResetTokenRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
+import tn.epos.auth_service.service.email.EmailService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,6 +42,7 @@ class AuthServiceTest {
     @Mock private JwtService jwtService;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
+    @Mock private EmailService emailService;
 
     @InjectMocks private AuthService authService;
 
@@ -270,6 +272,8 @@ class AuthServiceTest {
 
         verify(passwordResetTokenRepository, never()).save(any());
         verify(passwordResetTokenRepository, never()).invalidateAllByUserId(any());
+        // No email must be dispatched for an unknown address
+        verify(emailService, never()).sendPasswordResetEmail(any(), any());
     }
 
     @Test
@@ -292,6 +296,19 @@ class AuthServiceTest {
         assertThat(saved.getUsed()).isFalse();
         assertThat(saved.getExpiresAt()).isAfter(LocalDateTime.now());
         assertThat(saved.getUser().getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void requestPasswordReset_knownEmail_dispatchesEmailWithRawToken() {
+        User user = activeUser();
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(jwtService.generateRefreshTokenValue()).thenReturn("raw-reset");
+        when(jwtService.hashToken("raw-reset")).thenReturn("reset-hash");
+
+        authService.requestPasswordReset("user@test.com");
+
+        // The EmailService receives the recipient + the RAW token (only place it should travel)
+        verify(emailService).sendPasswordResetEmail("user@test.com", "raw-reset");
     }
 
     // =========================================================================

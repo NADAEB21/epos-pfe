@@ -23,6 +23,7 @@ import tn.epos.auth_service.repository.PasswordResetTokenRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
+import tn.epos.auth_service.service.email.EmailService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -43,6 +44,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     // -------------------------------------------------------------------------
     // Login
@@ -172,8 +174,7 @@ public class AuthService {
                     .build();
             passwordResetTokenRepository.save(resetToken);
 
-            // TODO: dispatch via email-service; for now log at DEBUG only
-            log.debug("Password reset token for {}: {}", email, rawToken);
+            emailService.sendPasswordResetEmail(user.getEmail(), rawToken);
 
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.PASSWORD_RESET_REQUESTED, null, null);

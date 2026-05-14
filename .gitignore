@@ -13,6 +13,12 @@ infrastructure/postgres_data/
 # --- Uploads (runtime-generated PDFs etc.) ---
 uploads/
 
+# --- Secrets (NEVER commit) ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
 # --- Système ---
 .DS_Store
 Thumbs.db

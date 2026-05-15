@@ -8,19 +8,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import tn.epos.scoring_service.entities.Lot;
-import tn.epos.scoring_service.entities.LotStatus;
-import tn.epos.scoring_service.entities.Rotation;
-import tn.epos.scoring_service.entities.RotationStatus;
-import tn.epos.scoring_service.entities.StudentGroup;
+import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)

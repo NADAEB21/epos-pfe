@@ -15,13 +15,14 @@
     <description>Service de notation, dispatching et synchronisation PWA</description>
 
     <properties>
-        <argLine></argLine>
-        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.jacoco.xmlReportPaths>
+            ${project.build.directory}/site/jacoco/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
         <sonar.exclusions>
             src/main/java/tn/epos/scoring_service/entities/**,
             src/main/java/tn/epos/scoring_service/repositories/**,
             src/main/java/tn/epos/scoring_service/dto/**,
-            src/main/java/tn/epos/scoring_service/exception/**,
+            src/main/java/tn/epos/scoring_service/exception/**
         </sonar.exclusions>
     </properties>
 
@@ -100,10 +101,24 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <version>1.15.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>1.15.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -122,19 +137,32 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.11</version>
                 <executions>
+
+                    <!-- Lie l'agent JaCoCo à la phase initialize -->
                     <execution>
                         <id>prepare-agent</id>
+                        <phase>initialize</phase>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
+                        <configuration>
+                            <!-- Définit la propriété utilisée par le plugin surefire -->
+                            <propertyName>argLine</propertyName>
+                        </configuration>
                     </execution>
+
+                    <!-- Génère le rapport XML après les tests -->
                     <execution>
-                        <id>report</id>
+                        <id>jacoco-report</id>
                         <phase>test</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
+                        </configuration>
                     </execution>
+
                 </executions>
             </plugin>
 
@@ -143,10 +171,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <!-- AJOUTEZ ${argLine} au début pour ne pas bloquer JaCoCo -->
-                    <argLine>${argLine} -Dnet.bytebuddy.experimental=true</argLine>
+                    <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
+
         </plugins>
     </build>
 </project>

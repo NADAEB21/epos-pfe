@@ -15,6 +15,8 @@
     <description>Service de notation, dispatching et synchronisation PWA</description>
 
     <properties>
+        <argLine></argLine>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.exclusions>
             src/main/java/tn/epos/scoring_service/entities/**,
             src/main/java/tn/epos/scoring_service/repositories/**,
@@ -129,7 +131,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                    <!-- AJOUTEZ ${argLine} au début pour ne pas bloquer JaCoCo -->
+                    <argLine>${argLine} -Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
         </plugins>

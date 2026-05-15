@@ -212,6 +212,18 @@ class NotationControllerTest {
                             .content(objectMapper.writeValueAsString(notation)))
                     .andExpect(status().isBadRequest());
         }
+
+        @Test
+        @DisplayName("400 - Update échoue à cause d'une erreur métier")
+        void update_shouldReturnBadRequest_whenServiceThrowsException() throws Exception {
+            when(service.update(anyLong(), any(Notation.class)))
+                    .thenThrow(new RuntimeException("Erreur de validation"));
+
+            mockMvc.perform(put("/api/notations/1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(notation)))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     // ─── PATCH /api/notations/{id}/verrouiller ────────────────────────────────
@@ -238,6 +250,15 @@ class NotationControllerTest {
         void verrouiller_introuvable_devraitRetourner404() throws Exception {
             when(service.verrouiller(99L))
                     .thenThrow(new RuntimeException("Notation non trouvée avec l'id : 99"));
+
+            mockMvc.perform(patch("/api/notations/99/verrouiller"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("404 - Verrouillage échoue (ID inconnu ou erreur service)")
+        void lock_shouldReturnNotFound_whenServiceThrowsException() throws Exception {
+            when(service.verrouiller(99L)).thenThrow(new RuntimeException("Erreur de verrouillage"));
 
             mockMvc.perform(patch("/api/notations/99/verrouiller"))
                     .andExpect(status().isNotFound());

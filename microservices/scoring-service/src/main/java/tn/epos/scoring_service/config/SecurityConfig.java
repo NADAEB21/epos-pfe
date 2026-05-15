@@ -1,6 +1,7 @@
 package tn.epos.scoring_service.config;
 
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,8 +25,24 @@ import java.util.stream.Collectors;
 @EnableMethodSecurity   // active @PreAuthorize sur les controllers
 public class SecurityConfig {
 
+    static final int MIN_SECRET_BYTES = 32;
+
     @Value("${jwt.secret}")
     private String jwtSecret;
+
+    @PostConstruct
+    void validateJwtSecret() {
+        if (jwtSecret == null || jwtSecret.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET environment variable is required but not set. " +
+                            "Set JWT_SECRET to a random value of at least 32 bytes (256 bits) for HS256.");
+        }
+        if (jwtSecret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is too short. HS256 requires at least 32 bytes (256 bits). " +
+                            "Regenerate a longer secret and set JWT_SECRET.");
+        }
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {

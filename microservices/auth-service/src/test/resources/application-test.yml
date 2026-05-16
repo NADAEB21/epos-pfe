@@ -21,6 +21,8 @@ app:
   mail:
     enabled: false
     reset-base-url: http://test-frontend/reset-password
+  cors:
+    allowed-origins: http://localhost:4200,https://epos.example.com
 
 security:
   bcrypt:

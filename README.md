@@ -9,7 +9,19 @@
 
 ## How to start
 1. Clone the repo.
-2. Go to /infrastructure and run `docker-compose up -d`.
+2. Provision local secrets:
+   ```bash
+   cp infrastructure/.env.example infrastructure/.env
+   # then edit infrastructure/.env and replace the placeholder values
+   ```
+   `.env` is gitignored — never commit it. The same variables (`DB_USERNAME`,
+   `DB_PASSWORD`) are picked up by every microservice's `application.yml` /
+   `application.properties` at startup.
+3. Go to /infrastructure and run `docker compose up -d`.
+
+> Postgres listens on `127.0.0.1:5432` and pgAdmin on `127.0.0.1:5050` by default —
+> both bound to loopback only. For remote access, override the port binding in a
+> local `docker-compose.override.yml` rather than editing the committed file.
 
 ## Security
 

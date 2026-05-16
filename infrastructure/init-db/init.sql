@@ -6,6 +6,14 @@
 
 -- -------------------------------------------------------------
 -- 1. Databases (one per microservice)
+--
+-- auth_db schema is defined inline below (auth-service owns the
+-- DDL here for historical reasons + seed data needs).
+--
+-- exam_db and scoring_db are created empty: their schemas are
+-- owned by Flyway and applied on first service startup
+-- (src/main/resources/db/migration/V1__init_*.sql in each service).
+-- Do NOT add CREATE TABLE statements here for those DBs.
 -- -------------------------------------------------------------
 CREATE DATABASE auth_db;
 CREATE DATABASE exam_db;

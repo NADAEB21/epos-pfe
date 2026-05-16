@@ -1,4 +1,6 @@
-version: '3.8'
+# All credentials are read from `.env` next to this file.
+# See `.env.example` for the list of required variables.
+# Run `cp .env.example .env` and fill in real values before `docker compose up`.
 
 services:
   # La base de données centrale
@@ -6,26 +8,27 @@ services:
     image: postgres:16-alpine
     container_name: epos-postgres
     ports:
-      - "5432:5432"
+      # Bound to loopback only — remote access requires explicit override.
+      - "127.0.0.1:5432:5432"
     environment:
-      - POSTGRES_USER=admin
-      - POSTGRES_PASSWORD=pfe_password
-      - POSTGRES_DB=epos_master
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d # Script pour créer les DBs
     networks:
       - epos-network
 
-  # Interface visuelle pour gérer la DB (Accessible sur http://localhost:5050)
+  # Interface visuelle pour gérer la DB (Accessible sur http://127.0.0.1:5050)
   pgadmin:
     image: dpage/pgadmin4
     container_name: epos-pgadmin
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@epos.tn
-      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
     depends_on:
       - postgres-db
     networks:

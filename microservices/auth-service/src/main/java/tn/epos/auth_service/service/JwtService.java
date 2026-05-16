@@ -33,6 +33,11 @@ public class JwtService {
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.access-token-expiry-ms:86400000}") long accessTokenExpiryMs,
             @Value("${jwt.refresh-token-expiry-ms:604800000}") long refreshTokenExpiryMs) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET environment variable is required but not set. " +
+                    "Set JWT_SECRET to a random value of at least 32 bytes (256 bits) for HS256.");
+        }
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.accessTokenExpiryMs = accessTokenExpiryMs;
         this.refreshTokenExpiryMs = refreshTokenExpiryMs;

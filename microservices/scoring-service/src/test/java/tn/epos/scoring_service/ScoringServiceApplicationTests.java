@@ -9,7 +9,8 @@ import org.springframework.test.context.TestPropertySource;
 @TestPropertySource(properties = {
 		"spring.jpa.hibernate.ddl-auto=create-drop",
 		"spring.datasource.url=jdbc:h2:mem:testdb",
-		"spring.datasource.driver-class-name=org.h2.Driver"
+		"spring.datasource.driver-class-name=org.h2.Driver",
+		"jwt.secret=test-secret-not-used-in-production-min-32-bytes-please"
 })
 class ScoringServiceApplicationTests {
 

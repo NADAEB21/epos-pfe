@@ -93,6 +93,14 @@
 			src/main/java/tn/epos/exam_service/exception/**,
 			src/main/java/tn/epos/exam_service/enums/**
 		</sonar.exclusions>
+		<!-- CORS config + its test intentionally mirror auth-service / scoring-service
+		     pattern (each microservice owns its own security config). Exclude from
+		     Copy-Paste Detector so the intentional symmetry doesn't trip the
+		     duplication Quality Gate (same approach used in scoring-service pom). -->
+		<sonar.cpd.exclusions>
+			src/main/java/tn/epos/exam_service/config/SecurityConfig.java,
+			src/test/java/tn/epos/exam_service/config/SecurityConfigCorsTest.java
+		</sonar.cpd.exclusions>
 	</properties>
 
 	<build>

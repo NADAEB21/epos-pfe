@@ -25,6 +25,8 @@ import java.util.UUID;
 @Service
 public class JwtService {
 
+    static final int MIN_SECRET_BYTES = 32;
+
     private final SecretKey signingKey;
     private final long accessTokenExpiryMs;
     private final long refreshTokenExpiryMs;
@@ -37,6 +39,11 @@ public class JwtService {
             throw new IllegalStateException(
                     "JWT_SECRET environment variable is required but not set. " +
                     "Set JWT_SECRET to a random value of at least 32 bytes (256 bits) for HS256.");
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is too short. HS256 requires at least 32 bytes (256 bits). " +
+                    "Regenerate a longer secret and set JWT_SECRET.");
         }
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.accessTokenExpiryMs = accessTokenExpiryMs;

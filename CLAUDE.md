@@ -1,9 +1,26 @@
-# EPOS — Auth Service Implementation Brief
+# EPOS — Project Brief (auth-service is primary focus)
 
 ## Project Context
 EPOS (Evaluation Platform for Operational Skills) — digitalization 
 of pharmacy practical exams for Faculté de Pharmacie de Monastir.
-Microservices architecture. This is the auth-service (port 8081).
+Microservices architecture. This file documents the whole project,
+with auth-service detailed because it is the most complete service.
+
+## Project Snapshot (May 2026)
+| Service | Port | Status |
+|---|---|---|
+| discovery-server | 8761 | **Skeleton only** — `@EnableEurekaServer` bootstrapped, no further config |
+| api-gateway | 8080 | **Empty shell** — bare `@SpringBootApplication`, no routes/filters/auth (issue #13) |
+| auth-service | 8081 | Implemented + unit-tested (4 test classes, 30 tests, ~80% coverage) |
+| exam-service | 8082 | Implemented (controllers, services, DTOs, tests). Several open bugs (#10, #19, #20, #21, #31) |
+| scoring-service | 8083 | Implemented but rough — no DTO layer (#24), no GlobalExceptionHandler (#22), near-zero tests (#25), no auth (#11) |
+| ai-service | 8084 | Not started (`ai-modules/` exists as empty placeholder) |
+| frontend-web | — | Not started (`frontend-web/` exists as empty placeholder) |
+| frontend-mobile | — | Not started (`frontend-mobile/` exists as empty placeholder) |
+
+**Open code-review issues:** 27 (range #6–#34, with #27 and #30 closed).
+**Severity breakdown:** 10 critical, 11 high, 6 medium.
+**Backlog of record:** Notion workspace "EPOS — Product Backlog" (each Bug entry links back to its GitHub issue).
 
 ## Tech Stack
 - Spring Boot 3.2+, Java 17
@@ -105,7 +122,9 @@ com.epos.auth_service
 │   ├── AuditLogRepository.java
 │   └── AuditService.java (@Async, bounded thread pool)
 ├── config/
-│   └── SecurityConfig.java
+│   ├── SecurityConfig.java
+│   ├── JwtAuthenticationFilter.java
+│   └── JwtAuthenticationDetails.java
 ├── controller/
 │   ├── AuthController.java
 │   └── UserController.java
@@ -191,28 +210,53 @@ com.epos.auth_service
 - getFailedLoginAttempts uses scalar JPQL + cache BYPASS hint 
   to avoid reading stale JPA first-level cache after REQUIRES_NEW commit
 
-## Current State (April 2026)
-### FULLY IMPLEMENTED AND TESTED ✅
+## Current State (May 2026)
+
+### Auth-service — fully implemented & unit-tested ✅
 - All entities, repositories, services, controllers
 - Complete login flow with account lockout
 - Refresh token rotation with breach detection
 - Logout with full token revocation
 - Password reset (request + confirm)
-- JWT with scoped authorities
+- JWT with scoped authorities + JwtAuthenticationFilter wired
 - Delegation constraints in UserService
 - Async audit logging
 - GlobalExceptionHandler with correct HTTP codes
 - AccountLockedException extends RuntimeException (not AuthenticationException)
-- Docker init.sql with schema + seed data
-- CI/CD: GitHub Actions green, SonarCloud connected
-- Branch strategy: feature/* → develop → main
+- BCrypt cost factor pinned to 12 (closed #30)
+
+### Infrastructure & CI ✅
+- Docker init.sql with schema + seed data for auth_db (exam_db / scoring_db schemas still empty — see #15)
+- GitHub Actions matrix green for auth/exam/scoring
+- SonarCloud connected (org `nadaeb21`, project `NADAEB21_epos-pfe`)
+- Sonar duplicate-report race fixed (closed #27)
+
+### Branch strategy
+- Documented flow: `feature/* → develop → main`
+- Hotfixes may target `main` directly (e.g. #27, #30 were merged this way to save time)
+- After any direct-to-main merge, **resync `develop` from `main`** so the integration
+  branch never lags behind production. This is the contract the team must follow
+  before the jury looks at `git log --graph --all`.
 
 ### NEXT PRIORITIES
-1. Unit tests (JUnit 5 + Mockito) — Phase 1
-2. Security hardening (rate limiting, JWT blacklist, 
-   security headers, password history) — Phase 2
-3. Integration tests (Testcontainers) — Phase 3
-4. Then: exam-service review + merge coordination
+The Notion backlog ("EPOS — Product Backlog") is the live source of truth.
+Top-level epics, in priority order:
+1. **Backend Stabilization** — work the 27 open issues; critical/high first
+2. **Infrastructure & Service Mesh** — implement api-gateway routes + JWT filter (#13),
+   service-to-service auth, complete docker-compose (#26), populate exam/scoring schemas (#15)
+3. **Security Hardening Phase 2** — rate limiting (#16), JWT blacklist on logout,
+   security headers (#17 CORS), password history
+4. **Frontend Web (Responsable)** — Angular 17+ PWA dashboard
+5. **Mobile (Évaluateur)** — Flutter app, Android primary (offline-first scoring, cahier de charge mandate). See `docs/adr/0001-mobile-stack.md`.
+6. **AI/ML Module** — XGBoost anomalies + BART/T5 feedback (Python FastAPI)
+7. **DevOps & Observability** — Testcontainers integration tests (#28), structured logs, metrics
+8. **Documentation & Jury Deliverables** — README (#34), architecture diagrams, methodology trail
+
+## Architecture Decisions
+Canonical ADRs live in `docs/adr/`:
+- `0001-mobile-stack.md` — Flutter for évaluateur mobile (cahier de charge mandate)
+- `0002-offline-contract-per-actor.md` — Per-actor offline depth (deep for Flutter mobile, shallow for Angular PWA web)
+- `0003-api-contract-codegen.md` — OpenAPI single-source + Dart/TS codegen (Proposed — ratify end of Sprint 2)
 
 ## Test Credentials (in auth_db)
 - admin@epos.tn / Admin@1234 → SUPER_ADMIN

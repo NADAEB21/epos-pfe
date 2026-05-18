@@ -2,6 +2,7 @@ package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.service.RotationAssignmentService;
@@ -10,7 +11,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/assignments")
-@CrossOrigin("*")
 public class RotationAssignmentController {
 
     @Autowired
@@ -18,12 +18,14 @@ public class RotationAssignmentController {
 
     // GET : toutes les assignments
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public List<RotationAssignment> getAll() {
         return service.findAll();
     }
 
     // GET : par ID
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<RotationAssignment> getById(@PathVariable Long id) {
         return service.findById(id)
                 .map(ResponseEntity::ok)
@@ -32,24 +34,32 @@ public class RotationAssignmentController {
 
     // GET : toutes les assignments d'une rotation spécifique
     @GetMapping("/rotation/{rotationId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public List<RotationAssignment> getByRotation(@PathVariable Long rotationId) {
         return service.findByRotation(rotationId);
     }
 
     // POST : créer une assignment
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public RotationAssignment create(@RequestBody RotationAssignment assignment) {
         return service.save(assignment);
     }
 
     // PATCH : confirmer la présence
     @PatchMapping("/{id}/presence")
-    public RotationAssignment updatePresence(@PathVariable Long id, @RequestParam boolean present) {
-        return service.confirmerPresence(id, present);
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
+    public ResponseEntity<RotationAssignment> updatePresence(@PathVariable Long id, @RequestParam boolean present) {
+        try {
+            return ResponseEntity.ok(service.confirmerPresence(id, present));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     // PUT : mettre à jour une assignment
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<RotationAssignment> update(@PathVariable Long id, @RequestBody RotationAssignment details) {
         try {
             return ResponseEntity.ok(service.update(id, details));
@@ -60,8 +70,9 @@ public class RotationAssignmentController {
 
     // DELETE : supprimer une assignment
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.delete(id);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.noContent().build();
     }
 }

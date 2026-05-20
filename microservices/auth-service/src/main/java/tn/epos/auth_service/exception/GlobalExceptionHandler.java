@@ -42,11 +42,7 @@ public class GlobalExceptionHandler {
                         (a, b) -> a));   // keep first message on duplicate field
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.<Map<String, String>>builder()
-                        .success(false)
-                        .message("Validation failed")
-                        .data(errors)
-                        .build());
+                .body(ApiResponse.error("Validation failed", errors));
     }
 
     // -------------------------------------------------------------------------

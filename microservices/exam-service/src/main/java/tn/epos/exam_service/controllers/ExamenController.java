@@ -44,7 +44,7 @@ public class ExamenController {
         ExamenResponse response = examenService.creer(request);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Examen créé avec succès", response));
+                .body(ApiResponse.ok("Examen créé avec succès", response));
     }
 
     @GetMapping
@@ -59,13 +59,13 @@ public class ExamenController {
                 ? examenService.listerParStatut(statut, pageable)
                 : examenService.listerTous(pageable);
 
-        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(examens)));
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(examens)));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Détail d'un examen", description = "Inclut la liste des stations")
     public ResponseEntity<ApiResponse<ExamenResponse>> trouverParId(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(examenService.trouverParId(id)));
+        return ResponseEntity.ok(ApiResponse.ok(examenService.trouverParId(id)));
     }
 
     @PutMapping("/{id}")
@@ -75,7 +75,7 @@ public class ExamenController {
             @Valid @RequestBody ExamenRequest request) {
 
         return ResponseEntity.ok(
-                ApiResponse.success("Examen modifié avec succès", examenService.modifier(id, request))
+                ApiResponse.ok("Examen modifié avec succès", examenService.modifier(id, request))
         );
     }
 
@@ -87,7 +87,7 @@ public class ExamenController {
             @RequestParam StatutExamen statut) {
 
         return ResponseEntity.ok(
-                ApiResponse.success("Statut mis à jour", examenService.changerStatut(id, statut))
+                ApiResponse.ok("Statut mis à jour", examenService.changerStatut(id, statut))
         );
     }
 
@@ -95,7 +95,7 @@ public class ExamenController {
     @Operation(summary = "Supprimer un examen", description = "Uniquement si statut BROUILLON ou CONFIGURE")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
         examenService.supprimer(id);
-        return ResponseEntity.ok(ApiResponse.success("Examen supprimé avec succès", null));
+        return ResponseEntity.ok(ApiResponse.ok("Examen supprimé avec succès", null));
     }
 
     // pdf
@@ -106,7 +106,7 @@ public class ExamenController {
             @RequestParam("fichier") MultipartFile fichier) {
 
         return ResponseEntity.ok(
-                ApiResponse.success("PDF importé avec succès", examenService.importerPdf(id, fichier))
+                ApiResponse.ok("PDF importé avec succès", examenService.importerPdf(id, fichier))
         );
     }
 

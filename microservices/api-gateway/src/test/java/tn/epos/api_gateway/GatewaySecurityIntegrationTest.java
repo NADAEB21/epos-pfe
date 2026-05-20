@@ -76,4 +76,20 @@ class GatewaySecurityIntegrationTest {
                 .expectStatus().value(status ->
                         assertThat(status).isNotEqualTo(HttpStatus.UNAUTHORIZED.value()));
     }
+
+    @Test
+    void protectedRoute_withValidlySignedTokenMissingClaims_returns401() {
+        // Signature is valid but the token carries no userId/authorities —
+        // a malformed identity. The filter must still reject it.
+        String noClaims = Jwts.builder()
+                .subject("user@epos.tn")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+        webClient.get().uri("/api/v1/users")
+                .header("Authorization", "Bearer " + noClaims)
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
 }

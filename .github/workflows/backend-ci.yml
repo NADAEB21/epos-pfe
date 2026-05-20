@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-service, exam-service, scoring-service]
+        service: [auth-service, exam-service, scoring-service, api-gateway, discovery-server]
 
     services:
       postgres:
@@ -91,7 +91,7 @@ jobs:
 
       - name: Restore jacoco.exec into each module's target/
         run: |
-          for svc in auth-service exam-service scoring-service; do
+          for svc in auth-service exam-service scoring-service api-gateway discovery-server; do
             src="coverage/coverage-$svc/jacoco.exec"
             if [ -f "$src" ]; then
               mkdir -p "microservices/$svc/target"

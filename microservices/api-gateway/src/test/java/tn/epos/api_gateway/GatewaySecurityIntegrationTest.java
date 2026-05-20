@@ -92,4 +92,13 @@ class GatewaySecurityIntegrationTest {
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
+
+    @Test
+    void actuatorHealth_isPublic() {
+        // /actuator/health is not a routed path, so the JWT GlobalFilter never
+        // runs on it — it stays public for docker-compose healthchecks (#26).
+        webClient.get().uri("/actuator/health")
+                .exchange()
+                .expectStatus().isOk();
+    }
 }

@@ -56,3 +56,12 @@ gateway:
     login:
       capacity: 10
       refill-minutes: 1
+
+# Actuator — only health + info exposed. The gateway's own /actuator/** is not
+# a routed path, so the JWT GlobalFilter never runs on it; health stays public
+# for docker-compose healthchecks (#26).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -2,20 +2,18 @@ package tn.epos.scoring_service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 
+// Uses application-test.properties (H2 with DB_CLOSE_DELAY=-1, datasource
+// credentials Flyway reuses, Eureka disabled, test jwt.secret). The former
+// inline @TestPropertySource set an incomplete H2 config that collided with
+// other @SpringBootTest classes sharing the in-memory database.
 @SpringBootTest
-// Cette ligne force Hibernate à créer les tables pour le test, ce qui évite l'erreur "missing table"
-@TestPropertySource(properties = {
-		"spring.jpa.hibernate.ddl-auto=create-drop",
-		"spring.datasource.url=jdbc:h2:mem:testdb",
-		"spring.datasource.driver-class-name=org.h2.Driver",
-		"jwt.secret=test-secret-not-used-in-production-min-32-bytes-please"
-})
+@ActiveProfiles("test")
 class ScoringServiceApplicationTests {
 
 	@Test
 	void contextLoads() {
-		// Test de fumée pour vérifier que le contexte Spring démarre
+		// Smoke test: the Spring context starts.
 	}
 }

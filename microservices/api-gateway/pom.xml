@@ -33,6 +33,12 @@
 			<artifactId>spring-boot-starter-webflux</artifactId>
 		</dependency>
 
+		<!-- Actuator — exposes /actuator/health for docker-compose healthchecks (#26) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
 		<!-- JWT validation — the gateway verifies tokens, never issues them.
 		     Version centralised in the parent pom (jjwt.version). -->
 		<dependency>

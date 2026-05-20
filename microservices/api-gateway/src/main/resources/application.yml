@@ -44,3 +44,15 @@ eureka:
       defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
   instance:
     prefer-ip-address: true
+
+# Shared HS256 secret used to VERIFY tokens issued by auth-service.
+# No default — the gateway fails fast if JWT_SECRET is unset.
+jwt:
+  secret: ${JWT_SECRET}
+
+# Per-client-IP rate limit on POST /api/v1/auth/login.
+gateway:
+  rate-limit:
+    login:
+      capacity: 10
+      refill-minutes: 1

@@ -1,0 +1,6 @@
+# Test profile: no Eureka contact during context-load tests.
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false

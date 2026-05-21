@@ -1,0 +1,10 @@
+# Keep the Docker build context small and free of build output / secrets.
+**/target
+.git
+.github
+.idea
+.vscode
+**/*.iml
+infrastructure/postgres_data
+infrastructure/.env
+*.md

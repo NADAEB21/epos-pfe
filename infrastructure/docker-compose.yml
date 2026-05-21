@@ -1,14 +1,20 @@
+# EPOS — full local stack.
+#
 # All credentials are read from `.env` next to this file.
 # See `.env.example` for the list of required variables.
-# Run `cp .env.example .env` and fill in real values before `docker compose up`.
+#   cp .env.example .env   # then fill in real values
+#   docker compose up -d   # builds images on first run
+#
+# Externally exposed: only the api-gateway (8080). postgres-db, pgAdmin and the
+# Eureka dashboard are bound to 127.0.0.1 as dev conveniences; the application
+# services have no host ports and are reachable only via the gateway.
 
 services:
-  # La base de données centrale
+  # ─── Infrastructure ──────────────────────────────────────────────────────
   postgres-db:
     image: postgres:16-alpine
     container_name: epos-postgres
     ports:
-      # Bound to loopback only — remote access requires explicit override.
       - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
@@ -16,11 +22,15 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb.d # Script pour créer les DBs
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - epos-network
 
-  # Interface visuelle pour gérer la DB (Accessible sur http://127.0.0.1:5050)
   pgadmin:
     image: dpage/pgadmin4
     container_name: epos-pgadmin
@@ -31,6 +41,141 @@ services:
       - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
     depends_on:
       - postgres-db
+    networks:
+      - epos-network
+
+  # ─── Service discovery ───────────────────────────────────────────────────
+  discovery-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: discovery-server
+    image: epos/discovery-server
+    container_name: epos-discovery-server
+    # Eureka dashboard on loopback only — dev convenience, not externally exposed.
+    ports:
+      - "127.0.0.1:8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_HOSTNAME=discovery-server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - epos-network
+
+  # ─── API gateway — the only externally exposed service ───────────────────
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    image: epos/api-gateway
+    container_name: epos-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  # ─── Application services — internal only (reachable via the gateway) ────
+  auth-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: auth-service
+    image: epos/auth-service
+    container_name: epos-auth-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/auth_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  exam-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: exam-service
+    image: epos/exam-service
+    container_name: epos-exam-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/exam_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  scoring-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: scoring-service
+    image: epos/scoring-service
+    container_name: epos-scoring-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/scoring_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     networks:
       - epos-network
 

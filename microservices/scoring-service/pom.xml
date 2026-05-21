@@ -32,6 +32,12 @@
             src/main/java/tn/epos/scoring_service/config/SecurityConfig.java,
             src/test/java/tn/epos/scoring_service/config/SecurityConfigCorsTest.java
         </sonar.cpd.exclusions>
+        <!-- Bump byte-buddy (Mockito/Hibernate need a Java-17-aware version).
+             Overriding Spring Boot's managed property keeps byte-buddy correctly
+             scoped as a runtime dependency of Hibernate, so it ships in the
+             packaged jar. A direct test-scoped declaration does NOT — it drops
+             byte-buddy from the runtime classpath and the service fails to boot. -->
+        <byte-buddy.version>1.15.0</byte-buddy.version>
     </properties>
 
     <dependencies>
@@ -111,19 +117,6 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy</artifactId>
-            <version>1.15.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy-agent</artifactId>
-            <version>1.15.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

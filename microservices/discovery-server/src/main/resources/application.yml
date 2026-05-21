@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: discovery-server
+
+server:
+  port: 8761
+
+eureka:
+  client:
+    # The registry server does not register with, or fetch from, itself.
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+  instance:
+    # Env-driven so docker-compose can point this at the 'discovery-server'
+    # container; defaults to localhost for local runs.
+    hostname: ${EUREKA_HOSTNAME:localhost}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+---
+# Local development: evict dead instances quickly instead of holding stale
+# registrations behind self-preservation.
+spring:
+  config:
+    activate:
+      on-profile: dev
+eureka:
+  server:
+    enable-self-preservation: false
+
+---
+# Production: keep self-preservation on as a safety net against network blips.
+spring:
+  config:
+    activate:
+      on-profile: prod
+eureka:
+  server:
+    enable-self-preservation: true

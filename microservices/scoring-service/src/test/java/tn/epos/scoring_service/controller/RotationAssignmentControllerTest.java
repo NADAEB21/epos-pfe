@@ -19,6 +19,7 @@ import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.entities.RotationStatus;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.RotationAssignmentService;
 
 import java.time.LocalDateTime;
@@ -216,7 +217,7 @@ class RotationAssignmentControllerTest {
         @DisplayName("404 - Assignment introuvable lors de la confirmation de présence")
         void confirmerPresence_introuvable_devraitRetourner404() throws Exception {
             when(service.confirmerPresence(99L, true))
-                    .thenThrow(new RuntimeException("Assignment non trouvé avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Assignment non trouvé avec l'id : 99"));
 
             mockMvc.perform(patch("/api/assignments/99/presence")
                             .param("present", "true"))
@@ -252,7 +253,7 @@ class RotationAssignmentControllerTest {
         @DisplayName("404 - Assignment introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
             when(service.update(eq(99L), any(RotationAssignment.class)))
-                    .thenThrow(new RuntimeException("Assignment non trouvé avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Assignment non trouvé avec l'id : 99"));
 
             mockMvc.perform(put("/api/assignments/99")
                             .contentType(MediaType.APPLICATION_JSON)

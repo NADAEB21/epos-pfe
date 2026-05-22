@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -167,7 +168,7 @@ class LotControllerTest {
         @DisplayName("404 - Lot introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
             when(lotService.update(eq(99L), any(Lot.class)))
-                    .thenThrow(new RuntimeException("Lot non trouvé avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Lot non trouvé avec l'id : 99"));
 
             mockMvc.perform(put("/api/lots/99")
                             .contentType(MediaType.APPLICATION_JSON)

@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.NotationItem;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.NotationItemService;
 
 import java.util.List;
@@ -198,7 +199,7 @@ class NotationItemControllerTest {
         @DisplayName("404 - Item introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
             when(service.update(eq(99L), any(NotationItem.class)))
-                    .thenThrow(new RuntimeException("NotationItem non trouvé avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("NotationItem non trouvé avec l'id : 99"));
 
             mockMvc.perform(put("/api/notation-items/99")
                             .contentType(MediaType.APPLICATION_JSON)

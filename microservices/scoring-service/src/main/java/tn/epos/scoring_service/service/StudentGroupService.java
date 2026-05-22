@@ -3,6 +3,7 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.entities.StudentGroup;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 
 import java.util.List;
@@ -45,6 +46,6 @@ public class StudentGroupService {
             group.setNumeroGroupe(details.getNumeroGroupe());
             group.setLot(details.getLot());
             return studentGroupRepository.save(group);
-        }).orElseThrow(() -> new RuntimeException("StudentGroup non trouvé avec l'id : " + id));
+        }).orElseThrow(() -> new ResourceNotFoundException("StudentGroup non trouvé avec l'id : " + id));
     }
 }

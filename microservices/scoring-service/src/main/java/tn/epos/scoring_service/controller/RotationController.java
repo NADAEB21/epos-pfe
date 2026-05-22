@@ -50,11 +50,7 @@ public class RotationController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<Rotation> update(@PathVariable Long id, @RequestBody Rotation details) {
-        try {
-            return ResponseEntity.ok(rotationService.update(id, details));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(rotationService.update(id, details));
     }
 
     // DELETE : supprimer une rotation

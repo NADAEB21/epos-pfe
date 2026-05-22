@@ -50,11 +50,7 @@ public class NotationItemController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<NotationItem> update(@PathVariable Long id, @RequestBody NotationItem details) {
-        try {
-            return ResponseEntity.ok(service.update(id, details));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(service.update(id, details));
     }
 
     // DELETE : supprimer un NotationItem

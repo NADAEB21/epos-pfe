@@ -24,13 +24,15 @@
             src/main/java/tn/epos/scoring_service/dto/**,
             src/main/java/tn/epos/scoring_service/exception/**
         </sonar.exclusions>
-        <!-- CORS config + its test intentionally mirror auth-service's pattern
-             (each microservice owns its own security config). Exclude from
-             Copy-Paste Detector so the intentional symmetry doesn't trip the
-             duplication Quality Gate. -->
+        <!-- The whole config/ package (SecurityConfig, ScopedAuthoritiesConverter
+             and their tests) is intentionally mirrored across auth/exam/scoring —
+             each microservice owns its own security config. Exclude config/ from
+             the Copy-Paste Detector so the deliberate symmetry doesn't trip the
+             duplication Quality Gate. Folding these into a shared epos-common
+             module is tracked under #68. -->
         <sonar.cpd.exclusions>
-            src/main/java/tn/epos/scoring_service/config/SecurityConfig.java,
-            src/test/java/tn/epos/scoring_service/config/SecurityConfigCorsTest.java
+            src/main/java/tn/epos/scoring_service/config/**,
+            src/test/java/tn/epos/scoring_service/config/**
         </sonar.cpd.exclusions>
         <!-- Bump byte-buddy (Mockito/Hibernate need a Java-17-aware version).
              Overriding Spring Boot's managed property keeps byte-buddy correctly

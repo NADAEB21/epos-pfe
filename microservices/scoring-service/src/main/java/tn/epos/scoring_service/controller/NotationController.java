@@ -52,22 +52,14 @@ public class NotationController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<Notation> update(@PathVariable Long id, @RequestBody Notation details) {
-        try {
-            return ResponseEntity.ok(service.update(id, details));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(null);
-        }
+        return ResponseEntity.ok(service.update(id, details));
     }
 
     // PATCH : Verrouiller une notation
     @PatchMapping("/{id}/verrouiller")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR')")
     public ResponseEntity<Notation> lock(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(service.verrouiller(id));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(service.verrouiller(id));
     }
 
     // DELETE : Supprimer une notation

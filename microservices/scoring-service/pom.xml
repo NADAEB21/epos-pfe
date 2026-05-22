@@ -32,7 +32,8 @@
              module is tracked under #68. -->
         <sonar.cpd.exclusions>
             src/main/java/tn/epos/scoring_service/config/**,
-            src/test/java/tn/epos/scoring_service/config/**
+            src/test/java/tn/epos/scoring_service/config/**,
+            src/test/java/tn/epos/scoring_service/exception/**
         </sonar.cpd.exclusions>
         <!-- Bump byte-buddy (Mockito/Hibernate need a Java-17-aware version).
              Overriding Spring Boot's managed property keeps byte-buddy correctly

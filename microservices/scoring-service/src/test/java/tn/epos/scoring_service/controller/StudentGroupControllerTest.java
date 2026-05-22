@@ -16,6 +16,7 @@ import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.StudentGroupService;
 
 import java.util.List;
@@ -205,7 +206,7 @@ class StudentGroupControllerTest {
         @DisplayName("404 - Groupe introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
             when(studentGroupService.update(eq(99L), any(StudentGroup.class)))
-                    .thenThrow(new RuntimeException("StudentGroup non trouvé avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("StudentGroup non trouvé avec l'id : 99"));
 
             mockMvc.perform(put("/api/student-groups/99")
                             .contentType(MediaType.APPLICATION_JSON)

@@ -18,6 +18,7 @@ import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.RotationService;
 
 import java.time.LocalDateTime;
@@ -204,7 +205,7 @@ class RotationControllerTest {
         @DisplayName("404 - Rotation introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
             when(rotationService.update(eq(99L), any(Rotation.class)))
-                    .thenThrow(new RuntimeException("Rotation non trouvée avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Rotation non trouvée avec l'id : 99"));
 
             mockMvc.perform(put("/api/rotations/99")
                             .contentType(MediaType.APPLICATION_JSON)

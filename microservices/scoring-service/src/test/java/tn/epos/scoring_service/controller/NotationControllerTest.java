@@ -16,6 +16,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Notation;
+import tn.epos.scoring_service.exception.BusinessException;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.NotationService;
 
 import java.util.List;
@@ -193,7 +195,7 @@ class NotationControllerTest {
         @DisplayName("400 - Modification d'une notation verrouillée")
         void update_notationVerrouillee_devraitRetourner400() throws Exception {
             when(service.update(eq(1L), any(Notation.class)))
-                    .thenThrow(new RuntimeException("Impossible de modifier une notation verrouillée."));
+                    .thenThrow(new BusinessException("Impossible de modifier une notation verrouillée."));
 
             mockMvc.perform(put("/api/notations/1")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -202,22 +204,24 @@ class NotationControllerTest {
         }
 
         @Test
-        @DisplayName("400 - Notation introuvable à la mise à jour")
-        void update_introuvable_devraitRetourner400() throws Exception {
+        @DisplayName("404 - Notation introuvable à la mise à jour")
+        void update_introuvable_devraitRetourner404() throws Exception {
+            // Pre-#63 this returned 400 because the controller catch mapped every
+            // RuntimeException to badRequest. Now ResourceNotFoundException → 404.
             when(service.update(eq(99L), any(Notation.class)))
-                    .thenThrow(new RuntimeException("Notation non trouvée avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Notation non trouvée avec l'id : 99"));
 
             mockMvc.perform(put("/api/notations/99")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(notation)))
-                    .andExpect(status().isBadRequest());
+                    .andExpect(status().isNotFound());
         }
 
         @Test
         @DisplayName("400 - Update échoue à cause d'une erreur métier")
         void update_shouldReturnBadRequest_whenServiceThrowsException() throws Exception {
             when(service.update(anyLong(), any(Notation.class)))
-                    .thenThrow(new RuntimeException("Erreur de validation"));
+                    .thenThrow(new BusinessException("Erreur de validation"));
 
             mockMvc.perform(put("/api/notations/1")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -249,7 +253,7 @@ class NotationControllerTest {
         @DisplayName("404 - Notation introuvable lors du verrouillage")
         void verrouiller_introuvable_devraitRetourner404() throws Exception {
             when(service.verrouiller(99L))
-                    .thenThrow(new RuntimeException("Notation non trouvée avec l'id : 99"));
+                    .thenThrow(new ResourceNotFoundException("Notation non trouvée avec l'id : 99"));
 
             mockMvc.perform(patch("/api/notations/99/verrouiller"))
                     .andExpect(status().isNotFound());
@@ -258,7 +262,7 @@ class NotationControllerTest {
         @Test
         @DisplayName("404 - Verrouillage échoue (ID inconnu ou erreur service)")
         void lock_shouldReturnNotFound_whenServiceThrowsException() throws Exception {
-            when(service.verrouiller(99L)).thenThrow(new RuntimeException("Erreur de verrouillage"));
+            when(service.verrouiller(99L)).thenThrow(new ResourceNotFoundException("Erreur de verrouillage"));
 
             mockMvc.perform(patch("/api/notations/99/verrouiller"))
                     .andExpect(status().isNotFound());

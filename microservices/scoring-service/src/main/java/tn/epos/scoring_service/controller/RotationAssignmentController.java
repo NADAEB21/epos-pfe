@@ -50,22 +50,14 @@ public class RotationAssignmentController {
     @PatchMapping("/{id}/presence")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<RotationAssignment> updatePresence(@PathVariable Long id, @RequestParam boolean present) {
-        try {
-            return ResponseEntity.ok(service.confirmerPresence(id, present));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(service.confirmerPresence(id, present));
     }
 
     // PUT : mettre à jour une assignment
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<RotationAssignment> update(@PathVariable Long id, @RequestBody RotationAssignment details) {
-        try {
-            return ResponseEntity.ok(service.update(id, details));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(service.update(id, details));
     }
 
     // DELETE : supprimer une assignment

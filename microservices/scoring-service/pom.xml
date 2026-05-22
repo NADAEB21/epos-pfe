@@ -24,6 +24,23 @@
             src/main/java/tn/epos/scoring_service/dto/**,
             src/main/java/tn/epos/scoring_service/exception/**
         </sonar.exclusions>
+        <!-- The whole config/ package (SecurityConfig, ScopedAuthoritiesConverter
+             and their tests) is intentionally mirrored across auth/exam/scoring —
+             each microservice owns its own security config. Exclude config/ from
+             the Copy-Paste Detector so the deliberate symmetry doesn't trip the
+             duplication Quality Gate. Folding these into a shared epos-common
+             module is tracked under #68. -->
+        <sonar.cpd.exclusions>
+            src/main/java/tn/epos/scoring_service/config/**,
+            src/test/java/tn/epos/scoring_service/config/**,
+            src/test/java/tn/epos/scoring_service/exception/**
+        </sonar.cpd.exclusions>
+        <!-- Bump byte-buddy (Mockito/Hibernate need a Java-17-aware version).
+             Overriding Spring Boot's managed property keeps byte-buddy correctly
+             scoped as a runtime dependency of Hibernate, so it ships in the
+             packaged jar. A direct test-scoped declaration does NOT — it drops
+             byte-buddy from the runtime classpath and the service fails to boot. -->
+        <byte-buddy.version>1.15.0</byte-buddy.version>
     </properties>
 
     <dependencies>
@@ -35,6 +52,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -99,19 +120,6 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy</artifactId>
-            <version>1.15.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy-agent</artifactId>
-            <version>1.15.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

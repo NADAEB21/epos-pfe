@@ -3,6 +3,7 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.entities.Lot;
+import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.ILotRepository;
 
 import java.util.List;
@@ -38,6 +39,6 @@ public class LotService {
             lot.setEvaluateurId(lotDetails.getEvaluateurId());
             lot.setExamenId(lotDetails.getExamenId());
             return lotRepository.save(lot);
-        }).orElseThrow(() -> new RuntimeException("Lot non trouvé avec l'id : " + id));
+        }).orElseThrow(() -> new ResourceNotFoundException("Lot non trouvé avec l'id : " + id));
     }
 }

@@ -43,11 +43,7 @@ public class LotController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<Lot> updateLot(@PathVariable Long id, @RequestBody Lot lotDetails) {
-        try {
-            return ResponseEntity.ok(lotService.update(id, lotDetails));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(lotService.update(id, lotDetails));
     }
 
     // DELETE : supprimer un lot

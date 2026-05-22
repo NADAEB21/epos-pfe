@@ -1,0 +1,11 @@
+# Test profile: no Eureka contact during context-load tests.
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+# Fixed test secret (>= 32 bytes). Must match the constant in the
+# gateway security tests that mint tokens.
+jwt:
+  secret: test-secret-test-secret-test-secret-1234

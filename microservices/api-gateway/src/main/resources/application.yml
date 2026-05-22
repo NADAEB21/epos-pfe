@@ -1,0 +1,67 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      # Explicit routes only. The discovery locator is disabled so services
+      # are NOT reachable under their raw service-id path (e.g. /exam-service/**),
+      # which would bypass the per-route filters added in #13 part 2 (JWT).
+      discovery:
+        locator:
+          enabled: false
+      routes:
+        # auth-service already serves /api/v1/** natively — no path rewrite.
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/v1/auth/**,/api/v1/users/**
+
+        # exam-service serves /api/** internally. The gateway exposes a uniform
+        # /api/v1/** surface and strips the v1 segment before forwarding.
+        - id: exam-service
+          uri: lb://exam-service
+          predicates:
+            - Path=/api/v1/examens/**,/api/v1/stations/**,/api/v1/grilles/**,/api/v1/items/**
+          filters:
+            - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
+
+        # scoring-service also serves /api/** internally — same v1 strip.
+        - id: scoring-service
+          uri: lb://scoring-service
+          predicates:
+            - Path=/api/v1/etudiants/**,/api/v1/participations/**,/api/v1/lots/**,/api/v1/notations/**,/api/v1/notation-items/**,/api/v1/assignments/**,/api/v1/rotations/**,/api/v1/student-groups/**
+          filters:
+            - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+# Shared HS256 secret used to VERIFY tokens issued by auth-service.
+# No default — the gateway fails fast if JWT_SECRET is unset.
+jwt:
+  secret: ${JWT_SECRET}
+
+# Per-client-IP rate limit on POST /api/v1/auth/login.
+gateway:
+  rate-limit:
+    login:
+      capacity: 10
+      refill-minutes: 1
+
+# Actuator — only health + info exposed. The gateway's own /actuator/** is not
+# a routed path, so the JWT GlobalFilter never runs on it; health stays public
+# for docker-compose healthchecks (#26).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

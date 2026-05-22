@@ -50,11 +50,7 @@ public class StudentGroupController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<StudentGroup> updateGroup(@PathVariable Long id, @RequestBody StudentGroup details) {
-        try {
-            return ResponseEntity.ok(studentGroupService.update(id, details));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        return ResponseEntity.ok(studentGroupService.update(id, details));
     }
 
     // DELETE : supprimer un groupe

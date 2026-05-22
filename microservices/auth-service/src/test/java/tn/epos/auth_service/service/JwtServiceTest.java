@@ -160,4 +160,17 @@ class JwtServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("JWT_SECRET");
     }
+
+    @Test
+    void constructor_shortSecret_throwsIllegalStateExceptionBeforeJjwt() {
+        // 31 bytes — one short of the HS256 minimum. Our explicit check must fire
+        // first and surface a friendly operator message, instead of leaking
+        // JJWT's generic WeakKeyException up the stack.
+        String shortSecret = "a".repeat(31);
+
+        assertThatThrownBy(() -> new JwtService(shortSecret, 86_400_000L, 604_800_000L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET is too short")
+                .hasMessageContaining("32 bytes");
+    }
 }

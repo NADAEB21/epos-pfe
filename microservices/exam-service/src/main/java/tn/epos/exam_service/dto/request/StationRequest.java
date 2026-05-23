@@ -3,6 +3,9 @@ package tn.epos.exam_service.dto.request;
 import lombok.Data;
 import jakarta.validation.constraints.*;
 import tn.epos.exam_service.enums.TypeStation;
+
+import java.util.List;
+
 @Data
 public class StationRequest {
     @NotBlank(message = "Le nom de la station est obligatoire")
@@ -14,4 +17,6 @@ public class StationRequest {
 
     @Size(max = 300)
     private String description;
+
+    private List<Long> evaluateurIds;
 }

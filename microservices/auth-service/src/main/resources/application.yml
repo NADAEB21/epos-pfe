@@ -17,7 +17,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate          # schema managed by Liquibase/Flyway in production;
+      ddl-auto: update          # schema managed by Liquibase/Flyway in production;
                                   # use 'update' locally when no migration tool is wired
     show-sql: false
     properties:

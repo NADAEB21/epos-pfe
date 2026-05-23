@@ -3,8 +3,6 @@ package tn.epos.exam_service.exception;
 import tn.epos.exam_service.dto.response.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -46,7 +44,7 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("Erreurs de validation", errors));
+                .body(ApiResponse.success("Erreurs de validation", errors));
     }
 
     // ===== 400 - Fichier PDF trop volumineux =====
@@ -55,30 +53,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("Le fichier PDF dépasse la taille maximale autorisée (10 MB)"));
-    }
-
-    // ===== 401 - Authentification échouée =====
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ApiResponse<Void>> handleAuthentication(AuthenticationException ex) {
-        return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error("Authentification requise"));
-    }
-
-    // ===== 403 - Accès refusé =====
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException ex) {
-        return ResponseEntity
-                .status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error("Accès refusé"));
-    }
-
-    // ===== 409 - Conflit de ressource =====
-    @ExceptionHandler(ConflictException.class)
-    public ResponseEntity<ApiResponse<Void>> handleConflict(ConflictException ex) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(ex.getMessage()));
     }
 
     // ===== 500 - Erreur inattendue =====

@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import org.springframework.context.annotation.Import;
 import tn.epos.exam_service.config.TestSecurityConfig;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -313,6 +314,72 @@ class StationControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(stationRequest)))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    // Affecter un evaluateur
+    @Nested
+    @DisplayName("PATCH /api/stations/{id}/evaluateurs")
+    class AffecterEvaluateurs {
+
+        @Test
+        @DisplayName("200 - Évaluateurs affectés avec succès")
+        void affecterEvaluateurs_devraitRetourner200() throws Exception {
+            stationResponse.setEvaluateurIds(List.of(10L, 20L));
+            when(stationService.affecterEvaluateurs(eq(1L), anyList()))
+                    .thenReturn(stationResponse);
+
+            mockMvc.perform(patch("/api/stations/1/evaluateurs")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("[10, 20]"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message").value("Évaluateurs affectés"))
+                    .andExpect(jsonPath("$.data.evaluateurIds").isArray())
+                    .andExpect(jsonPath("$.data.evaluateurIds[0]").value(10))
+                    .andExpect(jsonPath("$.data.evaluateurIds[1]").value(20));
+
+            verify(stationService, times(1)).affecterEvaluateurs(eq(1L), anyList());
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide retire tous les évaluateurs")
+        void affecterEvaluateurs_listeVide_devraitRetirer() throws Exception {
+            stationResponse.setEvaluateurIds(List.of());
+            when(stationService.affecterEvaluateurs(eq(1L), anyList()))
+                    .thenReturn(stationResponse);
+
+            mockMvc.perform(patch("/api/stations/1/evaluateurs")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("[]"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.evaluateurIds").isEmpty());
+        }
+
+        @Test
+        @DisplayName("400 - Examen non modifiable")
+        void affecterEvaluateurs_examenVerrouille_devraitRetourner400() throws Exception {
+            when(stationService.affecterEvaluateurs(eq(1L), anyList()))
+                    .thenThrow(new BusinessException("Impossible de modifier les évaluateurs : l'examen est au statut EN_COURS"));
+
+            mockMvc.perform(patch("/api/stations/1/evaluateurs")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("[10, 20]"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false));
+        }
+
+        @Test
+        @DisplayName("404 - Station introuvable")
+        void affecterEvaluateurs_stationIntrouvable_devraitRetourner404() throws Exception {
+            when(stationService.affecterEvaluateurs(eq(99L), anyList()))
+                    .thenThrow(new ResourceNotFoundException("Station", 99L));
+
+            mockMvc.perform(patch("/api/stations/99/evaluateurs")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("[10]"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 

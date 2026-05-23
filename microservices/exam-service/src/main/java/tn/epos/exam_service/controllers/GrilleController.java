@@ -38,19 +38,19 @@ public class GrilleController {
         GrilleResponse response = grilleService.creerPourStation(stationId, request);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Grille créée avec succès", response));
+                .body(ApiResponse.success("Grille créée avec succès", response));
     }
 
     @GetMapping("/api/stations/{stationId}/grille")
     @Operation(summary = "Récupérer la grille d'une station avec ses critères")
     public ResponseEntity<ApiResponse<GrilleResponse>> trouverParStation(@PathVariable Long stationId) {
-        return ResponseEntity.ok(ApiResponse.ok(grilleService.trouverParStation(stationId)));
+        return ResponseEntity.ok(ApiResponse.success(grilleService.trouverParStation(stationId)));
     }
 
     @GetMapping("/api/grilles/{id}")
     @Operation(summary = "Récupérer une grille par ID")
     public ResponseEntity<ApiResponse<GrilleResponse>> trouverParId(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(grilleService.trouverParId(id)));
+        return ResponseEntity.ok(ApiResponse.success(grilleService.trouverParId(id)));
     }
 
     @PutMapping("/api/grilles/{id}")
@@ -61,7 +61,7 @@ public class GrilleController {
             @Valid @RequestBody GrilleRequest request) {
 
         return ResponseEntity.ok(
-                ApiResponse.ok("Grille modifiée avec succès", grilleService.modifier(id, request))
+                ApiResponse.success("Grille modifiée avec succès", grilleService.modifier(id, request))
         );
     }
 
@@ -69,7 +69,7 @@ public class GrilleController {
     @Operation(summary = "Supprimer une grille et tous ses critères")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
         grilleService.supprimer(id);
-        return ResponseEntity.ok(ApiResponse.ok("Grille supprimée avec succès", null));
+        return ResponseEntity.ok(ApiResponse.success("Grille supprimée avec succès", null));
     }
 
     // items
@@ -85,7 +85,7 @@ public class GrilleController {
         ItemResponse response = grilleService.ajouterItem(grilleId, request);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Critère ajouté avec succès", response));
+                .body(ApiResponse.success("Critère ajouté avec succès", response));
     }
 
     @GetMapping("/api/grilles/{grilleId}/items")
@@ -96,7 +96,7 @@ public class GrilleController {
             Pageable pageable) {
 
         Page<ItemResponse> items = grilleService.listerItems(grilleId, pageable);
-        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(items)));
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(items)));
     }
 
     @PutMapping("/api/items/{id}")
@@ -106,7 +106,7 @@ public class GrilleController {
             @Valid @RequestBody ItemRequest request) {
 
         return ResponseEntity.ok(
-                ApiResponse.ok("Critère modifié avec succès", grilleService.modifierItem(id, request))
+                ApiResponse.success("Critère modifié avec succès", grilleService.modifierItem(id, request))
         );
     }
 
@@ -114,6 +114,6 @@ public class GrilleController {
     @Operation(summary = "Supprimer un critère", description = "Les critères suivants sont réordonnés automatiquement")
     public ResponseEntity<ApiResponse<Void>> supprimerItem(@PathVariable Long id) {
         grilleService.supprimerItem(id);
-        return ResponseEntity.ok(ApiResponse.ok("Critère supprimé avec succès", null));
+        return ResponseEntity.ok(ApiResponse.success("Critère supprimé avec succès", null));
     }
 }

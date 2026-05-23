@@ -7,6 +7,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import jakarta.validation.constraints.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "stations")
@@ -38,6 +40,15 @@ public class Station {
 
     @Column(length = 300)
     private String description;
+
+    @ElementCollection
+    @CollectionTable(
+            name = "station_evaluateurs",
+            joinColumns = @JoinColumn(name = "station_id")
+    )
+    @Column(name = "evaluateur_id")
+    @Builder.Default
+    private List<Long> evaluateurIds = new ArrayList<>();
 
     // relations
     // FetchType.LAZY pour éviter les chargements inutiles

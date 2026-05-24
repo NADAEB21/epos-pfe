@@ -42,9 +42,11 @@ public class UserService {
     // -------------------------------------------------------------------------
 
     @Transactional(readOnly = true)
-    public List<UserResponse> getAllUsers() {
-        return userRepository.findAll()
-                .stream()
+    public List<UserResponse> getAllUsers(RoleType filter) {
+        List<User> users = (filter == null)
+                ? userRepository.findAll()
+                : userRepository.findByRole(filter);
+        return users.stream()
                 .map(this::toResponse)
                 .toList();
     }

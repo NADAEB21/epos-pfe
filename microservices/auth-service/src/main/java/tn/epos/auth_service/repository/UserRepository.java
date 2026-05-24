@@ -8,8 +8,10 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -17,6 +19,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    @Query("SELECT DISTINCT u FROM User u JOIN UserRole ur ON ur.user = u WHERE ur.role = :role")
+    List<User> findByRole(@Param("role") RoleType role);
 
     @Modifying
     @Transactional(propagation = Propagation.REQUIRES_NEW)

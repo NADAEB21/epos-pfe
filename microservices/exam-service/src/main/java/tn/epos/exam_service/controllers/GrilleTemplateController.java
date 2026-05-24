@@ -39,7 +39,7 @@ public class GrilleTemplateController {
     public ResponseEntity<ApiResponse<GrilleTemplateResponse>> creer(
             @Valid @RequestBody GrilleTemplateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Template créé", templateService.creer(request)));
+                .body(ApiResponse.ok("Template créé", templateService.creer(request)));
     }
 
     @PostMapping("/grilles/{grilleId}/templates")
@@ -49,27 +49,27 @@ public class GrilleTemplateController {
             @PathVariable Long grilleId,
             @RequestParam String nom) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Template sauvegardé",
+                .body(ApiResponse.ok("Template sauvegardé",
                         templateService.sauvegarderDepuisGrille(grilleId, nom)));
     }
 
     @GetMapping("/templates/grilles")
     @Operation(summary = "Lister tous les templates de grilles")
     public ResponseEntity<ApiResponse<List<GrilleTemplateResponse>>> lister() {
-        return ResponseEntity.ok(ApiResponse.success(templateService.listerTous()));
+        return ResponseEntity.ok(ApiResponse.ok(templateService.listerTous()));
     }
 
     @GetMapping("/templates/grilles/{id}")
     @Operation(summary = "Récupérer un template par ID")
     public ResponseEntity<ApiResponse<GrilleTemplateResponse>> trouverParId(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(templateService.trouverParId(id)));
+        return ResponseEntity.ok(ApiResponse.ok(templateService.trouverParId(id)));
     }
 
     @DeleteMapping("/templates/grilles/{id}")
     @Operation(summary = "Supprimer un template")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
         templateService.supprimer(id);
-        return ResponseEntity.ok(ApiResponse.success("Template supprimé", null));
+        return ResponseEntity.ok(ApiResponse.ok("Template supprimé", null));
     }
 
     @PostMapping("/templates/grilles/{templateId}/appliquer/stations/{stationId}")
@@ -79,7 +79,7 @@ public class GrilleTemplateController {
             @PathVariable Long templateId,
             @PathVariable Long stationId) {
         templateService.appliquerSurStation(templateId, stationId);
-        return ResponseEntity.ok(ApiResponse.success("Template appliqué avec succès", null));
+        return ResponseEntity.ok(ApiResponse.ok("Template appliqué avec succès", null));
     }
 
     // ── BF2.4 : Duplication d'examen ─────────────────────────────────────────
@@ -92,7 +92,7 @@ public class GrilleTemplateController {
             @RequestParam String nouveauNom) {
         Long nouvelId = templateService.dupliquerExamen(examenId, nouveauNom);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Examen dupliqué", nouvelId));
+                .body(ApiResponse.ok("Examen dupliqué", nouvelId));
     }
 
     // ── BF2.5 : Export JSON ───────────────────────────────────────────────────
@@ -127,6 +127,6 @@ public class GrilleTemplateController {
         }
         String json = new String(fichier.getBytes(), StandardCharsets.UTF_8);
         templateService.importerGrilleJson(stationId, json);
-        return ResponseEntity.ok(ApiResponse.success("Grille importée avec succès", null));
+        return ResponseEntity.ok(ApiResponse.ok("Grille importée avec succès", null));
     }
 }

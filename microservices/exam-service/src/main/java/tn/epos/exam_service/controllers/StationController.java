@@ -37,7 +37,7 @@ public class StationController {
         StationResponse response = stationService.ajouter(examenId, request);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Station ajoutée avec succès", response));
+                .body(ApiResponse.ok("Station ajoutée avec succès", response));
     }
 
     @GetMapping("/api/examens/{examenId}/stations")
@@ -48,13 +48,13 @@ public class StationController {
             Pageable pageable) {
 
         Page<StationResponse> stations = stationService.listerParExamen(examenId, pageable);
-        return ResponseEntity.ok(ApiResponse.success(PageResponse.from(stations)));
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(stations)));
     }
 
     @GetMapping("/api/stations/{id}")
     @Operation(summary = "Détail d'une station", description = "Inclut les infos de la grille si elle existe")
     public ResponseEntity<ApiResponse<StationResponse>> trouverParId(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(stationService.trouverParId(id)));
+        return ResponseEntity.ok(ApiResponse.ok(stationService.trouverParId(id)));
     }
 
     @PutMapping("/api/stations/{id}")
@@ -64,7 +64,7 @@ public class StationController {
             @Valid @RequestBody StationRequest request) {
 
         return ResponseEntity.ok(
-                ApiResponse.success("Station modifiée avec succès", stationService.modifier(id, request))
+                ApiResponse.ok("Station modifiée avec succès", stationService.modifier(id, request))
         );
     }
 
@@ -76,7 +76,7 @@ public class StationController {
             @RequestBody List<Long> evaluateurIds) {
 
         return ResponseEntity.ok(
-                ApiResponse.success("Évaluateurs affectés",
+                ApiResponse.ok("Évaluateurs affectés",
                         stationService.affecterEvaluateurs(id, evaluateurIds))
         );
     }
@@ -85,6 +85,6 @@ public class StationController {
     @Operation(summary = "Supprimer une station", description = "Supprime aussi la grille associée en cascade")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
         stationService.supprimer(id);
-        return ResponseEntity.ok(ApiResponse.success("Station supprimée avec succès", null));
+        return ResponseEntity.ok(ApiResponse.ok("Station supprimée avec succès", null));
     }
 }

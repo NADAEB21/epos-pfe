@@ -25,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -232,6 +233,89 @@ class StationServiceImplTest {
 
             assertThatThrownBy(() -> stationService.modifier(1L, stationRequest))
                     .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("affecterEvaluateurs()")
+    class AffecterEvaluateurs {
+
+        @Test
+        @DisplayName("Doit affecter la liste des évaluateurs")
+        void affecterEvaluateurs_devraitMettreAJourLaListe() {
+            station.setEvaluateurIds(new ArrayList<>());
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any(Station.class))).thenReturn(station);
+
+            StationResponse result = stationService.affecterEvaluateurs(1L, List.of(10L, 20L));
+
+            assertThat(result).isNotNull();
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().contains(10L) &&
+                            s.getEvaluateurIds().contains(20L)));
+        }
+
+        @Test
+        @DisplayName("Doit vider la liste si on passe une liste vide")
+        void affecterEvaluateurs_listeVide_doitVider() {
+            station.setEvaluateurIds(new ArrayList<>(List.of(10L, 20L)));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, List.of());
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().isEmpty()));
+        }
+
+        @Test
+        @DisplayName("Doit traiter null comme liste vide")
+        void affecterEvaluateurs_null_doitVider() {
+            station.setEvaluateurIds(new ArrayList<>(List.of(10L)));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, null);
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().isEmpty()));
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si examen non modifiable")
+        void affecterEvaluateurs_examenVerrouille_devraitEchouer() {
+            examenBrouillon.setStatut(StatutExamen.EN_COURS);
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+
+            assertThatThrownBy(() ->
+                    stationService.affecterEvaluateurs(1L, List.of(10L)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si station introuvable")
+        void affecterEvaluateurs_stationIntrouvable_devraitEchouer() {
+            when(stationRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() ->
+                    stationService.affecterEvaluateurs(99L, List.of(10L)))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Doit permettre plusieurs évaluateurs sur une même station")
+        void affecterEvaluateurs_plusieursEvaluateurs_doitTousLesAffecter() {
+            station.setEvaluateurIds(new ArrayList<>());
+            List<Long> evaluateurs = List.of(1L, 2L, 3L, 4L);
+
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, evaluateurs);
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().size() == 4));
         }
     }
 

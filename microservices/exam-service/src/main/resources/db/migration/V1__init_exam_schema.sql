@@ -56,3 +56,41 @@ CREATE TABLE items_evaluation (
 );
 
 CREATE INDEX idx_items_grille_id ON items_evaluation(grille_id);
+
+-- -------------------------------------------------------------
+-- 1. Évaluateurs par station (cross-service FK logique vers auth-service)
+--    On stocke uniquement l'ID utilisateur, pas de FK réelle.
+-- -------------------------------------------------------------
+
+CREATE TABLE station_evaluateurs (
+                                     station_id     BIGINT  NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+                                     evaluateur_id  BIGINT  NOT NULL,
+                                     PRIMARY KEY (station_id, evaluateur_id)
+);
+
+CREATE INDEX idx_station_evaluateurs_station_id ON station_evaluateurs(station_id);
+
+-- -------------------------------------------------------------
+-- 2. Templates de grilles réutilisables (BF2.4)
+-- -------------------------------------------------------------
+CREATE TABLE grille_templates (
+                                  id          BIGSERIAL        PRIMARY KEY,
+                                  nom         VARCHAR(150)     NOT NULL UNIQUE,
+                                  description VARCHAR(300),
+                                  note_max    DOUBLE PRECISION NOT NULL,
+                                  created_at  TIMESTAMP        NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE item_templates (
+                                id          BIGSERIAL        PRIMARY KEY,
+                                libelle     VARCHAR(300)     NOT NULL,
+                                type        VARCHAR(20)      NOT NULL,
+                                ponderation DOUBLE PRECISION NOT NULL,
+                                valeur_max  DOUBLE PRECISION,
+                                categorie   VARCHAR(100),
+                                ordre       INTEGER          NOT NULL,
+                                template_id BIGINT           NOT NULL
+                                    REFERENCES grille_templates(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_item_templates_template_id ON item_templates(template_id);

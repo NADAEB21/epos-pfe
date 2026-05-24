@@ -16,6 +16,7 @@ import tn.epos.exam_service.services.StationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -54,6 +55,9 @@ public class StationServiceImpl implements StationService {
                 .description(request.getDescription())
                 .ordre(ordre)
                 .examen(examen)
+                .evaluateurIds(request.getEvaluateurIds() != null
+                        ? request.getEvaluateurIds()
+                        : new ArrayList<>())
                 .build();
 
         Station sauvegardee = stationRepository.save(station);
@@ -105,7 +109,26 @@ public class StationServiceImpl implements StationService {
         station.setNom(request.getNom());
         station.setType(request.getType());
         station.setDescription(request.getDescription());
+        if (request.getEvaluateurIds() != null) {
+            station.setEvaluateurIds(request.getEvaluateurIds());
+        }
 
+        return toResponse(stationRepository.save(station), false);
+    }
+
+    @Override
+    public StationResponse affecterEvaluateurs(Long stationId, List<Long> evaluateurIds) {
+        Station station = trouverEntite(stationId);
+
+        if (!station.getExamen().isGrilleModifiable()) {
+            throw new BusinessException(
+                    "Impossible de modifier les évaluateurs : l'examen est au statut "
+                            + station.getExamen().getStatut()
+            );
+        }
+
+        station.setEvaluateurIds(evaluateurIds != null ? evaluateurIds : new ArrayList<>());
+        log.info("Station {} : {} évaluateur(s) affecté(s)", stationId, station.getEvaluateurIds().size());
         return toResponse(stationRepository.save(station), false);
     }
 
@@ -148,6 +171,7 @@ public class StationServiceImpl implements StationService {
         response.setOrdre(station.getOrdre());
         response.setDescription(station.getDescription());
         response.setExamenId(station.getExamen().getId());
+        response.setEvaluateurIds(station.getEvaluateurIds());
         response.setHasGrille(station.hasGrille());
         response.setCreatedAt(station.getCreatedAt());
         // La grille est chargée séparément via GrilleService

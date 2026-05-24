@@ -5,6 +5,7 @@ import lombok.Data;
 import tn.epos.exam_service.enums.TypeStation;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class StationResponse {
@@ -15,6 +16,7 @@ public class StationResponse {
     private String description;
     private Long examenId;
     private boolean hasGrille;
+    private List<Long> evaluateurIds;
 
     // Grille incluse si demandée (endpoint détaillé)
     private GrilleResponse grille;

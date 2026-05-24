@@ -18,6 +18,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Stations", description = "Gestion des stations d'évaluation")
@@ -63,6 +65,19 @@ public class StationController {
 
         return ResponseEntity.ok(
                 ApiResponse.ok("Station modifiée avec succès", stationService.modifier(id, request))
+        );
+    }
+
+    @PatchMapping("/api/stations/{id}/evaluateurs")
+    @Operation(summary = "Affecter des évaluateurs à une station",
+            description = "Remplace la liste des évaluateurs. Passer une liste vide pour tout retirer.")
+    public ResponseEntity<ApiResponse<StationResponse>> affecterEvaluateurs(
+            @PathVariable Long id,
+            @RequestBody List<Long> evaluateurIds) {
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("Évaluateurs affectés",
+                        stationService.affecterEvaluateurs(id, evaluateurIds))
         );
     }
 

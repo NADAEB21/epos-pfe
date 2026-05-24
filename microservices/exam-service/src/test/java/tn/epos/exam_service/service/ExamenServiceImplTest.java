@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -113,9 +114,10 @@ class ExamenServiceImplTest {
     class ListerTous {
 
         @Test
-        @DisplayName("Doit retourner la liste de tous les examens")
-        void listerTous_devraitRetournerListe() {
+        @DisplayName("SUPER_ADMIN: doit retourner la liste de tous les examens")
+        void listerTous_superAdmin_devraitRetournerListe() {
             Page<Examen> pageEntite = new PageImpl<>(List.of(examenBrouillon));
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(true);
             when(examenRepository.findAll(any(Pageable.class))).thenReturn(pageEntite);
 
             Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
@@ -125,9 +127,10 @@ class ExamenServiceImplTest {
         }
 
         @Test
-        @DisplayName("Doit retourner liste vide si aucun examen")
-        void listerTous_devraitRetournerListeVide() {
+        @DisplayName("SUPER_ADMIN: doit retourner liste vide si aucun examen")
+        void listerTous_superAdmin_devraitRetournerListeVide() {
             Page<Examen> pageVide = new PageImpl<>(List.of());
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(true);
             when(examenRepository.findAll(any(Pageable.class))).thenReturn(pageVide);
 
             Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
@@ -136,9 +139,10 @@ class ExamenServiceImplTest {
         }
 
         @Test
-        @DisplayName("Doit filtrer par statut")
-        void listerParStatut_devraitFiltrerParStatut() {
+        @DisplayName("SUPER_ADMIN: doit filtrer par statut sans filtre matière")
+        void listerParStatut_superAdmin_devraitFiltrerParStatut() {
             Page<Examen> page = new PageImpl<>(List.of(examenBrouillon));
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(true);
             when(examenRepository.findByStatut(eq(StatutExamen.BROUILLON), any(Pageable.class)))
                     .thenReturn(page);
 
@@ -147,6 +151,67 @@ class ExamenServiceImplTest {
 
             assertThat(result.getContent()).hasSize(1);
             assertThat(result.getContent().get(0).getStatut()).isEqualTo(StatutExamen.BROUILLON);
+        }
+
+        // ── #95 — RESPONSABLE_MATIERE scope filter ──────────────────────────
+
+        @Test
+        @DisplayName("#95 — RESPONSABLE: doit appeler findByMatiereIdIn avec son périmètre")
+        void listerTous_responsable_devraitFiltrerSurSonPerimetre() {
+            Page<Examen> page = new PageImpl<>(List.of(examenBrouillon));
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(false);
+            when(matiereAccessChecker.getAccessibleMatiereIds()).thenReturn(Set.of(1L, 7L));
+            when(examenRepository.findByMatiereIdIn(eq(Set.of(1L, 7L)), any(Pageable.class)))
+                    .thenReturn(page);
+
+            Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
+
+            assertThat(result.getContent()).hasSize(1);
+            verify(examenRepository, never()).findAll(any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("#95 — RESPONSABLE sans périmètre: doit retourner page vide sans hit DB")
+        void listerTous_responsableSansPerimetre_devraitRetournerVide() {
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(false);
+            when(matiereAccessChecker.getAccessibleMatiereIds()).thenReturn(Set.of());
+
+            Page<ExamenResponse> result = examenService.listerTous(Pageable.unpaged());
+
+            assertThat(result.getContent()).isEmpty();
+            verify(examenRepository, never()).findAll(any(Pageable.class));
+            verify(examenRepository, never()).findByMatiereIdIn(any(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("#95 — RESPONSABLE: listerParStatut doit appeler findByMatiereIdInAndStatut")
+        void listerParStatut_responsable_devraitFiltrerScopePlusStatut() {
+            Page<Examen> page = new PageImpl<>(List.of(examenBrouillon));
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(false);
+            when(matiereAccessChecker.getAccessibleMatiereIds()).thenReturn(Set.of(1L));
+            when(examenRepository.findByMatiereIdInAndStatut(
+                    eq(Set.of(1L)), eq(StatutExamen.BROUILLON), any(Pageable.class)))
+                    .thenReturn(page);
+
+            Page<ExamenResponse> result = examenService.listerParStatut(
+                    StatutExamen.BROUILLON, Pageable.unpaged());
+
+            assertThat(result.getContent()).hasSize(1);
+            verify(examenRepository, never()).findByStatut(any(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("#95 — RESPONSABLE sans périmètre: listerParStatut doit retourner vide sans hit DB")
+        void listerParStatut_responsableSansPerimetre_devraitRetournerVide() {
+            when(matiereAccessChecker.isUnrestricted()).thenReturn(false);
+            when(matiereAccessChecker.getAccessibleMatiereIds()).thenReturn(Set.of());
+
+            Page<ExamenResponse> result = examenService.listerParStatut(
+                    StatutExamen.BROUILLON, Pageable.unpaged());
+
+            assertThat(result.getContent()).isEmpty();
+            verify(examenRepository, never()).findByStatut(any(), any(Pageable.class));
+            verify(examenRepository, never()).findByMatiereIdInAndStatut(any(), any(), any(Pageable.class));
         }
     }
 

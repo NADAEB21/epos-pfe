@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -63,14 +64,28 @@ public class ExamenServiceImpl implements ExamenService {
     @Override
     @Transactional(readOnly = true)
     public Page<ExamenResponse> listerTous(Pageable pageable) {
-        return examenRepository.findAll(pageable)
+        if (matiereAccessChecker.isUnrestricted()) {
+            return examenRepository.findAll(pageable).map(e -> toResponse(e, false));
+        }
+        Set<Long> scope = matiereAccessChecker.getAccessibleMatiereIds();
+        if (scope.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return examenRepository.findByMatiereIdIn(scope, pageable)
                 .map(e -> toResponse(e, false));
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ExamenResponse> listerParStatut(StatutExamen statut, Pageable pageable) {
-        return examenRepository.findByStatut(statut, pageable)
+        if (matiereAccessChecker.isUnrestricted()) {
+            return examenRepository.findByStatut(statut, pageable).map(e -> toResponse(e, false));
+        }
+        Set<Long> scope = matiereAccessChecker.getAccessibleMatiereIds();
+        if (scope.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return examenRepository.findByMatiereIdInAndStatut(scope, statut, pageable)
                 .map(e -> toResponse(e, false));
     }
 

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Set;
+
 @Repository
 public interface ExamenRepository extends JpaRepository<Examen, Long> {
 
@@ -17,6 +19,12 @@ public interface ExamenRepository extends JpaRepository<Examen, Long> {
 
     // Filtrer par matière (id)
     Page<Examen> findByMatiereId(Long matiereId, Pageable pageable);
+
+    // Filtrer par périmètre matière (#95 — list endpoint scope filter)
+    Page<Examen> findByMatiereIdIn(Set<Long> matiereIds, Pageable pageable);
+
+    // Filtrer par périmètre matière + statut (#95)
+    Page<Examen> findByMatiereIdInAndStatut(Set<Long> matiereIds, StatutExamen statut, Pageable pageable);
 
     // Vérifier si un examen avec ce nom existe déjà pour cette matière
     boolean existsByNomAndMatiereId(String nom, Long matiereId);

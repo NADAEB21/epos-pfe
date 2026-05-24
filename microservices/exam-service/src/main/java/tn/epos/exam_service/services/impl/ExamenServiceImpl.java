@@ -10,6 +10,7 @@ import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
 import tn.epos.exam_service.entities.Station;
 import tn.epos.exam_service.enums.StatutExamen;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.ExamenRepository;
@@ -34,6 +35,7 @@ import java.util.stream.Collectors;
 @Transactional
 public class ExamenServiceImpl implements ExamenService {
     private final ExamenRepository examenRepository;
+    private final MatiereAccessChecker matiereAccessChecker;
 
     @Value("${epos.upload.dir}")
     private String uploadDir;
@@ -41,11 +43,11 @@ public class ExamenServiceImpl implements ExamenService {
     // crud
     @Override
     public ExamenResponse creer(ExamenRequest request) {
-        log.info("Création d'un examen : {} - {}", request.getNom(), request.getMatiere());
+        log.info("Création d'un examen : {} - matiere_id={}", request.getNom(), request.getMatiereId());
 
         Examen examen = Examen.builder()
                 .nom(request.getNom())
-                .matiere(request.getMatiere())
+                .matiereId(request.getMatiereId())
                 .dateExamen(request.getDateExamen())
                 .dureeStationMin(request.getDureeStationMin())
                 .nbEtudiantsParStation(request.getNbEtudiantsParStation())
@@ -77,12 +79,17 @@ public class ExamenServiceImpl implements ExamenService {
     public ExamenResponse trouverParId(Long id) {
         Examen examen = examenRepository.findByIdWithStations(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
         return toResponse(examen, true); // true = inclure les stations
     }
 
     @Override
     public ExamenResponse modifier(Long id, ExamenRequest request) {
         Examen examen = trouverEntite(id);
+        // Block "matière hijack": a Responsable cannot reassign an exam from
+        // another matière into their scope. Controller already guards the
+        // incoming request.matiereId; here we guard the existing entity.
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         if (!examen.isModifiable()) {
             throw new BusinessException(
@@ -91,7 +98,7 @@ public class ExamenServiceImpl implements ExamenService {
         }
 
         examen.setNom(request.getNom());
-        examen.setMatiere(request.getMatiere());
+        examen.setMatiereId(request.getMatiereId());
         examen.setDateExamen(request.getDateExamen());
         examen.setDureeStationMin(request.getDureeStationMin());
         examen.setNbEtudiantsParStation(request.getNbEtudiantsParStation());
@@ -103,6 +110,7 @@ public class ExamenServiceImpl implements ExamenService {
     @Override
     public ExamenResponse changerStatut(Long id, StatutExamen nouveauStatut) {
         Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
         examen.setStatut(nouveauStatut);
         log.info("Examen {} : statut changé {} → {}", id, examen.getStatut(), nouveauStatut);
@@ -112,6 +120,7 @@ public class ExamenServiceImpl implements ExamenService {
     @Override
     public void supprimer(Long id) {
         Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         if (examen.getStatut() == StatutExamen.EN_COURS
                 || examen.getStatut() == StatutExamen.TERMINE
@@ -135,6 +144,7 @@ public class ExamenServiceImpl implements ExamenService {
     @Override
     public ExamenResponse importerPdf(Long id, MultipartFile fichier) {
         Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         // Validation du fichier
         if (fichier == null || fichier.isEmpty()) {
@@ -176,6 +186,7 @@ public class ExamenServiceImpl implements ExamenService {
     @Transactional(readOnly = true)
     public String obtenirCheminPdf(Long id) {
         Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
         if (examen.getPdfSujetPath() == null) {
             throw new ResourceNotFoundException("Aucun PDF importé pour l'examen " + id);
         }
@@ -224,7 +235,7 @@ public class ExamenServiceImpl implements ExamenService {
         ExamenResponse response = new ExamenResponse();
         response.setId(examen.getId());
         response.setNom(examen.getNom());
-        response.setMatiere(examen.getMatiere());
+        response.setMatiereId(examen.getMatiereId());
         response.setDateExamen(examen.getDateExamen());
         response.setDureeStationMin(examen.getDureeStationMin());
         response.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());

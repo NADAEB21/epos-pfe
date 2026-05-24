@@ -12,7 +12,7 @@ import java.util.List;
 public class ExamenResponse {
     private Long id;
     private String nom;
-    private String matiere;
+    private Long matiereId;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate dateExamen;

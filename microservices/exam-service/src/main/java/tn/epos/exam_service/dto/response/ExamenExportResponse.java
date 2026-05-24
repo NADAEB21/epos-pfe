@@ -8,7 +8,7 @@ import java.util.List;
 @Data
 public class ExamenExportResponse {
     private String nom;
-    private String matiere;
+    private Long matiereId;
     private LocalDate dateExamen;
     private Integer dureeStationMin;
     private Integer nbEtudiantsParStation;

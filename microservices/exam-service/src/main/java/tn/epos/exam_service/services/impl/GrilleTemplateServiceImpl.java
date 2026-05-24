@@ -172,7 +172,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
 
         ExamenExportResponse export = new ExamenExportResponse();
         export.setNom(examen.getNom());
-        export.setMatiere(examen.getMatiere());
+        export.setMatiereId(examen.getMatiereId());
         export.setDateExamen(examen.getDateExamen());
         export.setDureeStationMin(examen.getDureeStationMin());
         export.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());
@@ -222,7 +222,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
 
         Examen copie = Examen.builder()
                 .nom(nouveauNom)
-                .matiere(source.getMatiere())
+                .matiereId(source.getMatiereId())
                 .dateExamen(source.getDateExamen())
                 .dureeStationMin(source.getDureeStationMin())
                 .nbEtudiantsParStation(source.getNbEtudiantsParStation())

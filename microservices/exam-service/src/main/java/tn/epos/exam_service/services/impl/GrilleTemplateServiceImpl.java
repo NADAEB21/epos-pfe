@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.GrilleTemplateRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.ExamenExportResponse;
@@ -34,6 +35,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
     private final StationRepository stationRepository;
     private final ExamenRepository examenRepository;
     private final ObjectMapper objectMapper;
+    private final MatiereAccessChecker matiereAccessChecker;
 
     // ── BF2.4 : Sauvegarder une grille existante comme template ──────────────
 
@@ -41,6 +43,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
     public GrilleTemplateResponse sauvegarderDepuisGrille(Long grilleId, String nomTemplate) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(grilleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Grille", grilleId));
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         if (templateRepository.existsByNom(nomTemplate)) {
             throw new BusinessException("Un template nommé '" + nomTemplate + "' existe déjà");
@@ -130,6 +133,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
 
         Station station = stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", stationId));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         if (!station.getExamen().isGrilleModifiable()) {
             throw new BusinessException("Impossible d'appliquer un template : l'examen est au statut "
@@ -169,6 +173,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
     public ExamenExportResponse exporterExamen(Long examenId) {
         Examen examen = examenRepository.findByIdWithStations(examenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         ExamenExportResponse export = new ExamenExportResponse();
         export.setNom(examen.getNom());
@@ -219,6 +224,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
     public Long dupliquerExamen(Long examenId, String nouveauNom) {
         Examen source = examenRepository.findByIdWithStations(examenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        // Caller must own the source matiere; the duplicate inherits its matiereId.
+        matiereAccessChecker.checkAccess(source.getMatiereId());
 
         Examen copie = Examen.builder()
                 .nom(nouveauNom)
@@ -277,6 +284,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
     public void importerGrilleJson(Long stationId, String grilleJson) {
         Station station = stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", stationId));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         if (!station.getExamen().isGrilleModifiable()) {
             throw new BusinessException("Impossible d'importer : l'examen est au statut "

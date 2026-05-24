@@ -8,6 +8,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
@@ -51,6 +53,9 @@ class GrilleServiceImplTest {
 
     @Mock
     private StationRepository stationRepository;
+
+    @Mock
+    private MatiereAccessChecker matiereAccessChecker;
 
     @InjectMocks
     private GrilleServiceImpl grilleService;
@@ -388,7 +393,7 @@ class GrilleServiceImplTest {
         @DisplayName("Doit retourner les items triés par ordre")
         void listerItems_devraitRetournerItems() {
             Page<ItemEvaluation> page = new PageImpl<>(List.of(itemBinaire));
-            when(grilleRepository.existsById(1L)).thenReturn(true);
+            when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
             when(itemRepository.findByGrilleIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
                     .thenReturn(page);
 
@@ -400,7 +405,7 @@ class GrilleServiceImplTest {
         @Test
         @DisplayName("Doit lever ResourceNotFoundException si grille introuvable")
         void listerItems_devraitLeverExceptionSiGrilleIntrouvable() {
-            when(grilleRepository.existsById(99L)).thenReturn(false);
+            when(grilleRepository.findById(99L)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> grilleService.listerItems(99L, Pageable.unpaged()))
                     .isInstanceOf(ResourceNotFoundException.class);
@@ -433,6 +438,123 @@ class GrilleServiceImplTest {
 
             assertThatThrownBy(() -> grilleService.supprimer(1L))
                     .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    // ================================================================
+    // #96 — per-matiere authz: MatiereAccessChecker is consulted after
+    // every entity load. Each endpoint that mutates or reads a grille/item
+    // must reject an out-of-scope caller before doing anything.
+    // ================================================================
+
+    @Nested
+    @DisplayName("MatiereAccessChecker enforcement (#96)")
+    class MatiereScopeEnforcement {
+
+        @Test
+        @DisplayName("creerPourStation() rejects when caller is out of scope")
+        void creer_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.creerPourStation(1L, grilleRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("trouverParStation() rejects when caller is out of scope")
+        void trouverParStation_outOfScope_devraitRefuser() {
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.trouverParStation(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("trouverParId() rejects when caller is out of scope")
+        void trouverParId_outOfScope_devraitRefuser() {
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.trouverParId(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("modifier() rejects when caller is out of scope")
+        void modifier_outOfScope_devraitRefuser() {
+            when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.modifier(1L, grilleRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("supprimer() rejects when caller is out of scope")
+        void supprimer_outOfScope_devraitRefuser() {
+            when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.supprimer(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("ajouterItem() rejects when caller is out of scope")
+        void ajouterItem_outOfScope_devraitRefuser() {
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.ajouterItem(1L, itemBinaireRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("listerItems() rejects when caller is out of scope")
+        void listerItems_outOfScope_devraitRefuser() {
+            when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.listerItems(1L, Pageable.unpaged()))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(itemRepository, never()).findByGrilleIdOrderByOrdreAsc(anyLong(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("modifierItem() rejects when caller is out of scope")
+        void modifierItem_outOfScope_devraitRefuser() {
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.modifierItem(1L, itemBinaireRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("supprimerItem() rejects when caller is out of scope")
+        void supprimerItem_outOfScope_devraitRefuser() {
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.supprimerItem(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
         }
     }
 }

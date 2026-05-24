@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -26,11 +27,13 @@ import java.util.List;
 public class StationServiceImpl implements StationService {
     private final StationRepository stationRepository;
     private final ExamenRepository examenRepository;
+    private final MatiereAccessChecker matiereAccessChecker;
 
     @Override
     public StationResponse ajouter(Long examenId, StationRequest request) {
         Examen examen = examenRepository.findById(examenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         // Règle : on ne peut pas ajouter une station à un examen EN_COURS ou terminé
         if (!examen.isGrilleModifiable()) {
@@ -68,9 +71,9 @@ public class StationServiceImpl implements StationService {
     @Override
     @Transactional(readOnly = true)
     public Page<StationResponse> listerParExamen(Long examenId, Pageable pageable) {
-        if (!examenRepository.existsById(examenId)) {
-            throw new ResourceNotFoundException("Examen", examenId);
-        }
+        Examen examen = examenRepository.findById(examenId)
+                .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
         return stationRepository.findByExamenIdOrderByOrdreAsc(examenId, pageable)
                 .map(s -> toResponse(s, false));
     }
@@ -80,12 +83,14 @@ public class StationServiceImpl implements StationService {
     public StationResponse trouverParId(Long id) {
         Station station = stationRepository.findByIdWithGrille(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", id));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
         return toResponse(station, true);
     }
 
     @Override
     public StationResponse modifier(Long id, StationRequest request) {
         Station station = trouverEntite(id);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         // Règle : interdire modification si examen EN_COURS ou plus
         if (!station.getExamen().isGrilleModifiable()) {
@@ -119,6 +124,7 @@ public class StationServiceImpl implements StationService {
     @Override
     public StationResponse affecterEvaluateurs(Long stationId, List<Long> evaluateurIds) {
         Station station = trouverEntite(stationId);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         if (!station.getExamen().isGrilleModifiable()) {
             throw new BusinessException(
@@ -135,6 +141,7 @@ public class StationServiceImpl implements StationService {
     @Override
     public void supprimer(Long id) {
         Station station = trouverEntite(id);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         if (!station.getExamen().isGrilleModifiable()) {
             throw new BusinessException(

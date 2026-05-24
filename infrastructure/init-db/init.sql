@@ -40,12 +40,36 @@ CREATE TABLE IF NOT EXISTS users (
     created_at            TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+-- Pharmacy subjects (matières). Reference table consumed by:
+--   * user_roles.matiere_id  (RESPONSABLE_MATIERE scope)
+--   * exam-service.examens.matiere_id  (cross-service logical FK)
+CREATE TABLE IF NOT EXISTS matieres (
+    id         BIGSERIAL    PRIMARY KEY,
+    code       VARCHAR(20)  NOT NULL UNIQUE,
+    libelle    VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS user_roles (
     id         BIGSERIAL   PRIMARY KEY,
     user_id    BIGINT      NOT NULL REFERENCES users(id),
     role       VARCHAR(50) NOT NULL,
-    matiere_id BIGINT      -- nullable; non-null only for RESPONSABLE_MATIERE
+    matiere_id BIGINT      REFERENCES matieres(id)  -- nullable; non-null only for RESPONSABLE_MATIERE
 );
+
+-- Idempotent FK install for DBs created before matieres existed.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'user_roles_matiere_id_fkey'
+          AND table_name = 'user_roles'
+    ) THEN
+        ALTER TABLE user_roles
+            ADD CONSTRAINT user_roles_matiere_id_fkey
+            FOREIGN KEY (matiere_id) REFERENCES matieres(id);
+    END IF;
+END$$;
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id         BIGSERIAL    PRIMARY KEY,
@@ -103,7 +127,21 @@ ON CONFLICT (email) DO NOTHING;
 
 
 -- -------------------------------------------------------------
--- 4. Seed roles
+-- 4. Seed matieres (must precede user_roles seed — FK target)
+--    Order matters: id=1 is referenced by resp@epos.tn below.
+-- -------------------------------------------------------------
+
+INSERT INTO matieres (code, libelle) VALUES
+    ('CHIM_THER',  'Chimie thérapeutique'),
+    ('PHARMACO',   'Pharmacologie'),
+    ('PHAG',       'Pharmacognosie'),
+    ('TOXICO',     'Toxicologie'),
+    ('GALENIQUE',  'Pharmacie galénique')
+ON CONFLICT (code) DO NOTHING;
+
+
+-- -------------------------------------------------------------
+-- 5. Seed roles
 -- -------------------------------------------------------------
 
 -- SUPER_ADMIN — matiere_id must be NULL

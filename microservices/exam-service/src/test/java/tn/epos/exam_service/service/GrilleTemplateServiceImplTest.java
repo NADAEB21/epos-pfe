@@ -63,7 +63,7 @@ class GrilleTemplateServiceImplTest {
         );
 
         examenBrouillon = Examen.builder()
-                .id(1L).nom("Examen Test").matiere("Chimie")
+                .id(1L).nom("Examen Test").matiereId(1L)
                 .dateExamen(LocalDate.now())
                 .statut(StatutExamen.BROUILLON)
                 .build();
@@ -376,7 +376,7 @@ class GrilleTemplateServiceImplTest {
 
             assertThat(result).isNotNull();
             assertThat(result.getNom()).isEqualTo("Examen Test");
-            assertThat(result.getMatiere()).isEqualTo("Chimie");
+            assertThat(result.getMatiereId()).isEqualTo(1L);
             assertThat(result.getStations()).hasSize(1);
             assertThat(result.getStations().get(0).getGrille()).isNotNull();
             assertThat(result.getStations().get(0).getGrille().getNom())
@@ -423,7 +423,7 @@ class GrilleTemplateServiceImplTest {
             examenBrouillon.setStations(new ArrayList<>(List.of(station)));
 
             Examen copie = Examen.builder().id(42L).nom("Copie Examen")
-                    .matiere("Chimie").statut(StatutExamen.BROUILLON)
+                    .matiereId(1L).statut(StatutExamen.BROUILLON)
                     .dateExamen(LocalDate.now()).build();
 
             when(examenRepository.findByIdWithStations(1L))

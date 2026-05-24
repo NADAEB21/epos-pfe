@@ -38,6 +38,7 @@ public class ExamenController {
 
     @PostMapping
     @Operation(summary = "Créer un examen", description = "Statut initial : BROUILLON")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_RESPONSABLE_MATIERE:' + #request.matiereId)")
     public ResponseEntity<ApiResponse<ExamenResponse>> creer(
             @Valid @RequestBody ExamenRequest request) {
 
@@ -70,6 +71,7 @@ public class ExamenController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Modifier un examen", description = "Uniquement si statut BROUILLON")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_RESPONSABLE_MATIERE:' + #request.matiereId)")
     public ResponseEntity<ApiResponse<ExamenResponse>> modifier(
             @PathVariable Long id,
             @Valid @RequestBody ExamenRequest request) {

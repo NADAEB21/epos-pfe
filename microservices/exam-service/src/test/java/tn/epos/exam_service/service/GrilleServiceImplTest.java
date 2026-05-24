@@ -68,7 +68,7 @@ class GrilleServiceImplTest {
         examenBrouillon = Examen.builder()
                 .id(1L)
                 .nom("Examen Test")
-                .matiere("Chimie")
+                .matiereId(1L)
                 .dateExamen(LocalDate.now())
                 .statut(StatutExamen.BROUILLON)
                 .build();

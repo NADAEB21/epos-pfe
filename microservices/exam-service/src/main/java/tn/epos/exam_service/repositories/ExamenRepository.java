@@ -15,11 +15,11 @@ public interface ExamenRepository extends JpaRepository<Examen, Long> {
     // Filtrer par statut
     Page<Examen> findByStatut(StatutExamen statut, Pageable pageable);
 
-    // Filtrer par matière
-    Page<Examen> findByMatiereIgnoreCase(String matiere, Pageable pageable);
+    // Filtrer par matière (id)
+    Page<Examen> findByMatiereId(Long matiereId, Pageable pageable);
 
     // Vérifier si un examen avec ce nom existe déjà pour cette matière
-    boolean existsByNomAndMatiere(String nom, String matiere);
+    boolean existsByNomAndMatiereId(String nom, Long matiereId);
 
     // Charger examen avec ses stations en une seule requête (évite N+1)
     @Query("SELECT e FROM Examen e LEFT JOIN FETCH e.stations WHERE e.id = :id")

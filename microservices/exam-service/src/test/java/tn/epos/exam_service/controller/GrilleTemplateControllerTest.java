@@ -399,7 +399,7 @@ class GrilleTemplateControllerTest {
         void exporter_devraitRetourner200AvecJson() throws Exception {
             ExamenExportResponse export = new ExamenExportResponse();
             export.setNom("Examen Chimie");
-            export.setMatiere("Chimie");
+            export.setMatiereId(1L);
             export.setDateExamen(LocalDate.of(2024, 6, 15));
             export.setDureeStationMin(15);
             export.setNbEtudiantsParStation(4);

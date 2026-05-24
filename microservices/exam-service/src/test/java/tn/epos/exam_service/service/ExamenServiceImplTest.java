@@ -15,6 +15,7 @@ import tn.epos.exam_service.entities.Examen;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.exception.BusinessException;
 import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.services.impl.ExamenServiceImpl;
 import org.springframework.data.domain.Page;
@@ -37,6 +38,9 @@ class ExamenServiceImplTest {
     @Mock
     private ExamenRepository examenRepository;
 
+    @Mock
+    private MatiereAccessChecker matiereAccessChecker;
+
     @InjectMocks
     private ExamenServiceImpl examenService;
 
@@ -56,7 +60,7 @@ class ExamenServiceImplTest {
 
         examenRequest = new ExamenRequest();
         examenRequest.setNom("Examen Test");
-        examenRequest.setMatiere("Chimie");
+        examenRequest.setMatiereId(1L);
         examenRequest.setDateExamen(LocalDate.of(2024, 6, 15));
         examenRequest.setDureeStationMin(15);
         examenRequest.setNbEtudiantsParStation(4);
@@ -64,7 +68,7 @@ class ExamenServiceImplTest {
         examenBrouillon = Examen.builder()
                 .id(1L)
                 .nom("Examen Test")
-                .matiere("Chimie")
+                .matiereId(1L)
                 .dateExamen(LocalDate.of(2024, 6, 15))
                 .dureeStationMin(15)
                 .nbEtudiantsParStation(4)

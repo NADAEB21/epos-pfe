@@ -100,4 +100,66 @@ class MatiereAccessCheckerTest {
         authWith("ROLE_SUPER_ADMIN");
         checker.checkAccess(5L); // no exception
     }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // #95 — list-endpoint scope helpers
+    // ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("isUnrestricted() true for SUPER_ADMIN")
+    void unrestricted_superAdmin() {
+        authWith("ROLE_SUPER_ADMIN");
+        assertThat(checker.isUnrestricted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("isUnrestricted() false for RESPONSABLE_MATIERE")
+    void unrestricted_responsable() {
+        authWith("ROLE_RESPONSABLE_MATIERE", "ROLE_RESPONSABLE_MATIERE:5");
+        assertThat(checker.isUnrestricted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("isUnrestricted() false when no auth")
+    void unrestricted_noAuth() {
+        SecurityContextHolder.clearContext();
+        assertThat(checker.isUnrestricted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("getAccessibleMatiereIds() returns scoped ids")
+    void scope_responsable() {
+        authWith("ROLE_RESPONSABLE_MATIERE",
+                 "ROLE_RESPONSABLE_MATIERE:5",
+                 "ROLE_RESPONSABLE_MATIERE:7");
+        assertThat(checker.getAccessibleMatiereIds()).containsExactlyInAnyOrder(5L, 7L);
+    }
+
+    @Test
+    @DisplayName("getAccessibleMatiereIds() empty for SUPER_ADMIN (use isUnrestricted instead)")
+    void scope_superAdmin_empty() {
+        authWith("ROLE_SUPER_ADMIN");
+        assertThat(checker.getAccessibleMatiereIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAccessibleMatiereIds() empty for EVALUATEUR")
+    void scope_evaluateur_empty() {
+        authWith("ROLE_EVALUATEUR");
+        assertThat(checker.getAccessibleMatiereIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAccessibleMatiereIds() empty when no auth")
+    void scope_noAuth_empty() {
+        SecurityContextHolder.clearContext();
+        assertThat(checker.getAccessibleMatiereIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAccessibleMatiereIds() ignores malformed authority")
+    void scope_malformed_skipped() {
+        authWith("ROLE_RESPONSABLE_MATIERE:abc", "ROLE_RESPONSABLE_MATIERE:5");
+        assertThat(checker.getAccessibleMatiereIds()).containsExactly(5L);
+    }
 }

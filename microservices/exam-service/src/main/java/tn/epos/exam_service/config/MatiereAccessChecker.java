@@ -6,6 +6,10 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Enforces per-matiere authorization based on the caller's JWT authorities.
  *
@@ -42,5 +46,49 @@ public class MatiereAccessChecker {
             throw new AccessDeniedException(
                     "Accès interdit : matière hors périmètre (matiere_id=" + matiereId + ")");
         }
+    }
+
+    /**
+     * True when the caller has unlimited scope (SUPER_ADMIN) — list endpoints
+     * should not filter and should call the standard {@code findAll} path.
+     */
+    public boolean isUnrestricted() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return false;
+        }
+        for (GrantedAuthority a : auth.getAuthorities()) {
+            if (SUPER_ADMIN.equals(a.getAuthority())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the matière ids the caller is scoped to via
+     * {@code ROLE_RESPONSABLE_MATIERE:<id>} authorities. Empty if the caller
+     * holds no such authority — list endpoints should treat that as "no
+     * visible matières" and return an empty page. Callers must check
+     * {@link #isUnrestricted()} first to know whether to skip filtering.
+     */
+    public Set<Long> getAccessibleMatiereIds() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return Collections.emptySet();
+        }
+        Set<Long> ids = new HashSet<>();
+        for (GrantedAuthority a : auth.getAuthorities()) {
+            String authority = a.getAuthority();
+            if (authority != null && authority.startsWith(RESP_PREFIX)) {
+                String idPart = authority.substring(RESP_PREFIX.length());
+                try {
+                    ids.add(Long.parseLong(idPart));
+                } catch (NumberFormatException ignored) {
+                    // skip malformed authority (defensive — shouldn't happen)
+                }
+            }
+        }
+        return ids;
     }
 }

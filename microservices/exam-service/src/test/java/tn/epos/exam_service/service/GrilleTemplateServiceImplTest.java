@@ -9,6 +9,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.GrilleTemplateRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.ExamenExportResponse;
@@ -39,6 +41,7 @@ class GrilleTemplateServiceImplTest {
     @Mock private GrilleEvaluationRepository grilleRepository;
     @Mock private StationRepository stationRepository;
     @Mock private ExamenRepository examenRepository;
+    @Mock private MatiereAccessChecker matiereAccessChecker;
     //@Mock private ObjectMapper objectMapper;
 
     @InjectMocks
@@ -59,7 +62,8 @@ class GrilleTemplateServiceImplTest {
                 grilleRepository,
                 stationRepository,
                 examenRepository,
-                objectMapper
+                objectMapper,
+                matiereAccessChecker
         );
 
         examenBrouillon = Examen.builder()
@@ -611,6 +615,81 @@ class GrilleTemplateServiceImplTest {
             assertThatThrownBy(() ->
                     templateService.importerGrilleJson(99L, "{\"nom\":\"test\"}"))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // ================================================================
+    // #96 — per-matiere authz: every endpoint that touches a station/exam
+    // must reject an out-of-scope caller. Standalone template CRUD
+    // (creer / supprimer) is locked to SUPER_ADMIN at the controller layer.
+    // ================================================================
+
+    @Nested
+    @DisplayName("MatiereAccessChecker enforcement (#96)")
+    class MatiereScopeEnforcement {
+
+        @Test
+        @DisplayName("sauvegarderDepuisGrille() rejects when caller is out of scope")
+        void sauvegarder_outOfScope_devraitRefuser() {
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() ->
+                    templateService.sauvegarderDepuisGrille(1L, "Template X"))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(templateRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("appliquerSurStation() rejects when caller is out of scope")
+        void appliquer_outOfScope_devraitRefuser() {
+            when(templateRepository.findByIdWithItems(1L)).thenReturn(Optional.of(template));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> templateService.appliquerSurStation(1L, 1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("dupliquerExamen() rejects when caller is out of scope")
+        void dupliquer_outOfScope_devraitRefuser() {
+            when(examenRepository.findByIdWithStations(1L))
+                    .thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> templateService.dupliquerExamen(1L, "Copie"))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(examenRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("exporterExamen() rejects when caller is out of scope")
+        void exporter_outOfScope_devraitRefuser() {
+            when(examenRepository.findByIdWithStations(1L))
+                    .thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> templateService.exporterExamen(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("importerGrilleJson() rejects when caller is out of scope")
+        void importer_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() ->
+                    templateService.importerGrilleJson(1L, "{\"nom\":\"test\"}"))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
         }
     }
 }

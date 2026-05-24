@@ -8,6 +8,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -42,6 +44,9 @@ class StationServiceImplTest {
 
     @Mock
     private ExamenRepository examenRepository;
+
+    @Mock
+    private MatiereAccessChecker matiereAccessChecker;
 
     @InjectMocks
     private StationServiceImpl stationService;
@@ -156,7 +161,7 @@ class StationServiceImplTest {
         @DisplayName("Doit retourner les stations triées par ordre")
         void listerParExamen_devraitRetournerStations() {
             Page<Station> page = new PageImpl<>(List.of(station));
-            when(examenRepository.existsById(1L)).thenReturn(true);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
             when(stationRepository.findByExamenIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
                     .thenReturn(page);
 
@@ -168,7 +173,7 @@ class StationServiceImplTest {
         @Test
         @DisplayName("Doit lever ResourceNotFoundException si examen introuvable")
         void listerParExamen_devraitLeverExceptionSiExamenIntrouvable() {
-            when(examenRepository.existsById(99L)).thenReturn(false);
+            when(examenRepository.findById(99L)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> stationService.listerParExamen(99L, Pageable.unpaged()))
                     .isInstanceOf(ResourceNotFoundException.class);
@@ -355,6 +360,87 @@ class StationServiceImplTest {
 
             assertThatThrownBy(() -> stationService.supprimer(99L))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // ================================================================
+    // #96 — per-matiere authz: MatiereAccessChecker is consulted after
+    // every entity load and an out-of-scope caller is rejected with 403.
+    // ================================================================
+
+    @Nested
+    @DisplayName("MatiereAccessChecker enforcement (#96)")
+    class MatiereScopeEnforcement {
+
+        @Test
+        @DisplayName("ajouter() rejects when caller is out of scope")
+        void ajouter_outOfScope_devraitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.ajouter(1L, stationRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("listerParExamen() rejects when caller is out of scope")
+        void listerParExamen_outOfScope_devraitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.listerParExamen(1L, Pageable.unpaged()))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).findByExamenIdOrderByOrdreAsc(anyLong(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("trouverParId() rejects when caller is out of scope")
+        void trouverParId_outOfScope_devraitRefuser() {
+            when(stationRepository.findByIdWithGrille(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.trouverParId(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("modifier() rejects when caller is out of scope")
+        void modifier_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.modifier(1L, stationRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("affecterEvaluateurs() rejects when caller is out of scope")
+        void affecterEvaluateurs_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.affecterEvaluateurs(1L, List.of(7L)))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("supprimer() rejects when caller is out of scope")
+        void supprimer_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.supprimer(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).delete(any());
         }
     }
 }

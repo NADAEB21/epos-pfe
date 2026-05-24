@@ -36,6 +36,7 @@ public class GrilleTemplateController {
 
     @PostMapping("/templates/grilles")
     @Operation(summary = "Créer un template de grille manuellement")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<GrilleTemplateResponse>> creer(
             @Valid @RequestBody GrilleTemplateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -67,6 +68,7 @@ public class GrilleTemplateController {
 
     @DeleteMapping("/templates/grilles/{id}")
     @Operation(summary = "Supprimer un template")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
         templateService.supprimer(id);
         return ResponseEntity.ok(ApiResponse.ok("Template supprimé", null));

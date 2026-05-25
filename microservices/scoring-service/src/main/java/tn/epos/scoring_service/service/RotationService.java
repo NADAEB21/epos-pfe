@@ -30,6 +30,11 @@ public class RotationService {
         return rotationRepository.findByStudentGroupId(groupId);
     }
 
+    // Récupérer toutes les rotations d'une station (cross-service)
+    public List<Rotation> findByStation(Long stationId) {
+        return rotationRepository.findByStationId(stationId);
+    }
+
     // Créer une rotation
     public Rotation save(Rotation rotation) {
         return rotationRepository.save(rotation);
@@ -47,6 +52,7 @@ public class RotationService {
             rotation.setDebutCreneau(details.getDebutCreneau());
             rotation.setStatut(details.getStatut());
             rotation.setEvaluateurId(details.getEvaluateurId());
+            rotation.setStationId(details.getStationId());
             rotation.setStudentGroup(details.getStudentGroup());
             return rotationRepository.save(rotation);
         }).orElseThrow(() -> new ResourceNotFoundException("Rotation non trouvée avec l'id : " + id));

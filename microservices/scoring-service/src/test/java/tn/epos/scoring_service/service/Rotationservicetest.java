@@ -46,6 +46,7 @@ class RotationServiceTest {
         rotation = new Rotation();
         rotation.setId(1L);
         rotation.setEvaluateurId(3L);
+        rotation.setStationId(7L);
         rotation.setOrdrePassage(1);
         rotation.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 9, 0));
         rotation.setStatut(RotationStatus.EN_ATTENTE);
@@ -135,6 +136,33 @@ class RotationServiceTest {
     }
 
     @Nested
+    @DisplayName("findByStation()")
+    class FindByStation {
+
+        @Test
+        @DisplayName("Doit retourner les rotations d'une station donnée")
+        void findByStation_devraitRetournerRotationsDeLaStation() {
+            when(rotationRepository.findByStationId(7L)).thenReturn(List.of(rotation));
+
+            List<Rotation> result = rotationService.findByStation(7L);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getStationId()).isEqualTo(7L);
+            verify(rotationRepository, times(1)).findByStationId(7L);
+        }
+
+        @Test
+        @DisplayName("Doit retourner une liste vide si aucune rotation pour cette station")
+        void findByStation_devraitRetournerListeVide() {
+            when(rotationRepository.findByStationId(99L)).thenReturn(List.of());
+
+            List<Rotation> result = rotationService.findByStation(99L);
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("save()")
     class Save {
 
@@ -183,6 +211,7 @@ class RotationServiceTest {
             details.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 10, 0));
             details.setStatut(RotationStatus.EN_COURS);
             details.setEvaluateurId(5L);
+            details.setStationId(8L);
             details.setStudentGroup(nouveauGroupe);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
@@ -193,6 +222,7 @@ class RotationServiceTest {
             assertThat(result.getOrdrePassage()).isEqualTo(2);
             assertThat(result.getStatut()).isEqualTo(RotationStatus.EN_COURS);
             assertThat(result.getEvaluateurId()).isEqualTo(5L);
+            assertThat(result.getStationId()).isEqualTo(8L);
             assertThat(result.getStudentGroup().getId()).isEqualTo(2L);
             assertThat(result.getDebutCreneau()).isEqualTo(LocalDateTime.of(2024, 6, 15, 10, 0));
             verify(rotationRepository).save(any(Rotation.class));

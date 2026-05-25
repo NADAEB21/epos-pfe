@@ -57,6 +57,8 @@ class NotationControllerTest {
         notation.setTemps_additionnel(0);
         notation.setIs_synced(false);
         notation.setVerouillee(false);
+        notation.setStationId(7L);
+        notation.setGrilleId(11L);
     }
 
     // ─── GET /api/notations ───────────────────────────────────────────────────
@@ -140,6 +142,67 @@ class NotationControllerTest {
 
             mockMvc.perform(get("/api/notations/assignment/99"))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    // ─── GET /api/notations/station/{stationId} ───────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/notations/station/{stationId}")
+    class GetByStation {
+
+        @Test
+        @DisplayName("200 - Retourne les notations d'une station")
+        void getByStation_devraitRetourner200() throws Exception {
+            when(service.findByStation(7L)).thenReturn(List.of(notation));
+
+            mockMvc.perform(get("/api/notations/station/7"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(1))
+                    .andExpect(jsonPath("$[0].stationId").value(7))
+                    .andExpect(jsonPath("$[0].score_final").value(17.5));
+
+            verify(service, times(1)).findByStation(7L);
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide si aucune notation pour cette station")
+        void getByStation_devraitRetournerListeVide() throws Exception {
+            when(service.findByStation(99L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/notations/station/99"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isEmpty());
+        }
+    }
+
+    // ─── GET /api/notations/grille/{grilleId} ─────────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/notations/grille/{grilleId}")
+    class GetByGrille {
+
+        @Test
+        @DisplayName("200 - Retourne les notations d'une grille")
+        void getByGrille_devraitRetourner200() throws Exception {
+            when(service.findByGrille(11L)).thenReturn(List.of(notation));
+
+            mockMvc.perform(get("/api/notations/grille/11"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(1))
+                    .andExpect(jsonPath("$[0].grilleId").value(11));
+
+            verify(service, times(1)).findByGrille(11L);
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide si aucune notation pour cette grille")
+        void getByGrille_devraitRetournerListeVide() throws Exception {
+            when(service.findByGrille(99L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/notations/grille/99"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isEmpty());
         }
     }
 

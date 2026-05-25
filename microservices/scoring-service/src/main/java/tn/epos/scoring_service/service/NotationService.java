@@ -31,6 +31,16 @@ public class NotationService {
         return repository.findByAssignmentId(assignmentId);
     }
 
+    // Récupérer les notations d'une station (cross-service)
+    public List<Notation> findByStation(Long stationId) {
+        return repository.findByStationId(stationId);
+    }
+
+    // Récupérer les notations d'une grille (cross-service)
+    public List<Notation> findByGrille(Long grilleId) {
+        return repository.findByGrilleId(grilleId);
+    }
+
     // Créer une notation
     public Notation save(Notation notation) {
         // Logique métier : si la notation est verrouillée, on ne devrait pas la modifier
@@ -51,6 +61,8 @@ public class NotationService {
             n.setIs_synced(details.getIs_synced());
             n.setVerouillee(details.getVerouillee());
             n.setTemps_additionnel(details.getTemps_additionnel());
+            n.setStationId(details.getStationId());
+            n.setGrilleId(details.getGrilleId());
             // Tu peux aussi mettre à jour l'affectation si nécessaire :
             // n.setAssignment(details.getAssignment());
             return repository.save(n);

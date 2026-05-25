@@ -39,6 +39,8 @@ class NotationServiceTest {
         notation.setTemps_additionnel(0);
         notation.setIs_synced(false);
         notation.setVerouillee(false);
+        notation.setStationId(7L);
+        notation.setGrilleId(11L);
         // timestamp géré par @PrePersist — pas de setter manuel nécessaire
     }
 
@@ -123,6 +125,60 @@ class NotationServiceTest {
     }
 
     @Nested
+    @DisplayName("findByStation()")
+    class FindByStation {
+
+        @Test
+        @DisplayName("Doit retourner les notations d'une station donnée")
+        void findByStation_devraitRetournerNotationsDeLaStation() {
+            when(repository.findByStationId(7L)).thenReturn(List.of(notation));
+
+            List<Notation> result = notationService.findByStation(7L);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getStationId()).isEqualTo(7L);
+            verify(repository, times(1)).findByStationId(7L);
+        }
+
+        @Test
+        @DisplayName("Doit retourner une liste vide si aucune notation pour cette station")
+        void findByStation_devraitRetournerListeVide() {
+            when(repository.findByStationId(99L)).thenReturn(List.of());
+
+            List<Notation> result = notationService.findByStation(99L);
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("findByGrille()")
+    class FindByGrille {
+
+        @Test
+        @DisplayName("Doit retourner les notations d'une grille donnée")
+        void findByGrille_devraitRetournerNotationsDeLaGrille() {
+            when(repository.findByGrilleId(11L)).thenReturn(List.of(notation));
+
+            List<Notation> result = notationService.findByGrille(11L);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getGrilleId()).isEqualTo(11L);
+            verify(repository, times(1)).findByGrilleId(11L);
+        }
+
+        @Test
+        @DisplayName("Doit retourner une liste vide si aucune notation pour cette grille")
+        void findByGrille_devraitRetournerListeVide() {
+            when(repository.findByGrilleId(99L)).thenReturn(List.of());
+
+            List<Notation> result = notationService.findByGrille(99L);
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("save()")
     class Save {
 
@@ -167,6 +223,8 @@ class NotationServiceTest {
             details.setIs_synced(true);
             details.setVerouillee(false);
             details.setTemps_additionnel(5);
+            details.setStationId(8L);
+            details.setGrilleId(12L);
 
             when(repository.findById(1L)).thenReturn(Optional.of(notation));
             when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -176,6 +234,8 @@ class NotationServiceTest {
             assertThat(result.getScore_final()).isEqualTo(20.0f);
             assertThat(result.getIs_synced()).isTrue();
             assertThat(result.getTemps_additionnel()).isEqualTo(5);
+            assertThat(result.getStationId()).isEqualTo(8L);
+            assertThat(result.getGrilleId()).isEqualTo(12L);
             verify(repository).save(any(Notation.class));
         }
 

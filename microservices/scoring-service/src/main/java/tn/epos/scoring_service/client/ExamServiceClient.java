@@ -3,6 +3,7 @@ package tn.epos.scoring_service.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,8 +44,14 @@ public class ExamServiceClient {
     private final WebClient webClient;
     private final ConcurrentHashMap<Long, Set<Long>> grilleItemsCache = new ConcurrentHashMap<>();
 
+    @Autowired
     public ExamServiceClient(@Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
-        this.webClient = WebClient.builder().baseUrl(baseUrl).build();
+        this(WebClient.builder().baseUrl(baseUrl).build());
+    }
+
+    /** Package-private constructor for tests — inject a stubbed WebClient. */
+    ExamServiceClient(WebClient webClient) {
+        this.webClient = webClient;
     }
 
     /**
@@ -115,8 +122,4 @@ public class ExamServiceClient {
                 "Validation des items impossible : aucun JWT dans le contexte d'appel");
     }
 
-    /** Test seam — allows tests to pre-populate the cache and skip the HTTP call. */
-    void primeCacheForTest(Long grilleId, Set<Long> itemIds) {
-        grilleItemsCache.put(grilleId, itemIds);
-    }
 }

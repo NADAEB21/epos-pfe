@@ -205,6 +205,34 @@ class NotationItemServiceTest {
         }
 
         @Test
+        @DisplayName("Doit lever ResourceNotFoundException si la notation parente est introuvable")
+        void save_devraitLeverSiNotationParenteIntrouvable() {
+            when(notationRepository.findById(5L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> notationItemService.save(item))
+                    .isInstanceOf(tn.epos.common.exception.ResourceNotFoundException.class)
+                    .hasMessageContaining("Notation parente introuvable")
+                    .hasMessageContaining("5");
+
+            verify(examServiceClient, never()).getItemIdsForGrille(any());
+            verify(repository, never()).save(any(NotationItem.class));
+        }
+
+        @Test
+        @DisplayName("Doit rejeter si item_id est null malgré une grille valide")
+        void save_devraitRejeterSiItemIdNull() {
+            item.setItem_id(null);
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+
+            assertThatThrownBy(() -> notationItemService.save(item))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("item_id est requis");
+
+            verify(examServiceClient, never()).getItemIdsForGrille(any());
+            verify(repository, never()).save(any(NotationItem.class));
+        }
+
+        @Test
         @DisplayName("Doit ignorer la validation si l'item n'a pas de référence notation")
         void save_devraitIgnorerSiNotationNull() {
             item.setNotation(null);

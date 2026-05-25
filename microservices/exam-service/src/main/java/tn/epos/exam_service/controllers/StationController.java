@@ -10,7 +10,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.StationRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.PageResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.services.StationService;

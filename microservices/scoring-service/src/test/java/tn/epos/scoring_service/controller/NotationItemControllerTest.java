@@ -15,7 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.NotationItem;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.NotationItemService;
 
 import java.util.List;

@@ -12,7 +12,7 @@ import org.springframework.data.web.PageableDefault;
 import tn.epos.exam_service.dto.response.PageResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.ExamenRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.services.ExamenService;

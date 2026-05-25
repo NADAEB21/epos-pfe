@@ -1,0 +1,18 @@
+# Normalize line endings: store everything as LF in the repo, let Git
+# convert to native on checkout where it matters. Stops Windows + Linux
+# contributors from generating phantom whole-file diffs whenever a tool
+# (sed, IDE, formatter) flips line endings. One-time normalization was
+# applied as part of #68; from here on, the index is authoritative.
+
+* text=auto eol=lf
+
+# Treat known binary types as binary (don't touch them)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.jar binary
+*.class binary

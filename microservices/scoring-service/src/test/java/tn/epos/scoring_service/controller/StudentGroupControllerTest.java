@@ -16,7 +16,7 @@ import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.StudentGroupService;
 
 import java.util.List;

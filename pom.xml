@@ -29,13 +29,33 @@
     </properties>
 
     <!-- Gestion des modules : Maven sait maintenant ou chercher tes services -->
+    <!-- epos-common is listed first so it builds before any service that
+         depends on it (#68 — shared ApiResponse / converter / exceptions). -->
     <modules>
+        <module>microservices/epos-common</module>
         <module>microservices/auth-service</module>
         <module>microservices/discovery-server</module>
         <module>microservices/api-gateway</module>
         <module>microservices/exam-service</module>
         <module>microservices/scoring-service</module>
     </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>tn.epos</groupId>
+                <artifactId>epos-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>
@@ -57,16 +77,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-</project>
+</project>

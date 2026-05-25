@@ -1,9 +1,9 @@
 # ADR 0004: Unified `ApiResponse` envelope across services
 
-- **Date:** 2026-05-20
-- **Status:** Accepted
+- **Date:** 2026-05-20 (option 3 realized 2026-05-25)
+- **Status:** Accepted (option 3 implemented — see Update below)
 - **Deciders:** Nada (lead architect), Feten, Aziz
-- **Related:** issue #61, ADR-0003 (API contract codegen), PR #54 (shared-CORS-helper discussion)
+- **Related:** issue #61, issue #68 (option 3 follow-up), ADR-0003 (API contract codegen), PR #54 (shared-CORS-helper discussion)
 
 ## Context
 
@@ -59,3 +59,16 @@ Standardize on the **auth/scoring shape** (issue #61 option 1):
   the `epos-common` module lands. The follow-up issue exists to close that gap.
 - Dropping `timestamp` is a wire change for any exam-service client that read it; no such
   client exists yet (frontend not started), so the cost is zero today.
+
+## Update — 2026-05-25 (option 3 realized via #68)
+
+The `epos-common` Maven module now exists at `microservices/epos-common/`. The
+canonical `ApiResponse<T>` lives at `tn.epos.common.dto.ApiResponse`; auth/exam/
+scoring all import it and have deleted their local copies. Re-drift is now
+*structurally* prevented — a change to the envelope shape happens in one place.
+
+The same PR also folded in the other duplicated cross-service classes that had
+accumulated since this ADR landed: `ScopedAuthoritiesConverter` (exam + scoring,
+from #58/#46) and the `BusinessException` / `ResourceNotFoundException` pair
+(exam + scoring, from #63/#77). The `epos-common` module is now the home for
+all genuinely cross-cutting types.

@@ -18,7 +18,7 @@ import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.RotationService;
 
 import java.time.LocalDateTime;

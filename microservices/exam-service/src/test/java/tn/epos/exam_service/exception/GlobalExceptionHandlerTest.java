@@ -12,7 +12,9 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 
 import java.util.Map;
 

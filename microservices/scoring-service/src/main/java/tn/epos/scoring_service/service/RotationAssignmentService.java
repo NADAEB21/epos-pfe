@@ -3,7 +3,7 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.entities.RotationAssignment;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 
 import java.util.List;
@@ -58,4 +58,4 @@ public class RotationAssignmentService {
         a.setPresenceConfirmee(present);
         return repository.save(a);
     }
-}
+}

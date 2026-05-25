@@ -13,7 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import tn.epos.exam_service.dto.request.GrilleTemplateRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.ExamenExportResponse;
 import tn.epos.exam_service.dto.response.GrilleTemplateResponse;
 import tn.epos.exam_service.services.GrilleTemplateService;
@@ -125,7 +125,7 @@ public class GrilleTemplateController {
             @RequestParam("fichier") MultipartFile fichier) throws IOException {
 
         if (fichier.isEmpty()) {
-            throw new tn.epos.exam_service.exception.BusinessException("Le fichier est vide");
+            throw new tn.epos.common.exception.BusinessException("Le fichier est vide");
         }
         String json = new String(fichier.getBytes(), StandardCharsets.UTF_8);
         templateService.importerGrilleJson(stationId, json);

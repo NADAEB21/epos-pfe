@@ -23,9 +23,9 @@ import tn.epos.exam_service.dto.response.ExamenExportResponse;
 import tn.epos.exam_service.dto.response.GrilleTemplateResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 import tn.epos.exam_service.enums.TypeItem;
-import tn.epos.exam_service.exception.BusinessException;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.GrilleTemplateService;
 
 import java.time.LocalDate;

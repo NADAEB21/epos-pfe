@@ -1,4 +1,4 @@
-package tn.epos.scoring_service.config;
+package tn.epos.common.security;
 
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.core.GrantedAuthority;
@@ -19,7 +19,7 @@ import java.util.Set;
  * {@code JwtService.generateAccessToken}). Spring's {@code hasRole('X')} matches
  * the authority {@code ROLE_X} <em>exactly</em>, so a scoped authority never
  * satisfies {@code hasRole} — every RESPONSABLE_MATIERE user was locked out of
- * scoring-service with a 403 (issue #46).
+ * resource servers with a 403 (issues #58 and #46).
  *
  * <p>For each claim entry containing {@code ':'}, this converter grants BOTH:
  * <ul>
@@ -30,9 +30,8 @@ import java.util.Set;
  * </ul>
  * Global authorities (no {@code ':'}) pass through unchanged.
  *
- * <p>Twin of {@code tn.epos.exam_service.config.ScopedAuthoritiesConverter}
- * (issue #58). The two copies should be folded into the shared {@code epos-common}
- * module when it lands — see issue #68.
+ * <p>Extracted into {@code epos-common} as part of #68 (option 3 of #61).
+ * Previously duplicated in exam-service and scoring-service.
  */
 public final class ScopedAuthoritiesConverter
         implements Converter<Jwt, Collection<GrantedAuthority>> {

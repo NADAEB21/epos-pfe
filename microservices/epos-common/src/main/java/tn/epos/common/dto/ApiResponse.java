@@ -1,9 +1,13 @@
-package tn.epos.auth_service.dto;
+package tn.epos.common.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
+/**
+ * Unified HTTP-response envelope shared by every EPOS service (#61).
+ * Extracted into {@code epos-common} as option 3 of #68 — see ADR 0004.
+ */
 @Getter
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)

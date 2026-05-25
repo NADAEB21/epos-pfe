@@ -3,7 +3,7 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.entities.Rotation;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.util.List;
@@ -51,4 +51,4 @@ public class RotationService {
             return rotationRepository.save(rotation);
         }).orElseThrow(() -> new ResourceNotFoundException("Rotation non trouvée avec l'id : " + id));
     }
-}
+}

@@ -19,8 +19,8 @@ import tn.epos.exam_service.entities.*;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.enums.TypeItem;
 import tn.epos.exam_service.enums.TypeStation;
-import tn.epos.exam_service.exception.BusinessException;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.*;
 import tn.epos.exam_service.services.impl.GrilleTemplateServiceImpl;
 

@@ -6,7 +6,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import tn.epos.auth_service.dto.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.auth_service.dto.MatiereResponse;
 import tn.epos.auth_service.repository.MatiereRepository;
 

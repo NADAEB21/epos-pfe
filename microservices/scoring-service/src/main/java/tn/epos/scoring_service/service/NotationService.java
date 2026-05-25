@@ -3,8 +3,8 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.entities.Notation;
-import tn.epos.scoring_service.exception.BusinessException;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.INotationRepository;
 
 import java.util.List;
@@ -64,4 +64,4 @@ public class NotationService {
         n.setVerouillee(true);
         return repository.save(n);
     }
-}
+}

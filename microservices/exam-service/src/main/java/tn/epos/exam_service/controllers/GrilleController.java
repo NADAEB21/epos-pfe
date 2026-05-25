@@ -11,7 +11,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 import tn.epos.exam_service.dto.response.PageResponse;

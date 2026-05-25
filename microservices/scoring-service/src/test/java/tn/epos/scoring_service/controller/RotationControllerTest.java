@@ -60,6 +60,7 @@ class RotationControllerTest {
         rotation = new Rotation();
         rotation.setId(1L);
         rotation.setEvaluateurId(3L);
+        rotation.setStationId(7L);
         rotation.setOrdrePassage(1);
         rotation.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 9, 0));
         rotation.setStatut(RotationStatus.EN_ATTENTE);
@@ -149,6 +150,36 @@ class RotationControllerTest {
             when(rotationService.findByGroup(99L)).thenReturn(List.of());
 
             mockMvc.perform(get("/api/rotations/group/99"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isEmpty());
+        }
+    }
+
+    // ─── GET /api/rotations/station/{stationId} ───────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/rotations/station/{stationId}")
+    class GetByStation {
+
+        @Test
+        @DisplayName("200 - Retourne les rotations d'une station")
+        void getByStation_devraitRetourner200() throws Exception {
+            when(rotationService.findByStation(7L)).thenReturn(List.of(rotation));
+
+            mockMvc.perform(get("/api/rotations/station/7"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(1))
+                    .andExpect(jsonPath("$[0].stationId").value(7));
+
+            verify(rotationService, times(1)).findByStation(7L);
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide si aucune rotation pour cette station")
+        void getByStation_devraitRetournerListeVide() throws Exception {
+            when(rotationService.findByStation(99L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/rotations/station/99"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$").isEmpty());
         }

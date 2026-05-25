@@ -12,6 +12,9 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
     // Trouver les rotations d'un groupe spécifique
     List<Rotation> findByStudentGroupId(Long groupId);
 
+    // Trouver les rotations associées à une station (cross-service)
+    List<Rotation> findByStationId(Long stationId);
+
     // Trouver toutes les rotations par ordre de passage
     List<Rotation> findAllByOrderByOrdrePassageAsc();
 }

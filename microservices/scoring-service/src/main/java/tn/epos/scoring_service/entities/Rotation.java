@@ -19,6 +19,7 @@ public class Rotation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private Long evaluateurId; // clé étrangère vers un utilisateur/examinateur
+    private Long stationId;    // FK logique vers exam_db.stations (cross-service, pas de FK SQL)
     private Integer ordrePassage;
     private LocalDateTime debutCreneau;
 

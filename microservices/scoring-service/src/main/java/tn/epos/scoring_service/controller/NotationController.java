@@ -41,6 +41,20 @@ public class NotationController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // GET : notations par station (cross-service)
+    @GetMapping("/station/{stationId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
+    public List<Notation> getByStation(@PathVariable Long stationId) {
+        return service.findByStation(stationId);
+    }
+
+    // GET : notations par grille (cross-service)
+    @GetMapping("/grille/{grilleId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
+    public List<Notation> getByGrille(@PathVariable Long grilleId) {
+        return service.findByGrille(grilleId);
+    }
+
     // POST : Créer une notation
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")

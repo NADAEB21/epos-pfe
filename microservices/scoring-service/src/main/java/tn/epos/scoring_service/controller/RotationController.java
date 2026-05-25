@@ -39,6 +39,13 @@ public class RotationController {
         return rotationService.findByGroup(groupId);
     }
 
+    // GET : rotations par station (cross-service)
+    @GetMapping("/station/{stationId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
+    public List<Rotation> getByStation(@PathVariable Long stationId) {
+        return rotationService.findByStation(stationId);
+    }
+
     // POST : créer une rotation
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")

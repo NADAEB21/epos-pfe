@@ -26,6 +26,11 @@ public class Notation {
 
     private Integer temps_additionnel;
 
+    // FK logiques vers exam_db (cross-service, pas de FK SQL). Permettent
+    // les agrégations BI par station / grille sans 3-table join.
+    private Long stationId;
+    private Long grilleId;
+
     private Boolean is_synced;
 
     private Boolean verouillee;

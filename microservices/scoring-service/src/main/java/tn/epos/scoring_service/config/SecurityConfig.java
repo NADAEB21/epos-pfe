@@ -10,16 +10,15 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tn.epos.common.security.HmacJwtDecoders;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
 
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -74,11 +73,10 @@ public class SecurityConfig {
 
     @Bean
     public JwtDecoder jwtDecoder() {
-        // HS256 + secret partagé avec auth-service (même algo que exam-service)
-        SecretKeySpec key = new SecretKeySpec(
-                jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"
-        );
-        return NimbusJwtDecoder.withSecretKey(key).build();
+        // Algorithm auto-selection by secret byte length — see HmacJwtDecoders
+        // and reference-jwt-algorithm-by-secret-length. Hard-coding HS256 used
+        // to reject any secret ≥48 bytes with "Another algorithm expected".
+        return HmacJwtDecoders.autoSelectByLength(jwtSecret);
     }
 
     @Bean

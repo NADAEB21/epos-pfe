@@ -9,15 +9,14 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tn.epos.common.security.HmacJwtDecoders;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
 
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -64,7 +63,7 @@ public class SecurityConfig {
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
-                                .decoder(jwtDecoder())                          // ← decoder HS256
+                                .decoder(jwtDecoder())
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter())
                         )
                 );
@@ -73,11 +72,12 @@ public class SecurityConfig {
 
     @Bean
     public JwtDecoder jwtDecoder() {
-        // Même algo que auth-service : HS256 + secret partagé
-        SecretKeySpec key = new SecretKeySpec(
-                jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"
-        );
-        return NimbusJwtDecoder.withSecretKey(key).build();
+        // auth-service signs with the HMAC algorithm JJWT picks for the secret's
+        // length (HS256/384/512 at ≥32/48/64 bytes). HmacJwtDecoders mirrors that
+        // selection so the resource server accepts whatever auth-service issues —
+        // hard-coding HS256 here used to reject any secret ≥48 bytes ("Another
+        // algorithm expected", see reference-jwt-algorithm-by-secret-length).
+        return HmacJwtDecoders.autoSelectByLength(jwtSecret);
     }
 
     @Bean

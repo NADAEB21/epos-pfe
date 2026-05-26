@@ -109,6 +109,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # Per-service CORS is deny-by-default — without this the service rejects
+      # any cross-origin browser request that the gateway has already approved
+      # (the Origin header is preserved through proxying). Must include every
+      # frontend origin the gateway accepts.
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -137,6 +142,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -165,6 +171,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
     depends_on:
       postgres-db:
         condition: service_healthy

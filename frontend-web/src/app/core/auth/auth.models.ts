@@ -6,7 +6,6 @@ export interface LoginRequest {
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
-  tokenType: string;
 }
 
 export interface RefreshRequest {
@@ -37,6 +36,6 @@ export interface CurrentUser {
 
 export interface ApiResponse<T> {
   success: boolean;
-  data: T | null;
+  data: T ;
   message: string | null;
 }

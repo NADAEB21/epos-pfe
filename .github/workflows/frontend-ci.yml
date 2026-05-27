@@ -18,7 +18,7 @@ jobs:
           cache-dependency-path: frontend-web/package-lock.json
       
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts # Added --ignore-scripts
         working-directory: frontend-web
 
       - name: Build

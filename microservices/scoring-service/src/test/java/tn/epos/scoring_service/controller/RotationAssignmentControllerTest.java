@@ -19,7 +19,6 @@ import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.entities.RotationStatus;
-import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.RotationAssignmentService;
 
 import java.time.LocalDateTime;

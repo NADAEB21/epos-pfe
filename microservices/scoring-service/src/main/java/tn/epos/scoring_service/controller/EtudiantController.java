@@ -39,22 +39,35 @@ public class EtudiantController {
                         .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
+
+
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<EtudiantDTO>> createEtudiant(@RequestBody Etudiant etudiant) {
-        EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(etudiant));
+    // FIX: Change parameter from Etudiant to EtudiantDTO
+    public ResponseEntity<ApiResponse<EtudiantDTO>> createEtudiant(@RequestBody EtudiantDTO dto) {
+        // Convert DTO to Entity for the service
+        Etudiant entity = new Etudiant();
+        entity.setNom(dto.nom());
+        entity.setPrenom(dto.prenom());
+        entity.setNumero_inscription(dto.numero_inscription());
+
+        EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Étudiant créé avec succès", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<EtudiantDTO>> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
+    // FIX: Change parameter from Etudiant to EtudiantDTO
+    public ResponseEntity<ApiResponse<EtudiantDTO>> updateEtudiant(@PathVariable Long id,
+            @RequestBody EtudiantDTO dto) {
         return etudiantService.getEtudiantById(id)
                 .map(existing -> {
-                    existing.setNom(etudiant.getNom());
-                    existing.setPrenom(etudiant.getPrenom());
-                    existing.setNumero_inscription(etudiant.getNumero_inscription());
+                    // Update only the fields we allow
+                    existing.setNom(dto.nom());
+                    existing.setPrenom(dto.prenom());
+                    existing.setNumero_inscription(dto.numero_inscription());
+
                     EtudiantDTO updated = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(existing));
                     return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", updated));
                 })

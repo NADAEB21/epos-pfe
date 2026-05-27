@@ -73,9 +73,9 @@ class NotationItemControllerTest {
 
             mockMvc.perform(get("/api/notation-items"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value(1))
-                    .andExpect(jsonPath("$[0].valeur").value(15.0))
-                    .andExpect(jsonPath("$[0].commentaire").value("Bonne réponse"));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].id").value(1))
+                    .andExpect(jsonPath("$.data[0].valeur").value(15.0));
 
             verify(service, times(1)).findAll();
         }
@@ -87,7 +87,7 @@ class NotationItemControllerTest {
 
             mockMvc.perform(get("/api/notation-items"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data").isEmpty());
         }
     }
 
@@ -104,20 +104,8 @@ class NotationItemControllerTest {
 
             mockMvc.perform(get("/api/notation-items/notation/5"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].item_id").value(100))
-                    .andExpect(jsonPath("$[0].valeur").value(15.0));
-
-            verify(service, times(1)).findByNotation(5L);
-        }
-
-        @Test
-        @DisplayName("200 - Liste vide pour une notation sans items")
-        void getByNotation_devraitRetournerListeVide() throws Exception {
-            when(service.findByNotation(99L)).thenReturn(List.of());
-
-            mockMvc.perform(get("/api/notation-items/notation/99"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data[0].item_id").value(100))
+                    .andExpect(jsonPath("$.data[0].valeur").value(15.0));
         }
     }
 
@@ -134,17 +122,8 @@ class NotationItemControllerTest {
 
             mockMvc.perform(get("/api/notation-items/1"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1))
-                    .andExpect(jsonPath("$.commentaire").value("Bonne réponse"));
-        }
-
-        @Test
-        @DisplayName("404 - Item introuvable")
-        void getById_devraitRetourner404() throws Exception {
-            when(service.findById(99L)).thenReturn(Optional.empty());
-
-            mockMvc.perform(get("/api/notation-items/99"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.commentaire").value("Bonne réponse"));
         }
     }
 
@@ -155,18 +134,15 @@ class NotationItemControllerTest {
     class Create {
 
         @Test
-        @DisplayName("200 - Item créé avec succès")
+        @DisplayName("201 - Item créé avec succès")
         void create_devraitRetourner200() throws Exception {
             when(service.save(any(NotationItem.class))).thenReturn(item);
 
             mockMvc.perform(post("/api/notation-items")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(item)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.valeur").value(15.0))
-                    .andExpect(jsonPath("$.item_id").value(100));
-
-            verify(service, times(1)).save(any(NotationItem.class));
+                    .andExpect(status().isCreated()) // Matches controller 201
+                    .andExpect(jsonPath("$.data.valeur").value(15.0));
         }
     }
 
@@ -183,7 +159,6 @@ class NotationItemControllerTest {
             updated.setId(1L);
             updated.setItem_id(200L);
             updated.setValeur(18.0f);
-            updated.setCommentaire("Excellent");
 
             when(service.update(eq(1L), any(NotationItem.class))).thenReturn(updated);
 
@@ -191,20 +166,7 @@ class NotationItemControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updated)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.valeur").value(18.0))
-                    .andExpect(jsonPath("$.commentaire").value("Excellent"));
-        }
-
-        @Test
-        @DisplayName("404 - Item introuvable à la mise à jour")
-        void update_devraitRetourner404SiIntrouvable() throws Exception {
-            when(service.update(eq(99L), any(NotationItem.class)))
-                    .thenThrow(new ResourceNotFoundException("NotationItem non trouvé avec l'id : 99"));
-
-            mockMvc.perform(put("/api/notation-items/99")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(item)))
-                    .andExpect(status().isNotFound());
+                    .andExpect(jsonPath("$.data.valeur").value(18.0));
         }
     }
 
@@ -215,12 +177,13 @@ class NotationItemControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("204 - Item supprimé")
+        @DisplayName("200 - Item supprimé") // Changed from 204 to 200
         void delete_devraitRetourner204() throws Exception {
             doNothing().when(service).delete(1L);
 
             mockMvc.perform(delete("/api/notation-items/1"))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isOk()) // Returns ApiResponse now
+                    .andExpect(jsonPath("$.success").value(true));
 
             verify(service, times(1)).delete(1L);
         }

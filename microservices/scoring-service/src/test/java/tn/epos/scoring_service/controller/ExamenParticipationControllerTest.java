@@ -81,10 +81,11 @@ class ExamenParticipationControllerTest {
 
             mockMvc.perform(get("/api/participations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value(1))
-                    .andExpect(jsonPath("$[0].examen_id").value(10))
-                    .andExpect(jsonPath("$[0].num_echantillon").value("ECH-001"))
-                    .andExpect(jsonPath("$[0].est_present").value(true));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].id").value(1))
+                    .andExpect(jsonPath("$.data[0].examen_id").value(10))
+                    .andExpect(jsonPath("$.data[0].num_echantillon").value("ECH-001"))
+                    .andExpect(jsonPath("$.data[0].est_present").value(true));
 
             verify(participationService, times(1)).getAll();
         }
@@ -96,7 +97,7 @@ class ExamenParticipationControllerTest {
 
             mockMvc.perform(get("/api/participations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data").isEmpty());
         }
     }
 
@@ -113,8 +114,9 @@ class ExamenParticipationControllerTest {
 
             mockMvc.perform(get("/api/participations/1"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1))
-                    .andExpect(jsonPath("$.note").value(15.5));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.note").value(15.5));
         }
 
         @Test
@@ -123,7 +125,8 @@ class ExamenParticipationControllerTest {
             when(participationService.getById(99L)).thenReturn(Optional.empty());
 
             mockMvc.perform(get("/api/participations/99"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 
@@ -134,16 +137,17 @@ class ExamenParticipationControllerTest {
     class Create {
 
         @Test
-        @DisplayName("200 - Participation créée avec succès")
+        @DisplayName("201 - Participation créée avec succès")
         void create_devraitRetourner200() throws Exception {
             when(participationService.save(any(ExamenParticipation.class))).thenReturn(participation);
 
             mockMvc.perform(post("/api/participations")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(participation)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.examen_id").value(10))
-                    .andExpect(jsonPath("$.num_echantillon").value("ECH-001"));
+                    .andExpect(status().isCreated()) // Matches HttpStatus.CREATED
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.examen_id").value(10))
+                    .andExpect(jsonPath("$.data.num_echantillon").value("ECH-001"));
 
             verify(participationService, times(1)).save(any(ExamenParticipation.class));
         }
@@ -170,7 +174,8 @@ class ExamenParticipationControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updated)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.note").value(18.0));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.note").value(18.0));
         }
 
         @Test
@@ -192,13 +197,13 @@ class ExamenParticipationControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("204 - Participation supprimée")
+        @DisplayName("200 - Participation supprimée")
         void delete_devraitRetourner204() throws Exception {
             when(participationService.getById(1L)).thenReturn(Optional.of(participation));
             doNothing().when(participationService).delete(1L);
 
             mockMvc.perform(delete("/api/participations/1"))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isOk()); // Returns 200 with success wrapper
 
             verify(participationService, times(1)).delete(1L);
         }

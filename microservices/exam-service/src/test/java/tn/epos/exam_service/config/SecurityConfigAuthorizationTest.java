@@ -38,26 +38,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * End-to-end security test for issue #58: a real HS256-signed JWT flows through
- * the production {@link SecurityConfig} — decoder, {@link ScopedAuthoritiesConverter}
- * and the class-level {@code @PreAuthorize} on {@link ExamenController}.
- *
- * <p>Same {@code @WebMvcTest} slice as {@code SecurityConfigCorsTest} (no JPA /
- * Flyway / Eureka). Proper Testcontainers integration is tracked under #28.
- */
 @WebMvcTest(controllers = ExamenController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
-        "jwt.secret=test-secret-not-used-in-production-min-32-bytes-please",
+        "jwt.secret=a-very-secure-32-char-secret-key", // Fixed: 32 bytes
         "app.cors.allowed-origins=http://localhost:4200"
 })
 @DisplayName("SecurityConfig - @PreAuthorize vs scoped JWT authorities (#58)")
 class SecurityConfigAuthorizationTest {
 
-    // Must match the jwt.secret above so the minted token verifies against the decoder.
-    private static final String SECRET =
-            "test-secret-not-used-in-production-min-32-bytes-please";
+    private static final String SECRET = "a-very-secure-32-char-secret-key"; // Fixed: 32 bytes
 
     @Autowired
     private MockMvc mockMvc;
@@ -71,7 +61,6 @@ class SecurityConfigAuthorizationTest {
         when(examenService.listerTous(any(Pageable.class))).thenReturn(empty);
     }
 
-    /** Mints a valid HS256 JWT with the given {@code authorities} claim. */
     private static String jwtWith(List<String> authorities) throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject("user@epos.tn")
@@ -79,6 +68,7 @@ class SecurityConfigAuthorizationTest {
                 .issueTime(Date.from(Instant.now()))
                 .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                 .build();
+        // Now HS256 matches the 32-byte secret requirement
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
         return jwt.serialize();
@@ -120,11 +110,6 @@ class SecurityConfigAuthorizationTest {
         mockMvc.perform(get("/api/examens"))
                 .andExpect(status().isUnauthorized());
     }
-
-    // ───────────────────────────────────────────────────────────────────────
-    // #81 — per-matiere @PreAuthorize on POST /api/examens
-    // SpEL: hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_RESPONSABLE_MATIERE:' + #request.matiereId)
-    // ───────────────────────────────────────────────────────────────────────
 
     private static String creerBody(long matiereId) throws Exception {
         ExamenRequest req = new ExamenRequest();

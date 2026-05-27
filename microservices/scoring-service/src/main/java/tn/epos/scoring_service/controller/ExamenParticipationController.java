@@ -5,7 +5,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import tn.epos.common.dto.ApiResponse; // Added import
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 
@@ -15,40 +16,49 @@ import java.util.List;
 @RequestMapping("/api/participations")
 public class ExamenParticipationController {
 
+    private static final String NOT_FOUND_MSG = "Participation non trouvée";
+
     @Autowired
     private ExamenParticipationService participationService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<ExamenParticipation>>> getAllParticipations() {
-        return ResponseEntity.ok(ApiResponse.ok(participationService.getAll()));
+    public ResponseEntity<ApiResponse<List<ParticipationDTO>>> getAllParticipations() {
+        List<ParticipationDTO> dtos = participationService.getAll().stream()
+                .map(ParticipationDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<ExamenParticipation>> getById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<ParticipationDTO>> getById(@PathVariable Long id) {
         return participationService.getById(id)
-                .map(p -> ResponseEntity.ok(ApiResponse.ok(p)))
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Participation non trouvée")));
+                .map(p -> ResponseEntity.ok(ApiResponse.ok(ParticipationDTO.fromEntity(p))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<ExamenParticipation>> create(@RequestBody ExamenParticipation participation) {
+    public ResponseEntity<ApiResponse<ParticipationDTO>> create(@RequestBody ExamenParticipation participation) {
+        ParticipationDTO saved = ParticipationDTO.fromEntity(participationService.save(participation));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Participation enregistrée", participationService.save(participation)));
+                .body(ApiResponse.ok("Participation enregistrée", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<ExamenParticipation>> update(@PathVariable Long id, @RequestBody ExamenParticipation participation) {
+    public ResponseEntity<ApiResponse<ParticipationDTO>> update(@PathVariable Long id, @RequestBody ExamenParticipation participation) {
         return participationService.getById(id)
                 .map(existing -> {
                     existing.setEtudiant(participation.getEtudiant());
                     existing.setNote(participation.getNote());
-                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour", participationService.save(existing)));
+                    ParticipationDTO updated = ParticipationDTO.fromEntity(participationService.save(existing));
+                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour", updated));
                 })
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Participation non trouvée")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @DeleteMapping("/{id}")
@@ -58,6 +68,7 @@ public class ExamenParticipationController {
             participationService.delete(id);
             return ResponseEntity.ok(ApiResponse.ok("Participation supprimée"));
         }
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Participation non trouvée"));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(NOT_FOUND_MSG));
     }
 }

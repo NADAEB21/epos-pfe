@@ -5,7 +5,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import tn.epos.common.dto.ApiResponse; // Added import
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.EtudiantDTO; // New Import
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
 
@@ -15,42 +16,50 @@ import java.util.List;
 @RequestMapping("/api/etudiants")
 public class EtudiantController {
 
+    private static final String NOT_FOUND_MSG = "Étudiant non trouvé";
+
     @Autowired
     private EtudiantService etudiantService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<Etudiant>>> getAllEtudiants() {
-        return ResponseEntity.ok(ApiResponse.ok(etudiantService.getAllEtudiants()));
+    public ResponseEntity<ApiResponse<List<EtudiantDTO>>> getAllEtudiants() {
+        List<EtudiantDTO> dtos = etudiantService.getAllEtudiants().stream()
+                .map(EtudiantDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<Etudiant>> getEtudiantById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<EtudiantDTO>> getEtudiantById(@PathVariable Long id) {
         return etudiantService.getEtudiantById(id)
-                .map(etudiant -> ResponseEntity.ok(ApiResponse.ok(etudiant)))
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé")));
+                .map(etudiant -> ResponseEntity.ok(ApiResponse.ok(EtudiantDTO.fromEntity(etudiant))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Etudiant>> createEtudiant(@RequestBody Etudiant etudiant) {
-        Etudiant saved = etudiantService.saveEtudiant(etudiant);
+    public ResponseEntity<ApiResponse<EtudiantDTO>> createEtudiant(@RequestBody Etudiant etudiant) {
+        EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(etudiant));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Étudiant créé avec succès", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Etudiant>> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
+    public ResponseEntity<ApiResponse<EtudiantDTO>> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
         return etudiantService.getEtudiantById(id)
                 .map(existing -> {
                     existing.setNom(etudiant.getNom());
                     existing.setPrenom(etudiant.getPrenom());
                     existing.setNumero_inscription(etudiant.getNumero_inscription());
-                    return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", etudiantService.saveEtudiant(existing)));
+                    EtudiantDTO updated = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(existing));
+                    return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", updated));
                 })
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @DeleteMapping("/{id}")
@@ -60,6 +69,7 @@ public class EtudiantController {
             etudiantService.deleteEtudiant(id);
             return ResponseEntity.ok(ApiResponse.ok("Étudiant supprimé avec succès"));
         }
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé"));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(NOT_FOUND_MSG));
     }
 }

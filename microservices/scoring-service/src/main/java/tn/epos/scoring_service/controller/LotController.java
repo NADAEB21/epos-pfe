@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.LotDTO; // New Import
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.service.LotService;
 
@@ -15,34 +16,42 @@ import java.util.List;
 @RequestMapping("/api/lots")
 public class LotController {
 
+    private static final String NOT_FOUND_MSG = "Lot non trouvé";
+
     @Autowired
     private LotService lotService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<Lot>>> getAllLots() {
-        return ResponseEntity.ok(ApiResponse.ok(lotService.findAll()));
+    public ResponseEntity<ApiResponse<List<LotDTO>>> getAllLots() {
+        List<LotDTO> dtos = lotService.findAll().stream()
+                .map(LotDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<Lot>> getLotById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<LotDTO>> getLotById(@PathVariable Long id) {
         return lotService.findById(id)
-                .map(lot -> ResponseEntity.ok(ApiResponse.ok(lot)))
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Lot non trouvé")));
+                .map(lot -> ResponseEntity.ok(ApiResponse.ok(LotDTO.fromEntity(lot))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Lot>> createLot(@RequestBody Lot lot) {
+    public ResponseEntity<ApiResponse<LotDTO>> createLot(@RequestBody Lot lot) {
+        LotDTO saved = LotDTO.fromEntity(lotService.save(lot));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Lot créé avec succès", lotService.save(lot)));
+                .body(ApiResponse.ok("Lot créé avec succès", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Lot>> updateLot(@PathVariable Long id, @RequestBody Lot lotDetails) {
-        return ResponseEntity.ok(ApiResponse.ok("Lot mis à jour", lotService.update(id, lotDetails)));
+    public ResponseEntity<ApiResponse<LotDTO>> updateLot(@PathVariable Long id, @RequestBody Lot lotDetails) {
+        LotDTO updated = LotDTO.fromEntity(lotService.update(id, lotDetails));
+        return ResponseEntity.ok(ApiResponse.ok("Lot mis à jour", updated));
     }
 
     @DeleteMapping("/{id}")

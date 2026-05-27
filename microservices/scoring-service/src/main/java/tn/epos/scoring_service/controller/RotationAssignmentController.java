@@ -50,23 +50,33 @@ public class RotationAssignmentController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> create(@RequestBody RotationAssignment assignment) {
-        RotationAssignmentDTO saved = RotationAssignmentDTO.fromEntity(service.save(assignment));
+    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> create(@RequestBody RotationAssignmentDTO dto) {
+        RotationAssignment entity = new RotationAssignment();
+        entity.setPresenceConfirmee(dto.presenceConfirmee());
+        entity.setTempsAdditionnel(dto.tempsAdditionnel());
+
+        RotationAssignmentDTO saved = RotationAssignmentDTO.fromEntity(service.save(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Assignment créé avec succès", saved));
     }
 
     @PatchMapping("/{id}/presence")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> updatePresence(@PathVariable Long id, @RequestParam boolean present) {
+    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> updatePresence(@PathVariable Long id,
+            @RequestParam boolean present) {
         RotationAssignmentDTO updated = RotationAssignmentDTO.fromEntity(service.confirmerPresence(id, present));
         return ResponseEntity.ok(ApiResponse.ok("Présence mise à jour", updated));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> update(@PathVariable Long id, @RequestBody RotationAssignment details) {
-        RotationAssignmentDTO updated = RotationAssignmentDTO.fromEntity(service.update(id, details));
+    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> update(@PathVariable Long id,
+            @RequestBody RotationAssignmentDTO dto) {
+        RotationAssignment entity = new RotationAssignment();
+        entity.setPresenceConfirmee(dto.presenceConfirmee());
+        entity.setTempsAdditionnel(dto.tempsAdditionnel());
+
+        RotationAssignmentDTO updated = RotationAssignmentDTO.fromEntity(service.update(id, entity));
         return ResponseEntity.ok(ApiResponse.ok("Assignment modifié", updated));
     }
 

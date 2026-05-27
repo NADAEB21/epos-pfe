@@ -59,16 +59,32 @@ public class RotationController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationDTO>> create(@RequestBody Rotation rotation) {
-        RotationDTO saved = RotationDTO.fromEntity(rotationService.save(rotation));
+    public ResponseEntity<ApiResponse<RotationDTO>> create(@RequestBody RotationDTO dto) {
+        Rotation entity = new Rotation();
+        entity.setEvaluateurId(dto.evaluateurId());
+        entity.setStationId(dto.stationId());
+        entity.setOrdrePassage(dto.ordrePassage());
+        entity.setDebutCreneau(dto.debutCreneau());
+        entity.setStatut(dto.statut());
+        // Note: The service layer usually handles the linking of the StudentGroup via
+        // the ID in the DTO
+
+        RotationDTO saved = RotationDTO.fromEntity(rotationService.save(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Rotation créée", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationDTO>> update(@PathVariable Long id, @RequestBody Rotation details) {
-        RotationDTO updated = RotationDTO.fromEntity(rotationService.update(id, details));
+    public ResponseEntity<ApiResponse<RotationDTO>> update(@PathVariable Long id, @RequestBody RotationDTO dto) {
+        Rotation entity = new Rotation();
+        entity.setEvaluateurId(dto.evaluateurId());
+        entity.setStationId(dto.stationId());
+        entity.setOrdrePassage(dto.ordrePassage());
+        entity.setDebutCreneau(dto.debutCreneau());
+        entity.setStatut(dto.statut());
+
+        RotationDTO updated = RotationDTO.fromEntity(rotationService.update(id, entity));
         return ResponseEntity.ok(ApiResponse.ok("Rotation mise à jour", updated));
     }
 

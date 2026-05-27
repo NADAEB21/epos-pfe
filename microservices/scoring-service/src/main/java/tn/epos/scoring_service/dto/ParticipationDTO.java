@@ -8,8 +8,8 @@ public record ParticipationDTO(
     String num_echantillon,
     Float note,
     Boolean est_present,
-    Object etudiant, // Keep as Object or specific Student DTO if available
-    Object lot       // Keep as Object or specific Lot DTO if available
+    Long etudiantId, // Changed from Object to Long ID
+    Long lotId      // Changed from Object to Long ID
 ) {
     public static ParticipationDTO fromEntity(ExamenParticipation p) {
         if (p == null) return null;
@@ -19,8 +19,8 @@ public record ParticipationDTO(
             p.getNum_echantillon(),
             p.getNote(),
             p.getEst_present(),
-            p.getEtudiant(),
-            p.getLot()
+            p.getEtudiant() != null ? p.getEtudiant().getId() : null,
+            p.getLot() != null ? p.getLot().getId() : null
         );
     }
 }

@@ -39,26 +39,30 @@ public class ExamenParticipationController {
                         .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-    @PostMapping
+@PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<ParticipationDTO>> create(@RequestBody ExamenParticipation participation) {
-        ParticipationDTO saved = ParticipationDTO.fromEntity(participationService.save(participation));
+    public ResponseEntity<ApiResponse<ParticipationDTO>> create(@RequestBody ParticipationDTO dto) {
+        ExamenParticipation entity = new ExamenParticipation();
+        entity.setExamen_id(dto.examen_id());
+        entity.setNum_echantillon(dto.num_echantillon());
+        entity.setNote(dto.note());
+        entity.setEst_present(dto.est_present());
+        // Service handles looking up Etudiant/Lot by ID if needed, 
+        // or you can set them here if the service expects them.
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Participation enregistrée", saved));
+                .body(ApiResponse.ok("Participation enregistrée", ParticipationDTO.fromEntity(participationService.save(entity))));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<ParticipationDTO>> update(@PathVariable Long id, @RequestBody ExamenParticipation participation) {
+    public ResponseEntity<ApiResponse<ParticipationDTO>> update(@PathVariable Long id, @RequestBody ParticipationDTO dto) {
         return participationService.getById(id)
                 .map(existing -> {
-                    existing.setEtudiant(participation.getEtudiant());
-                    existing.setNote(participation.getNote());
-                    ParticipationDTO updated = ParticipationDTO.fromEntity(participationService.save(existing));
-                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour", updated));
+                    existing.setNote(dto.note());
+                    existing.setEst_present(dto.est_present());
+                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour", ParticipationDTO.fromEntity(participationService.save(existing))));
                 })
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error(NOT_FOUND_MSG)));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     @DeleteMapping("/{id}")

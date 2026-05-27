@@ -41,17 +41,26 @@ public class LotController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<LotDTO>> createLot(@RequestBody Lot lot) {
-        LotDTO saved = LotDTO.fromEntity(lotService.save(lot));
+    public ResponseEntity<ApiResponse<LotDTO>> createLot(@RequestBody LotDTO dto) {
+        Lot entity = new Lot();
+        entity.setNumeroLot(dto.numeroLot());
+        entity.setTailleLot(dto.tailleLot());
+        entity.setStatut(dto.statut());
+        entity.setEvaluateurId(dto.evaluateurId());
+        entity.setExamenId(dto.examenId());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Lot créé avec succès", saved));
+                .body(ApiResponse.ok("Lot créé avec succès", LotDTO.fromEntity(lotService.save(entity))));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<LotDTO>> updateLot(@PathVariable Long id, @RequestBody Lot lotDetails) {
-        LotDTO updated = LotDTO.fromEntity(lotService.update(id, lotDetails));
-        return ResponseEntity.ok(ApiResponse.ok("Lot mis à jour", updated));
+    public ResponseEntity<ApiResponse<LotDTO>> updateLot(@PathVariable Long id, @RequestBody LotDTO dto) {
+        Lot entity = new Lot();
+        entity.setNumeroLot(dto.numeroLot());
+        entity.setTailleLot(dto.tailleLot());
+        entity.setStatut(dto.statut());
+        // Pass to service update logic
+        return ResponseEntity.ok(ApiResponse.ok("Lot mis à jour", LotDTO.fromEntity(lotService.update(id, entity))));
     }
 
     @DeleteMapping("/{id}")

@@ -50,17 +50,22 @@ public class StudentGroupController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<StudentGroupDTO>> createGroup(@RequestBody StudentGroup group) {
-        StudentGroupDTO saved = StudentGroupDTO.fromEntity(studentGroupService.save(group));
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> createGroup(@RequestBody StudentGroupDTO dto) {
+        StudentGroup entity = new StudentGroup();
+        entity.setNumeroGroupe(dto.numeroGroupe());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Groupe créé avec succès", saved));
+                .body(ApiResponse.ok("Groupe créé avec succès",
+                        StudentGroupDTO.fromEntity(studentGroupService.save(entity))));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<StudentGroupDTO>> updateGroup(@PathVariable Long id, @RequestBody StudentGroup details) {
-        StudentGroupDTO updated = StudentGroupDTO.fromEntity(studentGroupService.update(id, details));
-        return ResponseEntity.ok(ApiResponse.ok("Groupe mis à jour", updated));
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> updateGroup(@PathVariable Long id,
+            @RequestBody StudentGroupDTO dto) {
+        StudentGroup entity = new StudentGroup();
+        entity.setNumeroGroupe(dto.numeroGroupe());
+        return ResponseEntity.ok(ApiResponse.ok("Groupe mis à jour",
+                StudentGroupDTO.fromEntity(studentGroupService.update(id, entity))));
     }
 
     @DeleteMapping("/{id}")

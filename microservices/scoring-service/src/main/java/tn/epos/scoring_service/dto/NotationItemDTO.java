@@ -16,7 +16,7 @@ public record NotationItemDTO(
             item.getItem_id(),
             item.getValeur(),
             item.getCommentaire(),
-            item.getNotation() != null ? item.getNotation().getId() : null
+            (item.getNotation() != null) ? item.getNotation().getId() : null
         );
     }
 }

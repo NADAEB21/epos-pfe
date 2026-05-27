@@ -68,16 +68,28 @@ public class NotationController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<NotationDTO>> create(@RequestBody Notation notation) {
-        NotationDTO saved = NotationDTO.fromEntity(service.save(notation));
+    public ResponseEntity<ApiResponse<NotationDTO>> create(@RequestBody NotationDTO dto) {
+        Notation entity = new Notation();
+        entity.setScore_final(dto.score_final());
+        entity.setTemps_additionnel(dto.temps_additionnel());
+        entity.setStationId(dto.stationId());
+        entity.setGrilleId(dto.grilleId());
+        entity.setVerouillee(false);
+
+        NotationDTO saved = NotationDTO.fromEntity(service.save(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Évaluation initialisée", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<NotationDTO>> update(@PathVariable Long id, @RequestBody Notation details) {
-        NotationDTO updated = NotationDTO.fromEntity(service.update(id, details));
+    public ResponseEntity<ApiResponse<NotationDTO>> update(@PathVariable Long id, @RequestBody NotationDTO dto) {
+        Notation updateData = new Notation();
+        updateData.setScore_final(dto.score_final());
+        updateData.setIs_synced(dto.is_synced());
+        updateData.setTemps_additionnel(dto.temps_additionnel());
+
+        NotationDTO updated = NotationDTO.fromEntity(service.update(id, updateData));
         return ResponseEntity.ok(ApiResponse.ok("Notation mise à jour", updated));
     }
 

@@ -9,18 +9,20 @@ public record NotationDTO(
     Boolean is_synced,
     Boolean verouillee,
     Long stationId,
-    Long grilleId
+    Long grilleId,
+    Long assignmentId       
 ) {
     public static NotationDTO fromEntity(Notation n) {
         if (n == null) return null;
         return new NotationDTO(
             n.getId(),
-            n.getScore_final(),
+            n.getScore_final(), 
             n.getTemps_additionnel(),
             n.getIs_synced(),
             n.getVerouillee(),
             n.getStationId(),
-            n.getGrilleId()
+            n.getGrilleId(),
+            (n.getAssignment() != null) ? n.getAssignment().getId() : null // Corrected getter
         );
     }
 }

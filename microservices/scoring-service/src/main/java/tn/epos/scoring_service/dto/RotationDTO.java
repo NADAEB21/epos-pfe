@@ -11,7 +11,7 @@ public record RotationDTO(
     Integer ordrePassage,
     LocalDateTime debutCreneau,
     RotationStatus statut,
-    Object studentGroup // Keep as Object or specific StudentGroupDTO
+    Long studentGroupId
 ) {
     public static RotationDTO fromEntity(Rotation r) {
         if (r == null) return null;
@@ -22,7 +22,7 @@ public record RotationDTO(
             r.getOrdrePassage(),
             r.getDebutCreneau(),
             r.getStatut(),
-            r.getStudentGroup()
+            (r.getStudentGroup() != null) ? r.getStudentGroup().getId() : null
         );
     }
 }

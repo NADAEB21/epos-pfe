@@ -6,8 +6,8 @@ public record RotationAssignmentDTO(
     Long id,
     Boolean presenceConfirmee,
     Integer tempsAdditionnel,
-    Object rotation,    // Keep as Object or specific Rotation DTO
-    Object participation // Keep as Object or specific Participation DTO
+    Long rotationId,
+    Long participationId
 ) {
     public static RotationAssignmentDTO fromEntity(RotationAssignment a) {
         if (a == null) return null;
@@ -15,8 +15,8 @@ public record RotationAssignmentDTO(
             a.getId(),
             a.getPresenceConfirmee(),
             a.getTempsAdditionnel(),
-            a.getRotation(),
-            a.getParticipation()
+            (a.getRotation() != null) ? a.getRotation().getId() : null,
+            (a.getParticipation() != null) ? a.getParticipation().getId() : null
         );
     }
 }

@@ -50,16 +50,26 @@ public class NotationItemController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<NotationItemDTO>> create(@RequestBody NotationItem item) {
-        NotationItemDTO saved = NotationItemDTO.fromEntity(service.save(item));
+    public ResponseEntity<ApiResponse<NotationItemDTO>> create(@RequestBody NotationItemDTO dto) {
+        NotationItem entity = new NotationItem();
+        entity.setItem_id(dto.item_id());
+        entity.setValeur(dto.valeur());
+        entity.setCommentaire(dto.commentaire());
+
+        NotationItemDTO saved = NotationItemDTO.fromEntity(service.save(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Note enregistrée pour le critère", saved));
+                .body(ApiResponse.ok("Note enregistrée", saved));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<NotationItemDTO>> update(@PathVariable Long id, @RequestBody NotationItem details) {
-        NotationItemDTO updated = NotationItemDTO.fromEntity(service.update(id, details));
+    public ResponseEntity<ApiResponse<NotationItemDTO>> update(@PathVariable Long id,
+            @RequestBody NotationItemDTO dto) {
+        NotationItem updateData = new NotationItem();
+        updateData.setValeur(dto.valeur());
+        updateData.setCommentaire(dto.commentaire());
+
+        NotationItemDTO updated = NotationItemDTO.fromEntity(service.update(id, updateData));
         return ResponseEntity.ok(ApiResponse.ok("Note modifiée", updated));
     }
 

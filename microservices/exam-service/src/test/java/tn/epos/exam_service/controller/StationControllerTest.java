@@ -26,7 +26,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import org.springframework.context.annotation.Import;
 import tn.epos.exam_service.config.TestSecurityConfig;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;

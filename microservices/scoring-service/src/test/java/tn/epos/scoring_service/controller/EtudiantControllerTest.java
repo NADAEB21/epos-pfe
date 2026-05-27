@@ -65,9 +65,10 @@ class EtudiantControllerTest {
 
             mockMvc.perform(get("/api/etudiants"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value(1))
-                    .andExpect(jsonPath("$[0].nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$[0].prenom").value("Mohamed"));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].id").value(1))
+                    .andExpect(jsonPath("$.data[0].nom").value("Ben Ali"))
+                    .andExpect(jsonPath("$.data[0].prenom").value("Mohamed"));
 
             verify(etudiantService, times(1)).getAllEtudiants();
         }
@@ -79,8 +80,8 @@ class EtudiantControllerTest {
 
             mockMvc.perform(get("/api/etudiants"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isArray())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.data").isEmpty());
         }
     }
 
@@ -97,9 +98,9 @@ class EtudiantControllerTest {
 
             mockMvc.perform(get("/api/etudiants/1"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1))
-                    .andExpect(jsonPath("$.nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$.numero_inscription").value("2024-001"));
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.nom").value("Ben Ali"))
+                    .andExpect(jsonPath("$.data.numero_inscription").value("2024-001"));
         }
 
         @Test
@@ -108,7 +109,8 @@ class EtudiantControllerTest {
             when(etudiantService.getEtudiantById(99L)).thenReturn(Optional.empty());
 
             mockMvc.perform(get("/api/etudiants/99"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 
@@ -119,16 +121,16 @@ class EtudiantControllerTest {
     class Create {
 
         @Test
-        @DisplayName("200 - Étudiant créé avec succès")
+        @DisplayName("201 - Étudiant créé avec succès")
         void create_devraitRetourner200() throws Exception {
             when(etudiantService.saveEtudiant(any(Etudiant.class))).thenReturn(etudiant);
 
             mockMvc.perform(post("/api/etudiants")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(etudiant)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$.prenom").value("Mohamed"));
+                    .andExpect(status().isCreated()) // Status is now 201 Created
+                    .andExpect(jsonPath("$.data.nom").value("Ben Ali"))
+                    .andExpect(jsonPath("$.data.prenom").value("Mohamed"));
 
             verify(etudiantService, times(1)).saveEtudiant(any(Etudiant.class));
         }
@@ -156,8 +158,8 @@ class EtudiantControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updated)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.nom").value("Ben Salah"))
-                    .andExpect(jsonPath("$.prenom").value("Ali"));
+                    .andExpect(jsonPath("$.data.nom").value("Ben Salah"))
+                    .andExpect(jsonPath("$.data.prenom").value("Ali"));
         }
 
         @Test
@@ -179,13 +181,13 @@ class EtudiantControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("204 - Étudiant supprimé")
+        @DisplayName("200 - Étudiant supprimé") // Changed from 204 to 200
         void delete_devraitRetourner204() throws Exception {
             when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
             doNothing().when(etudiantService).deleteEtudiant(1L);
 
             mockMvc.perform(delete("/api/etudiants/1"))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isOk()); // We return ApiResponse now
 
             verify(etudiantService, times(1)).deleteEtudiant(1L);
         }

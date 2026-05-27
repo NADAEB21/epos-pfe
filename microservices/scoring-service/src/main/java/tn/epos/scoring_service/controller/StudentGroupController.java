@@ -1,9 +1,12 @@
 package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.StudentGroupDTO; // New Import
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.service.StudentGroupService;
 
@@ -13,51 +16,62 @@ import java.util.List;
 @RequestMapping("/api/student-groups")
 public class StudentGroupController {
 
+    private static final String NOT_FOUND_MSG = "Groupe non trouvé";
+
     @Autowired
     private StudentGroupService studentGroupService;
 
-    // GET : tous les groupes
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<StudentGroup> getAllGroups() {
-        return studentGroupService.findAll();
+    public ResponseEntity<ApiResponse<List<StudentGroupDTO>>> getAllGroups() {
+        List<StudentGroupDTO> dtos = studentGroupService.findAll().stream()
+                .map(StudentGroupDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    // GET : groupe par ID
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<StudentGroup> getGroupById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> getGroupById(@PathVariable Long id) {
         return studentGroupService.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(group -> ResponseEntity.ok(ApiResponse.ok(StudentGroupDTO.fromEntity(group))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-    // GET : groupes par Lot
     @GetMapping("/lot/{lotId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<StudentGroup> getGroupsByLot(@PathVariable Long lotId) {
-        return studentGroupService.findByLotId(lotId);
+    public ResponseEntity<ApiResponse<List<StudentGroupDTO>>> getGroupsByLot(@PathVariable Long lotId) {
+        List<StudentGroupDTO> dtos = studentGroupService.findByLotId(lotId).stream()
+                .map(StudentGroupDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    // POST : créer un groupe
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public StudentGroup createGroup(@RequestBody StudentGroup group) {
-        return studentGroupService.save(group);
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> createGroup(@RequestBody StudentGroupDTO dto) {
+        StudentGroup entity = new StudentGroup();
+        entity.setNumeroGroupe(dto.numeroGroupe());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Groupe créé avec succès",
+                        StudentGroupDTO.fromEntity(studentGroupService.save(entity))));
     }
 
-    // PUT : modifier un groupe
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<StudentGroup> updateGroup(@PathVariable Long id, @RequestBody StudentGroup details) {
-        return ResponseEntity.ok(studentGroupService.update(id, details));
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> updateGroup(@PathVariable Long id,
+            @RequestBody StudentGroupDTO dto) {
+        StudentGroup entity = new StudentGroup();
+        entity.setNumeroGroupe(dto.numeroGroupe());
+        return ResponseEntity.ok(ApiResponse.ok("Groupe mis à jour",
+                StudentGroupDTO.fromEntity(studentGroupService.update(id, entity))));
     }
 
-    // DELETE : supprimer un groupe
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<Void> deleteGroup(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Void>> deleteGroup(@PathVariable Long id) {
         studentGroupService.delete(id);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("Groupe supprimé"));
     }
 }

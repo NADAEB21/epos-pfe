@@ -31,24 +31,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * #96 — standalone {@link GrilleTemplate} CRUD is SUPER_ADMIN-only.
- *
- * <p>Templates are a global library shared across matières; creating or
- * deleting one is not a per-matière action, so RESPONSABLE_MATIERE is
- * locked out of those two endpoints while keeping list/find open.
- */
 @WebMvcTest(controllers = GrilleTemplateController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
-        "jwt.secret=test-secret-not-used-in-production-min-32-bytes-please",
+        "jwt.secret=a-very-secure-32-char-secret-key", // Exactly 32 bytes for HS256
         "app.cors.allowed-origins=http://localhost:4200"
 })
 @DisplayName("GrilleTemplateController — SUPER_ADMIN-only template CRUD (#96)")
 class GrilleTemplateAuthorizationTest {
 
-    private static final String SECRET =
-            "test-secret-not-used-in-production-min-32-bytes-please";
+    // Must match the property above
+    private static final String SECRET = "a-very-secure-32-char-secret-key";
 
     @Autowired
     private MockMvc mockMvc;
@@ -63,6 +56,7 @@ class GrilleTemplateAuthorizationTest {
                 .issueTime(Date.from(Instant.now()))
                 .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                 .build();
+        // Now HS256 here matches the 32-byte secret expectation in HmacJwtDecoders
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
         return jwt.serialize();

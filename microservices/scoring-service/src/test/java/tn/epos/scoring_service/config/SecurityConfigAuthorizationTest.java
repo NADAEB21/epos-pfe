@@ -28,27 +28,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * End-to-end security test for issue #46 (scoring-service half): a real
- * HS256-signed JWT flows through the production {@link SecurityConfig} —
- * decoder, {@link ScopedAuthoritiesConverter} and the {@code @PreAuthorize}
- * annotations on {@link EtudiantController}.
- *
- * <p>Same {@code @WebMvcTest} slice as {@code SecurityConfigCorsTest} (no JPA /
- * Flyway / Eureka). Proper Testcontainers integration is tracked under #28.
- */
 @WebMvcTest(controllers = EtudiantController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
-        "jwt.secret=test-secret-not-used-in-production-min-32-bytes-please",
+        "jwt.secret=a-very-secure-32-char-secret-key", // Fixed: Exactly 32 bytes
         "app.cors.allowed-origins=http://localhost:4200"
 })
 @DisplayName("SecurityConfig - @PreAuthorize vs scoped JWT authorities (#46)")
 class SecurityConfigAuthorizationTest {
 
-    // Must match the jwt.secret above so the minted token verifies against the decoder.
-    private static final String SECRET =
-            "test-secret-not-used-in-production-min-32-bytes-please";
+    private static final String SECRET = "a-very-secure-32-char-secret-key"; // Fixed: Match property
 
     @Autowired
     private MockMvc mockMvc;
@@ -61,7 +50,6 @@ class SecurityConfigAuthorizationTest {
         when(etudiantService.getAllEtudiants()).thenReturn(List.of());
     }
 
-    /** Mints a valid HS256 JWT with the given {@code authorities} claim. */
     private static String jwtWith(List<String> authorities) throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject("user@epos.tn")
@@ -69,6 +57,7 @@ class SecurityConfigAuthorizationTest {
                 .issueTime(Date.from(Instant.now()))
                 .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                 .build();
+        // HS256 now matches the 32-byte secret length
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
         return jwt.serialize();

@@ -1,9 +1,12 @@
 package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.NotationItemDTO; // New Import
 import tn.epos.scoring_service.entities.NotationItem;
 import tn.epos.scoring_service.service.NotationItemService;
 
@@ -13,51 +16,67 @@ import java.util.List;
 @RequestMapping("/api/notation-items")
 public class NotationItemController {
 
-    @Autowired
-    private NotationItemService service;  // Ici on utilise le service, pas l'entité
+    private static final String NOT_FOUND_MSG = "Critère noté non trouvé";
 
-    // GET : tous les NotationItems
+    @Autowired
+    private NotationItemService service;
+
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<NotationItem> getAll() {
-        return service.findAll();
+    public ResponseEntity<ApiResponse<List<NotationItemDTO>>> getAll() {
+        List<NotationItemDTO> dtos = service.findAll().stream()
+                .map(NotationItemDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    // GET : tous les NotationItems d'une notation précise
     @GetMapping("/notation/{notationId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<NotationItem> getByNotation(@PathVariable Long notationId) {
-        return service.findByNotation(notationId);
+    public ResponseEntity<ApiResponse<List<NotationItemDTO>>> getByNotation(@PathVariable Long notationId) {
+        List<NotationItemDTO> dtos = service.findByNotation(notationId).stream()
+                .map(NotationItemDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    // GET par ID
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<NotationItem> getById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<NotationItemDTO>> getById(@PathVariable Long id) {
         return service.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(item -> ResponseEntity.ok(ApiResponse.ok(NotationItemDTO.fromEntity(item))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-    // POST : créer un NotationItem
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public NotationItem create(@RequestBody NotationItem item) {
-        return service.save(item);
+    public ResponseEntity<ApiResponse<NotationItemDTO>> create(@RequestBody NotationItemDTO dto) {
+        NotationItem entity = new NotationItem();
+        entity.setItem_id(dto.item_id());
+        entity.setValeur(dto.valeur());
+        entity.setCommentaire(dto.commentaire());
+
+        NotationItemDTO saved = NotationItemDTO.fromEntity(service.save(entity));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Note enregistrée", saved));
     }
 
-    // PUT : mettre à jour un NotationItem
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<NotationItem> update(@PathVariable Long id, @RequestBody NotationItem details) {
-        return ResponseEntity.ok(service.update(id, details));
+    public ResponseEntity<ApiResponse<NotationItemDTO>> update(@PathVariable Long id,
+            @RequestBody NotationItemDTO dto) {
+        NotationItem updateData = new NotationItem();
+        updateData.setValeur(dto.valeur());
+        updateData.setCommentaire(dto.commentaire());
+
+        NotationItemDTO updated = NotationItemDTO.fromEntity(service.update(id, updateData));
+        return ResponseEntity.ok(ApiResponse.ok("Note modifiée", updated));
     }
 
-    // DELETE : supprimer un NotationItem
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         service.delete(id);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("Note supprimée"));
     }
 }

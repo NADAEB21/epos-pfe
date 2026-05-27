@@ -1,71 +1,88 @@
 package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.EtudiantDTO; // New Import
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/etudiants")
 public class EtudiantController {
 
+    private static final String NOT_FOUND_MSG = "Étudiant non trouvé";
+
     @Autowired
     private EtudiantService etudiantService;
 
-    // GET : http://localhost:8083/api/etudiants
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<Etudiant> getAllEtudiants() {
-        return etudiantService.getAllEtudiants();
+    public ResponseEntity<ApiResponse<List<EtudiantDTO>>> getAllEtudiants() {
+        List<EtudiantDTO> dtos = etudiantService.getAllEtudiants().stream()
+                .map(EtudiantDTO::fromEntity)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    // GET by ID : http://localhost:8083/api/etudiants/{id}
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<Etudiant> getEtudiantById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<EtudiantDTO>> getEtudiantById(@PathVariable Long id) {
         return etudiantService.getEtudiantById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(etudiant -> ResponseEntity.ok(ApiResponse.ok(EtudiantDTO.fromEntity(etudiant))))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-    // POST : http://localhost:8083/api/etudiants
+
+
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public Etudiant createEtudiant(@RequestBody Etudiant etudiant) {
-        return etudiantService.saveEtudiant(etudiant);
+    // FIX: Change parameter from Etudiant to EtudiantDTO
+    public ResponseEntity<ApiResponse<EtudiantDTO>> createEtudiant(@RequestBody EtudiantDTO dto) {
+        // Convert DTO to Entity for the service
+        Etudiant entity = new Etudiant();
+        entity.setNom(dto.nom());
+        entity.setPrenom(dto.prenom());
+        entity.setNumero_inscription(dto.numero_inscription());
+
+        EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(entity));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Étudiant créé avec succès", saved));
     }
 
-    // PUT : http://localhost:8083/api/etudiants/{id}
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<Etudiant> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
+    // FIX: Change parameter from Etudiant to EtudiantDTO
+    public ResponseEntity<ApiResponse<EtudiantDTO>> updateEtudiant(@PathVariable Long id,
+            @RequestBody EtudiantDTO dto) {
         return etudiantService.getEtudiantById(id)
-                .map(existingEtudiant -> {
-                    existingEtudiant.setNom(etudiant.getNom());
-                    existingEtudiant.setPrenom(etudiant.getPrenom());
-                    existingEtudiant.setNumero_inscription(etudiant.getNumero_inscription());
-                    Etudiant updated = etudiantService.saveEtudiant(existingEtudiant);
-                    return ResponseEntity.ok(updated);
+                .map(existing -> {
+                    // Update only the fields we allow
+                    existing.setNom(dto.nom());
+                    existing.setPrenom(dto.prenom());
+                    existing.setNumero_inscription(dto.numero_inscription());
+
+                    EtudiantDTO updated = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(existing));
+                    return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", updated));
                 })
-                .orElse(ResponseEntity.notFound().build());
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-    // DELETE : http://localhost:8083/api/etudiants/{id}
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Void> deleteEtudiant(@PathVariable Long id) {
-        Optional<Etudiant> etudiant = etudiantService.getEtudiantById(id);
-
-        if (etudiant.isPresent()) {
+    public ResponseEntity<ApiResponse<Void>> deleteEtudiant(@PathVariable Long id) {
+        if (etudiantService.getEtudiantById(id).isPresent()) {
             etudiantService.deleteEtudiant(id);
-            return ResponseEntity.noContent().build(); // type ResponseEntity<Void>
-        } else {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.ok(ApiResponse.ok("Étudiant supprimé avec succès"));
         }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(NOT_FOUND_MSG));
     }
 }

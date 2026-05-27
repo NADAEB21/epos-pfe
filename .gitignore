@@ -23,3 +23,8 @@ uploads/
 .DS_Store
 Thumbs.db
 desktop.ini
+# --- Maven build output ---
+**/target/
+*.jar
+*.war
+*.ear

@@ -1,5 +1,7 @@
 package tn.epos.exam_service.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -16,42 +18,36 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.exam_service.controllers.ExamenController;
+import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.services.ExamenService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * End-to-end security test for issue #58: a real HS256-signed JWT flows through
- * the production {@link SecurityConfig} — decoder, {@link ScopedAuthoritiesConverter}
- * and the class-level {@code @PreAuthorize} on {@link ExamenController}.
- *
- * <p>Same {@code @WebMvcTest} slice as {@code SecurityConfigCorsTest} (no JPA /
- * Flyway / Eureka). Proper Testcontainers integration is tracked under #28.
- */
 @WebMvcTest(controllers = ExamenController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
-        "jwt.secret=test-secret-not-used-in-production-min-32-bytes-please",
+        "jwt.secret=a-very-secure-32-char-secret-key", // Fixed: 32 bytes
         "app.cors.allowed-origins=http://localhost:4200"
 })
 @DisplayName("SecurityConfig - @PreAuthorize vs scoped JWT authorities (#58)")
 class SecurityConfigAuthorizationTest {
 
-    // Must match the jwt.secret above so the minted token verifies against the decoder.
-    private static final String SECRET =
-            "test-secret-not-used-in-production-min-32-bytes-please";
+    private static final String SECRET = "a-very-secure-32-char-secret-key"; // Fixed: 32 bytes
 
     @Autowired
     private MockMvc mockMvc;
@@ -65,7 +61,6 @@ class SecurityConfigAuthorizationTest {
         when(examenService.listerTous(any(Pageable.class))).thenReturn(empty);
     }
 
-    /** Mints a valid HS256 JWT with the given {@code authorities} claim. */
     private static String jwtWith(List<String> authorities) throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject("user@epos.tn")
@@ -73,6 +68,7 @@ class SecurityConfigAuthorizationTest {
                 .issueTime(Date.from(Instant.now()))
                 .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
                 .build();
+        // Now HS256 matches the 32-byte secret requirement
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
         jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
         return jwt.serialize();
@@ -113,5 +109,56 @@ class SecurityConfigAuthorizationTest {
     void noToken_isUnauthorized() throws Exception {
         mockMvc.perform(get("/api/examens"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    private static String creerBody(long matiereId) throws Exception {
+        ExamenRequest req = new ExamenRequest();
+        req.setNom("Examen");
+        req.setMatiereId(matiereId);
+        req.setDateExamen(LocalDate.of(2026, 6, 15));
+        req.setDureeStationMin(15);
+        req.setNbEtudiantsParStation(4);
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        return mapper.writeValueAsString(req);
+    }
+
+    @Test
+    @DisplayName("#81 — POST: RESPONSABLE_MATIERE:5 can create exam for matiere_id=5")
+    void responsableMatiere_canCreateInOwnScope() throws Exception {
+        when(examenService.creer(any(ExamenRequest.class)))
+                .thenReturn(new ExamenResponse());
+        String token = jwtWith(List.of("ROLE_RESPONSABLE_MATIERE:5"));
+
+        mockMvc.perform(post("/api/examens")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(creerBody(5L)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("#81 — POST: RESPONSABLE_MATIERE:5 cannot create exam for matiere_id=7 (403)")
+    void responsableMatiere_cannotCreateOutsideScope() throws Exception {
+        String token = jwtWith(List.of("ROLE_RESPONSABLE_MATIERE:5"));
+
+        mockMvc.perform(post("/api/examens")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(creerBody(7L)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("#81 — POST: SUPER_ADMIN can create exam for any matiere")
+    void superAdmin_canCreateAnyMatiere() throws Exception {
+        when(examenService.creer(any(ExamenRequest.class)))
+                .thenReturn(new ExamenResponse());
+        String token = jwtWith(List.of("ROLE_SUPER_ADMIN"));
+
+        mockMvc.perform(post("/api/examens")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(creerBody(42L)))
+                .andExpect(status().isCreated());
     }
 }

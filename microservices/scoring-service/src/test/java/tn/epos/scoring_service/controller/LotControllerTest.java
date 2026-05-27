@@ -15,7 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -69,9 +69,10 @@ class LotControllerTest {
 
             mockMvc.perform(get("/api/lots"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value(1))
-                    .andExpect(jsonPath("$[0].numeroLot").value(1))
-                    .andExpect(jsonPath("$[0].statut").value("EN_ATTENTE"));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].id").value(1))
+                    .andExpect(jsonPath("$.data[0].numeroLot").value(1))
+                    .andExpect(jsonPath("$.data[0].statut").value("EN_ATTENTE"));
 
             verify(lotService, times(1)).findAll();
         }
@@ -83,7 +84,7 @@ class LotControllerTest {
 
             mockMvc.perform(get("/api/lots"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data").isEmpty());
         }
     }
 
@@ -100,9 +101,10 @@ class LotControllerTest {
 
             mockMvc.perform(get("/api/lots/1"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1))
-                    .andExpect(jsonPath("$.tailleLot").value(20))
-                    .andExpect(jsonPath("$.evaluateurId").value(5));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.tailleLot").value(20))
+                    .andExpect(jsonPath("$.data.evaluateurId").value(5));
         }
 
         @Test
@@ -111,7 +113,8 @@ class LotControllerTest {
             when(lotService.findById(99L)).thenReturn(Optional.empty());
 
             mockMvc.perform(get("/api/lots/99"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 
@@ -122,16 +125,17 @@ class LotControllerTest {
     class Create {
 
         @Test
-        @DisplayName("200 - Lot créé avec succès")
+        @DisplayName("201 - Lot créé avec succès")
         void create_devraitRetourner200() throws Exception {
             when(lotService.save(any(Lot.class))).thenReturn(lot);
 
             mockMvc.perform(post("/api/lots")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(lot)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.numeroLot").value(1))
-                    .andExpect(jsonPath("$.statut").value("EN_ATTENTE"));
+                    .andExpect(status().isCreated()) // Matches controller HttpStatus.CREATED
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.numeroLot").value(1))
+                    .andExpect(jsonPath("$.data.statut").value("EN_ATTENTE"));
 
             verify(lotService, times(1)).save(any(Lot.class));
         }
@@ -160,8 +164,9 @@ class LotControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updated)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.numeroLot").value(2))
-                    .andExpect(jsonPath("$.statut").value("EN_COURS"));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.numeroLot").value(2))
+                    .andExpect(jsonPath("$.data.statut").value("EN_COURS"));
         }
 
         @Test
@@ -184,12 +189,13 @@ class LotControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("204 - Lot supprimé")
+        @DisplayName("200 - Lot supprimé") // Status changed from 204 to 200
         void delete_devraitRetourner204() throws Exception {
             doNothing().when(lotService).delete(1L);
 
             mockMvc.perform(delete("/api/lots/1"))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isOk()) // Returns ApiResponse now
+                    .andExpect(jsonPath("$.success").value(true));
 
             verify(lotService, times(1)).delete(1L);
         }

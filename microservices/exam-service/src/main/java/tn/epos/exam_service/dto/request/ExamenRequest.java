@@ -11,9 +11,8 @@ public class ExamenRequest {
     @Size(max = 150, message = "Le nom ne doit pas dépasser 150 caractères")
     private String nom;
 
-    @NotBlank(message = "La matière est obligatoire")
-    @Size(max = 100)
-    private String matiere;
+    @NotNull(message = "La matière est obligatoire")
+    private Long matiereId;
 
     @NotNull(message = "La date de l'examen est obligatoire")
     @JsonFormat(pattern = "yyyy-MM-dd")

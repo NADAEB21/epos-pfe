@@ -10,7 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import tn.epos.auth_service.dto.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 
 import java.util.Map;
 import java.util.stream.Collectors;

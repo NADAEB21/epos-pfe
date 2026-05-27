@@ -9,7 +9,9 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import tn.epos.scoring_service.dto.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 
 import java.util.Map;
 import java.util.stream.Collectors;

@@ -4,18 +4,20 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
 import tn.epos.exam_service.entities.Station;
-import tn.epos.exam_service.exception.BusinessException;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.StationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -25,11 +27,13 @@ import java.util.List;
 public class StationServiceImpl implements StationService {
     private final StationRepository stationRepository;
     private final ExamenRepository examenRepository;
+    private final MatiereAccessChecker matiereAccessChecker;
 
     @Override
     public StationResponse ajouter(Long examenId, StationRequest request) {
         Examen examen = examenRepository.findById(examenId)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
 
         // Règle : on ne peut pas ajouter une station à un examen EN_COURS ou terminé
         if (!examen.isGrilleModifiable()) {
@@ -54,6 +58,9 @@ public class StationServiceImpl implements StationService {
                 .description(request.getDescription())
                 .ordre(ordre)
                 .examen(examen)
+                .evaluateurIds(request.getEvaluateurIds() != null
+                        ? request.getEvaluateurIds()
+                        : new ArrayList<>())
                 .build();
 
         Station sauvegardee = stationRepository.save(station);
@@ -64,9 +71,9 @@ public class StationServiceImpl implements StationService {
     @Override
     @Transactional(readOnly = true)
     public Page<StationResponse> listerParExamen(Long examenId, Pageable pageable) {
-        if (!examenRepository.existsById(examenId)) {
-            throw new ResourceNotFoundException("Examen", examenId);
-        }
+        Examen examen = examenRepository.findById(examenId)
+                .orElseThrow(() -> new ResourceNotFoundException("Examen", examenId));
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
         return stationRepository.findByExamenIdOrderByOrdreAsc(examenId, pageable)
                 .map(s -> toResponse(s, false));
     }
@@ -76,12 +83,14 @@ public class StationServiceImpl implements StationService {
     public StationResponse trouverParId(Long id) {
         Station station = stationRepository.findByIdWithGrille(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", id));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
         return toResponse(station, true);
     }
 
     @Override
     public StationResponse modifier(Long id, StationRequest request) {
         Station station = trouverEntite(id);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         // Règle : interdire modification si examen EN_COURS ou plus
         if (!station.getExamen().isGrilleModifiable()) {
@@ -105,13 +114,34 @@ public class StationServiceImpl implements StationService {
         station.setNom(request.getNom());
         station.setType(request.getType());
         station.setDescription(request.getDescription());
+        if (request.getEvaluateurIds() != null) {
+            station.setEvaluateurIds(request.getEvaluateurIds());
+        }
 
+        return toResponse(stationRepository.save(station), false);
+    }
+
+    @Override
+    public StationResponse affecterEvaluateurs(Long stationId, List<Long> evaluateurIds) {
+        Station station = trouverEntite(stationId);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
+
+        if (!station.getExamen().isGrilleModifiable()) {
+            throw new BusinessException(
+                    "Impossible de modifier les évaluateurs : l'examen est au statut "
+                            + station.getExamen().getStatut()
+            );
+        }
+
+        station.setEvaluateurIds(evaluateurIds != null ? evaluateurIds : new ArrayList<>());
+        log.info("Station {} : {} évaluateur(s) affecté(s)", stationId, station.getEvaluateurIds().size());
         return toResponse(stationRepository.save(station), false);
     }
 
     @Override
     public void supprimer(Long id) {
         Station station = trouverEntite(id);
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         if (!station.getExamen().isGrilleModifiable()) {
             throw new BusinessException(
@@ -148,6 +178,7 @@ public class StationServiceImpl implements StationService {
         response.setOrdre(station.getOrdre());
         response.setDescription(station.getDescription());
         response.setExamenId(station.getExamen().getId());
+        response.setEvaluateurIds(station.getEvaluateurIds());
         response.setHasGrille(station.hasGrille());
         response.setCreatedAt(station.getCreatedAt());
         // La grille est chargée séparément via GrilleService

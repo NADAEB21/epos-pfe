@@ -17,9 +17,9 @@ import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 import tn.epos.exam_service.enums.TypeItem;
-import tn.epos.exam_service.exception.BusinessException;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.GrilleService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -632,4 +632,4 @@ class GrilleControllerTest {
                     .andExpect(jsonPath("$.success").value(false));
         }
     }
-}
+}

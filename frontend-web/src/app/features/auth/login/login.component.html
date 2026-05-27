@@ -1,0 +1,65 @@
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="w-full max-w-md bg-surface-card rounded-2xl shadow-card p-8">
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-semibold text-brand">EPOS</h1>
+      <p class="text-sm text-gray-500 mt-1">Plateforme d'évaluation</p>
+    </div>
+
+    <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
+      <div>
+        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+          Email
+        </label>
+        <input
+          id="email"
+          type="email"
+          formControlName="email"
+          autocomplete="email"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+        />
+        @if (form.controls.email.touched && form.controls.email.invalid) {
+          <p class="text-xs text-status-danger mt-1">Adresse email invalide</p>
+        }
+      </div>
+
+      <div>
+        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
+          Mot de passe
+        </label>
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+        />
+      </div>
+
+      @switch (errorKind()) {
+        @case ('credentials') {
+          <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
+            Email ou mot de passe incorrect.
+          </div>
+        }
+        @case ('locked') {
+          <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
+            Compte verrouillé après 3 tentatives. Contactez votre responsable.
+          </div>
+        }
+        @case ('network') {
+          <div role="alert" class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+            Erreur de connexion. Vérifiez votre réseau et réessayez.
+          </div>
+        }
+      }
+
+      <button
+        type="submit"
+        [disabled]="form.invalid || submitting()"
+        class="w-full bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {{ submitting() ? 'Connexion…' : 'Se connecter' }}
+      </button>
+    </form>
+  </div>
+</div>

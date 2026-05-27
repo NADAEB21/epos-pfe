@@ -31,7 +31,7 @@ public class UserRole {
     /**
      * Nullable. Non-null only for RESPONSABLE_MATIERE (subject-scoped).
      * SUPER_ADMIN and EVALUATEUR must always have null here.
-     * This is a logical FK to exam-service; no DB constraint since it's cross-service.
+     * FK → matieres.id (see Matiere entity).
      */
     @Column(name = "matiere_id")
     private Long matiereId;

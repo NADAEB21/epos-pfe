@@ -29,10 +29,9 @@ public class Examen {
     @Column(nullable = false, length = 150)
     private String nom;
 
-    @NotBlank(message = "La matière est obligatoire")
-    @Size(max = 100)
-    @Column(nullable = false, length = 100)
-    private String matiere;
+    @NotNull(message = "La matière est obligatoire")
+    @Column(name = "matiere_id", nullable = false)
+    private Long matiereId;
 
     @NotNull(message = "La date de l'examen est obligatoire")
     @Column(name = "date_examen", nullable = false)

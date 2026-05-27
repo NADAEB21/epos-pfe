@@ -12,23 +12,29 @@ spring:
       discovery:
         locator:
           enabled: false
+      # CORS is owned by GatewayCorsConfig (CorsWebFilter @Bean). The yaml
+      # `globalcors.cors-configurations` path was tried first but caused a
+      # double CORS pass on non-preflight POSTs (preflight OK, real POST
+      # returned 403 "Invalid CORS request" with Vary doubled). Configuring
+      # CORS as a single WebFilter avoids the interaction between
+      # RoutePredicateHandlerMapping's built-in CORS and the per-route CORS
+      # that CorsGatewayFilterApplicationListener installs.
       routes:
-        # auth-service already serves /api/v1/** natively — no path rewrite.
+        # auth-service: Added /api/v1/matieres/**
         - id: auth-service
           uri: lb://auth-service
           predicates:
-            - Path=/api/v1/auth/**,/api/v1/users/**
+            - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/matieres/**
 
-        # exam-service serves /api/** internally. The gateway exposes a uniform
-        # /api/v1/** surface and strips the v1 segment before forwarding.
+        # exam-service: Added /api/v1/templates/**
         - id: exam-service
           uri: lb://exam-service
           predicates:
-            - Path=/api/v1/examens/**,/api/v1/stations/**,/api/v1/grilles/**,/api/v1/items/**
+            - Path=/api/v1/examens/**,/api/v1/stations/**,/api/v1/grilles/**,/api/v1/items/**,/api/v1/templates/**
           filters:
             - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
 
-        # scoring-service also serves /api/** internally — same v1 strip.
+        # scoring-service (stays the same, but verified)
         - id: scoring-service
           uri: lb://scoring-service
           predicates:

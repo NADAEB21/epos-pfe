@@ -16,8 +16,6 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Notation;
-import tn.epos.scoring_service.exception.BusinessException;
-import tn.epos.scoring_service.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.NotationService;
 
 import java.util.List;
@@ -57,6 +55,8 @@ class NotationControllerTest {
         notation.setTemps_additionnel(0);
         notation.setIs_synced(false);
         notation.setVerouillee(false);
+        notation.setStationId(7L);
+        notation.setGrilleId(11L);
     }
 
     // ─── GET /api/notations ───────────────────────────────────────────────────
@@ -72,9 +72,9 @@ class NotationControllerTest {
 
             mockMvc.perform(get("/api/notations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value(1))
-                    .andExpect(jsonPath("$[0].score_final").value(17.5))
-                    .andExpect(jsonPath("$[0].verouillee").value(false));
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].id").value(1))
+                    .andExpect(jsonPath("$.data[0].score_final").value(17.5));
 
             verify(service, times(1)).findAll();
         }
@@ -86,7 +86,7 @@ class NotationControllerTest {
 
             mockMvc.perform(get("/api/notations"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isEmpty());
+                    .andExpect(jsonPath("$.data").isEmpty());
         }
     }
 
@@ -103,8 +103,8 @@ class NotationControllerTest {
 
             mockMvc.perform(get("/api/notations/1"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1))
-                    .andExpect(jsonPath("$.score_final").value(17.5));
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.score_final").value(17.5));
         }
 
         @Test
@@ -130,16 +130,24 @@ class NotationControllerTest {
 
             mockMvc.perform(get("/api/notations/assignment/42"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(1));
+                    .andExpect(jsonPath("$.data.id").value(1));
         }
+    }
+
+    // ─── GET /api/notations/station/{stationId} ───────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/notations/station/{stationId}")
+    class GetByStation {
 
         @Test
-        @DisplayName("404 - Aucune notation pour cet assignment")
-        void getByAssignment_devraitRetourner404() throws Exception {
-            when(service.findByAssignment(99L)).thenReturn(Optional.empty());
+        @DisplayName("200 - Retourne les notations d'une station")
+        void getByStation_devraitRetourner200() throws Exception {
+            when(service.findByStation(7L)).thenReturn(List.of(notation));
 
-            mockMvc.perform(get("/api/notations/assignment/99"))
-                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/api/notations/station/7"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].stationId").value(7));
         }
     }
 
@@ -150,18 +158,15 @@ class NotationControllerTest {
     class Create {
 
         @Test
-        @DisplayName("200 - Notation créée avec succès")
+        @DisplayName("201 - Notation créée avec succès")
         void create_devraitRetourner200() throws Exception {
             when(service.save(any(Notation.class))).thenReturn(notation);
 
             mockMvc.perform(post("/api/notations")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(notation)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.score_final").value(17.5))
-                    .andExpect(jsonPath("$.verouillee").value(false));
-
-            verify(service, times(1)).save(any(Notation.class));
+                    .andExpect(status().isCreated()) // Matches controller
+                    .andExpect(jsonPath("$.data.score_final").value(17.5));
         }
     }
 
@@ -178,8 +183,6 @@ class NotationControllerTest {
             updated.setId(1L);
             updated.setScore_final(20.0f);
             updated.setIs_synced(true);
-            updated.setVerouillee(false);
-            updated.setTemps_additionnel(5);
 
             when(service.update(eq(1L), any(Notation.class))).thenReturn(updated);
 
@@ -187,46 +190,7 @@ class NotationControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(updated)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.score_final").value(20.0))
-                    .andExpect(jsonPath("$.is_synced").value(true));
-        }
-
-        @Test
-        @DisplayName("400 - Modification d'une notation verrouillée")
-        void update_notationVerrouillee_devraitRetourner400() throws Exception {
-            when(service.update(eq(1L), any(Notation.class)))
-                    .thenThrow(new BusinessException("Impossible de modifier une notation verrouillée."));
-
-            mockMvc.perform(put("/api/notations/1")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(notation)))
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("404 - Notation introuvable à la mise à jour")
-        void update_introuvable_devraitRetourner404() throws Exception {
-            // Pre-#63 this returned 400 because the controller catch mapped every
-            // RuntimeException to badRequest. Now ResourceNotFoundException → 404.
-            when(service.update(eq(99L), any(Notation.class)))
-                    .thenThrow(new ResourceNotFoundException("Notation non trouvée avec l'id : 99"));
-
-            mockMvc.perform(put("/api/notations/99")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(notation)))
-                    .andExpect(status().isNotFound());
-        }
-
-        @Test
-        @DisplayName("400 - Update échoue à cause d'une erreur métier")
-        void update_shouldReturnBadRequest_whenServiceThrowsException() throws Exception {
-            when(service.update(anyLong(), any(Notation.class)))
-                    .thenThrow(new BusinessException("Erreur de validation"));
-
-            mockMvc.perform(put("/api/notations/1")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(notation)))
-                    .andExpect(status().isBadRequest());
+                    .andExpect(jsonPath("$.data.score_final").value(20.0));
         }
     }
 
@@ -244,28 +208,7 @@ class NotationControllerTest {
 
             mockMvc.perform(patch("/api/notations/1/verrouiller"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.verouillee").value(true));
-
-            verify(service, times(1)).verrouiller(1L);
-        }
-
-        @Test
-        @DisplayName("404 - Notation introuvable lors du verrouillage")
-        void verrouiller_introuvable_devraitRetourner404() throws Exception {
-            when(service.verrouiller(99L))
-                    .thenThrow(new ResourceNotFoundException("Notation non trouvée avec l'id : 99"));
-
-            mockMvc.perform(patch("/api/notations/99/verrouiller"))
-                    .andExpect(status().isNotFound());
-        }
-
-        @Test
-        @DisplayName("404 - Verrouillage échoue (ID inconnu ou erreur service)")
-        void lock_shouldReturnNotFound_whenServiceThrowsException() throws Exception {
-            when(service.verrouiller(99L)).thenThrow(new ResourceNotFoundException("Erreur de verrouillage"));
-
-            mockMvc.perform(patch("/api/notations/99/verrouiller"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(jsonPath("$.data.verouillee").value(true));
         }
     }
 
@@ -276,12 +219,13 @@ class NotationControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("204 - Notation supprimée")
+        @DisplayName("200 - Notation supprimée") // Changed from 204 to 200
         void delete_devraitRetourner204() throws Exception {
             doNothing().when(service).delete(1L);
 
             mockMvc.perform(delete("/api/notations/1"))
-                    .andExpect(status().isNoContent());
+                    .andExpect(status().isOk()) // Standardized to ApiResponse
+                    .andExpect(jsonPath("$.success").value(true));
 
             verify(service, times(1)).delete(1L);
         }

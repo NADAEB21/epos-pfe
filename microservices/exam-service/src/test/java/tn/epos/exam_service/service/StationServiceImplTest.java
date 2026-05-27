@@ -8,14 +8,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.StationRequest;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
 import tn.epos.exam_service.entities.Station;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.enums.TypeStation;
-import tn.epos.exam_service.exception.BusinessException;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.impl.StationServiceImpl;
@@ -25,6 +27,7 @@ import org.springframework.data.domain.Pageable;
 import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,6 +45,9 @@ class StationServiceImplTest {
     @Mock
     private ExamenRepository examenRepository;
 
+    @Mock
+    private MatiereAccessChecker matiereAccessChecker;
+
     @InjectMocks
     private StationServiceImpl stationService;
 
@@ -54,7 +60,7 @@ class StationServiceImplTest {
         examenBrouillon = Examen.builder()
                 .id(1L)
                 .nom("Examen Test")
-                .matiere("Chimie")
+                .matiereId(1L)
                 .dateExamen(LocalDate.now())
                 .statut(StatutExamen.BROUILLON)
                 .build();
@@ -155,7 +161,7 @@ class StationServiceImplTest {
         @DisplayName("Doit retourner les stations triées par ordre")
         void listerParExamen_devraitRetournerStations() {
             Page<Station> page = new PageImpl<>(List.of(station));
-            when(examenRepository.existsById(1L)).thenReturn(true);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
             when(stationRepository.findByExamenIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
                     .thenReturn(page);
 
@@ -167,7 +173,7 @@ class StationServiceImplTest {
         @Test
         @DisplayName("Doit lever ResourceNotFoundException si examen introuvable")
         void listerParExamen_devraitLeverExceptionSiExamenIntrouvable() {
-            when(examenRepository.existsById(99L)).thenReturn(false);
+            when(examenRepository.findById(99L)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> stationService.listerParExamen(99L, Pageable.unpaged()))
                     .isInstanceOf(ResourceNotFoundException.class);
@@ -235,6 +241,89 @@ class StationServiceImplTest {
         }
     }
 
+    @Nested
+    @DisplayName("affecterEvaluateurs()")
+    class AffecterEvaluateurs {
+
+        @Test
+        @DisplayName("Doit affecter la liste des évaluateurs")
+        void affecterEvaluateurs_devraitMettreAJourLaListe() {
+            station.setEvaluateurIds(new ArrayList<>());
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any(Station.class))).thenReturn(station);
+
+            StationResponse result = stationService.affecterEvaluateurs(1L, List.of(10L, 20L));
+
+            assertThat(result).isNotNull();
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().contains(10L) &&
+                            s.getEvaluateurIds().contains(20L)));
+        }
+
+        @Test
+        @DisplayName("Doit vider la liste si on passe une liste vide")
+        void affecterEvaluateurs_listeVide_doitVider() {
+            station.setEvaluateurIds(new ArrayList<>(List.of(10L, 20L)));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, List.of());
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().isEmpty()));
+        }
+
+        @Test
+        @DisplayName("Doit traiter null comme liste vide")
+        void affecterEvaluateurs_null_doitVider() {
+            station.setEvaluateurIds(new ArrayList<>(List.of(10L)));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, null);
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().isEmpty()));
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si examen non modifiable")
+        void affecterEvaluateurs_examenVerrouille_devraitEchouer() {
+            examenBrouillon.setStatut(StatutExamen.EN_COURS);
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+
+            assertThatThrownBy(() ->
+                    stationService.affecterEvaluateurs(1L, List.of(10L)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si station introuvable")
+        void affecterEvaluateurs_stationIntrouvable_devraitEchouer() {
+            when(stationRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() ->
+                    stationService.affecterEvaluateurs(99L, List.of(10L)))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Doit permettre plusieurs évaluateurs sur une même station")
+        void affecterEvaluateurs_plusieursEvaluateurs_doitTousLesAffecter() {
+            station.setEvaluateurIds(new ArrayList<>());
+            List<Long> evaluateurs = List.of(1L, 2L, 3L, 4L);
+
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            stationService.affecterEvaluateurs(1L, evaluateurs);
+
+            verify(stationRepository).save(argThat(s ->
+                    s.getEvaluateurIds().size() == 4));
+        }
+    }
+
     // ================================================================
     // SUPPRIMER
     // ================================================================
@@ -271,6 +360,87 @@ class StationServiceImplTest {
 
             assertThatThrownBy(() -> stationService.supprimer(99L))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // ================================================================
+    // #96 — per-matiere authz: MatiereAccessChecker is consulted after
+    // every entity load and an out-of-scope caller is rejected with 403.
+    // ================================================================
+
+    @Nested
+    @DisplayName("MatiereAccessChecker enforcement (#96)")
+    class MatiereScopeEnforcement {
+
+        @Test
+        @DisplayName("ajouter() rejects when caller is out of scope")
+        void ajouter_outOfScope_devraitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.ajouter(1L, stationRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("listerParExamen() rejects when caller is out of scope")
+        void listerParExamen_outOfScope_devraitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.listerParExamen(1L, Pageable.unpaged()))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).findByExamenIdOrderByOrdreAsc(anyLong(), any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("trouverParId() rejects when caller is out of scope")
+        void trouverParId_outOfScope_devraitRefuser() {
+            when(stationRepository.findByIdWithGrille(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.trouverParId(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("modifier() rejects when caller is out of scope")
+        void modifier_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.modifier(1L, stationRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("affecterEvaluateurs() rejects when caller is out of scope")
+        void affecterEvaluateurs_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.affecterEvaluateurs(1L, List.of(7L)))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("supprimer() rejects when caller is out of scope")
+        void supprimer_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> stationService.supprimer(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(stationRepository, never()).delete(any());
         }
     }
 }

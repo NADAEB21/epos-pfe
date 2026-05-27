@@ -10,13 +10,15 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.StationRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.PageResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.services.StationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -63,6 +65,19 @@ public class StationController {
 
         return ResponseEntity.ok(
                 ApiResponse.ok("Station modifiée avec succès", stationService.modifier(id, request))
+        );
+    }
+
+    @PatchMapping("/api/stations/{id}/evaluateurs")
+    @Operation(summary = "Affecter des évaluateurs à une station",
+            description = "Remplace la liste des évaluateurs. Passer une liste vide pour tout retirer.")
+    public ResponseEntity<ApiResponse<StationResponse>> affecterEvaluateurs(
+            @PathVariable Long id,
+            @RequestBody List<Long> evaluateurIds) {
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("Évaluateurs affectés",
+                        stationService.affecterEvaluateurs(id, evaluateurIds))
         );
     }
 

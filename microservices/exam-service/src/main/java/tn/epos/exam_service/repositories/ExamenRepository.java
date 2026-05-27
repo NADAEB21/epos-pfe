@@ -9,17 +9,25 @@ import org.springframework.stereotype.Repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Set;
+
 @Repository
 public interface ExamenRepository extends JpaRepository<Examen, Long> {
 
     // Filtrer par statut
     Page<Examen> findByStatut(StatutExamen statut, Pageable pageable);
 
-    // Filtrer par matière
-    Page<Examen> findByMatiereIgnoreCase(String matiere, Pageable pageable);
+    // Filtrer par matière (id)
+    Page<Examen> findByMatiereId(Long matiereId, Pageable pageable);
+
+    // Filtrer par périmètre matière (#95 — list endpoint scope filter)
+    Page<Examen> findByMatiereIdIn(Set<Long> matiereIds, Pageable pageable);
+
+    // Filtrer par périmètre matière + statut (#95)
+    Page<Examen> findByMatiereIdInAndStatut(Set<Long> matiereIds, StatutExamen statut, Pageable pageable);
 
     // Vérifier si un examen avec ce nom existe déjà pour cette matière
-    boolean existsByNomAndMatiere(String nom, String matiere);
+    boolean existsByNomAndMatiereId(String nom, Long matiereId);
 
     // Charger examen avec ses stations en une seule requête (évite N+1)
     @Query("SELECT e FROM Examen e LEFT JOIN FETCH e.stations WHERE e.id = :id")

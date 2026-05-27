@@ -25,6 +25,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -74,6 +75,47 @@ class UserServiceTest {
         lenient().when(req.getPrenom()).thenReturn("John");
         lenient().when(req.getRoles()).thenReturn(roles);
         return req;
+    }
+
+    // =========================================================================
+    // getAllUsers() — optional role filter (#80)
+    // =========================================================================
+
+    @Test
+    void getAllUsers_noFilter_returnsAll() {
+        when(userRepository.findAll()).thenReturn(List.of(existingUser(1L), existingUser(2L)));
+        when(userRoleRepository.findByUserId(anyLong())).thenReturn(List.of());
+
+        var result = userService.getAllUsers(null);
+
+        assertThat(result).hasSize(2);
+        verify(userRepository).findAll();
+        verify(userRepository, never()).findByRole(any());
+    }
+
+    @Test
+    void getAllUsers_withRoleFilter_delegatesToFindByRole() {
+        // RESPONSABLE_MATIERE picker calls /api/v1/users?role=EVALUATEUR
+        when(userRepository.findByRole(RoleType.EVALUATEUR))
+                .thenReturn(List.of(existingUser(7L)));
+        when(userRoleRepository.findByUserId(7L)).thenReturn(List.of(
+                UserRole.builder().role(RoleType.EVALUATEUR).build()));
+
+        var result = userService.getAllUsers(RoleType.EVALUATEUR);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(7L);
+        verify(userRepository).findByRole(RoleType.EVALUATEUR);
+        verify(userRepository, never()).findAll();
+    }
+
+    @Test
+    void getAllUsers_withRoleFilter_emptyResultIsOk() {
+        when(userRepository.findByRole(RoleType.SUPER_ADMIN)).thenReturn(List.of());
+
+        var result = userService.getAllUsers(RoleType.SUPER_ADMIN);
+
+        assertThat(result).isEmpty();
     }
 
     // =========================================================================

@@ -13,11 +13,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tn.epos.auth_service.dto.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
 import tn.epos.auth_service.dto.UserResponse;
+import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.service.UserService;
 
 import java.util.List;
@@ -30,13 +32,19 @@ public class UserController {
     private final UserService userService;
 
     /**
-     * GET /api/v1/users
-     * SUPER_ADMIN only.
+     * GET /api/v1/users[?role=EVALUATEUR]
+     * SUPER_ADMIN or RESPONSABLE_MATIERE may call. Optional ?role param filters
+     * the response server-side (responsable typically asks for ?role=EVALUATEUR
+     * to populate the station-assignment picker — see #80).
      */
     @GetMapping
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
-        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers()));
+    @PreAuthorize("""
+            hasAuthority('ROLE_SUPER_ADMIN') or \
+            !authentication.authorities.?[authority.startsWith('ROLE_RESPONSABLE_MATIERE')].empty\
+            """)
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers(
+            @RequestParam(required = false) RoleType role) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(role)));
     }
 
     /**

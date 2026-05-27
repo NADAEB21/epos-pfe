@@ -15,6 +15,12 @@
 	<description>Service d'authentification pour EPOS</description>
 
 	<dependencies>
+		<!-- Shared EPOS module: ApiResponse + (eventually) common types (#68) -->
+		<dependency>
+			<groupId>tn.epos</groupId>
+			<artifactId>epos-common</artifactId>
+		</dependency>
+
 		<!-- Spring Boot Starters (Les versions sont gérées par le parent) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -104,4 +110,4 @@
 			</plugin>
 		</plugins>
 	</build>
-</project>
+</project>

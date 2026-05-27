@@ -21,9 +21,9 @@ import tn.epos.exam_service.controllers.ExamenController;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
-import tn.epos.exam_service.exception.BusinessException;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.exam_service.exception.GlobalExceptionHandler;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.services.ExamenService;
 import org.springframework.context.annotation.Import;
 import tn.epos.exam_service.config.TestSecurityConfig;
@@ -61,7 +61,7 @@ class ExamenControllerTest {
         examenResponse = new ExamenResponse();
         examenResponse.setId(1L);
         examenResponse.setNom("Examen Test");
-        examenResponse.setMatiere("Chimie");
+        examenResponse.setMatiereId(1L);
         examenResponse.setDateExamen(LocalDate.of(2024, 6, 15));
         examenResponse.setStatut(StatutExamen.BROUILLON);
         examenResponse.setDureeStationMin(15);
@@ -70,7 +70,7 @@ class ExamenControllerTest {
 
         examenRequest = new ExamenRequest();
         examenRequest.setNom("Examen Test");
-        examenRequest.setMatiere("Chimie");
+        examenRequest.setMatiereId(1L);
         examenRequest.setDateExamen(LocalDate.of(2024, 6, 15));
         examenRequest.setDureeStationMin(15);
         examenRequest.setNbEtudiantsParStation(4);
@@ -110,9 +110,9 @@ class ExamenControllerTest {
         }
 
         @Test
-        @DisplayName("400 - Matière vide")
-        void creer_matiereVide_devraitRetourner400() throws Exception {
-            examenRequest.setMatiere("");
+        @DisplayName("400 - matiereId null")
+        void creer_matiereIdNull_devraitRetourner400() throws Exception {
+            examenRequest.setMatiereId(null);
 
             mockMvc.perform(post("/api/examens")
                             .contentType(MediaType.APPLICATION_JSON)

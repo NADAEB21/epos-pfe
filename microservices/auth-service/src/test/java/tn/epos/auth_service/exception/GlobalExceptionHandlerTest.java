@@ -5,7 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import tn.epos.auth_service.dto.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

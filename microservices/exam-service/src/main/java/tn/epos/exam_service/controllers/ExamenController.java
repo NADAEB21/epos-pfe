@@ -12,7 +12,7 @@ import org.springframework.data.web.PageableDefault;
 import tn.epos.exam_service.dto.response.PageResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.ExamenRequest;
-import tn.epos.exam_service.dto.response.ApiResponse;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.services.ExamenService;
@@ -38,6 +38,7 @@ public class ExamenController {
 
     @PostMapping
     @Operation(summary = "Créer un examen", description = "Statut initial : BROUILLON")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_RESPONSABLE_MATIERE:' + #request.matiereId)")
     public ResponseEntity<ApiResponse<ExamenResponse>> creer(
             @Valid @RequestBody ExamenRequest request) {
 
@@ -70,6 +71,7 @@ public class ExamenController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Modifier un examen", description = "Uniquement si statut BROUILLON")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_RESPONSABLE_MATIERE:' + #request.matiereId)")
     public ResponseEntity<ApiResponse<ExamenResponse>> modifier(
             @PathVariable Long id,
             @Valid @RequestBody ExamenRequest request) {

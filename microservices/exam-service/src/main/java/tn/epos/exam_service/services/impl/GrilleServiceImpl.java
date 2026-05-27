@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.exam_service.dto.request.GrilleRequest;
 import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
@@ -12,8 +13,8 @@ import tn.epos.exam_service.entities.GrilleEvaluation;
 import tn.epos.exam_service.entities.ItemEvaluation;
 import tn.epos.exam_service.entities.Station;
 import tn.epos.exam_service.enums.TypeItem;
-import tn.epos.exam_service.exception.BusinessException;
-import tn.epos.exam_service.exception.ResourceNotFoundException;
+import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.GrilleEvaluationRepository;
 import tn.epos.exam_service.repositories.ItemEvaluationRepository;
 import tn.epos.exam_service.repositories.StationRepository;
@@ -32,6 +33,7 @@ public class GrilleServiceImpl implements GrilleService {
     private final GrilleEvaluationRepository grilleRepository;
     private final ItemEvaluationRepository itemRepository;
     private final StationRepository stationRepository;
+    private final MatiereAccessChecker matiereAccessChecker;
     private static final String RESOURCE_NAME = "Grille";
 
 
@@ -40,6 +42,7 @@ public class GrilleServiceImpl implements GrilleService {
     public GrilleResponse creerPourStation(Long stationId, GrilleRequest request) {
         Station station = stationRepository.findById(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", stationId));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
 
         // Règle : une station ne peut avoir qu'une seule grille
         if (grilleRepository.existsByStationId(stationId)) {
@@ -85,6 +88,7 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Aucune grille trouvée pour la station " + stationId
                 ));
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
@@ -93,12 +97,14 @@ public class GrilleServiceImpl implements GrilleService {
     public GrilleResponse trouverParId(Long id) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(id)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, id));
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
     @Override
     public GrilleResponse modifier(Long id, GrilleRequest request) {
         GrilleEvaluation grille = trouverEntite(id);
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         // Règle : interdire modification si examen EN_COURS ou plus
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
@@ -118,6 +124,7 @@ public class GrilleServiceImpl implements GrilleService {
     @Override
     public void supprimer(Long id) {
         GrilleEvaluation grille = trouverEntite(id);
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
             throw new BusinessException(
@@ -138,6 +145,7 @@ public class GrilleServiceImpl implements GrilleService {
     public ItemResponse ajouterItem(Long grilleId, ItemRequest request) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(grilleId)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         // Règle : interdire si examen non modifiable
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
@@ -177,9 +185,9 @@ public class GrilleServiceImpl implements GrilleService {
     @Override
     @Transactional(readOnly = true)
     public Page<ItemResponse> listerItems(Long grilleId, Pageable pageable) {
-        if (!grilleRepository.existsById(grilleId)) {
-            throw new ResourceNotFoundException(RESOURCE_NAME, grilleId);
-        }
+        GrilleEvaluation grille = grilleRepository.findById(grilleId)
+                .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
         return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId, pageable)
                 .map(this::toItemResponse);
     }
@@ -187,6 +195,7 @@ public class GrilleServiceImpl implements GrilleService {
     @Override
     public ItemResponse modifierItem(Long itemId, ItemRequest request) {
         ItemEvaluation item = trouverItem(itemId);
+        matiereAccessChecker.checkAccess(item.getGrille().getStation().getExamen().getMatiereId());
 
         // Règle : interdire si examen non modifiable
         if (!item.getGrille().getStation().getExamen().isGrilleModifiable()) {
@@ -224,6 +233,7 @@ public class GrilleServiceImpl implements GrilleService {
     public void supprimerItem(Long itemId) {
         ItemEvaluation item = trouverItem(itemId);
         GrilleEvaluation grille = item.getGrille();
+        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
             throw new BusinessException(

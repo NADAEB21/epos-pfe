@@ -1,9 +1,11 @@
 package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.service.NotationService;
 
@@ -16,71 +18,63 @@ public class NotationController {
     @Autowired
     private NotationService service;
 
-    // GET : Toutes les notations
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<Notation> getAll() {
-        return service.findAll();
+    public ResponseEntity<ApiResponse<List<Notation>>> getAll() {
+        return ResponseEntity.ok(ApiResponse.ok(service.findAll()));
     }
 
-    // GET par ID
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<Notation> getById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Notation>> getById(@PathVariable Long id) {
         return service.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(n -> ResponseEntity.ok(ApiResponse.ok(n)))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Notation non trouvée")));
     }
 
-    // GET par assignment
     @GetMapping("/assignment/{assignmentId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<Notation> getByAssignment(@PathVariable Long assignmentId) {
+    public ResponseEntity<ApiResponse<Notation>> getByAssignment(@PathVariable Long assignmentId) {
         return service.findByAssignment(assignmentId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(n -> ResponseEntity.ok(ApiResponse.ok(n)))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Aucune notation pour cet assignment")));
     }
 
-    // GET : notations par station (cross-service)
     @GetMapping("/station/{stationId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<Notation> getByStation(@PathVariable Long stationId) {
-        return service.findByStation(stationId);
+    public ResponseEntity<ApiResponse<List<Notation>>> getByStation(@PathVariable Long stationId) {
+        return ResponseEntity.ok(ApiResponse.ok(service.findByStation(stationId)));
     }
 
-    // GET : notations par grille (cross-service)
     @GetMapping("/grille/{grilleId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<Notation> getByGrille(@PathVariable Long grilleId) {
-        return service.findByGrille(grilleId);
+    public ResponseEntity<ApiResponse<List<Notation>>> getByGrille(@PathVariable Long grilleId) {
+        return ResponseEntity.ok(ApiResponse.ok(service.findByGrille(grilleId)));
     }
 
-    // POST : Créer une notation
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
-    public Notation create(@RequestBody Notation notation) {
-        return service.save(notation);
+    public ResponseEntity<ApiResponse<Notation>> create(@RequestBody Notation notation) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Évaluation initialisée", service.save(notation)));
     }
 
-    // PUT : Mettre à jour une notation
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<Notation> update(@PathVariable Long id, @RequestBody Notation details) {
-        return ResponseEntity.ok(service.update(id, details));
+    public ResponseEntity<ApiResponse<Notation>> update(@PathVariable Long id, @RequestBody Notation details) {
+        return ResponseEntity.ok(ApiResponse.ok("Notation mise à jour", service.update(id, details)));
     }
 
-    // PATCH : Verrouiller une notation
     @PatchMapping("/{id}/verrouiller")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR')")
-    public ResponseEntity<Notation> lock(@PathVariable Long id) {
-        return ResponseEntity.ok(service.verrouiller(id));
+    public ResponseEntity<ApiResponse<Notation>> lock(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("Notation verrouillée définitivement", service.verrouiller(id)));
     }
 
-    // DELETE : Supprimer une notation
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN')")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         service.delete(id);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.ok("Notation supprimée"));
     }
 }

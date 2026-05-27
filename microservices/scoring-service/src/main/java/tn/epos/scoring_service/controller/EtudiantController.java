@@ -1,14 +1,15 @@
 package tn.epos.scoring_service.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.epos.common.dto.ApiResponse; // Added import
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/etudiants")
@@ -17,55 +18,48 @@ public class EtudiantController {
     @Autowired
     private EtudiantService etudiantService;
 
-    // GET : http://localhost:8083/api/etudiants
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public List<Etudiant> getAllEtudiants() {
-        return etudiantService.getAllEtudiants();
+    public ResponseEntity<ApiResponse<List<Etudiant>>> getAllEtudiants() {
+        return ResponseEntity.ok(ApiResponse.ok(etudiantService.getAllEtudiants()));
     }
 
-    // GET by ID : http://localhost:8083/api/etudiants/{id}
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<Etudiant> getEtudiantById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Etudiant>> getEtudiantById(@PathVariable Long id) {
         return etudiantService.getEtudiantById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(etudiant -> ResponseEntity.ok(ApiResponse.ok(etudiant)))
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé")));
     }
 
-    // POST : http://localhost:8083/api/etudiants
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public Etudiant createEtudiant(@RequestBody Etudiant etudiant) {
-        return etudiantService.saveEtudiant(etudiant);
+    public ResponseEntity<ApiResponse<Etudiant>> createEtudiant(@RequestBody Etudiant etudiant) {
+        Etudiant saved = etudiantService.saveEtudiant(etudiant);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Étudiant créé avec succès", saved));
     }
 
-    // PUT : http://localhost:8083/api/etudiants/{id}
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<Etudiant> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
+    public ResponseEntity<ApiResponse<Etudiant>> updateEtudiant(@PathVariable Long id, @RequestBody Etudiant etudiant) {
         return etudiantService.getEtudiantById(id)
-                .map(existingEtudiant -> {
-                    existingEtudiant.setNom(etudiant.getNom());
-                    existingEtudiant.setPrenom(etudiant.getPrenom());
-                    existingEtudiant.setNumero_inscription(etudiant.getNumero_inscription());
-                    Etudiant updated = etudiantService.saveEtudiant(existingEtudiant);
-                    return ResponseEntity.ok(updated);
+                .map(existing -> {
+                    existing.setNom(etudiant.getNom());
+                    existing.setPrenom(etudiant.getPrenom());
+                    existing.setNumero_inscription(etudiant.getNumero_inscription());
+                    return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", etudiantService.saveEtudiant(existing)));
                 })
-                .orElse(ResponseEntity.notFound().build());
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé")));
     }
 
-    // DELETE : http://localhost:8083/api/etudiants/{id}
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Void> deleteEtudiant(@PathVariable Long id) {
-        Optional<Etudiant> etudiant = etudiantService.getEtudiantById(id);
-
-        if (etudiant.isPresent()) {
+    public ResponseEntity<ApiResponse<Void>> deleteEtudiant(@PathVariable Long id) {
+        if (etudiantService.getEtudiantById(id).isPresent()) {
             etudiantService.deleteEtudiant(id);
-            return ResponseEntity.noContent().build(); // type ResponseEntity<Void>
-        } else {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.ok(ApiResponse.ok("Étudiant supprimé avec succès"));
         }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Étudiant non trouvé"));
     }
 }

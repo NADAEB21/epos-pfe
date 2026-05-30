@@ -59,10 +59,8 @@ app:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:noreply@epos.tn}
     reset-base-url: ${MAIL_RESET_BASE_URL:http://localhost:4200/reset-password}
-  # CORS allowed origins (comma-separated). Empty = deny every cross-origin request.
-  # Production: set CORS_ALLOWED_ORIGINS to the frontend URL(s), e.g. https://epos.example.com
-  cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+# CORS is owned by api-gateway. Per-service CORS was removed because the second
+# layer doubled Access-Control-Allow-Origin on routed responses.
 
 # ─── Eureka ───────────────────────────────────────────────────────────────────
 eureka:

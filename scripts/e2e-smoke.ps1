@@ -250,6 +250,32 @@ Invoke-Step "OPTIONS preflight from http://localhost:4200 -> 200 + Allow-Origin"
     }
 }
 
+# -- Real POST through the gateway: must carry exactly one Allow-Origin ------
+# The OPTIONS check above is short-circuited by the gateway's CorsWebFilter
+# and never reaches the backend. Past regression: backend services also set
+# their own Allow-Origin, doubling the header on the real POST and breaking
+# browsers while this smoke stayed green. This step guards against that.
+
+Invoke-Step "POST /api/v1/auth/login with Origin -> exactly one Allow-Origin" {
+    $headers = @{
+        "Origin"       = "http://localhost:4200"
+        "Content-Type" = "application/json"
+    }
+    $body = @{ email = "admin@epos.tn"; password = "Admin@1234" } | ConvertTo-Json -Compress
+    $r = Invoke-WebRequest -Uri "$BaseUrl/api/v1/auth/login" -Method Post `
+        -Headers $headers -Body $body -UseBasicParsing
+    Assert-Equal 200 ([int]$r.StatusCode) "login status"
+    $allowOrigin = $r.Headers["Access-Control-Allow-Origin"]
+    # PowerShell merges duplicate header fields into a comma-joined string —
+    # a comma in this value means two Allow-Origin fields hit the wire.
+    if (-not $allowOrigin -or $allowOrigin -match ",") {
+        throw "Expected one Access-Control-Allow-Origin: 'http://localhost:4200', got '$allowOrigin'"
+    }
+    if ($allowOrigin -ne "http://localhost:4200") {
+        throw "Access-Control-Allow-Origin = '$allowOrigin', expected 'http://localhost:4200'"
+    }
+}
+
 # -- Summary -----------------------------------------------------------------
 
 Write-Host ""

@@ -17,13 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import tn.epos.auth_service.service.UserDetailsServiceImpl;
-
-import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -34,19 +28,20 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsServiceImpl userDetailsService;
 
-    @Value("${app.cors.allowed-origins:}")
-    private String allowedOriginsCsv;
-
     // -------------------------------------------------------------------------
     // Filter chain
     // -------------------------------------------------------------------------
+    // CORS is intentionally NOT configured here. api-gateway owns CORS via its
+    // CorsWebFilter and is the only host-reachable entry point; configuring CORS
+    // again at the service layer doubled the Access-Control-Allow-Origin header
+    // on real (non-preflight) responses and broke browser logins while the
+    // gateway-only preflight smoke stayed green.
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    AuthenticationProvider authenticationProvider) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
-            .cors(c -> c.configurationSource(corsConfigurationSource()))
             .sessionManagement(session ->
                     session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
@@ -90,33 +85,5 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder(@Value("${security.bcrypt.cost:12}") int cost) {
         return new BCryptPasswordEncoder(cost);
-    }
-
-    // -------------------------------------------------------------------------
-    // CORS
-    // -------------------------------------------------------------------------
-    // Origins read from env (CORS_ALLOWED_ORIGINS, comma-separated). Empty = deny-by-default:
-    // every cross-origin browser request is rejected until an operator opts in via env.
-    // allowCredentials=true requires explicit origins (Spring forbids "*" with credentials).
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(parseOrigins(allowedOriginsCsv));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        config.setAllowCredentials(true);
-        config.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
-
-    private List<String> parseOrigins(String csv) {
-        if (csv == null || csv.isBlank()) return List.of();
-        return Arrays.stream(csv.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
     }
 }

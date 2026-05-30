@@ -94,7 +94,7 @@ get_access_token() {
         echo "Login failed for $email — HTTP $status" >&2
         return 1
     fi
-    jq -r '.accessToken' /tmp/epos-smoke-body
+    jq -r '.data.accessToken' /tmp/epos-smoke-body
 }
 
 # ── Gateway reachability ────────────────────────────────────────────────────
@@ -217,6 +217,29 @@ if [[ "$preflight_resp" != "200" ]]; then
 elif ! grep -i "^Access-Control-Allow-Origin:[[:space:]]*http://localhost:4200" /tmp/epos-smoke-headers >/dev/null; then
     failures=$((failures + 1))
     printf "%s  %sFAIL%s  (missing/incorrect Access-Control-Allow-Origin)\n" "$label" "$RED" "$RESET"
+else
+    printf "%s  %sPASS%s\n" "$label" "$GREEN" "$RESET"
+fi
+
+# Real POST through the gateway: must carry exactly one Allow-Origin header.
+# The OPTIONS check above is short-circuited by the gateway's CorsWebFilter
+# and never reaches the backend. Past regression: backend services also set
+# their own Allow-Origin, doubling the header on the real POST and breaking
+# browsers while this smoke stayed green. This step guards against that.
+step_number=$((step_number + 1))
+label=$(printf "[%02d] %s" "$step_number" "POST /api/v1/auth/login with Origin → exactly one Allow-Origin")
+post_resp=$(curl -sS -i -o /tmp/epos-smoke-headers -w "%{http_code}" \
+    -X POST "$BASE_URL/api/v1/auth/login" \
+    -H "Origin: http://localhost:4200" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"admin@epos.tn","password":"Admin@1234"}' || true)
+allow_count=$(grep -ic "^Access-Control-Allow-Origin:" /tmp/epos-smoke-headers || echo 0)
+if [[ "$post_resp" != "200" ]]; then
+    failures=$((failures + 1))
+    printf "%s  %sFAIL%s  (status %s)\n" "$label" "$RED" "$RESET" "$post_resp"
+elif [[ "$allow_count" != "1" ]]; then
+    failures=$((failures + 1))
+    printf "%s  %sFAIL%s  (Access-Control-Allow-Origin count = %s, expected 1)\n" "$label" "$RED" "$RESET" "$allow_count"
 else
     printf "%s  %sPASS%s\n" "$label" "$GREEN" "$RESET"
 fi

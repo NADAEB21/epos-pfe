@@ -11,15 +11,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import tn.epos.common.security.HmacJwtDecoders;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -31,8 +26,11 @@ public class SecurityConfig {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    @Value("${app.cors.allowed-origins:}")
-    private String allowedOriginsCsv;
+    // CORS is intentionally NOT configured here. api-gateway owns CORS via its
+    // CorsWebFilter and is the only host-reachable entry point; configuring CORS
+    // again at the service layer doubled the Access-Control-Allow-Origin header
+    // on real (non-preflight) responses and broke browser logins while the
+    // gateway-only preflight smoke stayed green.
 
     @PostConstruct
     void validateJwtSecret() {
@@ -54,7 +52,6 @@ public class SecurityConfig {
                 // CSRF disabled: stateless JWT API, tokens carried in Authorization header
                 // (no session cookie -> no CSRF attack surface). Same model as auth-service.
                 .csrf(csrf -> csrf.disable())
-                .cors(c -> c.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
@@ -88,31 +85,5 @@ public class SecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(new ScopedAuthoritiesConverter());
         return converter;
-    }
-
-    // CORS — origins read from env (CORS_ALLOWED_ORIGINS, comma-separated).
-    // Empty = deny-by-default: every cross-origin browser request is rejected
-    // until an operator opts in via env. allowCredentials=true requires explicit
-    // origins (Spring forbids "*" with credentials).
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(parseOrigins(allowedOriginsCsv));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        config.setAllowCredentials(true);
-        config.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
-
-    private List<String> parseOrigins(String csv) {
-        if (csv == null || csv.isBlank()) return List.of();
-        return Arrays.stream(csv.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
     }
 }

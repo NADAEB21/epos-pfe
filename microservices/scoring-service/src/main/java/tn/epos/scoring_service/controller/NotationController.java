@@ -76,7 +76,7 @@ public class NotationController {
         entity.setGrilleId(dto.grilleId());
         entity.setVerouillee(false);
 
-        NotationDTO saved = NotationDTO.fromEntity(service.save(entity));
+        NotationDTO saved = NotationDTO.fromEntity(service.save(entity, dto.assignmentId()));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Évaluation initialisée", saved));
     }

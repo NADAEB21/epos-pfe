@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
@@ -27,6 +28,9 @@ class RotationServiceTest {
     @Mock
     private IRotationRepository rotationRepository;
 
+    @Mock
+    private EvaluateurScopeChecker scopeChecker;
+
     @InjectMocks
     private RotationService rotationService;
     private Rotation rotation;
@@ -34,6 +38,11 @@ class RotationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Appelant non contraint par défaut : le filtrage de périmètre
+        // évaluateur (#91) est couvert séparément ci-dessous + dans
+        // EvaluateurScopeCheckerTest. lenient() car findById/update ne le consultent pas.
+        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
+
         Lot lot = new Lot();
         lot.setId(1L);
         lot.setStatut(LotStatus.EN_ATTENTE);

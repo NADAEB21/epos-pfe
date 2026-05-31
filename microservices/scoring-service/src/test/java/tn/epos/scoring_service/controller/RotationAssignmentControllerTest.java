@@ -155,7 +155,7 @@ class RotationAssignmentControllerTest {
         @Test
         @DisplayName("201 - Assignment créé avec succès")
         void create_devraitRetourner200() throws Exception {
-            when(service.save(any(RotationAssignment.class))).thenReturn(assignment);
+            when(service.save(any(RotationAssignment.class), any(), any())).thenReturn(assignment);
 
             mockMvc.perform(post("/api/assignments")
                             .contentType(MediaType.APPLICATION_JSON)

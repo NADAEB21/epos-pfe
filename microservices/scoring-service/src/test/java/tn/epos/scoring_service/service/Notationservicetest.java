@@ -8,8 +8,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.Notation;
+import tn.epos.scoring_service.entities.Rotation;
+import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.repositories.INotationRepository;
+import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +30,12 @@ class NotationServiceTest {
 
     @Mock
     private INotationRepository repository;
+
+    @Mock
+    private IRotationAssignmentRepository assignmentRepository;
+
+    @Mock
+    private EvaluateurScopeChecker scopeChecker;
 
     @InjectMocks
     private NotationService notationService;
@@ -42,6 +53,13 @@ class NotationServiceTest {
         notation.setStationId(7L);
         notation.setGrilleId(11L);
         // timestamp géré par @PrePersist — pas de setter manuel nécessaire
+
+        // Par défaut l'appelant est non contraint (SUPER_ADMIN / RESPONSABLE) :
+        // les tests métier existants ne testent pas le périmètre évaluateur,
+        // couvert séparément par la classe Nested "Scope évaluateur (#85, #91)"
+        // et par EvaluateurScopeCheckerTest. lenient() car certains tests
+        // (findById, findByAssignment) ne consultent pas le checker.
+        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
     }
 
     @Nested
@@ -183,16 +201,46 @@ class NotationServiceTest {
     class Save {
 
         @Test
-        @DisplayName("Doit sauvegarder et retourner la notation")
+        @DisplayName("Doit sauvegarder et retourner la notation (sans assignment, appelant non contraint)")
         void save_devraitSauvegarder() {
             when(repository.save(any(Notation.class))).thenReturn(notation);
 
-            Notation result = notationService.save(notation);
+            Notation result = notationService.save(notation, null);
 
             assertThat(result).isNotNull();
             assertThat(result.getScore_final()).isEqualTo(17.5f);
             assertThat(result.getIs_synced()).isFalse();
+            verify(scopeChecker).checkOwnership(null);
             verify(repository, times(1)).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("Avec assignmentId : lie l'assignment et vérifie le périmètre via Rotation.evaluateurId")
+        void save_avecAssignment_devraitLierEtVerifierPerimetre() {
+            Rotation rotation = new Rotation();
+            rotation.setEvaluateurId(42L);
+            RotationAssignment assignment = new RotationAssignment();
+            assignment.setId(5L);
+            assignment.setRotation(rotation);
+            when(assignmentRepository.findById(5L)).thenReturn(Optional.of(assignment));
+            when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Notation result = notationService.save(notation, 5L);
+
+            assertThat(result.getAssignment()).isSameAs(assignment);
+            verify(scopeChecker).checkOwnership(42L);
+            verify(repository).save(notation);
+        }
+
+        @Test
+        @DisplayName("assignmentId introuvable -> ResourceNotFoundException, pas de save")
+        void save_assignmentIntrouvable_devraitLever() {
+            when(assignmentRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> notationService.save(notation, 99L))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("99");
+            verify(repository, never()).save(any(Notation.class));
         }
     }
 
@@ -297,6 +345,65 @@ class NotationServiceTest {
             assertThatThrownBy(() -> notationService.verrouiller(99L))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
+        }
+    }
+
+    @Nested
+    @DisplayName("Scope évaluateur (#85, #91)")
+    class Scope {
+
+        // Notation rattachée à une rotation dont l'évaluateur est 42L.
+        private Notation owned(long evaluateurId) {
+            Rotation rotation = new Rotation();
+            rotation.setEvaluateurId(evaluateurId);
+            RotationAssignment assignment = new RotationAssignment();
+            assignment.setRotation(rotation);
+            Notation n = new Notation();
+            n.setId(1L);
+            n.setVerouillee(false);
+            n.setAssignment(assignment);
+            return n;
+        }
+
+        @Test
+        @DisplayName("verrouiller() propage le 403 quand l'évaluateur n'est pas propriétaire")
+        void verrouiller_horsPerimetre_devraitLever403() {
+            Notation n = owned(42L);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            doThrow(new AccessDeniedException("hors perimetre"))
+                    .when(scopeChecker).checkOwnership(42L);
+
+            assertThatThrownBy(() -> notationService.verrouiller(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(repository, never()).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("update() propage le 403 quand l'évaluateur n'est pas propriétaire")
+        void update_horsPerimetre_devraitLever403() {
+            Notation n = owned(42L);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            doThrow(new AccessDeniedException("hors perimetre"))
+                    .when(scopeChecker).checkOwnership(42L);
+
+            assertThatThrownBy(() -> notationService.update(1L, new Notation()))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(repository, never()).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("findAll() filtre les notations hors périmètre pour un évaluateur contraint")
+        void findAll_evaluateurContraint_devraitFiltrer() {
+            Notation mine = owned(42L);
+            Notation other = owned(99L);
+            when(scopeChecker.isUnrestricted()).thenReturn(false);
+            when(repository.findAll()).thenReturn(List.of(mine, other));
+            when(scopeChecker.isCaller(42L)).thenReturn(true);
+            when(scopeChecker.isCaller(99L)).thenReturn(false);
+
+            List<Notation> result = notationService.findAll();
+
+            assertThat(result).containsExactly(mine);
         }
     }
 }

@@ -55,7 +55,8 @@ public class RotationAssignmentController {
         entity.setPresenceConfirmee(dto.presenceConfirmee());
         entity.setTempsAdditionnel(dto.tempsAdditionnel());
 
-        RotationAssignmentDTO saved = RotationAssignmentDTO.fromEntity(service.save(entity));
+        RotationAssignmentDTO saved = RotationAssignmentDTO.fromEntity(
+                service.save(entity, dto.rotationId(), dto.participationId()));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Assignment créé avec succès", saved));
     }

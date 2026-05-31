@@ -2,6 +2,7 @@ package tn.epos.scoring_service.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.IRotationRepository;
@@ -15,9 +16,12 @@ public class RotationService {
     @Autowired
     private IRotationRepository rotationRepository;
 
-    // Récupérer toutes les rotations
+    @Autowired
+    private EvaluateurScopeChecker scopeChecker;
+
+    // Récupérer toutes les rotations — filtrées au périmètre de l'évaluateur (#91)
     public List<Rotation> findAll() {
-        return rotationRepository.findAll();
+        return scoped(rotationRepository.findAll());
     }
 
     // Récupérer une rotation par ID
@@ -25,14 +29,25 @@ public class RotationService {
         return rotationRepository.findById(id);
     }
 
-    // Récupérer toutes les rotations d'un groupe
+    // Récupérer toutes les rotations d'un groupe — filtrées (#91)
     public List<Rotation> findByGroup(Long groupId) {
-        return rotationRepository.findByStudentGroupId(groupId);
+        return scoped(rotationRepository.findByStudentGroupId(groupId));
     }
 
-    // Récupérer toutes les rotations d'une station (cross-service)
+    // Récupérer toutes les rotations d'une station (cross-service) — filtrées (#91)
     public List<Rotation> findByStation(Long stationId) {
-        return rotationRepository.findByStationId(stationId);
+        return scoped(rotationRepository.findByStationId(stationId));
+    }
+
+    // Filtre une liste de rotations au périmètre de l'évaluateur appelant.
+    // Un appelant non contraint (SUPER_ADMIN / RESPONSABLE_MATIERE) voit tout.
+    private List<Rotation> scoped(List<Rotation> rotations) {
+        if (scopeChecker.isUnrestricted()) {
+            return rotations;
+        }
+        return rotations.stream()
+                .filter(r -> scopeChecker.isCaller(r.getEvaluateurId()))
+                .toList();
     }
 
     // Créer une rotation

@@ -2,10 +2,13 @@ package tn.epos.scoring_service.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.Notation;
+import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.INotationRepository;
+import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,9 +19,21 @@ public class NotationService {
     @Autowired
     private INotationRepository repository;
 
-    // Récupérer toutes les notations
+    @Autowired
+    private IRotationAssignmentRepository assignmentRepository;
+
+    @Autowired
+    private EvaluateurScopeChecker scopeChecker;
+
+    // Récupérer toutes les notations — filtrées au périmètre de l'évaluateur (#91)
     public List<Notation> findAll() {
-        return repository.findAll();
+        List<Notation> all = repository.findAll();
+        if (scopeChecker.isUnrestricted()) {
+            return all;
+        }
+        return all.stream()
+                .filter(n -> scopeChecker.isCaller(resolveEvaluateurId(n)))
+                .toList();
     }
 
     // Récupérer par ID
@@ -31,19 +46,44 @@ public class NotationService {
         return repository.findByAssignmentId(assignmentId);
     }
 
-    // Récupérer les notations d'une station (cross-service)
+    // Récupérer les notations d'une station (cross-service) — filtrées (#91)
     public List<Notation> findByStation(Long stationId) {
-        return repository.findByStationId(stationId);
+        List<Notation> rows = repository.findByStationId(stationId);
+        if (scopeChecker.isUnrestricted()) {
+            return rows;
+        }
+        return rows.stream()
+                .filter(n -> scopeChecker.isCaller(resolveEvaluateurId(n)))
+                .toList();
     }
 
-    // Récupérer les notations d'une grille (cross-service)
+    // Récupérer les notations d'une grille (cross-service) — filtrées (#91)
     public List<Notation> findByGrille(Long grilleId) {
-        return repository.findByGrilleId(grilleId);
+        List<Notation> rows = repository.findByGrilleId(grilleId);
+        if (scopeChecker.isUnrestricted()) {
+            return rows;
+        }
+        return rows.stream()
+                .filter(n -> scopeChecker.isCaller(resolveEvaluateurId(n)))
+                .toList();
     }
 
-    // Créer une notation
-    public Notation save(Notation notation) {
-        // Logique métier : si la notation est verrouillée, on ne devrait pas la modifier
+    // Créer une notation. Lie l'assignment fourni (sinon la notation serait
+    // orpheline et son périmètre irrésoluble) puis vérifie que l'évaluateur
+    // appelant possède bien la rotation (#85, ADR 0007). Un appelant non
+    // contraint (SUPER_ADMIN / RESPONSABLE_MATIERE) passe sans assignment.
+    public Notation save(Notation notation, Long assignmentId) {
+        if (assignmentId != null) {
+            RotationAssignment assignment = assignmentRepository.findById(assignmentId)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Assignment non trouvé avec l'id : " + assignmentId));
+            notation.setAssignment(assignment);
+            scopeChecker.checkOwnership(resolveEvaluateurId(notation));
+        } else {
+            // Pas d'assignment : un évaluateur ne peut pas créer une notation
+            // hors périmètre (checkOwnership(null) -> 403 pour un appelant contraint).
+            scopeChecker.checkOwnership(null);
+        }
         return repository.save(notation);
     }
 
@@ -54,6 +94,7 @@ public class NotationService {
 
     public Notation update(Long id, Notation details) {
         return repository.findById(id).map(n -> {
+            scopeChecker.checkOwnership(resolveEvaluateurId(n));
             if (Boolean.TRUE.equals(n.getVerouillee())) {
                 throw new BusinessException("Impossible de modifier une notation verrouillée.");
             }
@@ -69,11 +110,25 @@ public class NotationService {
         }).orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
     }
 
-    // Verrouiller une notation
+    // Verrouiller une notation — seul l'évaluateur propriétaire (ou un appelant
+    // non contraint) peut verrouiller (#85, ADR 0007).
     public Notation verrouiller(Long id) {
         Notation n = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
+        scopeChecker.checkOwnership(resolveEvaluateurId(n));
         n.setVerouillee(true);
         return repository.save(n);
     }
-}
+
+    // Résout l'évaluateur propriétaire via Notation -> RotationAssignment ->
+    // Rotation.evaluateurId. Retourne null si la chaîne est incomplète
+    // (notation orpheline / rotation sans évaluateur) — traité comme hors
+    // périmètre pour un appelant contraint.
+    private Long resolveEvaluateurId(Notation notation) {
+        if (notation == null || notation.getAssignment() == null
+                || notation.getAssignment().getRotation() == null) {
+            return null;
+        }
+        return notation.getAssignment().getRotation().getEvaluateurId();
+    }
+}

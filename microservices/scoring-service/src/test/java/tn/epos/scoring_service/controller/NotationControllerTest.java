@@ -160,7 +160,7 @@ class NotationControllerTest {
         @Test
         @DisplayName("201 - Notation créée avec succès")
         void create_devraitRetourner200() throws Exception {
-            when(service.save(any(Notation.class))).thenReturn(notation);
+            when(service.save(any(Notation.class), any())).thenReturn(notation);
 
             mockMvc.perform(post("/api/notations")
                             .contentType(MediaType.APPLICATION_JSON)

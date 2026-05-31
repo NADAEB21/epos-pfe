@@ -227,6 +227,61 @@ Invoke-Step "GET /api/v1/etudiants as eval -> 200 (evaluator may read students)"
         -Headers (Auth-Header $script:evalToken) -ExpectedStatus 200 | Out-Null
 }
 
+# -- scoring-service: EVALUATEUR notation scope (#85, #91, ADR 0007) ---------
+# An evaluateur may lock/modify only notations attached to a rotation whose
+# evaluateurId is their own user id. Build two chains as admin (unrestricted):
+# rotation -> assignment -> notation, one owned by eval and one foreign. Then
+# prove eval can lock the owned notation (200) but not the foreign one (403).
+
+function Get-JwtClaim {
+    param([string]$Token, [string]$Claim)
+    $payload = $Token.Split('.')[1].Replace('-', '+').Replace('_', '/')
+    switch ($payload.Length % 4) { 2 { $payload += '==' } 3 { $payload += '=' } }
+    $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
+    return ($json | ConvertFrom-Json).$Claim
+}
+
+$script:ownNotationId     = $null
+$script:foreignNotationId = $null
+
+Invoke-Step "Build eval-owned + foreign notation chains as admin -> 201" {
+    $evalUserId = Get-JwtClaim -Token $script:evalToken -Claim "userId"
+    if (-not $evalUserId) { throw "Could not read userId claim from eval token" }
+    $foreignEvalId = [int64]$evalUserId + 999999
+    $adminHdr = Auth-Header $script:adminToken
+
+    $rotOwn = Invoke-Json -Method POST -Path "/api/v1/rotations" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ evaluateurId = $evalUserId; stationId = 1; ordrePassage = 1; statut = "EN_ATTENTE" }
+    $rotForeign = Invoke-Json -Method POST -Path "/api/v1/rotations" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ evaluateurId = $foreignEvalId; stationId = 1; ordrePassage = 2; statut = "EN_ATTENTE" }
+
+    $asgOwn = Invoke-Json -Method POST -Path "/api/v1/assignments" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ rotationId = $rotOwn.data.id; presenceConfirmee = $false; tempsAdditionnel = 0 }
+    $asgForeign = Invoke-Json -Method POST -Path "/api/v1/assignments" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ rotationId = $rotForeign.data.id; presenceConfirmee = $false; tempsAdditionnel = 0 }
+
+    $notOwn = Invoke-Json -Method POST -Path "/api/v1/notations" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ score_final = 12.0; temps_additionnel = 0; stationId = 1; grilleId = 1; assignmentId = $asgOwn.data.id }
+    $notForeign = Invoke-Json -Method POST -Path "/api/v1/notations" -Headers $adminHdr -ExpectedStatus 201 `
+        -Body @{ score_final = 12.0; temps_additionnel = 0; stationId = 1; grilleId = 1; assignmentId = $asgForeign.data.id }
+
+    $script:ownNotationId     = $notOwn.data.id
+    $script:foreignNotationId = $notForeign.data.id
+    if (-not $script:ownNotationId -or -not $script:foreignNotationId) {
+        throw "Notation ids not returned by create"
+    }
+}
+
+Invoke-Step "PATCH own notation /verrouiller as eval -> 200 (#85)" {
+    Invoke-Json -Method PATCH -Path "/api/v1/notations/$($script:ownNotationId)/verrouiller" `
+        -Headers (Auth-Header $script:evalToken) -ExpectedStatus 200 | Out-Null
+}
+
+Invoke-Step "PATCH foreign notation /verrouiller as eval -> 403 (#85)" {
+    Invoke-Json -Method PATCH -Path "/api/v1/notations/$($script:foreignNotationId)/verrouiller" `
+        -Headers (Auth-Header $script:evalToken) -ExpectedStatus 403 | Out-Null
+}
+
 # -- CORS preflight on protected path ----------------------------------------
 
 Invoke-Step "OPTIONS preflight from http://localhost:4200 -> 200 + Allow-Origin" {

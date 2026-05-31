@@ -202,6 +202,63 @@ run_step "GET /api/v1/etudiants as admin → 200" \
 run_step "GET /api/v1/etudiants as eval → 200 (evaluator may read students)" \
     expect_status 200 GET /api/v1/etudiants "$EVAL_TOKEN"
 
+# ── scoring-service: EVALUATEUR notation scope (#85, #91, ADR 0007) ──────────
+# An evaluateur may lock/modify only notations attached to a rotation whose
+# evaluateurId is their own user id. Build two chains as admin (unrestricted):
+# rotation -> assignment -> notation, one owned by eval and one foreign, then
+# prove eval can lock the owned notation (200) but not the foreign one (403).
+
+b64url_decode() {
+    local data="$1" mod
+    data=$(printf '%s' "$data" | tr '_-' '/+')
+    mod=$(( ${#data} % 4 ))
+    [[ $mod -eq 2 ]] && data="${data}=="
+    [[ $mod -eq 3 ]] && data="${data}="
+    printf '%s' "$data" | base64 -d 2>/dev/null || printf '%s' "$data" | base64 -D 2>/dev/null
+}
+
+jwt_claim() {
+    local token="$1" claim="$2" payload
+    payload="${token#*.}"; payload="${payload%%.*}"
+    b64url_decode "$payload" | jq -r ".$claim"
+}
+
+# POSTs $3 as $1, returns the created entity's data.id; fails unless 201.
+create_scoring_id() {
+    local token="$1" path="$2" body="$3" status
+    status=$(curl_status POST "$path" "$token" "$body")
+    [[ "$status" == "201" ]] || { echo "POST $path → $status (expected 201)" >&2; return 1; }
+    jq -r '.data.id' /tmp/epos-smoke-body
+}
+
+evaluateur_scope_check() {
+    local eval_user_id foreign_id rot_own rot_foreign asg_own asg_foreign not_own not_foreign st
+    eval_user_id=$(jwt_claim "$EVAL_TOKEN" userId)
+    [[ -n "$eval_user_id" && "$eval_user_id" != "null" ]] || { echo "no userId claim in eval token"; return 1; }
+    foreign_id=$((eval_user_id + 999999))
+
+    rot_own=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/rotations \
+        "{\"evaluateurId\":$eval_user_id,\"stationId\":1,\"ordrePassage\":1,\"statut\":\"EN_ATTENTE\"}") || return 1
+    rot_foreign=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/rotations \
+        "{\"evaluateurId\":$foreign_id,\"stationId\":1,\"ordrePassage\":2,\"statut\":\"EN_ATTENTE\"}") || return 1
+    asg_own=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/assignments \
+        "{\"rotationId\":$rot_own,\"presenceConfirmee\":false,\"tempsAdditionnel\":0}") || return 1
+    asg_foreign=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/assignments \
+        "{\"rotationId\":$rot_foreign,\"presenceConfirmee\":false,\"tempsAdditionnel\":0}") || return 1
+    not_own=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/notations \
+        "{\"score_final\":12.0,\"temps_additionnel\":0,\"stationId\":1,\"grilleId\":1,\"assignmentId\":$asg_own}") || return 1
+    not_foreign=$(create_scoring_id "$ADMIN_TOKEN" /api/v1/notations \
+        "{\"score_final\":12.0,\"temps_additionnel\":0,\"stationId\":1,\"grilleId\":1,\"assignmentId\":$asg_foreign}") || return 1
+
+    st=$(curl_status PATCH "/api/v1/notations/$not_own/verrouiller" "$EVAL_TOKEN" "")
+    [[ "$st" == "200" ]] || { echo "lock own notation expected 200, got $st"; return 1; }
+    st=$(curl_status PATCH "/api/v1/notations/$not_foreign/verrouiller" "$EVAL_TOKEN" "")
+    [[ "$st" == "403" ]] || { echo "lock foreign notation expected 403, got $st"; return 1; }
+}
+
+run_step "EVALUATEUR locks own notation→200, foreign→403 (#85, #91)" \
+    evaluateur_scope_check
+
 # ── CORS preflight on protected path ────────────────────────────────────────
 
 step_number=$((step_number + 1))

@@ -8,11 +8,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.entities.RotationStatus;
+import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
+import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +32,15 @@ class RotationAssignmentServiceTest {
     @Mock
     private IRotationAssignmentRepository repository;
 
+    @Mock
+    private IRotationRepository rotationRepository;
+
+    @Mock
+    private IExamenParticipationRepository participationRepository;
+
+    @Mock
+    private EvaluateurScopeChecker scopeChecker;
+
     @InjectMocks
     private RotationAssignmentService service;
     private RotationAssignment assignment;
@@ -37,6 +49,11 @@ class RotationAssignmentServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Appelant non contraint par défaut ; filtrage de périmètre (#91)
+        // couvert par EvaluateurScopeCheckerTest. lenient() : findById/update/
+        // confirmerPresence ne consultent pas le checker.
+        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
+
         rotation = new Rotation();
         rotation.setId(1L);
         rotation.setStatut(RotationStatus.EN_ATTENTE);
@@ -138,15 +155,31 @@ class RotationAssignmentServiceTest {
     class Save {
 
         @Test
-        @DisplayName("Doit sauvegarder et retourner l'assignment")
-        void save_devraitSauvegarder() {
-            when(repository.save(any(RotationAssignment.class))).thenReturn(assignment);
+        @DisplayName("Doit lier la rotation + la participation puis sauvegarder")
+        void save_devraitLierEtSauvegarder() {
+            RotationAssignment fresh = new RotationAssignment();
+            fresh.setPresenceConfirmee(false);
+            fresh.setTempsAdditionnel(0);
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(participation));
+            when(repository.save(any(RotationAssignment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            RotationAssignment result = service.save(assignment);
+            RotationAssignment result = service.save(fresh, 1L, 1L);
 
-            assertThat(result).isNotNull();
+            assertThat(result.getRotation()).isSameAs(rotation);
             assertThat(result.getParticipation().getExamen_id()).isEqualTo(10L);
-            verify(repository, times(1)).save(any(RotationAssignment.class));
+            verify(repository, times(1)).save(fresh);
+        }
+
+        @Test
+        @DisplayName("rotationId introuvable -> ResourceNotFoundException, pas de save")
+        void save_rotationIntrouvable_devraitLever() {
+            when(rotationRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.save(new RotationAssignment(), 99L, null))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("99");
+            verify(repository, never()).save(any(RotationAssignment.class));
         }
     }
 

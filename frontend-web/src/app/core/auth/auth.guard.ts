@@ -18,6 +18,17 @@ export const guestGuard: CanActivateFn = () => {
 
   if (!store.isAuthenticated()) return true;
 
-  router.navigate(['/dashboard']);
+  router.navigate(['/accueil']);
+  return false;
+};
+
+/** Gates the Administration zone — SUPER_ADMIN only; others bounce to Accueil. */
+export const superAdminGuard: CanActivateFn = () => {
+  const store = inject(AuthStore);
+  const router = inject(Router);
+
+  if (store.hasGlobalRole('SUPER_ADMIN')) return true;
+
+  router.navigate(['/accueil']);
   return false;
 };

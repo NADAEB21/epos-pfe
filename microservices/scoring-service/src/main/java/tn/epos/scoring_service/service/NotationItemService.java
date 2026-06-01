@@ -53,7 +53,7 @@ public class NotationItemService {
 
     public NotationItem update(Long id, NotationItem details) {
         return repository.findById(id).map(item -> {
-            item.setItem_id(details.getItem_id());
+            item.setItemId(details.getItemId());
             item.setValeur(details.getValeur());
             item.setCommentaire(details.getCommentaire());
             item.setNotation(details.getNotation());
@@ -82,14 +82,14 @@ public class NotationItemService {
             log.warn("Cross-grille check skipped: notation {} has null grille_id", notationId);
             return;
         }
-        if (item.getItem_id() == null) {
+        if (item.getItemId() == null) {
             throw new BusinessException("item_id est requis sur le NotationItem");
         }
 
         Set<Long> allowedItems = examServiceClient.getItemIdsForGrille(grilleId);
-        if (!allowedItems.contains(item.getItem_id())) {
+        if (!allowedItems.contains(item.getItemId())) {
             throw new BusinessException(
-                    "L'item " + item.getItem_id()
+                    "L'item " + item.getItemId()
                             + " n'appartient pas à la grille " + grilleId
                             + " de la notation parente (cross-grille refusé).");
         }

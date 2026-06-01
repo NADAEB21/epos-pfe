@@ -38,7 +38,7 @@ spring:
         - id: scoring-service
           uri: lb://scoring-service
           predicates:
-            - Path=/api/v1/etudiants/**,/api/v1/participations/**,/api/v1/lots/**,/api/v1/notations/**,/api/v1/notation-items/**,/api/v1/assignments/**,/api/v1/rotations/**,/api/v1/student-groups/**
+            - Path=/api/v1/etudiants/**,/api/v1/participations/**,/api/v1/lots/**,/api/v1/notations/**,/api/v1/notation-items/**,/api/v1/assignments/**,/api/v1/rotations/**,/api/v1/student-groups/**,/api/v1/evaluateur/**
           filters:
             - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
 

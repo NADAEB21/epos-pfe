@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
+import tn.epos.auth_service.dto.MeResponse;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
 import tn.epos.auth_service.dto.UserResponse;
@@ -49,6 +50,31 @@ public class UserService {
         return users.stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    /**
+     * Construit le MeResponse pour GET /api/v1/auth/me.
+     * Retourne le rôle principal de l'utilisateur (le premier rôle trouvé).
+     * Pour l'app mobile, l'utilisateur est toujours EVALUATEUR.
+     */
+    @Transactional(readOnly = true)
+    public MeResponse getMeResponse(Long userId) {
+        User user = findUserOrThrow(userId);
+        List<UserRole> roles = userRoleRepository.findByUserId(userId);
+
+        // Rôle principal : prend le premier rôle de la liste.
+        // Pour les EVALUATEURS (app mobile), il n'y a qu'un seul rôle.
+        String roleName = roles.isEmpty()
+                ? "EVALUATEUR"
+                : roles.get(0).getRole().name();
+
+        return MeResponse.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .nom(user.getNom())
+                .prenom(user.getPrenom())
+                .role(roleName)
+                .build();
     }
 
     // -------------------------------------------------------------------------

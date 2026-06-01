@@ -17,7 +17,7 @@ public class NotationItem {
     private Long id;
 
     // Référence externe vers un item/critère d'évaluation
-    private Long item_id;
+    private Long itemId;
 
     private Float valeur;
 

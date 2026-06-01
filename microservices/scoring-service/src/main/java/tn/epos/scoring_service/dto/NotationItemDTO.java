@@ -4,7 +4,7 @@ import tn.epos.scoring_service.entities.NotationItem;
 
 public record NotationItemDTO(
     Long id,
-    Long item_id,
+    Long itemId,
     Float valeur,
     String commentaire,
     Long notationId
@@ -13,7 +13,7 @@ public record NotationItemDTO(
         if (item == null) return null;
         return new NotationItemDTO(
             item.getId(),
-            item.getItem_id(),
+            item.getItemId(),
             item.getValeur(),
             item.getCommentaire(),
             (item.getNotation() != null) ? item.getNotation().getId() : null

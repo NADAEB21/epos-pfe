@@ -10,7 +10,11 @@ const stub = (title: string, figmaRef = '(a venir)') => ({
 // + status-aware tab list only; tab content is a session each).
 const workspaceTabs: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'vue-ensemble' },
-  { path: 'vue-ensemble', ...stub("Vue d'ensemble") },
+  {
+    path: 'vue-ensemble',
+    loadComponent: () =>
+      import('./features/examens/vue-ensemble.component').then((m) => m.VueEnsembleComponent),
+  },
   { path: 'stations-grilles', ...stub('Stations & Grilles') },
   { path: 'etudiants', ...stub('Etudiants') },
   { path: 'planning', ...stub('Planning') },

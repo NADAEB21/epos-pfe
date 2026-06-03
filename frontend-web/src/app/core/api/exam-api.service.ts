@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
-import { ExamenResponse, PageResponse, StatutExamen } from './models';
+import { ExamenResponse, PageResponse, StationSummary, StatutExamen } from './models';
 
 export interface ListExamensOptions {
   statut?: StatutExamen;
@@ -33,5 +33,20 @@ export class ExamApiService {
     return this.http
       .get<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}`)
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Stations of an exam, ordered. This is the canonical source for full station
+   * data: unlike the stations embedded in getExamen(id), each row here carries
+   * evaluateurIds + hasGrille. Paginated server-side (default 20) — we request a
+   * large page since an exam has a handful of stations.
+   */
+  listStations(examenId: number): Observable<StationSummary[]> {
+    const params = new HttpParams().set('size', 100).set('sort', 'ordre,asc');
+    return this.http
+      .get<ApiResponse<PageResponse<StationSummary>>>(`${this.baseUrl}/${examenId}/stations`, {
+        params,
+      })
+      .pipe(map((r) => r.data.content));
   }
 }

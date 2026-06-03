@@ -11,9 +11,15 @@ export type StatutExamen =
   | 'TERMINE'
   | 'ARCHIVE';
 
+export type TypeStation = 'PRATIQUE' | 'THEORIQUE';
+
 export interface StationSummary {
   id: number;
   nom?: string;
+  ordre?: number;
+  type?: TypeStation;
+  description?: string | null;
+  hasGrille?: boolean;
   evaluateurIds?: number[];
 }
 

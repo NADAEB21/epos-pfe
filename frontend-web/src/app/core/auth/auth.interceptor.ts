@@ -21,12 +21,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authed).pipe(
     catchError((err: HttpErrorResponse) => {
-      // Logic to extract our custom ApiResponse error message
-      const errorMessage = err.error?.message || err.message || 'An unknown error occurred';
-      
+      // Pass the original HttpErrorResponse through so callers can branch on
+      // err.status (login distinguishes 401 bad-credentials from 403 locked from
+      // network). The ApiResponse message stays reachable via err.error?.message.
       if (err.status !== 401 || isAuthEndpoint || !accessToken) {
-        // Return a new error with the extracted message
-        return throwError(() => new Error(errorMessage));
+        return throwError(() => err);
       }
 
       // Coalesce concurrent refresh attempts: backend rotates the refresh-token

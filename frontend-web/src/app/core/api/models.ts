@@ -13,6 +13,8 @@ export type StatutExamen =
 
 export type TypeStation = 'PRATIQUE' | 'THEORIQUE';
 
+export type TypeItem = 'BINAIRE' | 'NUMERIQUE';
+
 export interface StationSummary {
   id: number;
   nom?: string;
@@ -21,6 +23,34 @@ export interface StationSummary {
   description?: string | null;
   hasGrille?: boolean;
   evaluateurIds?: number[];
+}
+
+/** One scored line of a grille. valeurMax is null for BINAIRE items. */
+export interface GrilleItem {
+  id: number;
+  libelle: string;
+  type?: TypeItem;
+  ponderation?: number | null;
+  valeurMax?: number | null;
+  ordre?: number | null;
+  categorie?: string | null;
+}
+
+/** Grille with its items — only returned by the station detail endpoint. */
+export interface GrilleDetail {
+  id: number;
+  nom: string;
+  noteMax?: number | null;
+  description?: string | null;
+  sommePonderations?: number | null;
+  ponderationValide?: boolean;
+  nombreItems?: number;
+  items?: GrilleItem[];
+}
+
+/** GET /stations/{id} — StationSummary plus the embedded grille (if any). */
+export interface StationDetail extends StationSummary {
+  grille?: GrilleDetail | null;
 }
 
 export interface ExamenResponse {

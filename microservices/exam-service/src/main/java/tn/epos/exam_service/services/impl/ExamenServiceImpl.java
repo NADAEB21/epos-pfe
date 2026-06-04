@@ -280,6 +280,10 @@ public class ExamenServiceImpl implements ExamenService {
         sr.setDescription(station.getDescription());
         sr.setExamenId(station.getExamen().getId());
         sr.setHasGrille(station.hasGrille());
+        // Embedded stations must carry their évaluateur list too — the dedicated
+        // station endpoints already do (StationServiceImpl.toResponse). Without
+        // this, GET /examens/{id}.stations[].evaluateurIds is always null.
+        sr.setEvaluateurIds(station.getEvaluateurIds());
         sr.setCreatedAt(station.getCreatedAt());
         return sr;
     }

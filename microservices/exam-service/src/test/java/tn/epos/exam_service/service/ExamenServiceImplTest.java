@@ -12,6 +12,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.entities.Examen;
+import tn.epos.exam_service.entities.Station;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
@@ -242,6 +243,27 @@ class ExamenServiceImplTest {
             assertThatThrownBy(() -> examenService.trouverParId(99L))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("99");
+        }
+
+        @Test
+        @DisplayName("Les stations embarquées doivent porter leurs evaluateurIds")
+        void trouverParId_stationsEmbarquees_devraientPorterEvaluateurIds() {
+            Station station = Station.builder()
+                    .id(10L)
+                    .nom("Station 1")
+                    .ordre(1)
+                    .examen(examenBrouillon)
+                    .evaluateurIds(List.of(3L, 7L))
+                    .build();
+            examenBrouillon.setStations(List.of(station));
+            when(examenRepository.findByIdWithStations(1L))
+                    .thenReturn(Optional.of(examenBrouillon));
+
+            ExamenResponse result = examenService.trouverParId(1L);
+
+            assertThat(result.getStations()).hasSize(1);
+            assertThat(result.getStations().get(0).getEvaluateurIds())
+                    .containsExactly(3L, 7L);
         }
     }
 

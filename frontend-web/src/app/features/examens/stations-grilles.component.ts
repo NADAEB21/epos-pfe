@@ -251,7 +251,7 @@ export class StationsGrillesComponent {
         return;
       }
       this.load(examId);
-    });
+    }, { allowSignalWrites: true });
   }
 
   reload(): void {

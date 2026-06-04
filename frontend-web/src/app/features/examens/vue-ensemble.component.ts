@@ -211,7 +211,7 @@ export class VueEnsembleComponent {
         return;
       }
       this.load(examId);
-    });
+    }, { allowSignalWrites: true });
   }
 
   reload(): void {

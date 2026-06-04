@@ -115,7 +115,7 @@ export class ExamenWorkspaceComponent {
         return;
       }
       this.loadExam(examId);
-    });
+    }, { allowSignalWrites: true });
   }
 
   private loadExam(examId: number): void {

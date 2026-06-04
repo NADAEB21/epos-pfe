@@ -132,7 +132,7 @@ export class EtudiantsComponent {
         return;
       }
       this.load(examId);
-    });
+    }, { allowSignalWrites: true });
   }
 
   reload(): void {

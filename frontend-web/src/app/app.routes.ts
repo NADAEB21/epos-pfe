@@ -15,7 +15,13 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/vue-ensemble.component').then((m) => m.VueEnsembleComponent),
   },
-  { path: 'stations-grilles', ...stub('Stations & Grilles') },
+  {
+    path: 'stations-grilles',
+    loadComponent: () =>
+      import('./features/examens/stations-grilles.component').then(
+        (m) => m.StationsGrillesComponent,
+      ),
+  },
   { path: 'etudiants', ...stub('Etudiants') },
   { path: 'planning', ...stub('Planning') },
   { path: 'lancement', ...stub('Lancement') },

@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
-import { ExamenResponse, PageResponse, StationSummary, StatutExamen } from './models';
+import {
+  ExamenResponse,
+  PageResponse,
+  StationDetail,
+  StationSummary,
+  StatutExamen,
+} from './models';
 
 export interface ListExamensOptions {
   statut?: StatutExamen;
@@ -17,6 +23,9 @@ export interface ListExamensOptions {
 export class ExamApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/examens`;
+  // Stations are a top-level resource at the gateway (/api/v1/stations/**),
+  // not nested under /examens — only the list lives under an exam.
+  private readonly stationsUrl = `${environment.apiBaseUrl}/stations`;
 
   listExamens(options: ListExamensOptions = {}): Observable<PageResponse<ExamenResponse>> {
     let params = new HttpParams();
@@ -48,5 +57,31 @@ export class ExamApiService {
         params,
       })
       .pipe(map((r) => r.data.content));
+  }
+
+  /**
+   * Single station with its grille embedded (the list endpoint only carries
+   * hasGrille). Used to lazy-load the read-only grille when a station is
+   * expanded, so the tab's initial load stays a 2-call fan-out.
+   */
+  getStation(stationId: number): Observable<StationDetail> {
+    return this.http
+      .get<ApiResponse<StationDetail>>(`${this.stationsUrl}/${stationId}`)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Replace a station's évaluateur list (PATCH). The gateway forwards a RAW
+   * JSON array body (`[1,2,3]`, empty array clears) — not an object. Returns
+   * the updated station, so callers can refresh local state from the response
+   * instead of refetching.
+   */
+  setStationEvaluateurs(stationId: number, evaluateurIds: number[]): Observable<StationDetail> {
+    return this.http
+      .patch<ApiResponse<StationDetail>>(
+        `${this.stationsUrl}/${stationId}/evaluateurs`,
+        evaluateurIds,
+      )
+      .pipe(map((r) => r.data));
   }
 }

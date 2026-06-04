@@ -23,8 +23,12 @@ public class ExamenParticipationController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<ParticipationDTO>>> getAllParticipations() {
-        List<ParticipationDTO> dtos = participationService.getAll().stream()
+    public ResponseEntity<ApiResponse<List<ParticipationDTO>>> getAllParticipations(
+            @RequestParam(required = false) Long examenId) {
+        List<ExamenParticipation> entities = (examenId != null)
+                ? participationService.getByExamenId(examenId)
+                : participationService.getAll();
+        List<ParticipationDTO> dtos = entities.stream()
                 .map(ParticipationDTO::fromEntity)
                 .toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));

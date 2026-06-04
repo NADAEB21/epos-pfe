@@ -18,6 +18,10 @@ public class ExamenParticipationService {
         return repository.findAll();
     }
 
+    public List<ExamenParticipation> getByExamenId(Long examenId) {
+        return repository.findByExamenId(examenId);
+    }
+
     public Optional<ExamenParticipation> getById(Long id) {
         return repository.findById(id);
     }

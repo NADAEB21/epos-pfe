@@ -89,6 +89,25 @@ export interface NotationSummary {
 
 export interface EtudiantSummary {
   id: number;
+  nom?: string;
+  prenom?: string;
+  numero_inscription?: string;
+}
+
+/**
+ * One student's enrolment in a specific exam (scoring-service
+ * ExamenParticipation). The only place a student is tied to an exam — the
+ * roster of exam X is its participations where examen_id === X, joined to
+ * étudiants by etudiantId. Field names mirror the backend DTO verbatim.
+ */
+export interface ParticipationSummary {
+  id: number;
+  examen_id: number;
+  num_echantillon: string | null;
+  note: number | null;
+  est_present: boolean | null;
+  etudiantId: number | null;
+  lotId: number | null;
 }
 
 export interface MatiereResponse {

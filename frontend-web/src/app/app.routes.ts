@@ -22,7 +22,11 @@ const workspaceTabs: Routes = [
         (m) => m.StationsGrillesComponent,
       ),
   },
-  { path: 'etudiants', ...stub('Etudiants') },
+  {
+    path: 'etudiants',
+    loadComponent: () =>
+      import('./features/examens/etudiants.component').then((m) => m.EtudiantsComponent),
+  },
   { path: 'planning', ...stub('Planning') },
   { path: 'lancement', ...stub('Lancement') },
   { path: 'suivi', ...stub('Suivi en direct') },

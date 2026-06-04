@@ -99,6 +99,22 @@ class ExamenParticipationControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isEmpty());
         }
+
+        @Test
+        @DisplayName("200 - Filtre par examenId (delegue a getByExamenId, pas getAll)")
+        void getAll_avecExamenId_devraitFiltrer() throws Exception {
+            when(participationService.getByExamenId(10L)).thenReturn(List.of(participation));
+
+            mockMvc.perform(get("/api/participations").param("examenId", "10"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].examen_id").value(10))
+                    .andExpect(jsonPath("$.data[0].etudiantId").value(1))
+                    .andExpect(jsonPath("$.data[0].num_echantillon").value("ECH-001"));
+
+            verify(participationService, times(1)).getByExamenId(10L);
+            verify(participationService, never()).getAll();
+        }
     }
 
     // ─── GET /api/participations/{id} ────────────────────────────────────────

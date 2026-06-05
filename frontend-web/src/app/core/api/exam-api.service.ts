@@ -5,6 +5,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
   ExamenResponse,
+  GrilleDetail,
   PageResponse,
   StationDetail,
   StationSummary,
@@ -60,13 +61,16 @@ export class ExamApiService {
   }
 
   /**
-   * Single station with its grille embedded (the list endpoint only carries
-   * hasGrille). Used to lazy-load the read-only grille when a station is
-   * expanded, so the tab's initial load stays a 2-call fan-out.
+   * The grille of a station with its items, for the read-only drill-down when a
+   * station is expanded (kept out of the tab's initial 2-call fan-out).
+   *
+   * Hits the dedicated grille endpoint, NOT GET /stations/{id}: the station
+   * detail's `grille` field is always null server-side (it only carries
+   * hasGrille), so this is the only source for the items + computed pondération.
    */
-  getStation(stationId: number): Observable<StationDetail> {
+  getStationGrille(stationId: number): Observable<GrilleDetail> {
     return this.http
-      .get<ApiResponse<StationDetail>>(`${this.stationsUrl}/${stationId}`)
+      .get<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`)
       .pipe(map((r) => r.data));
   }
 

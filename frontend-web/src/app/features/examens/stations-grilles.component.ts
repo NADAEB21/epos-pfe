@@ -335,13 +335,9 @@ export class StationsGrillesComponent {
 
   loadGrille(stationId: number): void {
     this.setGrilleState(stationId, { loading: true, error: false, grille: null });
-    this.examApi.getStation(stationId).subscribe({
-      next: (detail) =>
-        this.setGrilleState(stationId, {
-          loading: false,
-          error: false,
-          grille: detail.grille ?? null,
-        }),
+    this.examApi.getStationGrille(stationId).subscribe({
+      next: (grille) =>
+        this.setGrilleState(stationId, { loading: false, error: false, grille: grille ?? null }),
       error: () => this.setGrilleState(stationId, { loading: false, error: true, grille: null }),
     });
   }

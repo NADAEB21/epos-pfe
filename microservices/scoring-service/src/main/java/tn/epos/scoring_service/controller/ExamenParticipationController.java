@@ -5,9 +5,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
 import tn.epos.scoring_service.entities.ExamenParticipation;
+import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 
 import java.util.List;
@@ -20,6 +22,9 @@ public class ExamenParticipationController {
 
     @Autowired
     private ExamenParticipationService participationService;
+
+    @Autowired
+    private EtudiantService etudiantService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -51,8 +56,14 @@ public class ExamenParticipationController {
         entity.setNum_echantillon(dto.num_echantillon());
         entity.setNote(dto.note());
         entity.setEst_present(dto.est_present());
-        // Service handles looking up Etudiant/Lot by ID if needed, 
-        // or you can set them here if the service expects them.
+        // Link the student: the DTO carries etudiantId but it was previously
+        // dropped here, leaving every participation orphaned (roster showed no
+        // names). Resolve and attach it so the FK is persisted.
+        if (dto.etudiantId() != null) {
+            entity.setEtudiant(etudiantService.getEtudiantById(dto.etudiantId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "Étudiant introuvable: " + dto.etudiantId())));
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Participation enregistrée", ParticipationDTO.fromEntity(participationService.save(entity))));
     }

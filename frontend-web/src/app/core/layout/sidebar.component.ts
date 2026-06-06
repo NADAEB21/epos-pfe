@@ -5,6 +5,9 @@ import { AuthStore } from '../auth/auth.store';
 interface NavItem {
   label: string;
   link: string;
+  // Exact match for the active class — needed for parent links like /admin
+  // whose path is a prefix of their children (/admin/utilisateurs, …).
+  exact?: boolean;
 }
 
 interface NavGroup {
@@ -22,16 +25,17 @@ interface NavGroup {
 export class SidebarComponent {
   private readonly authStore = inject(AuthStore);
 
-  // JWT authorities drive nav visibility. Compound users (e.g. SUPER_ADMIN +
-  // RESPONSABLE) see both zones concurrently (decision 4 of the Phase B plan).
+  // JWT authorities drive nav visibility. The Responsable workspace is gated on
+  // the RESPONSABLE_MATIERE role — a pure Super-admin does not own a matiere, so
+  // they get the Administration zone instead, not this matiere-scoped workspace.
+  // Compound users (SUPER_ADMIN + RESPONSABLE) see both zones concurrently.
   readonly groups = computed<NavGroup[]>(() => {
-    const isSuperAdmin = this.authStore.hasGlobalRole('SUPER_ADMIN');
-    const isResponsable = this.authStore.responsableMatiereIds().length > 0;
-    const canWorkspace = isSuperAdmin || isResponsable;
+    const isSuperAdmin = this.authStore.isSuperAdmin();
+    const isResponsable = this.authStore.isResponsable();
 
     const groups: NavGroup[] = [];
 
-    if (canWorkspace) {
+    if (isResponsable) {
       groups.push({
         title: 'Espace de travail',
         items: [
@@ -60,6 +64,7 @@ export class SidebarComponent {
       groups.push({
         title: 'Administration',
         items: [
+          { label: "Vue d'ensemble", link: '/admin', exact: true },
           { label: 'Utilisateurs', link: '/admin/utilisateurs' },
           { label: 'Matieres', link: '/admin/matieres' },
           { label: 'Templates globaux', link: '/admin/templates' },

@@ -13,7 +13,12 @@
           {{ group.title }}
         </p>
         @for (item of group.items; track item.link) {
-          <a [routerLink]="item.link" routerLinkActive="active" class="nav-link">
+          <a
+            [routerLink]="item.link"
+            routerLinkActive="active"
+            [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+            class="nav-link"
+          >
             <span>{{ item.label }}</span>
           </a>
         }

@@ -17,6 +17,7 @@ import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
+import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 
 import java.util.List;
@@ -40,6 +41,9 @@ class ExamenParticipationControllerTest {
 
     @MockBean
     private ExamenParticipationService participationService;
+
+    @MockBean
+    private EtudiantService etudiantService;
 
     private ObjectMapper objectMapper;
     private ExamenParticipation participation;
@@ -166,6 +170,39 @@ class ExamenParticipationControllerTest {
                     .andExpect(jsonPath("$.data.num_echantillon").value("ECH-001"));
 
             verify(participationService, times(1)).save(any(ExamenParticipation.class));
+        }
+
+        @Test
+        @DisplayName("201 - etudiantId fourni: l'etudiant est resolu et attache")
+        void create_avecEtudiantId_devraitResoudreEtAttacher() throws Exception {
+            Etudiant etudiant = new Etudiant();
+            etudiant.setId(1L);
+            when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
+            when(participationService.save(any(ExamenParticipation.class))).thenReturn(participation);
+
+            String body = "{\"examen_id\":10,\"num_echantillon\":\"ECH-001\",\"est_present\":true,\"etudiantId\":1}";
+            mockMvc.perform(post("/api/participations")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.success").value(true));
+
+            verify(etudiantService, times(1)).getEtudiantById(1L);
+            verify(participationService, times(1)).save(any(ExamenParticipation.class));
+        }
+
+        @Test
+        @DisplayName("400 - etudiantId inconnu: rejet, pas de persistance")
+        void create_avecEtudiantIdInconnu_devraitRetourner400() throws Exception {
+            when(etudiantService.getEtudiantById(99L)).thenReturn(Optional.empty());
+
+            String body = "{\"examen_id\":10,\"num_echantillon\":\"ECH-001\",\"est_present\":true,\"etudiantId\":99}";
+            mockMvc.perform(post("/api/participations")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+
+            verify(participationService, never()).save(any(ExamenParticipation.class));
         }
     }
 

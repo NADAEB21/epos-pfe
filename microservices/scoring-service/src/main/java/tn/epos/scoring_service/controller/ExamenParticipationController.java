@@ -5,8 +5,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
@@ -61,8 +61,8 @@ public class ExamenParticipationController {
         // names). Resolve and attach it so the FK is persisted.
         if (dto.etudiantId() != null) {
             entity.setEtudiant(etudiantService.getEtudiantById(dto.etudiantId())
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.BAD_REQUEST, "Étudiant introuvable: " + dto.etudiantId())));
+                    .orElseThrow(() -> new BusinessException(
+                            "Étudiant introuvable: " + dto.etudiantId())));
         }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Participation enregistrée", ParticipationDTO.fromEntity(participationService.save(entity))));

@@ -8,8 +8,11 @@ import { TopbarComponent } from './topbar.component';
   standalone: true,
   imports: [RouterOutlet, SidebarComponent, TopbarComponent],
   template: `
-    <div class="min-h-screen flex">
-      <app-sidebar class="shrink-0" />
+    <!-- Fixed-viewport shell: the page itself never scrolls, only <main> does,
+         so the sidebar always spans the full height instead of being capped at
+         one viewport while long content runs past it. -->
+    <div class="h-screen flex overflow-hidden">
+      <app-sidebar class="shrink-0 h-full" />
       <div class="flex-1 flex flex-col min-w-0">
         <app-topbar />
         <main class="flex-1 px-8 py-6 overflow-auto">

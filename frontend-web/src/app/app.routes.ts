@@ -1,5 +1,12 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard, superAdminGuard } from './core/auth/auth.guard';
+import {
+  authGuard,
+  guestGuard,
+  landingRedirectGuard,
+  responsableGuard,
+  superAdminGuard,
+  webAccessGuard,
+} from './core/auth/auth.guard';
 
 const stub = (title: string, figmaRef = '(a venir)') => ({
   loadComponent: () => import('./shared/stub-page.component').then((m) => m.StubPageComponent),
@@ -42,48 +49,77 @@ export const routes: Routes = [
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
-    path: '',
+    // Authenticated but role-less for the web (pure EVALUATEUR) — sent here by
+    // webAccessGuard. Rendered outside the shell (no sidebar).
+    path: 'acces-refuse',
     canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/access/acces-refuse.component').then((m) => m.AccesRefuseComponent),
+  },
+  {
+    path: '',
+    canActivate: [authGuard, webAccessGuard],
     loadComponent: () =>
       import('./core/layout/app-shell.component').then((m) => m.AppShellComponent),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'accueil' },
+      // Role-aware landing: Responsable → /accueil, pure Super-admin → /admin.
+      { path: '', pathMatch: 'full', canActivate: [landingRedirectGuard], children: [] },
 
-      // Espace de travail
+      // Responsable workspace — gated as a group on the RESPONSABLE_MATIERE
+      // role. A pure Super-admin who deep-links here is bounced to /admin by
+      // responsableGuard, so the whole matiere-scoped zone (not just /accueil)
+      // stays out of reach via the URL bar.
       {
-        path: 'accueil',
-        loadComponent: () =>
-          import('./features/home/accueil.component').then((m) => m.AccueilComponent),
-      },
-      {
-        path: 'examens',
-        pathMatch: 'full',
-        loadComponent: () =>
-          import('./features/examens/examens-list.component').then((m) => m.ExamensListComponent),
-      },
-      {
-        path: 'examens/:id',
-        loadComponent: () =>
-          import('./features/examens/examen-workspace.component').then(
-            (m) => m.ExamenWorkspaceComponent,
-          ),
-        children: workspaceTabs,
-      },
-      { path: 'bibliotheque', ...stub('Bibliotheque de grilles') },
+        path: '',
+        canActivate: [responsableGuard],
+        children: [
+          // Espace de travail
+          {
+            path: 'accueil',
+            loadComponent: () =>
+              import('./features/home/accueil.component').then((m) => m.AccueilComponent),
+          },
+          {
+            path: 'examens',
+            pathMatch: 'full',
+            loadComponent: () =>
+              import('./features/examens/examens-list.component').then(
+                (m) => m.ExamensListComponent,
+              ),
+          },
+          {
+            path: 'examens/:id',
+            loadComponent: () =>
+              import('./features/examens/examen-workspace.component').then(
+                (m) => m.ExamenWorkspaceComponent,
+              ),
+            children: workspaceTabs,
+          },
+          { path: 'bibliotheque', ...stub('Bibliotheque de grilles') },
 
-      // Mon equipe
-      { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },
-      { path: 'equipe/co-responsables', ...stub('Co-responsables') },
+          // Mon equipe
+          { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },
+          { path: 'equipe/co-responsables', ...stub('Co-responsables') },
 
-      // Parametres
+          // Parametres (matiere-scoped)
+          { path: 'parametres/matiere', ...stub('Ma matiere') },
+        ],
+      },
+
+      // Parametres (any web user)
       { path: 'parametres/profil', ...stub('Mon profil') },
-      { path: 'parametres/matiere', ...stub('Ma matiere') },
 
       // Administration (SUPER_ADMIN only)
       {
         path: 'admin',
         canActivate: [superAdminGuard],
         children: [
+          {
+            path: '',
+            pathMatch: 'full',
+            loadComponent: () =>
+              import('./features/admin/admin-home.component').then((m) => m.AdminHomeComponent),
+          },
           { path: 'utilisateurs', ...stub('Utilisateurs (tous)') },
           { path: 'matieres', ...stub('Matieres (catalogue)') },
           { path: 'templates', ...stub('Templates globaux') },

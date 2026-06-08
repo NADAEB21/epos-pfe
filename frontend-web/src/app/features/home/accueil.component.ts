@@ -126,7 +126,7 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
           <p class="text-sm text-gray-500 mb-5">Creez un nouvel examen pour demarrer.</p>
           <div class="flex flex-wrap justify-center gap-3">
             <a
-              [routerLink]="['/examens']"
+              [routerLink]="['/examens', 'nouveau']"
               class="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
               >Partir de zero</a
             >

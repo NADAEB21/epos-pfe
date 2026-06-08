@@ -69,6 +69,23 @@ export interface ExamenResponse {
   stations?: StationSummary[];
 }
 
+/**
+ * Body for POST /examens (exam-service ExamenRequest). The exam lands in
+ * BROUILLON; matiereId must be one the caller is RESPONSABLE_MATIERE for —
+ * the backend @PreAuthorize gates on `ROLE_RESPONSABLE_MATIERE:<matiereId>`.
+ * dureeStationMin / nbEtudiantsParStation default server-side (15 / 4) when
+ * omitted. Mirror the backend bean validation client-side: nom ≤150,
+ * dureeStationMin 1–180, nbEtudiantsParStation 1–10, description ≤500.
+ */
+export interface CreateExamenRequest {
+  nom: string;
+  matiereId: number;
+  dateExamen: string; // yyyy-MM-dd
+  dureeStationMin?: number;
+  nbEtudiantsParStation?: number;
+  description?: string;
+}
+
 export interface PageResponse<T> {
   content: T[];
   page: number;

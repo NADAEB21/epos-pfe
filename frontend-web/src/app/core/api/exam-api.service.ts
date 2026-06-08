@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
+  CreateExamenRequest,
   ExamenResponse,
   GrilleDetail,
   PageResponse,
@@ -42,6 +43,18 @@ export class ExamApiService {
   getExamen(id: number): Observable<ExamenResponse> {
     return this.http
       .get<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}`)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Create an exam from scratch (POST /examens). The exam lands in BROUILLON;
+   * the response carries the new id, so callers navigate straight into the
+   * workspace (/examens/{id}). The backend gates matiereId on the caller's
+   * RESPONSABLE_MATIERE scope — a 403 means the chosen matière is out of scope.
+   */
+  createExamen(body: CreateExamenRequest): Observable<ExamenResponse> {
+    return this.http
+      .post<ApiResponse<ExamenResponse>>(this.baseUrl, body)
       .pipe(map((r) => r.data));
   }
 

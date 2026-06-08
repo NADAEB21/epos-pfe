@@ -1,8 +1,11 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ExamenResponse, StationSummary, TypeStation } from '../../core/api/models';
+import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 type ReadinessState = 'ok' | 'todo' | 'unknown';
 
@@ -55,6 +58,115 @@ const TYPE_LABELS: Record<TypeStation, string> = {
       </div>
     } @else {
       @if (exam(); as e) {
+      <!-- Edit metadata (BROUILLON only) -->
+      @if (canEdit()) {
+        <section class="mb-6">
+          @if (editing()) {
+            <form
+              [formGroup]="editForm"
+              (ngSubmit)="submitEdit()"
+              novalidate
+              class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+            >
+              <div class="text-sm font-semibold text-gray-900">Modifier l'examen</div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Nom de l'examen</label>
+                <input
+                  type="text"
+                  formControlName="nom"
+                  maxlength="150"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+                @if (editForm.controls.nom.touched && editForm.controls.nom.invalid) {
+                  <p class="text-xs text-status-danger mt-1">Le nom est obligatoire (3 à 150 caractères).</p>
+                }
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    formControlName="dateExamen"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                  />
+                  @if (editForm.controls.dateExamen.touched && editForm.controls.dateExamen.invalid) {
+                    <p class="text-xs text-status-danger mt-1">La date est obligatoire.</p>
+                  }
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">
+                    Durée / station <span class="text-gray-400">(min)</span>
+                  </label>
+                  <input
+                    type="number"
+                    formControlName="dureeStationMin"
+                    min="1"
+                    max="180"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                  />
+                  @if (editForm.controls.dureeStationMin.invalid) {
+                    <p class="text-xs text-status-danger mt-1">Entre 1 et 180.</p>
+                  }
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Étudiants / station</label>
+                  <input
+                    type="number"
+                    formControlName="nbEtudiantsParStation"
+                    min="1"
+                    max="10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                  />
+                  @if (editForm.controls.nbEtudiantsParStation.invalid) {
+                    <p class="text-xs text-status-danger mt-1">Entre 1 et 10.</p>
+                  }
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">
+                  Description <span class="text-gray-400">(optionnel)</span>
+                </label>
+                <textarea
+                  formControlName="description"
+                  rows="2"
+                  maxlength="500"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                ></textarea>
+              </div>
+              @if (saveError()) {
+                <p role="alert" class="text-xs text-status-danger">{{ saveError() }}</p>
+              }
+              <div class="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  (click)="cancelEdit()"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  [disabled]="editForm.invalid || saving()"
+                  class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {{ saving() ? 'Enregistrement…' : 'Enregistrer' }}
+                </button>
+              </div>
+            </form>
+          } @else {
+            <div class="flex justify-end">
+              <button
+                type="button"
+                (click)="openEdit(e)"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Modifier l'examen
+              </button>
+            </div>
+          }
+        </section>
+      }
+
       <!-- Readiness summary -->
       <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
         <div class="flex items-center justify-between gap-4 flex-wrap mb-4">
@@ -189,10 +301,12 @@ const TYPE_LABELS: Record<TypeStation, string> = {
       }
     }
   `,
-  imports: [RouterLink],
+  imports: [RouterLink, ReactiveFormsModule],
 })
 export class VueEnsembleComponent {
   private readonly examApi = inject(ExamApiService);
+  private readonly store = inject(ExamenWorkspaceStore);
+  private readonly fb = inject(FormBuilder);
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
@@ -201,6 +315,75 @@ export class VueEnsembleComponent {
   readonly stations = signal<StationSummary[]>([]);
   readonly loading = signal(true);
   readonly error = signal(false);
+
+  /** Metadata is editable only while BROUILLON (mirrors Examen.isModifiable). */
+  readonly canEdit = computed(() => this.exam()?.statut === 'BROUILLON');
+
+  readonly editing = signal(false);
+  readonly saving = signal(false);
+  readonly saveError = signal<string | null>(null);
+  readonly editForm = this.fb.nonNullable.group({
+    nom: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(150)]],
+    dateExamen: ['', [Validators.required]],
+    dureeStationMin: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(180)]),
+    nbEtudiantsParStation: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(10)]),
+    description: ['', [Validators.maxLength(500)]],
+  });
+
+  openEdit(e: ExamenResponse): void {
+    this.editForm.reset({
+      nom: e.nom,
+      dateExamen: e.dateExamen,
+      dureeStationMin: e.dureeStationMin,
+      nbEtudiantsParStation: e.nbEtudiantsParStation,
+      description: e.description ?? '',
+    });
+    this.saveError.set(null);
+    this.editing.set(true);
+  }
+
+  cancelEdit(): void {
+    this.editing.set(false);
+    this.saveError.set(null);
+  }
+
+  submitEdit(): void {
+    const current = this.exam();
+    if (!current || this.editForm.invalid || this.saving()) return;
+    const raw = this.editForm.getRawValue();
+    this.saving.set(true);
+    this.saveError.set(null);
+    // matiereId is @NotNull server-side and not editable here — resend the
+    // exam's existing matière so the PUT validates.
+    this.examApi
+      .updateExamen(current.id, {
+        nom: raw.nom.trim(),
+        matiereId: current.matiereId,
+        dateExamen: raw.dateExamen,
+        dureeStationMin: raw.dureeStationMin ?? undefined,
+        nbEtudiantsParStation: raw.nbEtudiantsParStation ?? undefined,
+        description: raw.description.trim() || undefined,
+      })
+      .subscribe({
+        next: (updated) => {
+          this.saving.set(false);
+          this.editing.set(false);
+          this.exam.set(updated);
+          // Refresh the route-scoped store so the workspace header (nom/date)
+          // reflects the edit without a manual reload.
+          this.store.reload();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.saving.set(false);
+          if (err.status === 403) this.saveError.set("Vous n'avez pas les droits sur cet examen.");
+          else if (err.status === 400)
+            this.saveError.set('Certains champs sont invalides. Verifiez le formulaire.');
+          else if (err.status === 409)
+            this.saveError.set("L'examen n'est plus modifiable (statut change).");
+          else this.saveError.set('Erreur de connexion. Reessayez.');
+        },
+      });
+  }
 
   constructor() {
     effect(() => {

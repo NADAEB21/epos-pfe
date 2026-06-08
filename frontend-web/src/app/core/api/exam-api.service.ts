@@ -9,6 +9,7 @@ import {
   GrilleDetail,
   PageResponse,
   StationDetail,
+  StationRequest,
   StationSummary,
   StatutExamen,
 } from './models';
@@ -55,6 +56,19 @@ export class ExamApiService {
   createExamen(body: CreateExamenRequest): Observable<ExamenResponse> {
     return this.http
       .post<ApiResponse<ExamenResponse>>(this.baseUrl, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Edit an exam's metadata (PUT /examens/{id}). The backend only allows this
+   * while BROUILLON (Examen.isModifiable) and 403s a matière out of the caller's
+   * scope. The body is the SAME shape as create — matiereId is @NotNull server
+   * side, so callers must resend the exam's existing matiereId even though the
+   * responsable can't change it. Returns the updated exam.
+   */
+  updateExamen(id: number, body: CreateExamenRequest): Observable<ExamenResponse> {
+    return this.http
+      .put<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}`, body)
       .pipe(map((r) => r.data));
   }
 
@@ -115,5 +129,38 @@ export class ExamApiService {
         evaluateurIds,
       )
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Add a station to an exam (POST /examens/{id}/stations). Ordre is assigned
+   * server-side. Gated to BROUILLON/CONFIGURE (Examen.isGrilleModifiable) and to
+   * the caller's matière scope; a duplicate nom within the exam is a 400/409
+   * BusinessException. Returns the created station (with its assigned ordre).
+   */
+  createStation(examenId: number, body: StationRequest): Observable<StationDetail> {
+    return this.http
+      .post<ApiResponse<StationDetail>>(`${this.baseUrl}/${examenId}/stations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Edit a station (PUT /stations/{id}). Same BROUILLON/CONFIGURE gate. Omitting
+   * evaluateurIds in the body leaves the existing bindings intact server-side, so
+   * the metadata edit form sends only nom/type/description.
+   */
+  updateStation(stationId: number, body: StationRequest): Observable<StationDetail> {
+    return this.http
+      .put<ApiResponse<StationDetail>>(`${this.stationsUrl}/${stationId}`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Delete a station (DELETE /stations/{id}). Cascades to its grille and the
+   * backend re-orders the remaining stations. Same BROUILLON/CONFIGURE gate.
+   */
+  deleteStation(stationId: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.stationsUrl}/${stationId}`)
+      .pipe(map(() => void 0));
   }
 }

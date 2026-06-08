@@ -86,6 +86,20 @@ export interface CreateExamenRequest {
   description?: string;
 }
 
+/**
+ * Body for POST /examens/{id}/stations and PUT /stations/{id} (exam-service
+ * StationRequest). nom ≤150, type required, description ≤300. evaluateurIds is
+ * OPTIONAL: omitting it on a PUT leaves the existing bindings untouched
+ * (StationServiceImpl.modifier only overwrites when non-null), so the metadata
+ * edit form leaves it out and the dedicated évaluateur picker owns binding.
+ */
+export interface StationRequest {
+  nom: string;
+  type: TypeStation;
+  description?: string;
+  evaluateurIds?: number[];
+}
+
 export interface PageResponse<T> {
   content: T[];
   page: number;

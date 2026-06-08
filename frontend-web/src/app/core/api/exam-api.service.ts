@@ -46,6 +46,21 @@ export class ExamApiService {
   }
 
   /**
+   * Drive the exam lifecycle one legal edge at a time. The backend
+   * (PATCH /examens/{id}/statut?statut=…) takes the target status as a QUERY
+   * param, not a body, and only validates the state-machine edge is legal
+   * (BROUILLON→CONFIGURE→EN_COURS→TERMINE→ARCHIVE) — it does NOT check launch
+   * readiness (évaluateurs/grilles/roster). The Lancement screen owns that
+   * pre-flight gate client-side; see its component doc. Returns the updated exam.
+   */
+  changerStatut(id: number, statut: StatutExamen): Observable<ExamenResponse> {
+    const params = new HttpParams().set('statut', statut);
+    return this.http
+      .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/statut`, null, { params })
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * Stations of an exam, ordered. This is the canonical source for full station
    * data: unlike the stations embedded in getExamen(id), each row here carries
    * evaluateurIds + hasGrille. Paginated server-side (default 20) — we request a

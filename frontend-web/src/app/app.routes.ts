@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { ExamenWorkspaceStore } from './features/examens/examen-workspace.store';
 import {
   authGuard,
   guestGuard,
@@ -35,7 +36,11 @@ const workspaceTabs: Routes = [
       import('./features/examens/etudiants.component').then((m) => m.EtudiantsComponent),
   },
   { path: 'planning', ...stub('Planning') },
-  { path: 'lancement', ...stub('Lancement') },
+  {
+    path: 'lancement',
+    loadComponent: () =>
+      import('./features/examens/lancement.component').then((m) => m.LancementComponent),
+  },
   { path: 'suivi', ...stub('Suivi en direct') },
   { path: 'resultats', ...stub('Resultats') },
   { path: 'analyses-ia', ...stub('Analyses IA') },
@@ -89,6 +94,10 @@ export const routes: Routes = [
           },
           {
             path: 'examens/:id',
+            // Route-scoped: one store instance shared by the workspace shell and
+            // every tab, so a lifecycle change in Lancement reactively updates the
+            // parent's status-aware tabs + lifecycle bar.
+            providers: [ExamenWorkspaceStore],
             loadComponent: () =>
               import('./features/examens/examen-workspace.component').then(
                 (m) => m.ExamenWorkspaceComponent,

@@ -1,7 +1,7 @@
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ExamenResponse, StatutExamen } from '../../core/api/models';
+import { StatutExamen } from '../../core/api/models';
+import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface WorkspaceTab {
   label: string;
@@ -94,44 +94,34 @@ const TABS_DONE: WorkspaceTab[] = [
   `,
 })
 export class ExamenWorkspaceComponent {
-  private readonly examApi = inject(ExamApiService);
+  private readonly store = inject(ExamenWorkspaceStore);
 
   /** Bound from the :id route param via withComponentInputBinding(). */
   readonly id = input.required<string>();
 
   readonly lifecycle = LIFECYCLE;
-  readonly exam = signal<ExamenResponse | null>(null);
-  readonly loading = signal(true);
-  readonly error = signal(false);
 
-  readonly tabs = signal<WorkspaceTab[]>([]);
+  // Mirror the route-scoped store so the header, lifecycle bar and tab list all
+  // react to a child mutating the exam (e.g. Lancement → changerStatut → reload).
+  readonly exam = this.store.exam;
+  readonly loading = this.store.loading;
+  readonly error = this.store.error;
+
+  readonly tabs = computed<WorkspaceTab[]>(() => {
+    const e = this.exam();
+    return e ? this.tabsFor(e.statut) : [];
+  });
 
   constructor() {
     effect(() => {
       const examId = Number(this.id());
       if (!Number.isFinite(examId)) {
-        this.error.set(true);
-        this.loading.set(false);
+        this.store.error.set(true);
+        this.store.loading.set(false);
         return;
       }
-      this.loadExam(examId);
+      this.store.load(examId);
     }, { allowSignalWrites: true });
-  }
-
-  private loadExam(examId: number): void {
-    this.loading.set(true);
-    this.error.set(false);
-    this.examApi.getExamen(examId).subscribe({
-      next: (e) => {
-        this.exam.set(e);
-        this.tabs.set(this.tabsFor(e.statut));
-        this.loading.set(false);
-      },
-      error: () => {
-        this.error.set(true);
-        this.loading.set(false);
-      },
-    });
   }
 
   private tabsFor(statut: StatutExamen): WorkspaceTab[] {

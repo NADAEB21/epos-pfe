@@ -18,6 +18,12 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
   template: `
     <header class="mb-6 flex items-center justify-between">
       <h1 class="text-2xl font-semibold text-gray-900">Mes examens</h1>
+      <a
+        [routerLink]="['/examens', 'nouveau']"
+        class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      >
+        + Nouvel examen
+      </a>
     </header>
 
     @if (loading()) {

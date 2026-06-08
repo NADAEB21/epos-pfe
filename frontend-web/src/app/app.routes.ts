@@ -93,6 +93,14 @@ export const routes: Routes = [
               ),
           },
           {
+            // MUST precede 'examens/:id' — otherwise 'nouveau' is captured as an id.
+            path: 'examens/nouveau',
+            loadComponent: () =>
+              import('./features/examens/examen-create.component').then(
+                (m) => m.ExamenCreateComponent,
+              ),
+          },
+          {
             path: 'examens/:id',
             // Route-scoped: one store instance shared by the workspace shell and
             // every tab, so a lifecycle change in Lancement reactively updates the

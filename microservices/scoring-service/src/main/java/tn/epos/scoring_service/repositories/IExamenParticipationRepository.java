@@ -16,4 +16,9 @@ public interface IExamenParticipationRepository extends JpaRepository<ExamenPart
     // separator and look for a nested "examen.id" that does not exist.
     @Query("SELECT p FROM ExamenParticipation p WHERE p.examen_id = :examenId")
     List<ExamenParticipation> findByExamenId(@Param("examenId") Long examenId);
+
+    // The lot association IS a real entity path (p.lot.id), unlike the flat
+    // examen_id column above, so a derived query resolves cleanly. Used by the
+    // two-phase lot workflow: per-lot presence marking and per-lot generation.
+    List<ExamenParticipation> findByLotId(Long lotId);
 }

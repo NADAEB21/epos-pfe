@@ -3,7 +3,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { GenerationResult, StationSummary, StatutExamen } from '../../core/api/models';
+import { StationSummary, StatutExamen } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface PreflightCheck {
@@ -106,41 +106,21 @@ interface PreflightCheck {
         </ul>
       </section>
 
-      <!-- Génération des rotations (CONFIGURE only) -->
+      <!-- Lots: répartis at CONFIGURE, generated per-lot on exam day -->
       @if (isLaunch()) {
         <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
-          <div class="flex items-center justify-between gap-4 mb-2">
-            <h3 class="font-semibold text-gray-900">Planification des rotations</h3>
-            @if (genResult()) {
-              <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-status-success text-white">Générées</span>
-            }
-          </div>
+          <h3 class="font-semibold text-gray-900 mb-2">Lots</h3>
           <p class="text-sm text-gray-500 mb-3">
-            Répartit les étudiants présents en groupes et construit le circuit OSCE (un évaluateur par station, créneaux horaires).
-            Indispensable pour que les évaluateurs aient une liste de passage le jour J. Relançable tant que l'examen n'est pas lancé.
+            Les étudiants sont répartis en lots (vagues) avant le lancement, pour qu'ils connaissent
+            leur horaire d'arrivée. Les rotations de chaque lot se génèrent le jour J, à l'arrivée
+            de la vague, depuis l'onglet Lots.
           </p>
-
-          @if (genResult(); as g) {
-            <div class="rounded-lg bg-brand-50 border border-brand-100 px-3 py-2 text-sm text-gray-700 mb-3">
-              {{ g.groupes }} groupe(s) · {{ g.rotations }} rotation(s) · {{ g.assignments }} passage(s)
-              · {{ g.etudiantsPresents }} présent(s)@if (g.etudiantsAbsents > 0) {, {{ g.etudiantsAbsents }} absent(s) ignoré(s)}.
-              @if (g.avertissement) {
-                <span class="block text-amber-700 mt-1">⚠ {{ g.avertissement }}</span>
-              }
-            </div>
-          }
-          @if (genError()) {
-            <p role="alert" class="text-sm text-status-danger mb-3">{{ genError() }}</p>
-          }
-
-          <button
-            type="button"
-            [disabled]="generating()"
-            (click)="genererRotations()"
-            class="inline-flex items-center px-4 py-2 rounded-lg border border-brand text-brand text-sm font-medium hover:bg-brand-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <a
+            [routerLink]="['../lots']"
+            class="inline-flex items-center px-4 py-2 rounded-lg border border-brand text-brand text-sm font-medium hover:bg-brand-50 transition-colors"
           >
-            {{ generating() ? 'Génération…' : genResult() ? 'Régénérer les rotations' : 'Générer les rotations' }}
-          </button>
+            {{ lotsCount() > 0 ? 'Voir les lots' : 'Répartir en lots' }}
+          </a>
         </section>
       }
 
@@ -227,6 +207,7 @@ export class LancementComponent {
 
   private readonly stations = signal<StationSummary[]>([]);
   private readonly rosterCount = signal(0);
+  readonly lotsCount = signal(0);
   private readonly localLoading = signal(true);
   private readonly localError = signal(false);
 
@@ -236,11 +217,6 @@ export class LancementComponent {
   readonly confirming = signal(false);
   readonly submitting = signal(false);
   readonly submitError = signal<string | null>(null);
-
-  // Rotation generation (CONFIGURE-time planning step).
-  readonly generating = signal(false);
-  readonly genResult = signal<GenerationResult | null>(null);
-  readonly genError = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -266,10 +242,12 @@ export class LancementComponent {
     forkJoin({
       stations: this.examApi.listStations(examId),
       participations: this.scoring.listParticipations(examId),
+      lots: this.scoring.listLots(examId),
     }).subscribe({
-      next: ({ stations, participations }) => {
+      next: ({ stations, participations, lots }) => {
         this.stations.set(stations);
         this.rosterCount.set(participations.length);
+        this.lotsCount.set(lots.length);
         this.localLoading.set(false);
       },
       error: () => {
@@ -331,6 +309,20 @@ export class LancementComponent {
               : 'A inscrire avant le jour J',
       },
       {
+        // The pre-flight that replaces #130's "rotations generated": rotations
+        // are now built per-lot on exam day, so the launch gate is that the
+        // waves are partitioned, not that the circuit exists.
+        label: 'Lots repartis',
+        ok: this.lotsCount() > 0,
+        blocking: this.rosterBlocks(),
+        hint:
+          this.lotsCount() > 0
+            ? `${this.lotsCount()} lot(s)`
+            : this.rosterBlocks()
+              ? 'Repartissez les etudiants en lots (onglet Lots) — requis pour lancer'
+              : 'A repartir avant le jour J',
+      },
+      {
         label: 'Sujet PDF importe',
         ok: this.hasPdf(),
         blocking: false,
@@ -363,36 +355,6 @@ export class LancementComponent {
       confirm: 'Finaliser la configuration ?',
     };
   });
-
-  // ---- rotation generation ------------------------------------------------
-
-  genererRotations(): void {
-    const examId = Number(this.id());
-    if (!Number.isFinite(examId) || this.generating()) return;
-    this.generating.set(true);
-    this.genError.set(null);
-    this.scoring.genererRotations(examId).subscribe({
-      next: (result) => {
-        this.generating.set(false);
-        this.genResult.set(result);
-      },
-      error: (err) => {
-        this.generating.set(false);
-        const status = err?.status;
-        if (status === 400) {
-          // Backend BusinessException carries a human message (statut, no station, no présent…).
-          this.genError.set(
-            err?.error?.message ??
-              "Génération impossible. Vérifiez que l'examen est en configuration, avec des stations et des étudiants présents.",
-          );
-        } else if (status === 403) {
-          this.genError.set("Vous n'avez pas les droits sur cet examen.");
-        } else {
-          this.genError.set('Erreur de connexion. Réessayez.');
-        }
-      },
-    });
-  }
 
   // ---- transition ---------------------------------------------------------
 

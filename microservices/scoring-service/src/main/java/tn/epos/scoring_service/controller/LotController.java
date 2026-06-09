@@ -23,8 +23,12 @@ public class LotController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<LotDTO>>> getAllLots() {
-        List<LotDTO> dtos = lotService.findAll().stream()
+    public ResponseEntity<ApiResponse<List<LotDTO>>> getAllLots(
+            @RequestParam(required = false) Long examenId) {
+        List<Lot> lots = (examenId != null)
+                ? lotService.findByExamenId(examenId)
+                : lotService.findAll();
+        List<LotDTO> dtos = lots.stream()
                 .map(LotDTO::fromEntity)
                 .toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));

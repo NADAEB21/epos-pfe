@@ -81,7 +81,7 @@ const TYPE_LABELS: Record<TypeStation, string> = {
                   <p class="text-xs text-status-danger mt-1">Le nom est obligatoire (3 à 150 caractères).</p>
                 }
               </div>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label class="block text-xs font-medium text-gray-700 mb-1">Date</label>
                   <input
@@ -92,6 +92,14 @@ const TYPE_LABELS: Record<TypeStation, string> = {
                   @if (editForm.controls.dateExamen.touched && editForm.controls.dateExamen.invalid) {
                     <p class="text-xs text-status-danger mt-1">La date est obligatoire.</p>
                   }
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1">Heure de début</label>
+                  <input
+                    type="time"
+                    formControlName="heureDebut"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                  />
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-gray-700 mb-1">
@@ -325,6 +333,7 @@ export class VueEnsembleComponent {
   readonly editForm = this.fb.nonNullable.group({
     nom: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(150)]],
     dateExamen: ['', [Validators.required]],
+    heureDebut: ['09:00', [Validators.required]],
     dureeStationMin: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(180)]),
     nbEtudiantsParStation: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(10)]),
     description: ['', [Validators.maxLength(500)]],
@@ -334,6 +343,7 @@ export class VueEnsembleComponent {
     this.editForm.reset({
       nom: e.nom,
       dateExamen: e.dateExamen,
+      heureDebut: e.heureDebut ?? '09:00',
       dureeStationMin: e.dureeStationMin,
       nbEtudiantsParStation: e.nbEtudiantsParStation,
       description: e.description ?? '',
@@ -360,6 +370,7 @@ export class VueEnsembleComponent {
         nom: raw.nom.trim(),
         matiereId: current.matiereId,
         dateExamen: raw.dateExamen,
+        heureDebut: raw.heureDebut || undefined,
         dureeStationMin: raw.dureeStationMin ?? undefined,
         nbEtudiantsParStation: raw.nbEtudiantsParStation ?? undefined,
         description: raw.description.trim() || undefined,

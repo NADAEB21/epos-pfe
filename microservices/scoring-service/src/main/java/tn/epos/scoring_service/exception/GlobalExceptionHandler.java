@@ -1,6 +1,7 @@
 package tn.epos.scoring_service.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -41,6 +42,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    // 409 - Violation de contrainte d'unicité (e.g. même étudiant inscrit deux
+    // fois au même examen → contrainte uq_participation_examen_etudiant).
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Violation d'intégrité des données : {}", ex.getMostSpecificCause().getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error("Conflit : cette ressource existe déjà ou viole une contrainte d'unicité."));
     }
 
     // 400 - Validation @Valid des DTOs

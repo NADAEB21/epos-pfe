@@ -50,6 +50,7 @@ public class ExamenServiceImpl implements ExamenService {
                 .nom(request.getNom())
                 .matiereId(request.getMatiereId())
                 .dateExamen(request.getDateExamen())
+                .heureDebut(request.getHeureDebut())
                 .dureeStationMin(request.getDureeStationMin())
                 .nbEtudiantsParStation(request.getNbEtudiantsParStation())
                 .description(request.getDescription())
@@ -115,6 +116,7 @@ public class ExamenServiceImpl implements ExamenService {
         examen.setNom(request.getNom());
         examen.setMatiereId(request.getMatiereId());
         examen.setDateExamen(request.getDateExamen());
+        examen.setHeureDebut(request.getHeureDebut());
         examen.setDureeStationMin(request.getDureeStationMin());
         examen.setNbEtudiantsParStation(request.getNbEtudiantsParStation());
         examen.setDescription(request.getDescription());
@@ -252,6 +254,7 @@ public class ExamenServiceImpl implements ExamenService {
         response.setNom(examen.getNom());
         response.setMatiereId(examen.getMatiereId());
         response.setDateExamen(examen.getDateExamen());
+        response.setHeureDebut(examen.getHeureDebut());
         response.setDureeStationMin(examen.getDureeStationMin());
         response.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());
         response.setStatut(examen.getStatut());

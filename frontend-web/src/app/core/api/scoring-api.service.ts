@@ -7,6 +7,7 @@ import {
   CreateEtudiantRequest,
   CreateParticipationRequest,
   EtudiantSummary,
+  GenerationResult,
   NotationSummary,
   ParticipationSummary,
 } from './models';
@@ -76,5 +77,21 @@ export class ScoringApiService {
     return this.http
       .delete<ApiResponse<void>>(`${this.baseUrl}/participations/${participationId}`)
       .pipe(map(() => void 0));
+  }
+
+  /**
+   * Auto-generate the OSCE rotation plan for an exam (POST
+   * /rotations/examens/{id}/generer — RESPONSABLE_MATIERE allowed). Builds the
+   * Latin-square circuit (lots → groups → rotations → assignments) so the
+   * évaluateurs have a work list on exam day. Backend-gated to CONFIGURE and
+   * re-runnable there (wipes the prior plan first). Returns the counts summary.
+   */
+  genererRotations(examenId: number): Observable<GenerationResult> {
+    return this.http
+      .post<ApiResponse<GenerationResult>>(
+        `${this.baseUrl}/rotations/examens/${examenId}/generer`,
+        null,
+      )
+      .pipe(map((r) => r.data));
   }
 }

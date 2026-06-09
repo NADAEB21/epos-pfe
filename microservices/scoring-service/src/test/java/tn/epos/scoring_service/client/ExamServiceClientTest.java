@@ -18,6 +18,8 @@ import reactor.core.publisher.Mono;
 import tn.epos.common.exception.BusinessException;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -185,6 +187,115 @@ class ExamServiceClientTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("aucun JWT");
             assertThat(calls).hasValue(0);
+        }
+    }
+
+    @Nested
+    @DisplayName("getExamForGeneration() - lecture cross-service pour la génération")
+    class ExamForGeneration {
+
+        private static final String EXAM_HAPPY_BODY =
+                "{\"success\":true,\"data\":{" +
+                        "\"id\":7," +
+                        "\"dateExamen\":\"2026-06-20\"," +
+                        "\"heureDebut\":\"08:30\"," +
+                        "\"dureeStationMin\":10," +
+                        "\"nbEtudiantsParStation\":4," +
+                        "\"statut\":\"CONFIGURE\"," +
+                        "\"stations\":[" +
+                        "{\"id\":10,\"ordre\":1,\"evaluateurIds\":[1000,1001]}," +
+                        "{\"id\":11,\"ordre\":2,\"evaluateurIds\":[]}," +
+                        "{\"id\":-3,\"ordre\":3,\"evaluateurIds\":[5]}," +   // id<=0 ignoré
+                        "{\"id\":12,\"evaluateurIds\":[0,-1,2000]}" +        // ordre null, eval 0/-1 filtrés
+                        "]}}";
+
+        @Test
+        @DisplayName("Doit parser l'examen + ses stations et forwarder le JWT vers /api/examens/{id}")
+        void happyPath_devraitParserExamenEtStations() {
+            List<ClientRequest> requests = new ArrayList<>();
+            ExamServiceClient client = clientReturning(okJson(EXAM_HAPPY_BODY), requests);
+
+            ExamGenerationView view = client.getExamForGeneration(7L);
+
+            assertThat(view.examenId()).isEqualTo(7L);
+            assertThat(view.dateExamen()).isEqualTo(LocalDate.of(2026, 6, 20));
+            assertThat(view.heureDebut()).isEqualTo(LocalTime.of(8, 30));
+            assertThat(view.dureeStationMin()).isEqualTo(10);
+            assertThat(view.nbEtudiantsParStation()).isEqualTo(4);
+            assertThat(view.statut()).isEqualTo("CONFIGURE");
+
+            // id<=0 station dropped → 3 stations (10, 11, 12)
+            assertThat(view.stations()).hasSize(3);
+            var s10 = view.stations().get(0);
+            assertThat(s10.id()).isEqualTo(10L);
+            assertThat(s10.ordre()).isEqualTo(1);
+            assertThat(s10.evaluateurIds()).containsExactly(1000L, 1001L);
+            assertThat(view.stations().get(1).evaluateurIds()).isEmpty();
+            var s12 = view.stations().get(2);
+            assertThat(s12.id()).isEqualTo(12L);
+            assertThat(s12.ordre()).isNull();                 // ordre absent → null
+            assertThat(s12.evaluateurIds()).containsExactly(2000L); // 0 and -1 filtered
+
+            assertThat(requests).hasSize(1);
+            ClientRequest sent = requests.get(0);
+            assertThat(sent.url().toString()).contains("/api/examens/7");
+            assertThat(sent.headers().getFirst("Authorization")).isEqualTo("Bearer fake-test-token");
+        }
+
+        @Test
+        @DisplayName("Champs de timing absents + pas de tableau stations → null/empty, pas d'exception")
+        void champsAbsents_devraitRetournerNullsEtStationsVides() {
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"id\":9,\"statut\":\"BROUILLON\"}}"),
+                    new ArrayList<>());
+
+            ExamGenerationView view = client.getExamForGeneration(9L);
+
+            assertThat(view.examenId()).isEqualTo(9L);
+            assertThat(view.statut()).isEqualTo("BROUILLON");
+            assertThat(view.dateExamen()).isNull();
+            assertThat(view.heureDebut()).isNull();
+            assertThat(view.dureeStationMin()).isNull();
+            assertThat(view.nbEtudiantsParStation()).isNull();
+            assertThat(view.stations()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Examen introuvable (data sans id) → BusinessException 'introuvable'")
+        void examenIntrouvable_devraitLeverBusinessException() {
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"message\":\"x\"}}"), new ArrayList<>());
+
+            assertThatThrownBy(() -> client.getExamForGeneration(404L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("introuvable");
+        }
+
+        @Test
+        @DisplayName("4xx d'exam-service → BusinessException mentionnant le statut")
+        void quatreCent_devraitLeverBusinessException() {
+            ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false,\"message\":\"nope\"}")
+                    .build();
+            ExamServiceClient client = clientReturning(notFound, new ArrayList<>());
+
+            assertThatThrownBy(() -> client.getExamForGeneration(7L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("exam-service a renvoyé")
+                    .hasMessageContaining("404");
+        }
+
+        @Test
+        @DisplayName("Erreur réseau → BusinessException 'injoignable'")
+        void erreurReseau_devraitLeverBusinessException() {
+            ExchangeFunction failing = request -> Mono.error(new RuntimeException("connection refused"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            assertThatThrownBy(() -> client.getExamForGeneration(7L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("injoignable");
         }
     }
 }

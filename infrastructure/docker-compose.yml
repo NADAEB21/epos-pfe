@@ -165,6 +165,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # Cross-service reads (rotation generation, cross-grille notation validation)
+      # call exam-service by its compose service name on the internal network.
+      # Without this the WebClient falls back to localhost:8082 (the scoring
+      # container itself) and every cross-service call fails "injoignable".
+      - EXAM_SERVICE_BASE_URL=http://exam-service:8082
     depends_on:
       postgres-db:
         condition: service_healthy

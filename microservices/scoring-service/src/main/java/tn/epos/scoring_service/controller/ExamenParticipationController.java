@@ -80,8 +80,14 @@ public class ExamenParticipationController {
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
+    // A participation is an exam enrolment, not a directory record: the same
+    // RESPONSABLE_MATIERE who can POST one (enrol a student onto an exam they
+    // author) must be able to undo it. Keeping DELETE SUPER_ADMIN-only while POST
+    // is responsable-allowed was an add-without-remove asymmetry that left the
+    // roster un-editable for the persona that owns it. DELETE /etudiants stays
+    // admin-only — pruning the global student directory is a different concern.
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         if (participationService.getById(id).isPresent()) {
             participationService.delete(id);

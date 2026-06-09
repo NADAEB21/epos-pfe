@@ -117,7 +117,13 @@ export const routes: Routes = [
               ),
             children: workspaceTabs,
           },
-          { path: 'bibliotheque', ...stub('Bibliotheque de grilles') },
+          {
+            path: 'bibliotheque',
+            loadComponent: () =>
+              import('./features/examens/bibliotheque.component').then(
+                (m) => m.BibliothequeComponent,
+              ),
+          },
 
           // Mon equipe
           { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },

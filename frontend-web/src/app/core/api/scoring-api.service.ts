@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
-import { EtudiantSummary, NotationSummary, ParticipationSummary } from './models';
+import {
+  CreateEtudiantRequest,
+  CreateParticipationRequest,
+  EtudiantSummary,
+  NotationSummary,
+  ParticipationSummary,
+} from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
 @Injectable({ providedIn: 'root' })
@@ -34,5 +40,41 @@ export class ScoringApiService {
     return this.http
       .get<ApiResponse<ParticipationSummary[]>>(`${this.baseUrl}/participations`, { params })
       .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Create a student in the GLOBAL directory (POST /etudiants — RESPONSABLE_MATIERE
+   * allowed). This does NOT enrol them in any exam; pair it with createParticipation
+   * to put a brand-new student on a roster (the 2-step add-new flow). Returns the
+   * created student with its server-assigned id.
+   */
+  createEtudiant(body: CreateEtudiantRequest): Observable<EtudiantSummary> {
+    return this.http
+      .post<ApiResponse<EtudiantSummary>>(`${this.baseUrl}/etudiants`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Enrol a student onto an exam (POST /participations — RESPONSABLE_MATIERE
+   * allowed). The participation is the only student↔exam link. Returns the
+   * created enrolment (carrying its id, needed to remove it later).
+   */
+  createParticipation(body: CreateParticipationRequest): Observable<ParticipationSummary> {
+    return this.http
+      .post<ApiResponse<ParticipationSummary>>(`${this.baseUrl}/participations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Remove a student from an exam's roster (DELETE /participations/{id}). Deletes
+   * only the enrolment — the student stays in the global directory. RESPONSABLE_MATIERE
+   * is allowed (the add/remove-symmetry authz fix shipped with this screen); it was
+   * previously SUPER_ADMIN-only, which left the roster un-editable by the persona
+   * that owns it.
+   */
+  deleteParticipation(participationId: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.baseUrl}/participations/${participationId}`)
+      .pipe(map(() => void 0));
   }
 }

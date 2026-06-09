@@ -160,6 +160,37 @@ export interface EtudiantSummary {
 }
 
 /**
+ * Body for POST /etudiants (scoring-service EtudiantDTO). Field names are
+ * snake_case verbatim per the scoring convention — `numero_inscription` maps to
+ * the record component of the same name. The backend applies NO uniqueness check
+ * on numero_inscription (no @Column(unique), no service guard — verified against
+ * EtudiantService.saveEtudiant + the Etudiant entity), so a duplicate is silently
+ * accepted server-side; the roster screen guards against it client-side.
+ */
+export interface CreateEtudiantRequest {
+  nom: string;
+  prenom: string;
+  numero_inscription: string;
+}
+
+/**
+ * Body for POST /participations (scoring-service ParticipationDTO). A
+ * participation is the ONLY tie between a student and an exam, so this is what
+ * "enrol" means. We send examen_id + etudiantId only; num_echantillon / note /
+ * est_present are left null at authoring time (échantillon assignment + presence
+ * belong to orchestration / exam day, not the roster). The backend enforces no
+ * duplicate-(examen,étudiant) guard and no exam-status gate (verified against
+ * ExamenParticipationService.save), so both are guarded client-side.
+ */
+export interface CreateParticipationRequest {
+  examen_id: number;
+  etudiantId: number;
+  num_echantillon?: string | null;
+  est_present?: boolean | null;
+  note?: number | null;
+}
+
+/**
  * One student's enrolment in a specific exam (scoring-service
  * ExamenParticipation). The only place a student is tied to an exam — the
  * roster of exam X is its participations where examen_id === X, joined to

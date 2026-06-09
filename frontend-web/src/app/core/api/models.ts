@@ -53,6 +53,40 @@ export interface StationDetail extends StationSummary {
   grille?: GrilleDetail | null;
 }
 
+/**
+ * Body for POST /stations/{id}/grille and PUT /grilles/{id} (exam-service
+ * GrilleRequest). nom ≤150, noteMax 1–100 (default 20), description ≤300.
+ *
+ * `items` exists in the backend DTO for grouped creation, BUT that path
+ * (GrilleServiceImpl.creerPourStation) skips both the NUMERIQUE valeurMax
+ * validation and the pondération-sum check — only the dedicated POST /items
+ * endpoint validates. So we always create the grille meta-only (items omitted /
+ * empty) and add critères one-by-one through createGrilleItem, which is the
+ * validated path. PUT /grilles/{id} ignores items entirely (only nom/noteMax/
+ * description are applied server-side).
+ */
+export interface GrilleRequest {
+  nom: string;
+  noteMax: number;
+  description?: string;
+}
+
+/**
+ * Body for POST /grilles/{id}/items and PUT /items/{id} (exam-service
+ * ItemRequest). libelle ≤300, ponderation 0.5–20 (required). valeurMax is
+ * REQUIRED for NUMERIQUE (>0 and ≤ ponderation) and IGNORED for BINAIRE — the
+ * backend nulls it for BINAIRE regardless. `ordre` is server-assigned, never
+ * sent. The server rejects an add/edit that pushes the pondération sum above
+ * the grille's noteMax (BusinessException → 400).
+ */
+export interface ItemRequest {
+  libelle: string;
+  type: TypeItem;
+  ponderation: number;
+  valeurMax?: number | null;
+  categorie?: string;
+}
+
 export interface ExamenResponse {
   id: number;
   nom: string;

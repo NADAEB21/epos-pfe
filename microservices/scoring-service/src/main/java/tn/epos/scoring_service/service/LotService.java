@@ -19,6 +19,10 @@ public class LotService {
         return lotRepository.findAll();
     }
 
+    public List<Lot> findByExamenId(Long examenId) {
+        return lotRepository.findByExamenId(examenId);
+    }
+
     public Optional<Lot> findById(Long id) {
         return lotRepository.findById(id);
     }

@@ -14,6 +14,7 @@ import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.dto.GenerationResult;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
+import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.entities.StudentGroup;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -40,7 +42,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("RotationGenerationService - génération OSCE round-robin")
+@DisplayName("RotationGenerationService - génération per-lot (Phase 2, jour J)")
 class RotationGenerationServiceTest {
 
     @Mock private ExamServiceClient examServiceClient;
@@ -56,21 +58,16 @@ class RotationGenerationServiceTest {
     private final List<RotationAssignment> savedAssignments = new ArrayList<>();
 
     private static final long EXAM_ID = 100L;
+    private static final long LOT_ID = 5L;
 
     @BeforeEach
     void setUp() {
         savedRotations.clear();
         savedAssignments.clear();
 
-        // No prior plan by default (re-run wipe tested separately).
-        lenient().when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of());
+        // No prior groups for this lot by default (re-run wipe tested separately).
+        lenient().when(studentGroupRepository.findByLotId(LOT_ID)).thenReturn(List.of());
 
-        AtomicLong lotSeq = new AtomicLong(1);
-        lenient().when(lotRepository.save(any(Lot.class))).thenAnswer(inv -> {
-            Lot l = inv.getArgument(0);
-            if (l.getId() == null) l.setId(lotSeq.getAndIncrement());
-            return l;
-        });
         AtomicLong groupSeq = new AtomicLong(1);
         lenient().when(studentGroupRepository.save(any(StudentGroup.class))).thenAnswer(inv -> {
             StudentGroup g = inv.getArgument(0);
@@ -89,6 +86,15 @@ class RotationGenerationServiceTest {
             savedAssignments.add(a);
             return a;
         });
+    }
+
+    private Lot lot(int numeroLot, LotStatus statut) {
+        Lot l = new Lot();
+        l.setId(LOT_ID);
+        l.setExamenId(EXAM_ID);
+        l.setNumeroLot(numeroLot);
+        l.setStatut(statut);
+        return l;
     }
 
     private ExamGenerationView exam(String statut, int nbStations, Integer capacite,
@@ -121,17 +127,18 @@ class RotationGenerationServiceTest {
     }
 
     @Nested
-    @DisplayName("Cas nominal — circuit Latin square")
+    @DisplayName("Cas nominal — circuit Latin square du lot")
     class HappyPath {
 
         @Test
-        @DisplayName("3 stations × 6 présents → 1 lot, 3 groupes, 9 rotations, 18 assignments")
+        @DisplayName("3 stations × 6 présents → 3 groupes, 9 rotations, 18 assignments")
         void genere_circuitComplet() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(6, 0));
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
 
-            GenerationResult r = service.generate(EXAM_ID);
+            GenerationResult r = service.generateForLot(LOT_ID);
 
             assertThat(r.lots()).isEqualTo(1);
             assertThat(r.groupes()).isEqualTo(3);
@@ -143,18 +150,18 @@ class RotationGenerationServiceTest {
             assertThat(r.etudiantsAbsents()).isZero();
             assertThat(r.avertissement()).isNull();
 
-            verify(lotRepository).save(any(Lot.class));
             verify(studentGroupRepository, org.mockito.Mockito.times(3)).save(any(StudentGroup.class));
         }
 
         @Test
         @DisplayName("Latin square : chaque station hôte d'un seul groupe par créneau, chaque groupe visite chaque station une fois")
         void genere_proprietesLatinSquare() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(6, 0));
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
 
-            service.generate(EXAM_ID);
+            service.generateForLot(LOT_ID);
 
             // Each station appears in exactly 3 rotations (one per créneau).
             var byStation = savedRotations.stream()
@@ -179,20 +186,19 @@ class RotationGenerationServiceTest {
         }
 
         @Test
-        @DisplayName("La station porte l'évaluateur lié, le créneau respecte heureDebut + t·durée")
-        void genere_evaluateurEtTiming() {
+        @DisplayName("Lot 1 : créneaux à heureDebut, +durée, +2·durée ; assignments confirmés présents")
+        void genere_timingLot1() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(6, 0));
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
 
-            service.generate(EXAM_ID);
+            service.generateForLot(LOT_ID);
 
             // Station 10 → évaluateur 1000, in all its rotations.
-            assertThat(savedRotations.stream()
-                    .filter(r -> r.getStationId() == 10L))
+            assertThat(savedRotations.stream().filter(r -> r.getStationId() == 10L))
                     .allMatch(r -> r.getEvaluateurId() == 1000L);
 
-            // Créneaux are 09:00, 09:15, 09:30 (3 distinct start times).
             var starts = savedRotations.stream().map(Rotation::getDebutCreneau)
                     .distinct().sorted().toList();
             assertThat(starts).containsExactly(
@@ -200,8 +206,26 @@ class RotationGenerationServiceTest {
                     LocalDateTime.of(2026, 6, 20, 9, 15),
                     LocalDateTime.of(2026, 6, 20, 9, 30));
 
-            // Presence starts unconfirmed (confirmed live on exam day).
-            assertThat(savedAssignments).allMatch(a -> Boolean.FALSE.equals(a.getPresenceConfirmee()));
+            // Lot-level presence already confirmed → assignments start confirmed.
+            assertThat(savedAssignments).allMatch(a -> Boolean.TRUE.equals(a.getPresenceConfirmee()));
+        }
+
+        @Test
+        @DisplayName("Lot 2 : décalé back-to-back de K·durée après le lot 1 (09:00 + 3·15 = 09:45)")
+        void genere_decalageVagueLot2() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+
+            service.generateForLot(LOT_ID);
+
+            var starts = savedRotations.stream().map(Rotation::getDebutCreneau)
+                    .distinct().sorted().toList();
+            assertThat(starts).containsExactly(
+                    LocalDateTime.of(2026, 6, 20, 9, 45),
+                    LocalDateTime.of(2026, 6, 20, 10, 0),
+                    LocalDateTime.of(2026, 6, 20, 10, 15));
         }
     }
 
@@ -210,18 +234,18 @@ class RotationGenerationServiceTest {
     class Effectifs {
 
         @Test
-        @DisplayName("Les absents (est_present=false) sont exclus de la répartition")
+        @DisplayName("Les absents (est_present=false) du lot sont exclus")
         void genere_excluAbsents() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(4, 3));
+                    exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 3));
 
-            GenerationResult r = service.generate(EXAM_ID);
+            GenerationResult r = service.generateForLot(LOT_ID);
 
             assertThat(r.etudiantsPresents()).isEqualTo(4);
             assertThat(r.etudiantsAbsents()).isEqualTo(3);
             assertThat(r.assignments()).isEqualTo(8); // 4 présents × 2 stations
-            // No absent participation got an assignment.
             assertThat(savedAssignments.stream().map(a -> a.getParticipation().getId()))
                     .allMatch(id -> id <= 4);
         }
@@ -230,11 +254,12 @@ class RotationGenerationServiceTest {
         @DisplayName("Capacité dépassée → avertissement non bloquant")
         void genere_avertissementCapacite() {
             // 2 stations, 6 présents → groupes de 3 > capacité 2.
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 2, 2, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(6, 0));
+                    exam("EN_COURS", 2, 2, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
 
-            GenerationResult r = service.generate(EXAM_ID);
+            GenerationResult r = service.generateForLot(LOT_ID);
 
             assertThat(r.avertissement()).contains("Capacité dépassée");
             assertThat(r.assignments()).isEqualTo(12); // génère quand même
@@ -246,37 +271,64 @@ class RotationGenerationServiceTest {
     class Guards {
 
         @Test
-        @DisplayName("Statut ≠ CONFIGURE → BusinessException, aucune écriture")
-        void genere_rejetteSiPasConfigure() {
+        @DisplayName("Lot introuvable → BusinessException")
+        void genere_rejetteSiLotIntrouvable() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Lot introuvable");
+        }
+
+        @Test
+        @DisplayName("Examen ≠ EN_COURS → BusinessException, aucune écriture")
+        void genere_rejetteSiExamenPasEnCours() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+
+            verify(studentGroupRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Présence du lot non marquée (lot EN_ATTENTE) → BusinessException")
+        void genere_rejetteSiPresenceNonMarquee() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_ATTENTE)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
 
-            assertThatThrownBy(() -> service.generate(EXAM_ID))
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("CONFIGURE");
+                    .hasMessageContaining("présence");
 
-            verify(lotRepository, never()).save(any());
+            verify(studentGroupRepository, never()).save(any());
         }
 
         @Test
         @DisplayName("Aucune station → BusinessException")
         void genere_rejetteSiAucuneStation() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 0, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+                    exam("EN_COURS", 0, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
 
-            assertThatThrownBy(() -> service.generate(EXAM_ID))
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("station");
         }
 
         @Test
-        @DisplayName("Aucun étudiant présent → BusinessException")
+        @DisplayName("Aucun étudiant présent dans le lot → BusinessException")
         void genere_rejetteSiAucunPresent() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(0, 5));
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(0, 5));
 
-            assertThatThrownBy(() -> service.generate(EXAM_ID))
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("présent");
         }
@@ -287,24 +339,22 @@ class RotationGenerationServiceTest {
     class Idempotence {
 
         @Test
-        @DisplayName("Régénération : purge les lots existants avant de reconstruire")
-        void genere_purgeAvantRegeneration() {
-            Lot ancien = new Lot();
-            ancien.setId(7L);
-            ancien.setExamenId(EXAM_ID);
+        @DisplayName("Régénération : purge uniquement les groupes de CE lot, sans toucher au lot ni au roster")
+        void genere_purgeGroupesDuLotSeulement() {
             StudentGroup ancienGroupe = new StudentGroup();
             ancienGroupe.setId(70L);
 
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
-                    exam("CONFIGURE", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
-            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(participations(4, 0));
-            when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(ancien));
-            when(studentGroupRepository.findByLotId(7L)).thenReturn(List.of(ancienGroupe));
+                    exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 0));
+            when(studentGroupRepository.findByLotId(LOT_ID)).thenReturn(List.of(ancienGroupe));
 
-            service.generate(EXAM_ID);
+            service.generateForLot(LOT_ID);
 
             verify(studentGroupRepository).deleteAll(List.of(ancienGroupe));
-            verify(lotRepository).deleteAll(List.of(ancien));
+            // The lot itself is never deleted on per-lot regeneration.
+            verify(lotRepository, never()).deleteAll(any());
         }
     }
 }

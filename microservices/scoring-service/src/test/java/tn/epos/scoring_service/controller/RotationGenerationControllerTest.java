@@ -31,12 +31,12 @@ class RotationGenerationControllerTest {
     private RotationGenerationService generationService;
 
     @Test
-    @DisplayName("201 - génère les rotations et renvoie le résumé")
+    @DisplayName("201 - génère les rotations du lot et renvoie le résumé")
     void generer_devraitRetourner201AvecResume() throws Exception {
-        when(generationService.generate(eq(5L)))
+        when(generationService.generateForLot(eq(5L)))
                 .thenReturn(new GenerationResult(1, 3, 3, 3, 9, 18, 6, 1, null));
 
-        mockMvc.perform(post("/api/rotations/examens/{examenId}/generer", 5L))
+        mockMvc.perform(post("/api/rotations/lots/{lotId}/generer", 5L))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.groupes").value(3))

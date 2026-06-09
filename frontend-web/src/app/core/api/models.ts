@@ -209,7 +209,41 @@ export interface ParticipationSummary {
 }
 
 /**
- * Result of POST /rotations/examens/{id}/generer (scoring-service
+ * One lot (wave) of an exam (scoring-service LotDTO). A lot is a group of
+ * students who run the whole circuit together at a scheduled time. `statut`:
+ * EN_ATTENTE (répartie, pre-exam) → EN_COURS (presence marked, day-of) → TERMINE.
+ */
+export interface LotSummary {
+  id: number;
+  numeroLot: number | null;
+  tailleLot: number | null;
+  statut: 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE' | null;
+  evaluateurId: number | null;
+  examenId: number | null;
+}
+
+/**
+ * Result of POST /lots/examens/{id}/repartir (Phase 1 — CONFIGURE). Partitions
+ * the enrolled roster into waves of `lotSize = K stations × nbEtudiantsParStation`.
+ * No rotations yet — that's the per-lot, exam-day step.
+ */
+export interface RepartitionResult {
+  lots: number;
+  lotSize: number;
+  etudiantsRepartis: number;
+  details: { lotId: number; numeroLot: number; taille: number }[];
+}
+
+/** Result of PATCH /lots/{id}/presence (Phase 2 — exam day). */
+export interface PresenceResult {
+  lotId: number;
+  total: number;
+  presents: number;
+  absents: number;
+}
+
+/**
+ * Result of POST /rotations/lots/{lotId}/generer (scoring-service
  * GenerationResult). Counts confirm the OSCE circuit was built without a
  * re-query. `avertissement` is non-null only when a soft constraint was
  * breached (e.g. group size exceeds the configured étudiants/station).

@@ -8,8 +8,11 @@ import {
   CreateParticipationRequest,
   EtudiantSummary,
   GenerationResult,
+  LotSummary,
   NotationSummary,
   ParticipationSummary,
+  PresenceResult,
+  RepartitionResult,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -80,16 +83,58 @@ export class ScoringApiService {
   }
 
   /**
-   * Auto-generate the OSCE rotation plan for an exam (POST
-   * /rotations/examens/{id}/generer — RESPONSABLE_MATIERE allowed). Builds the
-   * Latin-square circuit (lots → groups → rotations → assignments) so the
-   * évaluateurs have a work list on exam day. Backend-gated to CONFIGURE and
-   * re-runnable there (wipes the prior plan first). Returns the counts summary.
+   * Lots (waves) of an exam (GET /lots?examenId=). Each lot is a group of
+   * students running the circuit together at a scheduled time.
    */
-  genererRotations(examenId: number): Observable<GenerationResult> {
+  listLots(examenId: number): Observable<LotSummary[]> {
+    const params = new HttpParams().set('examenId', examenId);
+    return this.http
+      .get<ApiResponse<LotSummary[]>>(`${this.baseUrl}/lots`, { params })
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Phase 1 — Répartir en lots (POST /lots/examens/{id}/repartir,
+   * RESPONSABLE_MATIERE). Partitions the enrolled roster into waves of
+   * K stations × nbEtudiantsParStation. Backend-gated to CONFIGURE and
+   * re-runnable there (wipes prior lots + any generated plan first). The
+   * pre-exam deliverable: students learn their lot + arrival window ahead.
+   */
+  repartirLots(examenId: number): Observable<RepartitionResult> {
+    return this.http
+      .post<ApiResponse<RepartitionResult>>(
+        `${this.baseUrl}/lots/examens/${examenId}/repartir`,
+        null,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Phase 2 — mark a lot's presence on exam day (PATCH /lots/{id}/presence,
+   * RESPONSABLE_MATIERE). Default is "the whole wave showed up"; pass the
+   * participation ids that didn't. Flips the lot to EN_COURS, unlocking its
+   * rotation generation.
+   */
+  marquerPresence(lotId: number, absents: number[]): Observable<PresenceResult> {
+    return this.http
+      .patch<ApiResponse<PresenceResult>>(
+        `${this.baseUrl}/lots/${lotId}/presence`,
+        { absents },
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Phase 2 — generate a single lot's OSCE rotations (POST
+   * /rotations/lots/{lotId}/generer, RESPONSABLE_MATIERE). Builds the
+   * Latin-square circuit for that wave's present students so the évaluateurs
+   * have a work list. Backend-gated to exam EN_COURS + lot presence marked;
+   * re-runnable per lot. Returns the counts summary.
+   */
+  genererRotationsLot(lotId: number): Observable<GenerationResult> {
     return this.http
       .post<ApiResponse<GenerationResult>>(
-        `${this.baseUrl}/rotations/examens/${examenId}/generer`,
+        `${this.baseUrl}/rotations/lots/${lotId}/generer`,
         null,
       )
       .pipe(map((r) => r.data));

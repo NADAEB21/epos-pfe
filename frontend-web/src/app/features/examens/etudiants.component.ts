@@ -4,7 +4,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { EtudiantSummary, ParticipationSummary } from '../../core/api/models';
+import { EtudiantSummary, LotSummary, ParticipationSummary } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** A participation joined to its student — one roster row. */
@@ -17,7 +17,10 @@ interface RosterRow {
   numEchantillon: string | null;
   present: boolean | null;
   note: number | null;
+  lotId: number | null;
 }
+
+type PresenceFilter = 'all' | 'present' | 'absent' | 'unmarked';
 
 /** Normalise a numéro d'inscription for duplicate comparison (trim + casefold). */
 function normNumero(v: string | null | undefined): string {
@@ -244,6 +247,40 @@ function normNumero(v: string | null | undefined): string {
           }
         </div>
 
+        <!-- filters: text / présence / lot -->
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <input
+            type="text"
+            [value]="rosterSearch()"
+            (input)="rosterSearch.set($any($event.target).value)"
+            placeholder="Rechercher (nom ou numero)…"
+            class="flex-1 min-w-[12rem] rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+          />
+          <select
+            [value]="presenceFilter()"
+            (change)="presenceFilter.set($any($event.target).value)"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+          >
+            <option value="all">Presence : toutes</option>
+            <option value="present">Presents</option>
+            <option value="absent">Absents</option>
+            <option value="unmarked">Non marquee</option>
+          </select>
+          <select
+            [value]="lotFilter()"
+            (change)="lotFilter.set($any($event.target).value)"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+          >
+            <option value="all">Lot : tous</option>
+            @if (hasUnassigned()) {
+              <option value="none">Non assigne</option>
+            }
+            @for (o of lotOptions(); track o.id) {
+              <option [value]="o.id">Lot {{ o.numeroLot }}</option>
+            }
+          </select>
+        </div>
+
         <div class="rounded-xl bg-white border border-gray-200 shadow-card overflow-hidden">
           <table class="w-full text-sm">
             <thead>
@@ -252,6 +289,7 @@ function normNumero(v: string | null | undefined): string {
                 <th class="px-4 py-2.5 font-medium">Etudiant</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; echantillon</th>
+                <th class="px-4 py-2.5 font-medium">Lot</th>
                 <th class="px-4 py-2.5 font-medium">Presence</th>
                 <th class="px-4 py-2.5 font-medium text-right">Note</th>
                 @if (editable()) {
@@ -260,12 +298,13 @@ function normNumero(v: string | null | undefined): string {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
-              @for (r of rows(); track r.participationId; let i = $index) {
+              @for (r of filteredRows(); track r.participationId; let i = $index) {
                 <tr class="hover:bg-surface">
                   <td class="px-4 py-2.5 text-gray-400">{{ i + 1 }}</td>
                   <td class="px-4 py-2.5 text-gray-800 font-medium">{{ displayName(r) }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numeroInscription || '—' }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numEchantillon || '—' }}</td>
+                  <td class="px-4 py-2.5 text-gray-600">{{ lotLabel(r.lotId) }}</td>
                   <td class="px-4 py-2.5">
                     @if (r.present === true) {
                       <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
@@ -311,6 +350,12 @@ function normNumero(v: string | null | undefined): string {
                     </td>
                   }
                 </tr>
+              } @empty {
+                <tr>
+                  <td [attr.colspan]="editable() ? 8 : 7" class="px-4 py-6 text-center text-sm text-gray-400">
+                    Aucun etudiant ne correspond aux filtres.
+                  </td>
+                </tr>
               }
             </tbody>
           </table>
@@ -338,8 +383,54 @@ export class EtudiantsComponent {
   readonly rows = signal<RosterRow[]>([]);
   /** Full student directory, kept to resolve names + guard duplicate numéros. */
   readonly directory = signal<EtudiantSummary[]>([]);
+  /** Exam lots, to label the lot filter (lotId → numéro) and list the options. */
+  readonly lots = signal<LotSummary[]>([]);
   readonly loading = signal(true);
   readonly error = signal(false);
+
+  // ---- roster filters (text / présence / lot) -----------------------------
+  readonly rosterSearch = signal('');
+  readonly presenceFilter = signal<PresenceFilter>('all');
+  /** 'all' | 'none' (non assigné) | a lot id as string. */
+  readonly lotFilter = signal<string>('all');
+
+  private readonly lotNumById = computed(() => {
+    const m = new Map<number, number>();
+    for (const l of this.lots()) if (l.numeroLot != null) m.set(l.id, l.numeroLot);
+    return m;
+  });
+
+  readonly lotOptions = computed(() =>
+    [...this.lots()]
+      .sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0))
+      .map((l) => ({ id: l.id, numeroLot: l.numeroLot ?? 0 })),
+  );
+
+  /** Any participation not yet assigned to a lot — drives the "non assigné" option. */
+  readonly hasUnassigned = computed(() => this.rows().some((r) => r.lotId == null));
+
+  readonly filteredRows = computed(() => {
+    const q = this.rosterSearch().trim().toLowerCase();
+    const pres = this.presenceFilter();
+    const lot = this.lotFilter();
+    return this.rows().filter((r) => {
+      if (q && !`${r.prenom} ${r.nom} ${r.numeroInscription ?? ''}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      if (pres === 'present' && r.present !== true) return false;
+      if (pres === 'absent' && r.present !== false) return false;
+      if (pres === 'unmarked' && r.present != null) return false;
+      if (lot === 'none' && r.lotId != null) return false;
+      if (lot !== 'all' && lot !== 'none' && r.lotId !== Number(lot)) return false;
+      return true;
+    });
+  });
+
+  lotLabel(lotId: number | null): string {
+    if (lotId == null) return '—';
+    const n = this.lotNumById().get(lotId);
+    return n != null ? `Lot ${n}` : `Lot #${lotId}`;
+  }
 
   /** Roster authoring is allowed only while the exam is BROUILLON or CONFIGURE. */
   readonly editable = computed(() => {
@@ -411,9 +502,11 @@ export class EtudiantsComponent {
     forkJoin({
       participations: this.scoring.listParticipations(examId),
       etudiants: this.scoring.listEtudiants(),
+      lots: this.scoring.listLots(examId),
     }).subscribe({
-      next: ({ participations, etudiants }) => {
+      next: ({ participations, etudiants, lots }) => {
         this.directory.set(etudiants);
+        this.lots.set(lots);
         this.rows.set(this.buildRows(participations, etudiants));
         this.loading.set(false);
       },
@@ -444,6 +537,7 @@ export class EtudiantsComponent {
           numEchantillon: p.num_echantillon,
           present: p.est_present,
           note: p.note,
+          lotId: p.lotId,
         };
       })
       .sort((a, b) => (a.nom || '').localeCompare(b.nom || '') || (a.prenom || '').localeCompare(b.prenom || ''));
@@ -592,6 +686,7 @@ export class EtudiantsComponent {
       numEchantillon: p.num_echantillon,
       present: p.est_present,
       note: p.note,
+      lotId: p.lotId,
     };
     this.rows.update((list) =>
       [...list, row].sort(

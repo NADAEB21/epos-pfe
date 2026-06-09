@@ -5,10 +5,9 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { DirectoryApiService } from '../../core/api/directory-api.service';
-import { GrilleDetail, StationSummary, TypeStation, UserResponse } from '../../core/api/models';
+import { StationSummary, TypeStation, UserResponse } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
-
-type GrilleState = { loading: boolean; error: boolean; grille: GrilleDetail | null };
+import { GrilleEditorComponent } from './grille-editor.component';
 
 const TYPE_LABELS: Record<TypeStation, string> = {
   PRATIQUE: 'Pratique',
@@ -41,7 +40,7 @@ const TYPES: TypeStation[] = ['PRATIQUE', 'THEORIQUE'];
 @Component({
   selector: 'app-stations-grilles',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, GrilleEditorComponent],
   template: `
     @if (loading()) {
       <div class="space-y-4 animate-pulse">
@@ -351,7 +350,7 @@ const TYPES: TypeStation[] = ['PRATIQUE', 'THEORIQUE'];
 
               <!-- grille -->
               <div class="border-t border-gray-100 pt-3">
-                @if (s.hasGrille) {
+                @if (s.hasGrille || editable()) {
                   <button
                     type="button"
                     (click)="toggleGrille(s)"
@@ -359,67 +358,18 @@ const TYPES: TypeStation[] = ['PRATIQUE', 'THEORIQUE'];
                   >
                     <span>{{ expandedId() === s.id ? '▾' : '▸' }}</span>
                     Grille d'evaluation
+                    @if (!s.hasGrille) {
+                      <span class="text-xs text-gray-400">(a creer)</span>
+                    }
                   </button>
                   @if (expandedId() === s.id) {
-                    @let g = grilleStates()[s.id];
                     <div class="mt-3">
-                      @if (g?.loading) {
-                        <div class="h-16 rounded-lg bg-gray-100 animate-pulse"></div>
-                      } @else if (g?.error) {
-                        <div class="text-sm text-gray-500 flex items-center gap-3">
-                          <span>Impossible de charger la grille.</span>
-                          <button
-                            type="button"
-                            (click)="loadGrille(s.id)"
-                            class="text-brand hover:underline"
-                          >
-                            Reessayer
-                          </button>
-                        </div>
-                      } @else {
-                        <!-- the as alias does not bind on else-if (NG5002): nest if in else. -->
-                        @if (g?.grille; as grille) {
-                        <div class="rounded-lg bg-surface border border-gray-100 p-4">
-                          <div class="flex items-center justify-between gap-3 mb-3">
-                            <div class="text-sm font-medium text-gray-800">{{ grille.nom }}</div>
-                            <div class="text-xs text-gray-500">
-                              {{ grille.nombreItems ?? grille.items?.length ?? 0 }} item(s) ·
-                              note max {{ grille.noteMax ?? '—' }}
-                              @if (grille.ponderationValide === false) {
-                                <span class="text-status-warning"> · ponderation incomplete</span>
-                              }
-                            </div>
-                          </div>
-                          @if (grille.items?.length) {
-                            <ul class="divide-y divide-gray-100">
-                              @for (it of grille.items; track it.id) {
-                                <li class="flex items-start justify-between gap-3 py-2 text-sm">
-                                  <span class="text-gray-700">
-                                    <span class="text-gray-400">{{ it.ordre ?? '·' }}.</span>
-                                    {{ it.libelle }}
-                                    @if (it.categorie) {
-                                      <span class="ml-1 text-xs text-gray-400">{{ it.categorie }}</span>
-                                    }
-                                  </span>
-                                  <span class="text-xs text-gray-500 shrink-0 text-right">
-                                    {{ it.type === 'BINAIRE' ? 'Binaire' : 'Numerique' }}
-                                    @if (it.type !== 'BINAIRE' && it.valeurMax != null) {
-                                      · /{{ it.valeurMax }}
-                                    }
-                                    · pond. {{ it.ponderation ?? '—' }}
-                                  </span>
-                                </li>
-                              }
-                            </ul>
-                          } @else {
-                            <p class="text-sm text-gray-400">Grille sans item.</p>
-                          }
-                          <p class="text-xs text-gray-400 mt-3">
-                            Lecture seule — l'edition des grilles arrivera dans un prochain ecran.
-                          </p>
-                        </div>
-                        }
-                      }
+                      <app-grille-editor
+                        [stationId]="s.id"
+                        [editable]="editable()"
+                        [hasGrille]="!!s.hasGrille"
+                        (existenceChanged)="onGrilleExistence(s, $event)"
+                      />
                     </div>
                   }
                 } @else {
@@ -489,7 +439,6 @@ export class StationsGrillesComponent {
   readonly saveErrorId = signal<number | null>(null);
 
   readonly expandedId = signal<number | null>(null);
-  readonly grilleStates = signal<Record<number, GrilleState>>({});
 
   /** id → directory entry, for resolving évaluateur names on chips. */
   private readonly evalMap = computed(() => {
@@ -518,7 +467,6 @@ export class StationsGrillesComponent {
     this.loading.set(true);
     this.error.set(false);
     this.expandedId.set(null);
-    this.grilleStates.set({});
     forkJoin({
       stations: this.examApi.listStations(examId),
       evaluateurs: this.directory.listUsers('EVALUATEUR'),
@@ -712,29 +660,18 @@ export class StationsGrillesComponent {
     this.stations.update((list) => list.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
-  // ---- grille (lazy) ------------------------------------------------------
+  // ---- grille (delegated to <app-grille-editor>) --------------------------
 
+  /** Expand/collapse a station's grille editor. The editor owns its own load,
+   *  create, and item CRUD — this only toggles which station is open. */
   toggleGrille(s: StationSummary): void {
-    if (this.expandedId() === s.id) {
-      this.expandedId.set(null);
-      return;
-    }
-    this.expandedId.set(s.id);
-    const existing = this.grilleStates()[s.id];
-    if (!existing || existing.error) this.loadGrille(s.id);
+    this.expandedId.set(this.expandedId() === s.id ? null : s.id);
   }
 
-  loadGrille(stationId: number): void {
-    this.setGrilleState(stationId, { loading: true, error: false, grille: null });
-    this.examApi.getStationGrille(stationId).subscribe({
-      next: (grille) =>
-        this.setGrilleState(stationId, { loading: false, error: false, grille: grille ?? null }),
-      error: () => this.setGrilleState(stationId, { loading: false, error: true, grille: null }),
-    });
-  }
-
-  private setGrilleState(stationId: number, state: GrilleState): void {
-    this.grilleStates.update((m) => ({ ...m, [stationId]: state }));
+  /** The editor created (true) or deleted (false) this station's grille; mirror
+   *  it onto the row so hasGrille-driven UI (toggle label) stays in sync. */
+  onGrilleExistence(s: StationSummary, exists: boolean): void {
+    this.replaceStation(s.id, { hasGrille: exists });
   }
 
   // ---- labels -------------------------------------------------------------

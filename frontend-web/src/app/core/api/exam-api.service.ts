@@ -7,6 +7,9 @@ import {
   CreateExamenRequest,
   ExamenResponse,
   GrilleDetail,
+  GrilleItem,
+  GrilleRequest,
+  ItemRequest,
   PageResponse,
   StationDetail,
   StationRequest,
@@ -29,6 +32,10 @@ export class ExamApiService {
   // Stations are a top-level resource at the gateway (/api/v1/stations/**),
   // not nested under /examens — only the list lives under an exam.
   private readonly stationsUrl = `${environment.apiBaseUrl}/stations`;
+  // Grilles + items are top-level resources at the gateway (the controller maps
+  // /api/grilles/** and /api/items/**, rewritten from /api/v1/** by the gateway).
+  private readonly grillesUrl = `${environment.apiBaseUrl}/grilles`;
+  private readonly itemsUrl = `${environment.apiBaseUrl}/items`;
 
   listExamens(options: ListExamensOptions = {}): Observable<PageResponse<ExamenResponse>> {
     let params = new HttpParams();
@@ -114,6 +121,67 @@ export class ExamApiService {
     return this.http
       .get<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`)
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Create a station's grille (POST /stations/{id}/grille). A station may hold
+   * at most one grille (server 400s a second). We send meta only (no items) —
+   * grouped item creation bypasses server validation, so items are added one by
+   * one through createGrilleItem. Gated to BROUILLON/CONFIGURE + matière scope.
+   * Returns the new grille (0 items, ponderationValide=false).
+   */
+  createStationGrille(stationId: number, body: GrilleRequest): Observable<GrilleDetail> {
+    return this.http
+      .post<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Edit a grille's meta (PUT /grilles/{id}). Only nom/noteMax/description are
+   * applied — items are untouched. Note the backend does NOT re-check the items'
+   * pondération sum against a lowered noteMax, so the caller should warn when
+   * noteMax drops below the current sum (it persists as ponderationValide=false).
+   */
+  updateGrille(grilleId: number, body: GrilleRequest): Observable<GrilleDetail> {
+    return this.http
+      .put<ApiResponse<GrilleDetail>>(`${this.grillesUrl}/${grilleId}`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /** Delete a grille and all its critères (DELETE /grilles/{id}, cascade). */
+  deleteGrille(grilleId: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.grillesUrl}/${grilleId}`)
+      .pipe(map(() => void 0));
+  }
+
+  /**
+   * Add a critère to a grille (POST /grilles/{id}/items). The server assigns
+   * ordre, validates NUMERIQUE valeurMax (>0, ≤ ponderation), and rejects (400)
+   * if the new pondération sum would exceed the grille's noteMax. Returns the
+   * created item; re-GET the grille afterwards for the recomputed totals/flag.
+   */
+  createGrilleItem(grilleId: number, body: ItemRequest): Observable<GrilleItem> {
+    return this.http
+      .post<ApiResponse<GrilleItem>>(`${this.grillesUrl}/${grilleId}/items`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Edit a critère (PUT /items/{id}). Same NUMERIQUE + sum-overflow rules as
+   * create. valeurMax is nulled server-side when type is BINAIRE.
+   */
+  updateGrilleItem(itemId: number, body: ItemRequest): Observable<GrilleItem> {
+    return this.http
+      .put<ApiResponse<GrilleItem>>(`${this.itemsUrl}/${itemId}`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /** Delete a critère (DELETE /items/{id}). Survivors are re-ordered server-side. */
+  deleteGrilleItem(itemId: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.itemsUrl}/${itemId}`)
+      .pipe(map(() => void 0));
   }
 
   /**

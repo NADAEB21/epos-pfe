@@ -6,6 +6,7 @@ import tn.epos.exam_service.enums.StatutExamen;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 @Data
@@ -16,6 +17,9 @@ public class ExamenResponse {
 
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate dateExamen;
+
+    @JsonFormat(pattern = "HH:mm")
+    private LocalTime heureDebut;
 
     private Integer dureeStationMin;
     private Integer nbEtudiantsParStation;

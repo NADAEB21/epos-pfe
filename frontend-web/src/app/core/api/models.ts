@@ -92,6 +92,7 @@ export interface ExamenResponse {
   nom: string;
   matiereId: number;
   dateExamen: string; // yyyy-MM-dd
+  heureDebut: string | null; // HH:mm — start of the OSCE circuit
   dureeStationMin: number | null;
   nbEtudiantsParStation: number | null;
   statut: StatutExamen;
@@ -115,6 +116,7 @@ export interface CreateExamenRequest {
   nom: string;
   matiereId: number;
   dateExamen: string; // yyyy-MM-dd
+  heureDebut?: string; // HH:mm — start of the circuit; defaults server-side to 09:00
   dureeStationMin?: number;
   nbEtudiantsParStation?: number;
   description?: string;
@@ -204,6 +206,24 @@ export interface ParticipationSummary {
   est_present: boolean | null;
   etudiantId: number | null;
   lotId: number | null;
+}
+
+/**
+ * Result of POST /rotations/examens/{id}/generer (scoring-service
+ * GenerationResult). Counts confirm the OSCE circuit was built without a
+ * re-query. `avertissement` is non-null only when a soft constraint was
+ * breached (e.g. group size exceeds the configured étudiants/station).
+ */
+export interface GenerationResult {
+  lots: number;
+  groupes: number;
+  stations: number;
+  creneaux: number;
+  rotations: number;
+  assignments: number;
+  etudiantsPresents: number;
+  etudiantsAbsents: number;
+  avertissement: string | null;
 }
 
 export interface MatiereResponse {

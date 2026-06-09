@@ -14,7 +14,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tn.epos.common.exception.BusinessException;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -89,6 +93,69 @@ public class ExamServiceClient {
             throw new BusinessException(
                     "Validation des items impossible : exam-service injoignable");
         }
+    }
+
+    /**
+     * Fetches the exam + its stations for rotation generation. NOT cached —
+     * the roster and station set change during authoring, so generation must
+     * read the live state every time. Forwards the caller's JWT.
+     *
+     * @throws BusinessException if exam-service is unreachable, errors, or the
+     *                           exam does not exist (fail-closed)
+     */
+    public ExamGenerationView getExamForGeneration(Long examenId) {
+        String bearerToken = currentBearerToken();
+        JsonNode root;
+        try {
+            root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            log.error("exam-service rejected exam lookup for {} (status {}): {}",
+                    examenId, e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(
+                    "Génération impossible : exam-service a renvoyé " + e.getStatusCode());
+        } catch (RuntimeException e) {
+            log.error("exam-service unreachable for exam {} lookup", examenId, e);
+            throw new BusinessException(
+                    "Génération impossible : exam-service injoignable");
+        }
+
+        JsonNode data = root == null ? null : root.path("data");
+        if (data == null || data.isMissingNode() || data.isNull() || !data.path("id").isNumber()) {
+            throw new BusinessException("Génération impossible : examen " + examenId + " introuvable");
+        }
+        return extractExamView(data);
+    }
+
+    private ExamGenerationView extractExamView(JsonNode data) {
+        List<ExamGenerationView.StationView> stations = new ArrayList<>();
+        JsonNode stationsNode = data.path("stations");
+        if (stationsNode.isArray()) {
+            for (JsonNode s : stationsNode) {
+                long id = s.path("id").asLong(-1);
+                if (id <= 0) continue;
+                Integer ordre = s.path("ordre").isNumber() ? s.path("ordre").asInt() : null;
+                List<Long> evaluateurIds = new ArrayList<>();
+                for (JsonNode ev : s.path("evaluateurIds")) {
+                    long evId = ev.asLong(-1);
+                    if (evId > 0) evaluateurIds.add(evId);
+                }
+                stations.add(new ExamGenerationView.StationView(id, ordre, evaluateurIds));
+            }
+        }
+
+        return new ExamGenerationView(
+                data.path("id").asLong(),
+                data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
+                data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
+                data.path("dureeStationMin").isNumber() ? data.path("dureeStationMin").asInt() : null,
+                data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
+                data.path("statut").asText(null),
+                stations);
     }
 
     private Set<Long> extractItemIds(JsonNode root) {

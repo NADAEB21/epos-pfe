@@ -78,18 +78,30 @@ type SubmitError = 'scope' | 'validation' | 'network' | null;
           }
         </div>
 
-        <!-- Date -->
-        <div>
-          <label for="dateExamen" class="block text-sm font-medium text-gray-700 mb-1">Date de l'examen</label>
-          <input
-            id="dateExamen"
-            type="date"
-            formControlName="dateExamen"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
-          />
-          @if (form.controls.dateExamen.touched && form.controls.dateExamen.invalid) {
-            <p class="text-xs text-status-danger mt-1">La date est obligatoire.</p>
-          }
+        <!-- Date + heure de début -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="dateExamen" class="block text-sm font-medium text-gray-700 mb-1">Date de l'examen</label>
+            <input
+              id="dateExamen"
+              type="date"
+              formControlName="dateExamen"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+            />
+            @if (form.controls.dateExamen.touched && form.controls.dateExamen.invalid) {
+              <p class="text-xs text-status-danger mt-1">La date est obligatoire.</p>
+            }
+          </div>
+          <div>
+            <label for="heureDebut" class="block text-sm font-medium text-gray-700 mb-1">Heure de début</label>
+            <input
+              id="heureDebut"
+              type="time"
+              formControlName="heureDebut"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+            />
+            <p class="text-xs text-gray-400 mt-1">Début du premier créneau de rotation.</p>
+          </div>
         </div>
 
         <!-- Durée / station + étudiants / station -->
@@ -198,6 +210,7 @@ export class ExamenCreateComponent {
     nom: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(150)]],
     matiereId: [0, [Validators.required, Validators.min(1)]],
     dateExamen: ['', [Validators.required]],
+    heureDebut: ['09:00', [Validators.required]],
     dureeStationMin: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(180)]),
     nbEtudiantsParStation: this.fb.control<number | null>(null, [Validators.min(1), Validators.max(10)]),
     description: ['', [Validators.maxLength(500)]],
@@ -247,6 +260,7 @@ export class ExamenCreateComponent {
         nom: raw.nom.trim(),
         matiereId: raw.matiereId,
         dateExamen: raw.dateExamen,
+        heureDebut: raw.heureDebut || undefined,
         dureeStationMin: raw.dureeStationMin ?? undefined,
         nbEtudiantsParStation: raw.nbEtudiantsParStation ?? undefined,
         description: raw.description.trim() || undefined,

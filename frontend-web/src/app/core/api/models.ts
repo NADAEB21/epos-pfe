@@ -54,6 +54,30 @@ export interface StationDetail extends StationSummary {
 }
 
 /**
+ * A reusable grille template (exam-service GrilleTemplateResponse). Saved from an
+ * existing grille (POST /grilles/{id}/templates?nom=) and applied to a station
+ * (POST /templates/grilles/{tid}/appliquer/stations/{sid}) — apply is a FULL
+ * REPLACE: the backend deletes the station's current grille and recreates it from
+ * the template, so the UI confirms before applying onto a station that has one.
+ *
+ * The library (GET /templates/grilles) is GLOBAL — no matière filter — so a
+ * responsable sees every template. Save + apply are open to RESPONSABLE_MATIERE
+ * (matière-checked on the source grille / target station server-side); standalone
+ * template create + DELETE are SUPER_ADMIN-only, so the responsable surface offers
+ * save + apply but NO delete affordance.
+ */
+export interface GrilleTemplate {
+  id: number;
+  nom: string;
+  description?: string | null;
+  noteMax?: number | null;
+  nombreItems?: number;
+  sommePonderations?: number | null;
+  createdAt?: string | null;
+  items?: GrilleItem[];
+}
+
+/**
  * Body for POST /stations/{id}/grille and PUT /grilles/{id} (exam-service
  * GrilleRequest). nom ≤150, noteMax 1–100 (default 20), description ≤300.
  *

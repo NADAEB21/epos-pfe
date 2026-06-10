@@ -9,6 +9,7 @@ import {
   GrilleDetail,
   GrilleItem,
   GrilleRequest,
+  GrilleTemplate,
   ItemRequest,
   PageResponse,
   StationDetail,
@@ -36,6 +37,9 @@ export class ExamApiService {
   // /api/grilles/** and /api/items/**, rewritten from /api/v1/** by the gateway).
   private readonly grillesUrl = `${environment.apiBaseUrl}/grilles`;
   private readonly itemsUrl = `${environment.apiBaseUrl}/items`;
+  // Grille templates — a global, reusable library. Saving lives under a grille
+  // (/grilles/{id}/templates); listing + applying live under /templates/grilles.
+  private readonly templatesUrl = `${environment.apiBaseUrl}/templates/grilles`;
 
   listExamens(options: ListExamensOptions = {}): Observable<PageResponse<ExamenResponse>> {
     let params = new HttpParams();
@@ -229,6 +233,50 @@ export class ExamApiService {
   deleteStation(stationId: number): Observable<void> {
     return this.http
       .delete<ApiResponse<void>>(`${this.stationsUrl}/${stationId}`)
+      .pipe(map(() => void 0));
+  }
+
+  // ---- grille templates (global library) ----------------------------------
+
+  /**
+   * The whole template library (GET /templates/grilles). GLOBAL — the backend
+   * applies NO matière filter, so every responsable sees every template. Each
+   * entry carries its items + computed totals (nombreItems / sommePonderations).
+   */
+  listGrilleTemplates(): Observable<GrilleTemplate[]> {
+    return this.http
+      .get<ApiResponse<GrilleTemplate[]>>(this.templatesUrl)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Save an existing grille as a reusable template (POST /grilles/{id}/templates).
+   * `nom` is a QUERY param, not a body. Open to RESPONSABLE_MATIERE (matière-checked
+   * on the grille's exam server-side). A duplicate template name is a 400/409
+   * BusinessException ("Un template nommé '…' existe déjà"). Returns the new template.
+   */
+  saveGrilleAsTemplate(grilleId: number, nom: string): Observable<GrilleTemplate> {
+    const params = new HttpParams().set('nom', nom);
+    return this.http
+      .post<ApiResponse<GrilleTemplate>>(`${this.grillesUrl}/${grilleId}/templates`, null, {
+        params,
+      })
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Apply a template onto a station (POST /templates/grilles/{tid}/appliquer/
+   * stations/{sid}). FULL REPLACE: the backend deletes the station's current grille
+   * (if any) and recreates it from the template — callers MUST confirm before
+   * overwriting an existing grille. Gated to the exam being modifiable
+   * (BROUILLON/CONFIGURE → else 400) and the caller's matière scope (→ 403).
+   */
+  applyTemplateToStation(templateId: number, stationId: number): Observable<void> {
+    return this.http
+      .post<ApiResponse<void>>(
+        `${this.templatesUrl}/${templateId}/appliquer/stations/${stationId}`,
+        null,
+      )
       .pipe(map(() => void 0));
   }
 }

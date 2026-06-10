@@ -3,7 +3,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ExamApiService } from '../../core/api/exam-api.service';
-import { GrilleDetail, GrilleItem, TypeItem } from '../../core/api/models';
+import { GrilleDetail, GrilleItem, GrilleTemplate, TypeItem } from '../../core/api/models';
 
 const TYPE_ITEM_LABELS: Record<TypeItem, string> = {
   BINAIRE: 'Binaire',
@@ -149,6 +149,80 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
             }
           </span>
         </div>
+
+        <!-- template actions: save this grille as a model / apply another -->
+        @if (!editingMeta()) {
+          @if (!savingTemplate() && !applyOpen()) {
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                (click)="openSaveTemplate()"
+                class="text-xs text-gray-600 hover:text-brand inline-flex items-center gap-1"
+              >
+                ↧ Enregistrer comme modèle
+              </button>
+              @if (editable()) {
+                <button
+                  type="button"
+                  (click)="openApply()"
+                  class="text-xs text-gray-600 hover:text-brand inline-flex items-center gap-1"
+                >
+                  ↥ Appliquer un modèle
+                </button>
+              }
+            </div>
+          }
+
+          <!-- save-as-template form -->
+          @if (savingTemplate()) {
+            <form
+              [formGroup]="templateNameForm"
+              (ngSubmit)="submitSaveTemplate()"
+              novalidate
+              class="rounded-lg bg-surface border border-gray-100 p-3 space-y-2"
+            >
+              <label class="block text-xs font-medium text-gray-700">Nom du modèle</label>
+              <div class="flex items-start gap-2">
+                <input
+                  type="text"
+                  formControlName="nom"
+                  maxlength="150"
+                  placeholder="Ex. Grille standard — Préparation magistrale"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  [disabled]="templateNameForm.invalid || savingTemplateBusy()"
+                  class="px-3 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {{ savingTemplateBusy() ? 'Enregistrement…' : 'Enregistrer' }}
+                </button>
+                <button
+                  type="button"
+                  (click)="cancelSaveTemplate()"
+                  class="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+              </div>
+              @if (templateError()) {
+                <p role="alert" class="text-xs text-status-danger">{{ templateError() }}</p>
+              }
+            </form>
+          }
+
+          @if (templateSaved(); as savedName) {
+            <p class="text-xs text-status-success">
+              Modèle « {{ savedName }} » enregistré dans la bibliothèque.
+            </p>
+          }
+
+          <!-- apply a template onto THIS station (replaces the current grille) -->
+          <ng-container
+            [ngTemplateOutlet]="applyBlock"
+            [ngTemplateOutletContext]="{ replacing: true }"
+          ></ng-container>
+        }
 
         <!-- grille delete confirm -->
         @if (confirmDeleteGrille()) {
@@ -342,18 +416,36 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
             </div>
           </form>
         } @else {
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 text-sm text-gray-400">
-              <span class="w-2 h-2 rounded-full bg-status-warning"></span>
-              Aucune grille attachée à cette station.
-            </div>
-            <button
-              type="button"
-              (click)="openCreate()"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
-            >
-              + Créer une grille
-            </button>
+          <div class="space-y-3">
+            @if (!applyOpen()) {
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2 text-sm text-gray-400">
+                  <span class="w-2 h-2 rounded-full bg-status-warning"></span>
+                  Aucune grille attachée à cette station.
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    (click)="openApply()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand text-brand text-sm font-medium hover:bg-brand-50 transition-colors"
+                  >
+                    Appliquer un modèle
+                  </button>
+                  <button
+                    type="button"
+                    (click)="openCreate()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+                  >
+                    + Créer une grille
+                  </button>
+                </div>
+              </div>
+            }
+            <!-- apply onto a station that has no grille yet (neutral wording) -->
+            <ng-container
+              [ngTemplateOutlet]="applyBlock"
+              [ngTemplateOutletContext]="{ replacing: false }"
+            ></ng-container>
           </div>
         }
       } @else {
@@ -444,6 +536,110 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
         </div>
       </form>
     </ng-template>
+
+    <!-- shared apply-a-template flow (picker → smart confirm). [replacing] drives
+         the wording: a station with a grille warns about the full replace; an empty
+         station gets neutral wording since nothing is lost. -->
+    <ng-template #applyBlock let-replacing="replacing">
+      @if (applyOpen()) {
+        @if (templatesLoading()) {
+          <div class="text-xs text-gray-500">Chargement des modèles…</div>
+        } @else if (templatesLoadError()) {
+          <div class="text-xs text-gray-500 flex items-center gap-2">
+            <span>Impossible de charger les modèles.</span>
+            <button type="button" (click)="openApply()" class="text-brand hover:underline">
+              Réessayer
+            </button>
+            <button type="button" (click)="cancelApply()" class="text-gray-500 hover:underline">
+              Annuler
+            </button>
+          </div>
+        } @else {
+          @if (selectedTemplate(); as t) {
+            <!-- confirm -->
+            <div
+              class="rounded-lg border px-3 py-2 space-y-2"
+              [class.bg-red-50]="replacing"
+              [class.border-red-200]="replacing"
+              [class.bg-surface]="!replacing"
+              [class.border-gray-200]="!replacing"
+            >
+              @if (replacing) {
+                <p class="text-sm text-status-danger">
+                  Remplacer la grille actuelle par « {{ t.nom }} » ? Les critères existants seront
+                  supprimés.
+                </p>
+              } @else {
+                <p class="text-sm text-gray-700">
+                  Appliquer « {{ t.nom }} » à cette station ?
+                  <span class="text-gray-500">
+                    ({{ t.nombreItems ?? t.items?.length ?? 0 }} critère(s) ·
+                    {{ t.noteMax ?? '—' }} pts)
+                  </span>
+                </p>
+              }
+              @if (applyError()) {
+                <p role="alert" class="text-xs text-status-danger">{{ applyError() }}</p>
+              }
+              <div class="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  (click)="cancelApply()"
+                  [disabled]="applying()"
+                  class="px-3 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-40"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  (click)="confirmApply()"
+                  [disabled]="applying()"
+                  class="px-3 py-1 rounded-lg text-white text-xs font-medium hover:opacity-90 disabled:opacity-40"
+                  [class.bg-status-danger]="replacing"
+                  [class.bg-brand]="!replacing"
+                >
+                  {{ applying() ? '…' : replacing ? 'Remplacer' : 'Appliquer' }}
+                </button>
+              </div>
+            </div>
+          } @else {
+            <!-- picker -->
+            @if (templates(); as list) {
+              @if (list.length === 0) {
+                <div class="text-xs text-gray-500 flex items-center gap-2">
+                  <span>Aucun modèle dans la bibliothèque pour le moment.</span>
+                  <button type="button" (click)="cancelApply()" class="text-brand hover:underline">
+                    Fermer
+                  </button>
+                </div>
+              } @else {
+                <div class="flex items-center gap-2">
+                  <select
+                    #tplPick
+                    (change)="chooseTemplate(tplPick.value); tplPick.value = ''"
+                    class="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="">Choisir un modèle…</option>
+                    @for (t of list; track t.id) {
+                      <option [value]="t.id">
+                        {{ t.nom }} ({{ t.nombreItems ?? 0 }} crit. · {{ t.noteMax ?? '—' }} pts)
+                      </option>
+                    }
+                  </select>
+                  <button
+                    type="button"
+                    (click)="cancelApply()"
+                    class="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              }
+            }
+          }
+        }
+      }
+    </ng-template>
   `,
   imports: [ReactiveFormsModule, NgTemplateOutlet],
 })
@@ -508,6 +704,24 @@ export class GrilleEditorComponent {
   readonly confirmDeleteItemId = signal<number | null>(null);
   readonly deletingItemId = signal<number | null>(null);
   readonly itemDeleteError = signal<string | null>(null);
+
+  // save current grille as a template
+  readonly savingTemplate = signal(false);
+  readonly savingTemplateBusy = signal(false);
+  readonly templateError = signal<string | null>(null);
+  readonly templateSaved = signal<string | null>(null);
+  readonly templateNameForm = this.fb.nonNullable.group({
+    nom: ['', [Validators.required, Validators.maxLength(150)]],
+  });
+
+  // apply a template onto this station
+  readonly applyOpen = signal(false);
+  readonly templates = signal<GrilleTemplate[] | null>(null);
+  readonly templatesLoading = signal(false);
+  readonly templatesLoadError = signal(false);
+  readonly selectedTemplate = signal<GrilleTemplate | null>(null);
+  readonly applying = signal(false);
+  readonly applyError = signal<string | null>(null);
 
   /** Live pondération sum, mirrored client-side from the committed items. */
   readonly sum = computed(() => {
@@ -796,6 +1010,107 @@ export class GrilleEditorComponent {
       error: (err: HttpErrorResponse) => {
         this.deletingItemId.set(null);
         this.itemDeleteError.set(this.mutationMessage(err));
+      },
+    });
+  }
+
+  // ---- save as template ---------------------------------------------------
+
+  openSaveTemplate(): void {
+    const g = this.grille();
+    this.applyOpen.set(false);
+    this.templateSaved.set(null);
+    this.templateError.set(null);
+    // Seed the name with the grille's own nom — a sensible default the user edits.
+    this.templateNameForm.reset({ nom: g?.nom ?? '' });
+    this.savingTemplate.set(true);
+  }
+
+  cancelSaveTemplate(): void {
+    this.savingTemplate.set(false);
+    this.templateError.set(null);
+  }
+
+  submitSaveTemplate(): void {
+    const g = this.grille();
+    if (!g || this.templateNameForm.invalid || this.savingTemplateBusy()) return;
+    const nom = this.templateNameForm.getRawValue().nom.trim();
+    this.savingTemplateBusy.set(true);
+    this.templateError.set(null);
+    this.examApi.saveGrilleAsTemplate(g.id, nom).subscribe({
+      next: (tpl) => {
+        this.savingTemplateBusy.set(false);
+        this.savingTemplate.set(false);
+        this.templateSaved.set(tpl.nom);
+        // Invalidate the cached picker list so a later apply sees the new model.
+        this.templates.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.savingTemplateBusy.set(false);
+        this.templateError.set(this.mutationMessage(err));
+      },
+    });
+  }
+
+  // ---- apply a template ---------------------------------------------------
+
+  openApply(): void {
+    this.savingTemplate.set(false);
+    this.templateSaved.set(null);
+    this.selectedTemplate.set(null);
+    this.applyError.set(null);
+    this.applyOpen.set(true);
+    if (this.templates() === null) this.loadTemplates();
+  }
+
+  cancelApply(): void {
+    this.applyOpen.set(false);
+    this.selectedTemplate.set(null);
+    this.applyError.set(null);
+  }
+
+  private loadTemplates(): void {
+    this.templatesLoading.set(true);
+    this.templatesLoadError.set(false);
+    this.examApi.listGrilleTemplates().subscribe({
+      next: (list) => {
+        this.templates.set(list);
+        this.templatesLoading.set(false);
+      },
+      error: () => {
+        this.templatesLoading.set(false);
+        this.templatesLoadError.set(true);
+      },
+    });
+  }
+
+  chooseTemplate(rawId: string): void {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id === 0) return;
+    const t = (this.templates() ?? []).find((x) => x.id === id) ?? null;
+    this.applyError.set(null);
+    this.selectedTemplate.set(t);
+  }
+
+  confirmApply(): void {
+    const t = this.selectedTemplate();
+    if (!t || this.applying()) return;
+    this.applying.set(true);
+    this.applyError.set(null);
+    this.examApi.applyTemplateToStation(t.id, this.stationId()).subscribe({
+      next: () => {
+        this.applying.set(false);
+        this.applyOpen.set(false);
+        this.selectedTemplate.set(null);
+        this.loadError.set(false);
+        // The backend deleted + recreated the grille; re-GET it and tell the parent
+        // a grille now exists so the station row's hasGrille flips.
+        this.refetchGrille();
+        this.existenceChanged.emit(true);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.applying.set(false);
+        this.applyError.set(this.mutationMessage(err));
       },
     });
   }

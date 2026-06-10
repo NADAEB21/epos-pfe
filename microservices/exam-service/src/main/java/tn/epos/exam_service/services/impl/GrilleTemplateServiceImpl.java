@@ -140,15 +140,19 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                     + station.getExamen().getStatut());
         }
 
-        // Supprimer la grille existante si présente
-        grilleRepository.findByStationId(stationId).ifPresent(grilleRepository::delete);
+        // Remplacement EN PLACE : réutiliser la grille existante si présente plutôt
+        // que delete+insert. Deux lignes ne peuvent coexister sur le station_id
+        // unique, et Hibernate ordonnait l'INSERT de la nouvelle grille avant le
+        // DELETE de l'ancienne dans un même flush → violation de
+        // grilles_evaluation_station_id_key (SQLState 23505). Mettre à jour la grille
+        // existante évite le conflit et préserve son id.
+        GrilleEvaluation grille = grilleRepository.findByStationIdWithItems(stationId)
+                .orElseGet(() -> GrilleEvaluation.builder().station(station).build());
 
-        GrilleEvaluation nouvelleGrille = GrilleEvaluation.builder()
-                .nom(template.getNom())
-                .noteMax(template.getNoteMax())
-                .description(template.getDescription())
-                .station(station)
-                .build();
+        grille.setNom(template.getNom());
+        grille.setNoteMax(template.getNoteMax());
+        grille.setDescription(template.getDescription());
+        grille.getItems().clear();   // orphanRemoval supprime les anciens critères
 
         template.getItems().forEach(it -> {
             ItemEvaluation item = ItemEvaluation.builder()
@@ -159,10 +163,10 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                     .categorie(it.getCategorie())
                     .ordre(it.getOrdre())
                     .build();
-            nouvelleGrille.addItem(item);
+            grille.addItem(item);
         });
 
-        grilleRepository.save(nouvelleGrille);
+        grilleRepository.save(grille);
         log.info("Template '{}' appliqué sur la station {}", template.getNom(), stationId);
     }
 
@@ -299,15 +303,15 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
             throw new BusinessException("Format JSON invalide : " + e.getMessage());
         }
 
-        // Supprimer l'ancienne grille si existante
-        grilleRepository.findByStationId(stationId).ifPresent(grilleRepository::delete);
+        // Remplacement EN PLACE (même raison que appliquerSurStation : éviter la
+        // violation de contrainte unique station_id due à l'ordonnancement du flush).
+        GrilleEvaluation grille = grilleRepository.findByStationIdWithItems(stationId)
+                .orElseGet(() -> GrilleEvaluation.builder().station(station).build());
 
-        GrilleEvaluation nouvelleGrille = GrilleEvaluation.builder()
-                .nom(importedGrille.getNom())
-                .noteMax(importedGrille.getNoteMax())
-                .description(importedGrille.getDescription())
-                .station(station)
-                .build();
+        grille.setNom(importedGrille.getNom());
+        grille.setNoteMax(importedGrille.getNoteMax());
+        grille.setDescription(importedGrille.getDescription());
+        grille.getItems().clear();   // orphanRemoval supprime les anciens critères
 
         if (importedGrille.getItems() != null) {
             importedGrille.getItems().forEach(ie -> {
@@ -319,11 +323,11 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                         .categorie(ie.getCategorie())
                         .ordre(ie.getOrdre())
                         .build();
-                nouvelleGrille.addItem(item);
+                grille.addItem(item);
             });
         }
 
-        grilleRepository.save(nouvelleGrille);
+        grilleRepository.save(grille);
         log.info("Grille importée depuis JSON sur la station {}", stationId);
     }
 

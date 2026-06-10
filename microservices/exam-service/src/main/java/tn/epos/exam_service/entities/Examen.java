@@ -9,6 +9,7 @@ import jakarta.validation.constraints.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,6 +37,12 @@ public class Examen {
     @NotNull(message = "La date de l'examen est obligatoire")
     @Column(name = "date_examen", nullable = false)
     private LocalDate dateExamen;
+
+    // Heure de début du circuit OSCE. Combinée à dateExamen pour calculer
+    // chaque créneau (Rotation.debutCreneau) côté scoring-service. Nullable
+    // pour les examens existants (génération : fallback 09:00 si absent).
+    @Column(name = "heure_debut")
+    private LocalTime heureDebut;
 
 
     @Min(value = 1, message = "La durée doit être au moins 1 minute")

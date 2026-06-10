@@ -36,7 +36,9 @@ export class LoginComponent {
     this.auth.login(this.form.getRawValue()).subscribe({
       next: () => {
         this.submitting.set(false);
-        this.router.navigateByUrl('/dashboard');
+        // Land on '' and let landingRedirectGuard route by role
+        // (Responsable → /accueil, Super-admin → /admin).
+        this.router.navigateByUrl('/');
       },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);

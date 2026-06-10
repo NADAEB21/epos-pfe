@@ -1,5 +1,55 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard } from './core/auth/auth.guard';
+import { ExamenWorkspaceStore } from './features/examens/examen-workspace.store';
+import {
+  authGuard,
+  guestGuard,
+  landingRedirectGuard,
+  responsableGuard,
+  superAdminGuard,
+  webAccessGuard,
+} from './core/auth/auth.guard';
+
+const stub = (title: string, figmaRef = '(a venir)') => ({
+  loadComponent: () => import('./shared/stub-page.component').then((m) => m.StubPageComponent),
+  data: { title, figmaRef },
+});
+
+// Per-exam workspace tabs all render the stub for now (Phase B ships the shell
+// + status-aware tab list only; tab content is a session each).
+const workspaceTabs: Routes = [
+  { path: '', pathMatch: 'full', redirectTo: 'vue-ensemble' },
+  {
+    path: 'vue-ensemble',
+    loadComponent: () =>
+      import('./features/examens/vue-ensemble.component').then((m) => m.VueEnsembleComponent),
+  },
+  {
+    path: 'stations-grilles',
+    loadComponent: () =>
+      import('./features/examens/stations-grilles.component').then(
+        (m) => m.StationsGrillesComponent,
+      ),
+  },
+  {
+    path: 'etudiants',
+    loadComponent: () =>
+      import('./features/examens/etudiants.component').then((m) => m.EtudiantsComponent),
+  },
+  {
+    path: 'lots',
+    loadComponent: () =>
+      import('./features/examens/lots.component').then((m) => m.LotsComponent),
+  },
+  { path: 'planning', ...stub('Planning') },
+  {
+    path: 'lancement',
+    loadComponent: () =>
+      import('./features/examens/lancement.component').then((m) => m.LancementComponent),
+  },
+  { path: 'suivi', ...stub('Suivi en direct') },
+  { path: 'resultats', ...stub('Resultats') },
+  { path: 'analyses-ia', ...stub('Analyses IA') },
+];
 
 export const routes: Routes = [
   {
@@ -9,47 +59,100 @@ export const routes: Routes = [
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
-    path: '',
+    // Authenticated but role-less for the web (pure EVALUATEUR) — sent here by
+    // webAccessGuard. Rendered outside the shell (no sidebar).
+    path: 'acces-refuse',
     canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/access/acces-refuse.component').then((m) => m.AccesRefuseComponent),
+  },
+  {
+    path: '',
+    canActivate: [authGuard, webAccessGuard],
     loadComponent: () =>
       import('./core/layout/app-shell.component').then((m) => m.AppShellComponent),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      // Role-aware landing: Responsable → /accueil, pure Super-admin → /admin.
+      { path: '', pathMatch: 'full', canActivate: [landingRedirectGuard], children: [] },
+
+      // Responsable workspace — gated as a group on the RESPONSABLE_MATIERE
+      // role. A pure Super-admin who deep-links here is bounced to /admin by
+      // responsableGuard, so the whole matiere-scoped zone (not just /accueil)
+      // stays out of reach via the URL bar.
       {
-        path: 'dashboard',
-        loadComponent: () =>
-          import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-        data: { title: 'Tableau de bord', figmaRef: 'tableau-de-bord.png' },
+        path: '',
+        canActivate: [responsableGuard],
+        children: [
+          // Espace de travail
+          {
+            path: 'accueil',
+            loadComponent: () =>
+              import('./features/home/accueil.component').then((m) => m.AccueilComponent),
+          },
+          {
+            path: 'examens',
+            pathMatch: 'full',
+            loadComponent: () =>
+              import('./features/examens/examens-list.component').then(
+                (m) => m.ExamensListComponent,
+              ),
+          },
+          {
+            // MUST precede 'examens/:id' — otherwise 'nouveau' is captured as an id.
+            path: 'examens/nouveau',
+            loadComponent: () =>
+              import('./features/examens/examen-create.component').then(
+                (m) => m.ExamenCreateComponent,
+              ),
+          },
+          {
+            path: 'examens/:id',
+            // Route-scoped: one store instance shared by the workspace shell and
+            // every tab, so a lifecycle change in Lancement reactively updates the
+            // parent's status-aware tabs + lifecycle bar.
+            providers: [ExamenWorkspaceStore],
+            loadComponent: () =>
+              import('./features/examens/examen-workspace.component').then(
+                (m) => m.ExamenWorkspaceComponent,
+              ),
+            children: workspaceTabs,
+          },
+          {
+            path: 'bibliotheque',
+            loadComponent: () =>
+              import('./features/examens/bibliotheque.component').then(
+                (m) => m.BibliothequeComponent,
+              ),
+          },
+
+          // Mon equipe
+          { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },
+          { path: 'equipe/co-responsables', ...stub('Co-responsables') },
+
+          // Parametres (matiere-scoped)
+          { path: 'parametres/matiere', ...stub('Ma matiere') },
+        ],
       },
+
+      // Parametres (any web user)
+      { path: 'parametres/profil', ...stub('Mon profil') },
+
+      // Administration (SUPER_ADMIN only)
       {
-        path: 'etudiants',
-        loadComponent: () =>
-          import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-        data: { title: 'Gestion des Étudiants', figmaRef: 'gestion-des-etudiants.png' },
-      },
-      {
-        path: 'examens-grilles',
-        loadComponent: () =>
-          import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-        data: {
-          title: 'Examens & Grilles',
-          figmaRef: 'conception-grille-evaluation.png',
-        },
-      },
-      {
-        path: 'planning',
-        loadComponent: () =>
-          import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-        data: {
-          title: 'Planification & Dispatching',
-          figmaRef: 'planification-dispatching-automatique.png',
-        },
-      },
-      {
-        path: 'analyses-ia',
-        loadComponent: () =>
-          import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-        data: { title: 'Analyses IA', figmaRef: '(pas de design)' },
+        path: 'admin',
+        canActivate: [superAdminGuard],
+        children: [
+          {
+            path: '',
+            pathMatch: 'full',
+            loadComponent: () =>
+              import('./features/admin/admin-home.component').then((m) => m.AdminHomeComponent),
+          },
+          { path: 'utilisateurs', ...stub('Utilisateurs (tous)') },
+          { path: 'matieres', ...stub('Matieres (catalogue)') },
+          { path: 'templates', ...stub('Templates globaux') },
+          { path: 'examens', ...stub('Examens (oversight)') },
+        ],
       },
     ],
   },

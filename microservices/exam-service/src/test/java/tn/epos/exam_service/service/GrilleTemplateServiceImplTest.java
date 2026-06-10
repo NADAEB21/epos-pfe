@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -299,30 +300,40 @@ class GrilleTemplateServiceImplTest {
     class AppliquerSurStation {
 
         @Test
-        @DisplayName("Doit appliquer le template et créer une nouvelle grille")
+        @DisplayName("Doit appliquer le template et créer une grille sur une station vide")
         void appliquer_devraitCreerGrille() {
             when(templateRepository.findByIdWithItems(1L)).thenReturn(Optional.of(template));
             when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
-            when(grilleRepository.findByStationId(1L)).thenReturn(Optional.empty());
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.empty());
             when(grilleRepository.save(any())).thenReturn(grille);
 
             templateService.appliquerSurStation(1L, 1L);
 
             verify(grilleRepository).save(any(GrilleEvaluation.class));
+            verify(grilleRepository, never()).delete(any());
         }
 
         @Test
-        @DisplayName("Doit supprimer l'ancienne grille avant d'appliquer le template")
-        void appliquer_doitSupprimerAncienneGrille() {
+        @DisplayName("Doit remplacer la grille existante EN PLACE (sans delete+insert)")
+        void appliquer_grilleExistante_remplaceEnPlace() {
             when(templateRepository.findByIdWithItems(1L)).thenReturn(Optional.of(template));
             when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
-            when(grilleRepository.findByStationId(1L)).thenReturn(Optional.of(grille));
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.of(grille));
             when(grilleRepository.save(any())).thenReturn(grille);
 
             templateService.appliquerSurStation(1L, 1L);
 
-            verify(grilleRepository).delete(grille);
-            verify(grilleRepository).save(any(GrilleEvaluation.class));
+            // Regression guard: the existing grille row is REUSED (same id), its items
+            // replaced — NO delete. A delete+insert would order the INSERT before the
+            // DELETE in one flush and violate grilles_evaluation_station_id_key (23505).
+            verify(grilleRepository, never()).delete(any());
+            ArgumentCaptor<GrilleEvaluation> captor = ArgumentCaptor.forClass(GrilleEvaluation.class);
+            verify(grilleRepository).save(captor.capture());
+            GrilleEvaluation saved = captor.getValue();
+            assertThat(saved.getId()).isEqualTo(1L); // same row reused, not a new one
+            assertThat(saved.getNom()).isEqualTo("Template Station 3");
+            assertThat(saved.getItems()).hasSize(1);
+            assertThat(saved.getItems().get(0).getLibelle()).isEqualTo("Choix de l'indicateur");
         }
 
         @Test
@@ -521,7 +532,7 @@ class GrilleTemplateServiceImplTest {
                 """;
 
             when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
-            when(grilleRepository.findByStationId(1L)).thenReturn(Optional.empty());
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.empty());
             when(grilleRepository.save(any())).thenReturn(grille);
 
             templateService.importerGrilleJson(1L, grilleJson);
@@ -551,7 +562,7 @@ class GrilleTemplateServiceImplTest {
                 """;
 
             when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
-            when(grilleRepository.findByStationId(1L)).thenReturn(Optional.empty());
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.empty());
             when(grilleRepository.save(any())).thenReturn(grille);
 
             templateService.importerGrilleJson(1L, grilleJson);
@@ -563,8 +574,8 @@ class GrilleTemplateServiceImplTest {
         }
 
         @Test
-        @DisplayName("Doit supprimer l'ancienne grille avant l'import")
-        void importer_doitSupprimerAncienneGrille() {
+        @DisplayName("Doit remplacer la grille existante EN PLACE à l'import (sans delete+insert)")
+        void importer_grilleExistante_remplaceEnPlace() {
             String grilleJson = """
                 {
                   "nom": "Grille importée",
@@ -574,13 +585,17 @@ class GrilleTemplateServiceImplTest {
                 """;
 
             when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
-            when(grilleRepository.findByStationId(1L)).thenReturn(Optional.of(grille));
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.of(grille));
             when(grilleRepository.save(any())).thenReturn(grille);
 
             templateService.importerGrilleJson(1L, grilleJson);
 
-            verify(grilleRepository).delete(grille);
-            verify(grilleRepository).save(any());
+            // Same row reused, no delete (avoids the station_id unique-constraint clash).
+            verify(grilleRepository, never()).delete(any());
+            ArgumentCaptor<GrilleEvaluation> captor = ArgumentCaptor.forClass(GrilleEvaluation.class);
+            verify(grilleRepository).save(captor.capture());
+            assertThat(captor.getValue().getId()).isEqualTo(1L);
+            assertThat(captor.getValue().getNom()).isEqualTo("Grille importée");
         }
 
         @Test

@@ -6,8 +6,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
 import tn.epos.scoring_service.entities.ExamenParticipation;
+import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 
 import java.util.List;
@@ -21,10 +23,17 @@ public class ExamenParticipationController {
     @Autowired
     private ExamenParticipationService participationService;
 
+    @Autowired
+    private EtudiantService etudiantService;
+
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<List<ParticipationDTO>>> getAllParticipations() {
-        List<ParticipationDTO> dtos = participationService.getAll().stream()
+    public ResponseEntity<ApiResponse<List<ParticipationDTO>>> getAllParticipations(
+            @RequestParam(required = false) Long examenId) {
+        List<ExamenParticipation> entities = (examenId != null)
+                ? participationService.getByExamenId(examenId)
+                : participationService.getAll();
+        List<ParticipationDTO> dtos = entities.stream()
                 .map(ParticipationDTO::fromEntity)
                 .toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
@@ -47,8 +56,14 @@ public class ExamenParticipationController {
         entity.setNum_echantillon(dto.num_echantillon());
         entity.setNote(dto.note());
         entity.setEst_present(dto.est_present());
-        // Service handles looking up Etudiant/Lot by ID if needed, 
-        // or you can set them here if the service expects them.
+        // Link the student: the DTO carries etudiantId but it was previously
+        // dropped here, leaving every participation orphaned (roster showed no
+        // names). Resolve and attach it so the FK is persisted.
+        if (dto.etudiantId() != null) {
+            entity.setEtudiant(etudiantService.getEtudiantById(dto.etudiantId())
+                    .orElseThrow(() -> new BusinessException(
+                            "Étudiant introuvable: " + dto.etudiantId())));
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Participation enregistrée", ParticipationDTO.fromEntity(participationService.save(entity))));
     }
@@ -65,8 +80,14 @@ public class ExamenParticipationController {
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
+    // A participation is an exam enrolment, not a directory record: the same
+    // RESPONSABLE_MATIERE who can POST one (enrol a student onto an exam they
+    // author) must be able to undo it. Keeping DELETE SUPER_ADMIN-only while POST
+    // is responsable-allowed was an add-without-remove asymmetry that left the
+    // roster un-editable for the persona that owns it. DELETE /etudiants stays
+    // admin-only — pruning the global student directory is a different concern.
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         if (participationService.getById(id).isPresent()) {
             participationService.delete(id);

@@ -16,19 +16,23 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.controller.EtudiantController;
+import tn.epos.scoring_service.controller.ExamenParticipationController;
+import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
+import tn.epos.scoring_service.service.ExamenParticipationService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = EtudiantController.class)
+@WebMvcTest(controllers = {EtudiantController.class, ExamenParticipationController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
         "jwt.secret=a-very-secure-32-char-secret-key", // Fixed: Exactly 32 bytes
@@ -44,6 +48,9 @@ class SecurityConfigAuthorizationTest {
 
     @MockBean
     private EtudiantService etudiantService;
+
+    @MockBean
+    private ExamenParticipationService participationService;
 
     @BeforeEach
     void stubService() {
@@ -91,6 +98,17 @@ class SecurityConfigAuthorizationTest {
         mockMvc.perform(delete("/api/etudiants/1")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("RESPONSABLE_MATIERE can DELETE a participation — roster removal mirrors enrol (add/remove symmetry)")
+    void scopedResponsableMatiere_canDeleteParticipation() throws Exception {
+        when(participationService.getById(1L)).thenReturn(Optional.of(new ExamenParticipation()));
+        String token = jwtWith(List.of("ROLE_RESPONSABLE_MATIERE:5"));
+
+        mockMvc.perform(delete("/api/participations/1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
     }
 
     @Test

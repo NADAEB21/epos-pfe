@@ -28,6 +28,17 @@ public class ExamenResponse {
     private boolean hasPdfSujet;
     private String pdfSujetNom;
 
+    // Pause/reprise (ADR-0009). enPause : examen actuellement en pause (reste
+    // EN_COURS). pausedAt : début de la pause en cours (null sinon).
+    // totalPauseSec : secondes de pause cumulées — le Suivi calcule le temps
+    // effectif côté client à partir de ces champs.
+    private boolean enPause;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime pausedAt;
+
+    private Integer totalPauseSec;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
 

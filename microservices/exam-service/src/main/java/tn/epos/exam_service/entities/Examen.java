@@ -63,6 +63,24 @@ public class Examen {
     @Builder.Default
     private StatutExamen statut = StatutExamen.BROUILLON;
 
+    // Pause/reprise (ADR-0009) — état orthogonal au statut : un examen en pause
+    // reste EN_COURS. Le temps de pause cumulé permet au Suivi de calculer un
+    // "temps effectif" (horloge murale moins le temps en pause), de sorte que le
+    // planning back-to-back pré-calculé (Rotation.debutCreneau) reste valide
+    // malgré les coupures (pauses, repas, examen multi-jours).
+    @Column(name = "en_pause", nullable = false)
+    @Builder.Default
+    private Boolean enPause = false;
+
+    // Début de la pause en cours ; null si l'examen n'est pas en pause.
+    @Column(name = "paused_at")
+    private LocalDateTime pausedAt;
+
+    // Secondes de pause cumulées sur tous les intervalles de pause terminés.
+    @Column(name = "total_pause_sec", nullable = false)
+    @Builder.Default
+    private Integer totalPauseSec = 0;
+
     // chemin vers le fichier PDF (stockage serveur)
     @Column(name = "pdf_sujet_path")
     private String pdfSujetPath;

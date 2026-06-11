@@ -25,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 import static org.mockito.ArgumentMatchers.eq;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -371,6 +372,89 @@ class ExamenServiceImplTest {
 
             assertThatThrownBy(() -> examenService.supprimer(99L))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // PAUSE / REPRISE (ADR-0009)
+
+    @Nested
+    @DisplayName("mettreEnPause() / reprendre()")
+    class PauseReprise {
+
+        private Examen examenEnCours() {
+            return Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS)
+                    .enPause(false).totalPauseSec(0)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen EN_COURS : enPause=true, pausedAt renseigné, statut inchangé")
+        void mettreEnPause_enCours_doitMettreEnPause() {
+            Examen exam = examenEnCours();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.mettreEnPause(1L);
+
+            assertThat(result.isEnPause()).isTrue();
+            assertThat(result.getPausedAt()).isNotNull();
+            // Pause est orthogonale : le statut reste EN_COURS.
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen non EN_COURS doit lever BusinessException")
+        void mettreEnPause_nonEnCours_doitEchouer() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+
+            assertThatThrownBy(() -> examenService.mettreEnPause(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen déjà en pause doit lever BusinessException")
+        void mettreEnPause_dejaEnPause_doitEchouer() {
+            Examen exam = examenEnCours();
+            exam.setEnPause(true);
+            exam.setPausedAt(LocalDateTime.now());
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+
+            assertThatThrownBy(() -> examenService.mettreEnPause(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("déjà");
+        }
+
+        @Test
+        @DisplayName("Reprise cumule la durée écoulée et efface pausedAt")
+        void reprendre_doitCumulerEtEffacer() {
+            Examen exam = examenEnCours();
+            exam.setEnPause(true);
+            exam.setPausedAt(LocalDateTime.now().minusSeconds(5));
+            exam.setTotalPauseSec(10);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.reprendre(1L);
+
+            assertThat(result.isEnPause()).isFalse();
+            assertThat(result.getPausedAt()).isNull();
+            // 10s cumulés + ~5s de cette pause.
+            assertThat(result.getTotalPauseSec()).isGreaterThanOrEqualTo(14);
+        }
+
+        @Test
+        @DisplayName("Reprise d'un examen non en pause doit lever BusinessException")
+        void reprendre_nonEnPause_doitEchouer() {
+            Examen exam = examenEnCours();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+
+            assertThatThrownBy(() -> examenService.reprendre(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("pas en pause");
         }
     }
 

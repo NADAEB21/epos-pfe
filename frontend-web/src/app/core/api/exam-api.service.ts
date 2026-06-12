@@ -99,6 +99,30 @@ export class ExamApiService {
   }
 
   /**
+   * Pause a running exam (PATCH /examens/{id}/pause — ADR-0009). Pause is
+   * orthogonal state: the exam stays EN_COURS, it just stops the effective
+   * clock (covers breaks, meal stops, multi-day gaps). Backend 400s unless the
+   * exam is EN_COURS and not already paused. Returns the updated exam carrying
+   * enPause/pausedAt/totalPauseSec.
+   */
+  pauseExamen(id: number): Observable<ExamenResponse> {
+    return this.http
+      .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/pause`, null)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Resume a paused exam (PATCH /examens/{id}/reprendre). Accumulates the
+   * elapsed pause into totalPauseSec and clears pausedAt. Backend 400s unless
+   * the exam is currently paused. Returns the updated exam.
+   */
+  reprendreExamen(id: number): Observable<ExamenResponse> {
+    return this.http
+      .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/reprendre`, null)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * Stations of an exam, ordered. This is the canonical source for full station
    * data: unlike the stations embedded in getExamen(id), each row here carries
    * evaluateurIds + hasGrille. Paginated server-side (default 20) — we request a

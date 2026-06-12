@@ -126,6 +126,13 @@ export interface ExamenResponse {
   createdAt: string | null;
   updatedAt: string | null;
   stations?: StationSummary[];
+  // Pause/reprise (ADR-0009). A paused exam stays EN_COURS — pause is orthogonal
+  // state, not a status. The Suivi screen computes "effective exam time" =
+  // (now − examStart) − totalPauseSec − (enPause ? now − pausedAt : 0), so the
+  // pre-computed back-to-back rotation schedule survives breaks / multi-day gaps.
+  enPause?: boolean;
+  pausedAt?: string | null; // "yyyy-MM-dd HH:mm:ss", null unless enPause
+  totalPauseSec?: number;
 }
 
 /**

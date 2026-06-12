@@ -25,7 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -39,6 +41,7 @@ import java.util.stream.Collectors;
 public class ExamenServiceImpl implements ExamenService {
     private final ExamenRepository examenRepository;
     private final MatiereAccessChecker matiereAccessChecker;
+    private final Clock clock;
 
     @Value("${epos.upload.dir}")
     private String uploadDir;
@@ -151,7 +154,7 @@ public class ExamenServiceImpl implements ExamenService {
         }
 
         examen.setEnPause(true);
-        examen.setPausedAt(LocalDateTime.now());
+        examen.setPausedAt(LocalDateTime.now(clock));
         log.info("Examen {} mis en pause à {}", id, examen.getPausedAt());
         return toResponse(examenRepository.save(examen), false);
     }
@@ -166,9 +169,12 @@ public class ExamenServiceImpl implements ExamenService {
         }
 
         // Cumule la durée de la pause qui s'achève (bornée à >= 0 par sécurité).
-        long elapsed = examen.getPausedAt() != null
-                ? Math.max(0, Duration.between(examen.getPausedAt(), LocalDateTime.now()).getSeconds())
-                : 0;
+        // Compute over Instants (time-zone-aware) so the duration is well-defined.
+        long elapsed = 0;
+        if (examen.getPausedAt() != null) {
+            Instant pausedInstant = examen.getPausedAt().atZone(clock.getZone()).toInstant();
+            elapsed = Math.max(0, Duration.between(pausedInstant, clock.instant()).getSeconds());
+        }
         int total = (examen.getTotalPauseSec() != null ? examen.getTotalPauseSec() : 0) + (int) elapsed;
 
         examen.setTotalPauseSec(total);

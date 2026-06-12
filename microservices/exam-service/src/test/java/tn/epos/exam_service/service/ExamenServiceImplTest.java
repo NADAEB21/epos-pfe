@@ -24,8 +24,11 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import static org.mockito.ArgumentMatchers.eq;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -50,13 +53,21 @@ class ExamenServiceImplTest {
     private Examen examenBrouillon;
     private ExamenRequest examenRequest;
 
+    // Horloge fixe (UTC) pour des assertions déterministes sur pause/reprise.
+    private static final Instant FIXED_NOW = Instant.parse("2024-06-15T10:00:00Z");
+    private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
     @BeforeEach
     void setUp() {
-        // Injection du uploadDir via réflexion (champ @Value)
+        // Injection du uploadDir (@Value) + de l'horloge fixe (champ final) via réflexion.
         try {
-            var field = ExamenServiceImpl.class.getDeclaredField("uploadDir");
-            field.setAccessible(true);
-            field.set(examenService, "uploads/");
+            var uploadField = ExamenServiceImpl.class.getDeclaredField("uploadDir");
+            uploadField.setAccessible(true);
+            uploadField.set(examenService, "uploads/");
+
+            var clockField = ExamenServiceImpl.class.getDeclaredField("clock");
+            clockField.setAccessible(true);
+            clockField.set(examenService, FIXED_CLOCK);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -391,7 +402,7 @@ class ExamenServiceImplTest {
         }
 
         @Test
-        @DisplayName("Pause d'un examen EN_COURS : enPause=true, pausedAt renseigné, statut inchangé")
+        @DisplayName("Pause d'un examen EN_COURS : enPause=true, pausedAt = horloge, statut inchangé")
         void mettreEnPause_enCours_doitMettreEnPause() {
             Examen exam = examenEnCours();
             when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
@@ -400,7 +411,9 @@ class ExamenServiceImplTest {
             ExamenResponse result = examenService.mettreEnPause(1L);
 
             assertThat(result.isEnPause()).isTrue();
-            assertThat(result.getPausedAt()).isNotNull();
+            // pausedAt vient de l'horloge fixe injectée (déterministe).
+            assertThat(result.getPausedAt())
+                    .isEqualTo(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
             // Pause est orthogonale : le statut reste EN_COURS.
             assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
         }
@@ -420,7 +433,7 @@ class ExamenServiceImplTest {
         void mettreEnPause_dejaEnPause_doitEchouer() {
             Examen exam = examenEnCours();
             exam.setEnPause(true);
-            exam.setPausedAt(LocalDateTime.now());
+            exam.setPausedAt(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
             when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
 
             assertThatThrownBy(() -> examenService.mettreEnPause(1L))
@@ -433,7 +446,8 @@ class ExamenServiceImplTest {
         void reprendre_doitCumulerEtEffacer() {
             Examen exam = examenEnCours();
             exam.setEnPause(true);
-            exam.setPausedAt(LocalDateTime.now().minusSeconds(5));
+            // 5s avant l'instant fixe de l'horloge → durée de pause = 5s, exactement.
+            exam.setPausedAt(LocalDateTime.ofInstant(FIXED_NOW.minusSeconds(5), ZoneOffset.UTC));
             exam.setTotalPauseSec(10);
             when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
             when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -442,8 +456,8 @@ class ExamenServiceImplTest {
 
             assertThat(result.isEnPause()).isFalse();
             assertThat(result.getPausedAt()).isNull();
-            // 10s cumulés + ~5s de cette pause.
-            assertThat(result.getTotalPauseSec()).isGreaterThanOrEqualTo(14);
+            // 10s cumulés + 5s de cette pause = 15 (déterministe).
+            assertThat(result.getTotalPauseSec()).isEqualTo(15);
         }
 
         @Test

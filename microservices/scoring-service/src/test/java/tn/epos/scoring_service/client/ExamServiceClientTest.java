@@ -19,6 +19,7 @@ import tn.epos.common.exception.BusinessException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -223,6 +224,7 @@ class ExamServiceClientTest {
             assertThat(view.dureeStationMin()).isEqualTo(10);
             assertThat(view.nbEtudiantsParStation()).isEqualTo(4);
             assertThat(view.statut()).isEqualTo("CONFIGURE");
+            assertThat(view.launchedAt()).isNull();           // absent du corps → null
 
             // id<=0 station dropped → 3 stations (10, 11, 12)
             assertThat(view.stations()).hasSize(3);
@@ -258,6 +260,31 @@ class ExamServiceClientTest {
             assertThat(view.dureeStationMin()).isNull();
             assertThat(view.nbEtudiantsParStation()).isNull();
             assertThat(view.stations()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : launched_at présent (format 'yyyy-MM-dd HH:mm:ss') est parsé")
+        void launchedAtPresent_devraitEtreParse() {
+            String body = "{\"success\":true,\"data\":{\"id\":7,\"statut\":\"EN_COURS\"," +
+                    "\"launchedAt\":\"2026-06-20 09:37:12\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamGenerationView view = client.getExamForGeneration(7L);
+
+            assertThat(view.launchedAt()).isEqualTo(LocalDateTime.of(2026, 6, 20, 9, 37, 12));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : launched_at mal formé → null (fallback départ planifié), pas d'exception")
+        void launchedAtMalforme_devraitRetournerNull() {
+            String body = "{\"success\":true,\"data\":{\"id\":7,\"statut\":\"EN_COURS\"," +
+                    "\"launchedAt\":\"pas-une-date\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamGenerationView view = client.getExamForGeneration(7L);
+
+            assertThat(view.launchedAt()).isNull();
+            assertThat(view.examenId()).isEqualTo(7L);
         }
 
         @Test

@@ -81,6 +81,13 @@ public class Examen {
     @Builder.Default
     private Integer totalPauseSec = 0;
 
+    // Instant de lancement réel (ADR-0010) — posé UNE SEULE FOIS au passage
+    // → EN_COURS, jamais réécrit. Ancre effective du temps : la génération des
+    // rotations et l'horloge live s'y rattachent (fallback dateExamen+heureDebut
+    // tant qu'il est null : lignes pré-ADR ou examen pas encore lancé).
+    @Column(name = "launched_at")
+    private LocalDateTime launchedAt;
+
     // chemin vers le fichier PDF (stockage serveur)
     @Column(name = "pdf_sujet_path")
     private String pdfSujetPath;

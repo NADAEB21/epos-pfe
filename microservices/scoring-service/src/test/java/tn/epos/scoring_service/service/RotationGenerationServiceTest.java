@@ -99,13 +99,20 @@ class RotationGenerationServiceTest {
 
     private ExamGenerationView exam(String statut, int nbStations, Integer capacite,
                                     LocalDate date, LocalTime heure, int duree) {
+        // launched_at null by default → generation anchors on the planned start
+        // (dateExamen + heureDebut), the pre-ADR-0010 behaviour these timings assert.
+        return exam(statut, nbStations, capacite, date, heure, null, duree);
+    }
+
+    private ExamGenerationView exam(String statut, int nbStations, Integer capacite,
+                                    LocalDate date, LocalTime heure, LocalDateTime launchedAt, int duree) {
         List<ExamGenerationView.StationView> stations = new ArrayList<>();
         for (int i = 0; i < nbStations; i++) {
             // station id = 10+i, ordre = i+1, one bound évaluateur = 1000+i
             stations.add(new ExamGenerationView.StationView(
                     10L + i, i + 1, List.of(1000L + i)));
         }
-        return new ExamGenerationView(EXAM_ID, date, heure, duree, capacite, statut, stations);
+        return new ExamGenerationView(EXAM_ID, date, heure, launchedAt, duree, capacite, statut, stations);
     }
 
     private List<ExamenParticipation> participations(int present, int absent) {
@@ -208,6 +215,46 @@ class RotationGenerationServiceTest {
 
             // Lot-level presence already confirmed → assignments start confirmed.
             assertThat(savedAssignments).allMatch(a -> Boolean.TRUE.equals(a.getPresenceConfirmee()));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : créneaux ancrés sur launched_at (lancement tardif) et non sur le départ planifié")
+        void genere_ancreSurLaunchedAt() {
+            // Planifié 09:00 mais lancé réellement à 09:37 → les créneaux du lot 1
+            // doivent partir de 09:37, pas de 09:00.
+            LocalDateTime launchedAt = LocalDateTime.of(2026, 6, 20, 9, 37);
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), launchedAt, 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+
+            service.generateForLot(LOT_ID);
+
+            var starts = savedRotations.stream().map(Rotation::getDebutCreneau)
+                    .distinct().sorted().toList();
+            assertThat(starts).containsExactly(
+                    LocalDateTime.of(2026, 6, 20, 9, 37),
+                    LocalDateTime.of(2026, 6, 20, 9, 52),
+                    LocalDateTime.of(2026, 6, 20, 10, 7));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : lot 2 décalé back-to-back depuis launched_at (09:37 + 3·15 = 10:22)")
+        void genere_lot2AncreSurLaunchedAt() {
+            LocalDateTime launchedAt = LocalDateTime.of(2026, 6, 20, 9, 37);
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), launchedAt, 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+
+            service.generateForLot(LOT_ID);
+
+            var starts = savedRotations.stream().map(Rotation::getDebutCreneau)
+                    .distinct().sorted().toList();
+            assertThat(starts).containsExactly(
+                    LocalDateTime.of(2026, 6, 20, 10, 22),
+                    LocalDateTime.of(2026, 6, 20, 10, 37),
+                    LocalDateTime.of(2026, 6, 20, 10, 52));
         }
 
         @Test

@@ -39,6 +39,12 @@ public class ExamenResponse {
 
     private Integer totalPauseSec;
 
+    // Instant de lancement réel (ADR-0010), null tant que l'examen n'est pas lancé
+    // ou pour les lignes pré-ADR. Le Suivi ancre son horloge dessus quand présent,
+    // sinon il retombe sur dateExamen + heureDebut (départ planifié).
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime launchedAt;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
 

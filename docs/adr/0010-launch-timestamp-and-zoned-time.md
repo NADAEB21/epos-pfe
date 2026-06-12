@@ -1,7 +1,10 @@
 # ADR 0010: Capture launch instant + adopt a zoned-time policy
 
-- **Date:** 2026-06-12
-- **Status:** Proposed
+- **Date:** 2026-06-12 (proposed) · 2026-06-13 (accepted, **option A**)
+- **Status:** Accepted — backend implemented (`launched_at` + Clock zone pin +
+  generation anchor). The FE consequence (anchor the Suivi board on `launched_at`
+  and drop the `pausedAt` reconstruction fallback) is a **follow-up**, see the
+  implementation note below.
 - **Deciders:** Nada (lead architect). Surfaced while building #139 (Suivi en
   direct, PR #143); awaiting a decision before the live board is relied on in a
   real (multi-timezone / off-schedule) run.
@@ -133,6 +136,38 @@ effective-time formula lives in one declared zone.**
 - **Multi-timezone exams.** Option A assumes one faculty zone. If the platform
   ever runs exams across zones, option B (or a per-exam `zone` column) becomes
   necessary — noted, not built.
+
+## Implementation note (2026-06-13)
+
+Shipped backend-only, one exam-service + scoring-service PR:
+
+- **`launched_at`** — Flyway `V5` (nullable `TIMESTAMP`), entity field, stamped
+  once in `changerStatut` on the `→ EN_COURS` transition, exposed on
+  `ExamenResponse` (format `yyyy-MM-dd HH:mm:ss`). Verified end-to-end: a fresh
+  launch stamps it; legacy `EN_COURS` rows read `null` (planned-start fallback).
+- **Zone policy (option A)** — the injectable `Clock` is pinned to an explicit
+  `app.timezone` (default `Africa/Tunis`, override `APP_TIMEZONE`) instead of
+  `Clock.systemDefaultZone()`, so `LocalDateTime.now(clock)` agrees with the
+  user-entered wall-clock regardless of the UTC container. `LocalDateTime`
+  ↔ `TIMESTAMP` and Jackson `LocalDateTime` serialization are both zone-less, so
+  no `Instant`/`TIMESTAMPTZ`/`jackson.time-zone` work was needed — pinning the
+  Clock is the whole fix for the machine-stamped values in the formula.
+- **Generation anchor** — `RotationGenerationService` now anchors `examStart` on
+  `launched_at ?? (dateExamen + heureDebut)`; `ExamGenerationView` +
+  `ExamServiceClient` carry/parse the new field. Plan and live clock share one
+  origin; a late launch shifts every créneau with it.
+
+**Dev-host caveat (the FE follow-up gate).** Option A pins the backend stamp to
+`Africa/Tunis` (UTC+1). The Suivi FE parses the naive `launched_at`/`pausedAt`
+strings as **browser-local**. In production (browser also in Tunis) these agree.
+On the **dev stack the host/browser is UTC+2**, so a backend value reads ~1h
+earlier than the browser clock. Therefore the FE was deliberately **left
+anchored on the planned start with the client-side pause freeze** in this PR —
+switching it to `launched_at` now would make the local board jump "1h already
+elapsed". The FE switch (anchor on `launched_at`, retire the `pausedAt`
+reconstruction fallback, keep the client freeze) is unblocked once the dev
+browser zone matches `APP_TIMEZONE` (run the host as Africa/Tunis, or set
+`APP_TIMEZONE` to the host zone for local demos).
 
 ## Alternatives considered
 

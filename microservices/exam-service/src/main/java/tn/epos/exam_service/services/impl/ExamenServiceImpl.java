@@ -135,6 +135,15 @@ public class ExamenServiceImpl implements ExamenService {
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
         examen.setStatut(nouveauStatut);
+
+        // ADR-0010 : capter l'instant de lancement réel au passage → EN_COURS.
+        // Posé une seule fois ; jamais réécrit (la transition n'autorise CONFIGURE
+        // → EN_COURS qu'une fois, mais on garde le garde-fou explicite).
+        if (nouveauStatut == StatutExamen.EN_COURS && examen.getLaunchedAt() == null) {
+            examen.setLaunchedAt(LocalDateTime.now(clock));
+            log.info("Examen {} lancé à {} (launched_at)", id, examen.getLaunchedAt());
+        }
+
         log.info("Examen {} : statut changé {} → {}", id, examen.getStatut(), nouveauStatut);
         return toResponse(examenRepository.save(examen), false);
     }
@@ -314,6 +323,7 @@ public class ExamenServiceImpl implements ExamenService {
         response.setEnPause(Boolean.TRUE.equals(examen.getEnPause()));
         response.setPausedAt(examen.getPausedAt());
         response.setTotalPauseSec(examen.getTotalPauseSec());
+        response.setLaunchedAt(examen.getLaunchedAt());
         response.setCreatedAt(examen.getCreatedAt());
         response.setUpdatedAt(examen.getUpdatedAt());
 

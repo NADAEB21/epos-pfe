@@ -122,7 +122,13 @@ public class RotationGenerationService {
         int capacite = exam.nbEtudiantsParStation() != null ? exam.nbEtudiantsParStation() : DEFAULT_CAPACITE;
 
         // Back-to-back waves: lot m (1-based) starts after the m-1 preceding circuits.
-        LocalDateTime examStart = LocalDateTime.of(date, start);
+        // ADR-0010: anchor on the ACTUAL launch instant when known (generation only
+        // runs post-launch, so launched_at is normally set), so the plan and the
+        // live clock share one origin and a late launch shifts all créneaux with it.
+        // Fall back to the planned start (dateExamen + heureDebut) for legacy rows.
+        LocalDateTime examStart = exam.launchedAt() != null
+                ? exam.launchedAt()
+                : LocalDateTime.of(date, start);
         int waveIndex = (lot.getNumeroLot() != null ? lot.getNumeroLot() : 1) - 1;
         LocalDateTime waveStart = examStart.plusMinutes((long) waveIndex * k * duree);
 

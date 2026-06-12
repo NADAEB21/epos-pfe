@@ -1,6 +1,7 @@
 package tn.epos.scoring_service.client;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -15,6 +16,7 @@ public record ExamGenerationView(
         Long examenId,
         LocalDate dateExamen,
         LocalTime heureDebut,
+        LocalDateTime launchedAt,
         Integer dureeStationMin,
         Integer nbEtudiantsParStation,
         String statut,

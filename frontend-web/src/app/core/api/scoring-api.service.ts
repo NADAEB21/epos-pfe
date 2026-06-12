@@ -13,6 +13,8 @@ import {
   ParticipationSummary,
   PresenceResult,
   RepartitionResult,
+  RotationAssignmentSummary,
+  RotationSummary,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -138,5 +140,31 @@ export class ScoringApiService {
         null,
       )
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Every rotation (créneau slot) at one station, across all generated lots
+   * (GET /rotations/station/{id}). The Suivi timeline fans this out over the
+   * exam's stations. `statut` is persisted EN_ATTENTE only — the live state is
+   * clock-derived from `debutCreneau`, not read off the row.
+   */
+  listRotationsByStation(stationId: number): Observable<RotationSummary[]> {
+    return this.http
+      .get<ApiResponse<RotationSummary[]>>(`${this.baseUrl}/rotations/station/${stationId}`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * The student assignments of one rotation (GET /assignments/rotation/{id}) —
+   * one row per student in that slot's group. Fetched lazily by the Suivi
+   * drill-down (per station, on expand) to keep the initial load to the
+   * station fan-out only.
+   */
+  listAssignmentsByRotation(rotationId: number): Observable<RotationAssignmentSummary[]> {
+    return this.http
+      .get<ApiResponse<RotationAssignmentSummary[]>>(
+        `${this.baseUrl}/assignments/rotation/${rotationId}`,
+      )
+      .pipe(map((r) => r.data ?? []));
   }
 }

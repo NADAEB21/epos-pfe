@@ -291,6 +291,46 @@ export interface GenerationResult {
   avertissement: string | null;
 }
 
+/**
+ * Live status of a single rotation. PERSISTED value is always EN_ATTENTE — the
+ * generator hard-sets it (RotationGenerationService) and nothing on the backend
+ * ever flips it (the mobile évaluateur app that would is unbuilt). So the Suivi
+ * screen IGNORES this field and computes the live state from the clock instead.
+ */
+export type RotationStatus = 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE';
+
+/**
+ * One slot of the OSCE circuit (scoring-service RotationDTO) — a student group
+ * visiting one station at one créneau. `debutCreneau` is the PLANNED wall-clock
+ * start (anchored at the exam's dateExamen + heureDebut), so the Suivi timeline
+ * derives each slot's window as [debutCreneau, debutCreneau + dureeStationMin).
+ * `statut` is persisted-only EN_ATTENTE — see RotationStatus; do not trust it for
+ * live state. Field names mirror the backend record verbatim (camelCase here, not
+ * the snake_case of the Etudiant/Participation DTOs).
+ */
+export interface RotationSummary {
+  id: number;
+  evaluateurId: number | null;
+  stationId: number | null;
+  ordrePassage: number | null;
+  debutCreneau: string; // "yyyy-MM-ddTHH:mm:ss" (LocalDateTime)
+  statut: RotationStatus;
+  studentGroupId: number | null;
+}
+
+/**
+ * One student's place in a rotation (scoring-service RotationAssignmentDTO).
+ * Joins a rotation to a participation; the Suivi drill-down resolves the student
+ * name via participationId → ParticipationSummary.etudiantId → EtudiantSummary.
+ */
+export interface RotationAssignmentSummary {
+  id: number;
+  presenceConfirmee: boolean | null;
+  tempsAdditionnel: number | null;
+  rotationId: number | null;
+  participationId: number | null;
+}
+
 export interface MatiereResponse {
   id: number;
   code: string;

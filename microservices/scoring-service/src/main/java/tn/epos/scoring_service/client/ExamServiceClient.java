@@ -15,7 +15,10 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import tn.epos.common.exception.BusinessException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -44,6 +47,11 @@ public class ExamServiceClient {
 
     // 500 is well above any realistic grille size (issue's data model allows ~20 items/grille).
     private static final int ITEMS_PAGE_SIZE = 500;
+
+    // ExamenResponse sérialise launched_at en "yyyy-MM-dd HH:mm:ss" (espace, pas
+    // le 'T' ISO) via @JsonFormat — il faut le même motif pour le relire.
+    private static final DateTimeFormatter LAUNCHED_AT_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final WebClient webClient;
     private final ConcurrentHashMap<Long, Set<Long>> grilleItemsCache = new ConcurrentHashMap<>();
@@ -152,10 +160,29 @@ public class ExamServiceClient {
                 data.path("id").asLong(),
                 data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
+                parseLaunchedAt(data.path("launchedAt")),
                 data.path("dureeStationMin").isNumber() ? data.path("dureeStationMin").asInt() : null,
                 data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
                 data.path("statut").asText(null),
                 stations);
+    }
+
+    /**
+     * Reads the optional {@code launched_at} (ADR-0010). Absent / null / legacy
+     * rows yield {@code null} → generation falls back to the planned start. A
+     * malformed value is logged and treated as absent rather than failing the
+     * whole generation.
+     */
+    private LocalDateTime parseLaunchedAt(JsonNode node) {
+        if (node == null || !node.isTextual()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(node.asText(), LAUNCHED_AT_FMT);
+        } catch (DateTimeParseException e) {
+            log.warn("launched_at illisible ('{}') — fallback départ planifié", node.asText());
+            return null;
+        }
     }
 
     private Set<Long> extractItemIds(JsonNode root) {

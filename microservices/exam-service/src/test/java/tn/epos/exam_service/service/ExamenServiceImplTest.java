@@ -347,6 +347,36 @@ class ExamenServiceImplTest {
             assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.BROUILLON))
                     .isInstanceOf(BusinessException.class);
         }
+
+        @Test
+        @DisplayName("ADR-0010 : CONFIGURE → EN_COURS pose launched_at = horloge (instant de lancement)")
+        void changerStatut_versEnCours_doitPoserLaunchedAt() {
+            Examen configure = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.CONFIGURE)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(configure));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+            // Posé depuis l'horloge fixe injectée (déterministe).
+            assertThat(result.getLaunchedAt())
+                    .isEqualTo(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : les transitions hors EN_COURS ne posent pas launched_at")
+        void changerStatut_horsEnCours_neToucheePasLaunchedAt() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.CONFIGURE);
+
+            assertThat(result.getLaunchedAt()).isNull();
+        }
     }
 
     // SUPPRIMER

@@ -71,7 +71,7 @@ class LotAssignmentServiceTest {
             stations.add(new ExamGenerationView.StationView(10L + i, i + 1, List.of(1000L + i)));
         }
         return new ExamGenerationView(EXAM_ID, LocalDate.of(2026, 6, 20),
-                LocalTime.of(9, 0), 15, capacite, statut, stations);
+                LocalTime.of(9, 0), null, 15, capacite, statut, stations);
     }
 
     private List<ExamenParticipation> enrolled(int count) {

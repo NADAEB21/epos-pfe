@@ -1,22 +1,13 @@
 import { Component, computed, effect, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { StatutExamen } from '../../core/api/models';
+import { ExamenResponse, StatutExamen } from '../../core/api/models';
+import { LIFECYCLE, statutDisplayLabel } from '../../core/api/exam-status';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface WorkspaceTab {
   label: string;
   segment: string;
 }
-
-const LIFECYCLE: StatutExamen[] = ['BROUILLON', 'CONFIGURE', 'EN_COURS', 'TERMINE', 'ARCHIVE'];
-
-const STATUT_LABELS: Record<StatutExamen, string> = {
-  BROUILLON: 'Brouillon',
-  CONFIGURE: 'Configuré',
-  EN_COURS: 'En cours',
-  TERMINE: 'Terminé',
-  ARCHIVE: 'Archivé',
-};
 
 // Status-aware tab sets (Phase B per-exam workspace contract).
 const TABS_SETUP: WorkspaceTab[] = [
@@ -60,7 +51,7 @@ const TABS_DONE: WorkspaceTab[] = [
         <div class="flex items-center gap-3 mt-1">
           <h1 class="text-2xl font-semibold text-gray-900">{{ e.nom }}</h1>
           <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-dark">
-            {{ statutLabel(e.statut) }}
+            {{ displayStatut(e) }}
           </span>
         </div>
         <p class="text-sm text-gray-500 mt-1">Matiere {{ e.matiereId }} &middot; {{ e.dateExamen }}</p>
@@ -138,8 +129,9 @@ export class ExamenWorkspaceComponent {
     }
   }
 
-  statutLabel(s: StatutExamen): string {
-    return STATUT_LABELS[s];
+  /** Date-aware status for the header chip — CONFIGURE + future date → "À venir". */
+  displayStatut(e: ExamenResponse): string {
+    return statutDisplayLabel(e.statut, e.dateExamen);
   }
 
   isReached(current: StatutExamen, step: StatutExamen): boolean {

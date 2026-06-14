@@ -7,7 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
@@ -110,10 +110,12 @@ const DEFAULT_HEURE = '09:00';
       <!-- Exam-level live bar -->
       <section
         class="rounded-xl border shadow-card p-5 mb-6"
-        [class.bg-white]="!isEnPause()"
-        [class.border-gray-200]="!isEnPause()"
+        [class.bg-white]="normalRunning()"
+        [class.border-gray-200]="normalRunning()"
         [class.bg-amber-50]="isEnPause()"
         [class.border-amber-200]="isEnPause()"
+        [class.bg-red-50]="overtimeRunning()"
+        [class.border-red-200]="overtimeRunning()"
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -121,16 +123,27 @@ const DEFAULT_HEURE = '09:00';
               @if (isEnPause()) {
                 <span class="h-2.5 w-2.5 rounded-full bg-status-warning"></span>
                 <h2 class="font-semibold text-amber-800">Examen en pause</h2>
+              } @else if (overtimeRunning()) {
+                <span class="h-2.5 w-2.5 rounded-full bg-status-danger animate-pulse"></span>
+                <h2 class="font-semibold text-red-800">Temps dépassé</h2>
               } @else {
                 <span class="h-2.5 w-2.5 rounded-full bg-status-success animate-pulse"></span>
                 <h2 class="font-semibold text-gray-900">Examen en cours</h2>
               }
             </div>
-            <p class="text-sm mt-1" [class.text-amber-700]="isEnPause()" [class.text-gray-500]="!isEnPause()">
+            <p
+              class="text-sm mt-1"
+              [class.text-amber-700]="isEnPause()"
+              [class.text-red-700]="overtimeRunning()"
+              [class.text-gray-500]="normalRunning()"
+            >
               @if (isEnPause()) {
                 Le chronomètre est figé — les minuteurs reprendront à l'identique.
               } @else {
                 Temps effectif écoulé : <span class="font-medium tabular-nums">{{ elapsedLabel() }}</span>
+                @if (overtimeRunning()) {
+                  · dépassement <span class="font-medium tabular-nums">+{{ overtimeLabel() }}</span>
+                }
                 @if (totalPauseSec() > 0) {
                   · <span class="text-gray-400">pauses cumulées {{ pauseLabel() }}</span>
                 }
@@ -138,7 +151,7 @@ const DEFAULT_HEURE = '09:00';
             </p>
           </div>
 
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-3">
             @if (actionError()) {
               <span role="alert" class="text-sm text-status-danger">{{ actionError() }}</span>
             }
@@ -152,9 +165,38 @@ const DEFAULT_HEURE = '09:00';
                 {{ pausing() ? '…' : '▶ Reprendre' }}
               </button>
             } @else {
+              @if (overtimeRunning()) {
+                @if (confirmingEnd()) {
+                  <span class="text-sm font-medium text-gray-800">Terminer définitivement&nbsp;?</span>
+                  <button
+                    type="button"
+                    [disabled]="terminating()"
+                    (click)="terminer()"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {{ terminating() ? '…' : 'Oui, terminer' }}
+                  </button>
+                  <button
+                    type="button"
+                    [disabled]="terminating()"
+                    (click)="cancelTerminer()"
+                    class="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    (click)="askTerminer()"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                  >
+                    ■ Terminer l'examen
+                  </button>
+                }
+              }
               <button
                 type="button"
-                [disabled]="pausing()"
+                [disabled]="pausing() || terminating()"
                 (click)="pause()"
                 class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-amber-400 text-amber-700 text-sm font-medium hover:bg-amber-50 transition-colors disabled:opacity-50"
               >
@@ -170,7 +212,8 @@ const DEFAULT_HEURE = '09:00';
             <div
               class="h-full rounded-full transition-all duration-1000 ease-linear"
               [class.bg-status-warning]="isEnPause()"
-              [class.bg-brand]="!isEnPause()"
+              [class.bg-status-danger]="overtimeRunning()"
+              [class.bg-brand]="normalRunning()"
               [style.width.%]="globalProgressPct()"
             ></div>
           </div>
@@ -309,6 +352,7 @@ export class SuiviComponent {
   private readonly directory = inject(DirectoryApiService);
   private readonly store = inject(ExamenWorkspaceStore);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
@@ -318,6 +362,10 @@ export class SuiviComponent {
   readonly lanes = signal<Lane[]>([]);
   readonly pausing = signal(false);
   readonly actionError = signal<string | null>(null);
+  /** Ending the exam (EN_COURS → TERMINE) is in flight. */
+  readonly terminating = signal(false);
+  /** The two-step "Terminer" confirmation is showing. */
+  readonly confirmingEnd = signal(false);
 
   /** Ticks every second — drives every clock-derived state in the template. */
   private readonly now = signal(Date.now());
@@ -424,6 +472,30 @@ export class SuiviComponent {
   readonly pauseLabel = computed(() => this.fmtDuration(this.totalPauseSec() * 1000));
   readonly startLabel = computed(() => this.hhmm(this.examStartMs()));
   readonly endLabel = computed(() => this.hhmm(this.lastSlotEndMs() || null));
+
+  /**
+   * Overtime = the effective clock has passed the last créneau's planned end
+   * (the scheduled end of the whole circuit). The exam keeps running; the board
+   * just signals the dépassement in red and unlocks "Terminer". The scheduled end
+   * is derived from the rotation plan (last debutCreneau + dureeStationMin), since
+   * exam-service holds no exam-level duration — the schedule lives in scoring.
+   */
+  readonly isOvertime = computed(() => {
+    const end = this.lastSlotEndMs();
+    const eff = this.effectiveNowMs();
+    return end > 0 && eff != null && eff >= end;
+  });
+  /** Overtime AND running (not frozen by a pause) — drives the red state + Terminer. */
+  readonly overtimeRunning = computed(() => this.isOvertime() && !this.isEnPause());
+  /** Running on schedule (neither paused nor in overtime) — the normal green state. */
+  readonly normalRunning = computed(() => !this.isEnPause() && !this.isOvertime());
+  /** How far past the scheduled end (mm:ss / h:mm:ss). */
+  readonly overtimeLabel = computed(() => {
+    const end = this.lastSlotEndMs();
+    const eff = this.effectiveNowMs();
+    if (end <= 0 || eff == null || eff < end) return '00:00';
+    return this.fmtDuration(eff - end);
+  });
 
   constructor() {
     // 1 Hz ticker.
@@ -642,6 +714,42 @@ export class SuiviComponent {
       error: (err) => {
         this.pausing.set(false);
         this.actionError.set(this.message(err, 'Reprise impossible.'));
+      },
+    });
+  }
+
+  // ---- terminer -----------------------------------------------------------
+
+  /** Open the two-step confirmation before ending the exam. */
+  askTerminer(): void {
+    this.actionError.set(null);
+    this.confirmingEnd.set(true);
+  }
+
+  cancelTerminer(): void {
+    this.confirmingEnd.set(false);
+  }
+
+  /**
+   * End the exam (EN_COURS → TERMINE). Only reachable in overtime (the button is
+   * gated on {@link overtimeRunning}), so we never end before the scheduled end.
+   * The backend rejects ending while paused (resume first). On success the exam
+   * is TERMINE → the live tab disappears, so we move to the Résultats tab.
+   */
+  terminer(): void {
+    if (this.terminating()) return;
+    this.terminating.set(true);
+    this.actionError.set(null);
+    this.examApi.changerStatut(Number(this.id()), 'TERMINE').subscribe({
+      next: (e) => {
+        this.store.exam.set(e);
+        this.terminating.set(false);
+        this.confirmingEnd.set(false);
+        this.router.navigate(['/examens', Number(this.id()), 'resultats']);
+      },
+      error: (err) => {
+        this.terminating.set(false);
+        this.actionError.set(this.message(err, "Impossible de terminer l'examen."));
       },
     });
   }

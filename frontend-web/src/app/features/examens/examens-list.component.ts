@@ -1,15 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ExamApiService } from '../../core/api/exam-api.service';
-import { ExamenResponse, StatutExamen } from '../../core/api/models';
-
-const STATUT_LABELS: Record<StatutExamen, string> = {
-  BROUILLON: 'Brouillon',
-  CONFIGURE: 'Configuré',
-  EN_COURS: 'En cours',
-  TERMINE: 'Terminé',
-  ARCHIVE: 'Archivé',
-};
+import { ExamenResponse } from '../../core/api/models';
+import { statutDisplayLabel } from '../../core/api/exam-status';
 
 @Component({
   selector: 'app-examens-list',
@@ -51,7 +44,7 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
                 <div class="text-xs text-gray-500">{{ e.dateExamen }}</div>
               </div>
               <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-dark">
-                {{ statutLabel(e.statut) }}
+                {{ displayStatut(e) }}
               </span>
             </a>
           </li>
@@ -86,7 +79,8 @@ export class ExamensListComponent {
     });
   }
 
-  statutLabel(s: StatutExamen): string {
-    return STATUT_LABELS[s];
+  /** Date-aware status — CONFIGURE + future date → "À venir". */
+  displayStatut(e: ExamenResponse): string {
+    return statutDisplayLabel(e.statut, e.dateExamen);
   }
 }

@@ -134,6 +134,16 @@ public class ExamenServiceImpl implements ExamenService {
         Examen examen = trouverEntite(id);
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
+
+        // Ne pas clôturer un examen figé en pause : le temps effectif est gelé, donc
+        // le "dépassement" (gate de fin côté Suivi) ne peut pas avancer. On force la
+        // reprise avant la fin pour un état terminal cohérent (enPause=false).
+        if (nouveauStatut == StatutExamen.TERMINE && Boolean.TRUE.equals(examen.getEnPause())) {
+            throw new BusinessException(
+                    "Reprenez l'examen avant de le terminer (il est actuellement en pause)."
+            );
+        }
+
         examen.setStatut(nouveauStatut);
 
         // ADR-0010 : capter l'instant de lancement réel au passage → EN_COURS.

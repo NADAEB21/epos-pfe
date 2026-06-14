@@ -377,6 +377,38 @@ class ExamenServiceImplTest {
 
             assertThat(result.getLaunchedAt()).isNull();
         }
+
+        @Test
+        @DisplayName("EN_COURS → TERMINE réussit quand l'examen n'est pas en pause")
+        void changerStatut_versTermine_doitReussirSiPasEnPause() {
+            Examen enCours = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS).enPause(false)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(enCours));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.TERMINE);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.TERMINE);
+        }
+
+        @Test
+        @DisplayName("EN_COURS → TERMINE doit échouer si l'examen est en pause (reprendre d'abord)")
+        void changerStatut_versTermineEnPause_doitEchouer() {
+            Examen enPause = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS).enPause(true)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(enPause));
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.TERMINE))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Reprenez");
+            verify(examenRepository, never()).save(any());
+        }
     }
 
     // SUPPRIMER

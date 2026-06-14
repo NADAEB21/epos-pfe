@@ -133,6 +133,10 @@ export interface ExamenResponse {
   enPause?: boolean;
   pausedAt?: string | null; // "yyyy-MM-dd HH:mm:ss", null unless enPause
   totalPauseSec?: number;
+  // Real launch instant (ADR-0010), "yyyy-MM-dd HH:mm:ss". Null until the exam is
+  // launched (CONFIGURE→EN_COURS) and for pre-ADR rows. The Suivi board anchors its
+  // clock on this when present, else on the PLANNED start (dateExamen + heureDebut).
+  launchedAt?: string | null;
 }
 
 /**

@@ -54,29 +54,26 @@ const DEFAULT_HEURE = '09:00';
  * start, and a slot is live while {@code [debutCreneau, debutCreneau + dureeStationMin)}
  * brackets "now".
  *
+ * <p><b>Clock origin (ADR-0010):</b> the schedule and the live clock share one origin —
+ * the REAL launch instant {@code launchedAt}, stamped once when Lancement flips the exam
+ * to EN_COURS, falling back to the PLANNED {@code dateExamen + heureDebut} only for
+ * legacy/not-yet-launched rows. So an exam started off its planned hour no longer reads
+ * "X minutes already elapsed" the moment the board opens — the timeline shifts with it.
+ *
  * <p><b>Effective time (ADR-0009 pause/resume):</b> a paused exam stays EN_COURS but
  * its clock must stop, or every countdown would drift through the break. While running,
  * "now" is the EFFECTIVE instant {@code examStart + (now − examStart) − totalPauseSec},
- * anchored to the browser clock — the same wall-clock domain as the schedule (local exam
- * time). When the responsable pauses, the board FREEZES at the effective instant captured
- * on the CLIENT at that moment, and Reprendre continues exactly from there (the server
- * folds the gap into {@code totalPauseSec}, so the running formula picks up seamlessly).
+ * anchored to the browser clock. When the responsable pauses, the board FREEZES at the
+ * effective instant the pause began ({@code pausedAt − totalPauseSec}); Reprendre continues
+ * exactly from there (the server folds the gap into {@code totalPauseSec}, so the running
+ * formula picks up seamlessly).
  *
- * <p><b>Why the freeze is captured client-side, not from {@code pausedAt}:</b> the backend
- * stamps {@code pausedAt} with {@code LocalDateTime.now(clock)} in the SERVER's timezone,
- * which is not necessarily the exam's local timezone (e.g. a UTC server running a Tunis
- * exam — the schedule is local, so a server {@code pausedAt} would land hours off). Using a
- * client-captured freeze makes pause/resume timezone-proof for the live session. The only
- * residual use of {@code pausedAt} is reconstructing the freeze on a fresh page load of an
- * already-paused exam, which is correct only when server and exam share a timezone — the
- * proper backend fix is zoned timestamps (proposed ADR-0010); see the PR description.
- *
- * <p><b>Known limitation (no launch timestamp):</b> the schedule is anchored to the
- * exam's PLANNED {@code dateExamen + heureDebut}, not the moment Lancement flipped it
- * to EN_COURS — the backend records no launch instant. An exam started well off its
- * planned time shows a skewed board (mitigated operationally: launch at the planned
- * hour, or pause until ready). Capturing {@code launchedAt} is a backend follow-up
- * (proposed ADR-0010); see the PR description.
+ * <p><b>Timezone (ADR-0010, option A):</b> the backend Clock is pinned to the exam zone
+ * (prod {@code Africa/Tunis}; dev aligned to the host via {@code APP_TIMEZONE}), so the
+ * server-stamped {@code launchedAt}/{@code pausedAt} share the schedule's wall-clock
+ * domain. The board trusts those server timestamps on any (re)load — including the
+ * reload-while-paused freeze. The client-captured {@code pauseFrozenMs} stays only as a
+ * belt-and-braces optimisation for the live session (exact mid-tick, skips a parse).
  */
 @Component({
   selector: 'app-suivi',
@@ -348,9 +345,22 @@ export class SuiviComponent {
     () => (this.exam()?.dureeStationMin ?? DEFAULT_DUREE_MIN) * 60_000,
   );
 
+  /**
+   * The clock origin (ms epoch). Anchors on the REAL launch instant
+   * ({@code launchedAt}, ADR-0010) when present, so plan + live clock share the
+   * moment Lancement flipped the exam to EN_COURS — not its planned hour. Falls
+   * back to the PLANNED start ({@code dateExamen + heureDebut}) for pre-ADR rows
+   * or exams without a launch stamp. Naive timestamps parse as browser-local; the
+   * dev backend Clock is zone-aligned to the host (ADR-0010), so they agree.
+   */
   private readonly examStartMs = computed(() => {
     const e = this.exam();
-    if (!e?.dateExamen) return null;
+    if (!e) return null;
+    if (e.launchedAt) {
+      const ms = new Date(e.launchedAt.replace(' ', 'T')).getTime();
+      if (!Number.isNaN(ms)) return ms;
+    }
+    if (!e.dateExamen) return null;
     const heure = e.heureDebut || DEFAULT_HEURE;
     const ms = new Date(`${e.dateExamen}T${heure}:00`).getTime();
     return Number.isNaN(ms) ? null : ms;
@@ -358,9 +368,15 @@ export class SuiviComponent {
 
   /**
    * The EFFECTIVE current instant (ms epoch) — wall clock minus all pause time.
-   * Running: browser clock minus accumulated pauses. Paused: the client-captured
-   * freeze (timezone-proof), falling back to the server pausedAt only on a fresh
-   * load of an already-paused exam. See class doc.
+   * Running: browser clock minus accumulated pauses. Paused: frozen at the
+   * effective instant the pause began — {@code pausedAt − totalPauseSec}, which is
+   * exactly ADR-0009's effective-time formula evaluated at the pause moment.
+   *
+   * <p>The server-stamped {@code pausedAt} is the TRUSTED freeze source on any
+   * (re)load of an already-paused exam, now that ADR-0010 pins the backend Clock
+   * to the exam zone so it shares one clock domain with the schedule. The
+   * client-captured {@code pauseFrozenMs} stays as a belt-and-braces optimisation
+   * for the live session (it skips a parse and is exact even mid-tick).
    */
   private readonly effectiveNowMs = computed<number | null>(() => {
     const e = this.exam();
@@ -370,7 +386,8 @@ export class SuiviComponent {
     if (e.enPause) {
       const frozen = this.pauseFrozenMs();
       if (frozen != null) return frozen;
-      // Fresh-load fallback: server pausedAt (correct under same-timezone server).
+      // Reload-while-paused: reconstruct the freeze from the server clock
+      // (zone-coherent since ADR-0010) — pausedAt minus prior accumulated pauses.
       if (e.pausedAt) {
         const pAt = new Date(e.pausedAt.replace(' ', 'T')).getTime();
         if (!Number.isNaN(pAt)) return pAt - totalPauseMs;

@@ -7,6 +7,7 @@ import {
   CreateEtudiantRequest,
   CreateParticipationRequest,
   EtudiantSummary,
+  ExamenResult,
   GenerationResult,
   LotSummary,
   NotationSummary,
@@ -32,6 +33,21 @@ export class ScoringApiService {
   listEtudiants(): Observable<EtudiantSummary[]> {
     return this.http
       .get<ApiResponse<EtudiantSummary[]>>(`${this.baseUrl}/etudiants`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Per-student aggregated results for one exam (issue #90 — GET
+   * /notations/examen/{examenId}/results). The backend joins
+   * Notation → RotationAssignment → ExamenParticipation → Etudiant and groups by
+   * student, returning rows already sorted by totalScore desc (rank 1 first). An
+   * exam with no scored notations yet returns an empty array. Mounted under the
+   * /notations prefix — NOT /examens/{id}/results — because the gateway routes
+   * /examens/** to exam-service.
+   */
+  getExamenResults(examenId: number): Observable<ExamenResult[]> {
+    return this.http
+      .get<ApiResponse<ExamenResult[]>>(`${this.baseUrl}/notations/examen/${examenId}/results`)
       .pipe(map((r) => r.data ?? []));
   }
 

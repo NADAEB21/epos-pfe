@@ -51,7 +51,11 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/suivi.component').then((m) => m.SuiviComponent),
   },
-  { path: 'resultats', ...stub('Resultats') },
+  {
+    path: 'resultats',
+    loadComponent: () =>
+      import('./features/examens/resultats.component').then((m) => m.ResultatsComponent),
+  },
   { path: 'analyses-ia', ...stub('Analyses IA') },
 ];
 

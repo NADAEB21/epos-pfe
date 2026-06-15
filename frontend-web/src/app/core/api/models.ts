@@ -335,6 +335,42 @@ export interface RotationAssignmentSummary {
   participationId: number | null;
 }
 
+/**
+ * One student's score at one station, inside an {@link ExamenResult} (scoring
+ * StationScoreDTO). camelCase — this endpoint follows the Rotation/Assignment DTO
+ * convention, NOT the snake_case of Etudiant/Participation. `stationId`/`grilleId`
+ * are the cross-service logical FKs; the screen resolves the station name + grille
+ * noteMax from exam-service for the column header and the `/max` denominator.
+ */
+export interface StationScore {
+  notationId: number;
+  stationId: number | null;
+  grilleId: number | null;
+  score: number | null;
+  verrouillee: boolean | null;
+}
+
+/**
+ * One student's aggregated result for a whole exam (scoring ExamenResultDTO,
+ * issue #90 — GET /notations/examen/{examenId}/results). Computed on the fly by
+ * joining Notation → RotationAssignment → ExamenParticipation → Etudiant; the
+ * backend returns rows sorted by totalScore desc, so the first row is rank 1.
+ * `totalScore` is the plain sum of the per-station `score`s (each out of its
+ * grille noteMax) — the screen derives the `/max` + the class average from the
+ * grille noteMax it fetches separately.
+ */
+export interface ExamenResult {
+  participationId: number;
+  etudiantId: number | null;
+  numeroInscription: string | null;
+  nom: string | null;
+  prenom: string | null;
+  numEchantillon: string | null;
+  totalScore: number;
+  stationsNotees: number;
+  stations: StationScore[];
+}
+
 export interface MatiereResponse {
   id: number;
   code: string;

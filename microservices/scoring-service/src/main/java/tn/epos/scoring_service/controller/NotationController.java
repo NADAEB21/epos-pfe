@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.ExamenResultDTO;
 import tn.epos.scoring_service.dto.NotationDTO; // New Import
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.service.NotationService;
@@ -64,6 +65,15 @@ public class NotationController {
                 .map(NotationDTO::fromEntity)
                 .toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
+    }
+
+    // Résultats agrégés par étudiant pour un examen (issue #90). Monté sous le
+    // préfixe /notations (et non /examens/{id}/results) car la gateway route
+    // /api/v1/examens/** vers exam-service ; /api/v1/notations/** vient ici.
+    @GetMapping("/examen/{examenId}/results")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<List<ExamenResultDTO>>> getResultsByExamen(@PathVariable Long examenId) {
+        return ResponseEntity.ok(ApiResponse.ok(service.getResultatsByExamen(examenId)));
     }
 
     @PostMapping

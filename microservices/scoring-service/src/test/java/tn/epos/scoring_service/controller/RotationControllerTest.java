@@ -18,6 +18,8 @@ import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.service.RotationService;
+import tn.epos.scoring_service.repositories.IRotationRepository;
+import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,6 +43,12 @@ class RotationControllerTest {
 
     @MockBean
     private RotationService rotationService;
+
+    @MockBean
+    private IRotationRepository iRotationRepository;
+
+    @MockBean
+    private IStudentGroupRepository studentGroupRepository;
 
     @Autowired
     private ObjectMapper objectMapper;

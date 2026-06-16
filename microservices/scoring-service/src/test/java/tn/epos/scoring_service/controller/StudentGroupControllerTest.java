@@ -18,6 +18,7 @@ import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.service.StudentGroupService;
+import tn.epos.scoring_service.repositories.ILotRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +41,9 @@ class StudentGroupControllerTest {
 
     @MockBean
     private StudentGroupService studentGroupService;
+
+    @MockBean
+    private ILotRepository lotRepository;
 
     @Autowired
     private ObjectMapper objectMapper;

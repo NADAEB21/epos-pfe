@@ -84,19 +84,11 @@ public class ExamServiceClient {
         Map<Long, ItemInfo> cached = grilleItemsCache.get(grilleId);
         if (cached != null) return cached;
 
-        try {
-            Map<Long, ItemInfo> infos = fetchItemInfos(grilleId);
-            if (!infos.isEmpty()) {
-                // Mise en cache uniquement si la réponse est complète
-                grilleItemsCache.put(grilleId, infos);
-            }
-            return infos;
-        } catch (RuntimeException e) {
-            log.warn("exam-service injoignable pour la grille {} — " +
-                            "score sans pondérations, sera corrigé au prochain appel : {}",
-                    grilleId, e.getMessage());
-            return Collections.emptyMap(); // pas mis en cache → retentative automatique
+        Map<Long, ItemInfo> infos = fetchItemInfos(grilleId);
+        if (!infos.isEmpty()) {
+            grilleItemsCache.put(grilleId, infos);
         }
+        return infos;
     }
 
     /** Compatibilité avec NotationItemService. */
@@ -146,10 +138,11 @@ public class ExamServiceClient {
             return extractItemInfos(root, grilleId);
         } catch (WebClientResponseException e) {
             log.error("exam-service HTTP {} pour grille {}", e.getStatusCode(), grilleId);
-            throw new RuntimeException("exam-service HTTP " + e.getStatusCode(), e);
+            throw new BusinessException(
+                    "exam-service a renvoyé " + e.getStatusCode().value());
         } catch (RuntimeException e) {
             log.error("exam-service injoignable pour grille {}", grilleId, e);
-            throw e;
+            throw new BusinessException("exam-service injoignable : " + e.getMessage());
         }
     }
 

@@ -93,7 +93,7 @@ public class NotationItemService {
         }
         if (!allowedItems.contains(item.getItemId())) {
             throw new BusinessException(
-                    "L'item " + item.getItemId()
+                    "cross-grille refusé : L'item " + item.getItemId()
                             + " n'appartient pas à la grille " + grilleId);
         }
     }

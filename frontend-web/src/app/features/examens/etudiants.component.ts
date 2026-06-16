@@ -239,11 +239,13 @@ function normNumero(v: string | null | undefined): string {
         <!-- summary -->
         <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-sm">
           <span class="text-gray-900 font-semibold">{{ rows().length }} etudiant(s)</span>
-          @if (presentsCount() > 0) {
-            <span class="text-gray-500">{{ presentsCount() }} present(s)</span>
-          }
-          @if (absentsCount() > 0) {
-            <span class="text-gray-500">{{ absentsCount() }} absent(s)</span>
+          @if (showDayOf()) {
+            @if (presentsCount() > 0) {
+              <span class="text-gray-500">{{ presentsCount() }} present(s)</span>
+            }
+            @if (absentsCount() > 0) {
+              <span class="text-gray-500">{{ absentsCount() }} absent(s)</span>
+            }
           }
         </div>
 
@@ -256,16 +258,18 @@ function normNumero(v: string | null | undefined): string {
             placeholder="Rechercher (nom ou numero)…"
             class="flex-1 min-w-[12rem] rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           />
-          <select
-            [value]="presenceFilter()"
-            (change)="presenceFilter.set($any($event.target).value)"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
-          >
-            <option value="all">Presence : toutes</option>
-            <option value="present">Presents</option>
-            <option value="absent">Absents</option>
-            <option value="unmarked">Non marquee</option>
-          </select>
+          @if (showDayOf()) {
+            <select
+              [value]="presenceFilter()"
+              (change)="presenceFilter.set($any($event.target).value)"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="all">Presence : toutes</option>
+              <option value="present">Presents</option>
+              <option value="absent">Absents</option>
+              <option value="unmarked">Non marquee</option>
+            </select>
+          }
           <select
             [value]="lotFilter()"
             (change)="lotFilter.set($any($event.target).value)"
@@ -290,8 +294,10 @@ function normNumero(v: string | null | undefined): string {
                 <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; echantillon</th>
                 <th class="px-4 py-2.5 font-medium">Lot</th>
-                <th class="px-4 py-2.5 font-medium">Presence</th>
-                <th class="px-4 py-2.5 font-medium text-right">Note</th>
+                @if (showDayOf()) {
+                  <th class="px-4 py-2.5 font-medium">Presence</th>
+                  <th class="px-4 py-2.5 font-medium text-right">Note</th>
+                }
                 @if (editable()) {
                   <th class="px-4 py-2.5 font-medium text-right w-32"></th>
                 }
@@ -305,18 +311,20 @@ function normNumero(v: string | null | undefined): string {
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numeroInscription || '—' }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numEchantillon || '—' }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ lotLabel(r.lotId) }}</td>
-                  <td class="px-4 py-2.5">
-                    @if (r.present === true) {
-                      <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
-                    } @else if (r.present === false) {
-                      <span class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger">Absent</span>
-                    } @else {
-                      <span class="text-xs text-gray-400">—</span>
-                    }
-                  </td>
-                  <td class="px-4 py-2.5 text-right text-gray-700">
-                    {{ r.note != null ? r.note : '—' }}
-                  </td>
+                  @if (showDayOf()) {
+                    <td class="px-4 py-2.5">
+                      @if (r.present === true) {
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
+                      } @else if (r.present === false) {
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger">Absent</span>
+                      } @else {
+                        <span class="text-xs text-gray-400">—</span>
+                      }
+                    </td>
+                    <td class="px-4 py-2.5 text-right text-gray-700">
+                      {{ r.note != null ? r.note : '—' }}
+                    </td>
+                  }
                   @if (editable()) {
                     <td class="px-4 py-2.5 text-right">
                       @if (confirmRemoveId() === r.participationId) {
@@ -352,7 +360,7 @@ function normNumero(v: string | null | undefined): string {
                 </tr>
               } @empty {
                 <tr>
-                  <td [attr.colspan]="editable() ? 8 : 7" class="px-4 py-6 text-center text-sm text-gray-400">
+                  <td [attr.colspan]="colspan()" class="px-4 py-6 text-center text-sm text-gray-400">
                     Aucun etudiant ne correspond aux filtres.
                   </td>
                 </tr>
@@ -366,7 +374,11 @@ function normNumero(v: string | null | undefined): string {
         }
 
         <p class="text-xs text-gray-400 mt-3">
-          Presence, note et numero d'echantillon se remplissent le jour de l'examen — non editables ici.
+          @if (showDayOf()) {
+            Presence, note et numero d'echantillon se remplissent le jour de l'examen — non editables ici.
+          } @else {
+            La presence et les notes apparaitront ici une fois l'examen lance.
+          }
         </p>
       }
     }
@@ -437,6 +449,22 @@ export class EtudiantsComponent {
     const e = this.store.exam();
     return e ? e.statut === 'BROUILLON' || e.statut === 'CONFIGURE' : false;
   });
+
+  /**
+   * Présence + note are day-of facts (set via marquerPresence / mobile scoring
+   * once the exam runs). They are meaningless during authoring, so we only
+   * surface them from EN_COURS onward — otherwise "À venir" exams misleadingly
+   * advertise presence/notes that haven't happened yet.
+   */
+  readonly showDayOf = computed(() => {
+    const s = this.store.exam()?.statut;
+    return s === 'EN_COURS' || s === 'TERMINE' || s === 'ARCHIVE';
+  });
+
+  /** Visible column count, for the "no match" row's colspan. */
+  readonly colspan = computed(
+    () => 5 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 1 : 0),
+  );
 
   readonly presentsCount = computed(() => this.rows().filter((r) => r.present === true).length);
   readonly absentsCount = computed(() => this.rows().filter((r) => r.present === false).length);

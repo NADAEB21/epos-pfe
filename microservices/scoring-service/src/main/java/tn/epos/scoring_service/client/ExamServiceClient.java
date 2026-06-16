@@ -13,39 +13,25 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tn.epos.common.exception.BusinessException;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 
 /**
- * Cross-service read client for exam-service.
+ * Client cross-service vers exam-service.
  *
- * <p>Used by NotationItemService to enforce that a NotationItem's {@code item_id}
- * belongs to the parent Notation's grille (closes #84). The check defends against
- * the offline-sync edge case where a Flutter client gets reassigned mid-day,
- * overwrites the cached station/grille IDs, but still has queued items tagged
- * to the old grille.
- *
- * <p>Cache: items don't move between grilles once created — verified against
- * {@code GrilleServiceImpl.modifierItem} (no grilleId in ItemRequest) and
- * {@code Examen.isGrilleModifiable} freeze. So a permanent ConcurrentHashMap is
- * safe; no TTL needed. The cache may go stale only if items are added to a
- * grille after first lookup — minor UX bug if it happens, no data corruption.
+ * Fournit les informations de pondération des items d'une grille,
+ * nécessaires pour calculer le score final côté scoring-service
+ * avec la même formule que le client Flutter (ScoreUtils.calculerScore).
  */
 @Component
 public class ExamServiceClient {
 
     private static final Logger log = LoggerFactory.getLogger(ExamServiceClient.class);
-
-    // 500 is well above any realistic grille size (issue's data model allows ~20 items/grille).
     private static final int ITEMS_PAGE_SIZE = 500;
 
     // ExamenResponse sérialise launched_at en "yyyy-MM-dd HH:mm:ss" (espace, pas
@@ -53,31 +39,99 @@ public class ExamServiceClient {
     private static final DateTimeFormatter LAUNCHED_AT_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /**
+     * Informations d'un item d'évaluation issues de l'exam-service.
+     *
+     * @param id          identifiant de l'item dans exam_db
+     * @param ponderation poids en points (ex : 2 pour "Choix indicateur", 6 pour "Calcul masse")
+     * @param type        "BINAIRE" ou "NUMERIQUE"
+     */
+    public record ItemInfo(Long id, double ponderation, String type) {}
+
+    /**
+     * Informations sommaires d'une station (nom, etc.)
+     * utilisées par EvaluateurDashboardService pour enrichir les SessionResponse.
+     */
+    public record StationInfo(String nom) {}
+
     private final WebClient webClient;
-    private final ConcurrentHashMap<Long, Set<Long>> grilleItemsCache = new ConcurrentHashMap<>();
+
+    // Cache permanent : les pondérations ne changent pas une fois l'examen EN_COURS.
+    private final ConcurrentHashMap<Long, Map<Long, ItemInfo>> grilleItemsCache =
+            new ConcurrentHashMap<>();
 
     @Autowired
-    public ExamServiceClient(@Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
+    public ExamServiceClient(
+            @Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
         this(WebClient.builder().baseUrl(baseUrl).build());
     }
 
-    /** Package-private constructor for tests — inject a stubbed WebClient. */
+    /** Package-private pour les tests — inject un WebClient stubbé. */
     ExamServiceClient(WebClient webClient) {
         this.webClient = webClient;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // API publique
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Returns the set of item IDs that belong to {@code grilleId}, cached
-     * permanently after first fetch. Forwards the caller's JWT for authz.
-     *
-     * @throws BusinessException if exam-service is unreachable or returns an error
-     *                           (fail-closed — grading already broken if exam-service is down)
+     * Retourne la map itemId → ItemInfo pour la grille, mise en cache si succès.
+     * En cas d'indisponibilité de l'exam-service : retourne une map vide (non cachée)
+     * pour que recalculerScoreFinal puisse utiliser un fallback sans bloquer.
      */
-    public Set<Long> getItemIdsForGrille(Long grilleId) {
-        return grilleItemsCache.computeIfAbsent(grilleId, this::fetchItemIds);
+    public Map<Long, ItemInfo> getItemInfosForGrille(Long grilleId) {
+        Map<Long, ItemInfo> cached = grilleItemsCache.get(grilleId);
+        if (cached != null) return cached;
+
+        try {
+            Map<Long, ItemInfo> infos = fetchItemInfos(grilleId);
+            if (!infos.isEmpty()) {
+                // Mise en cache uniquement si la réponse est complète
+                grilleItemsCache.put(grilleId, infos);
+            }
+            return infos;
+        } catch (RuntimeException e) {
+            log.warn("exam-service injoignable pour la grille {} — " +
+                            "score sans pondérations, sera corrigé au prochain appel : {}",
+                    grilleId, e.getMessage());
+            return Collections.emptyMap(); // pas mis en cache → retentative automatique
+        }
     }
 
-    private Set<Long> fetchItemIds(Long grilleId) {
+    /** Compatibilité avec NotationItemService. */
+    public Set<Long> getItemIdsForGrille(Long grilleId) {
+        return getItemInfosForGrille(grilleId).keySet();
+    }
+
+    /**
+     * Récupère le nom d'une station depuis l'exam-service.
+     * Résultat non mis en cache (champ mutable si examen en brouillon).
+     */
+    public StationInfo getStationInfo(Long stationId) {
+        String bearerToken = currentBearerToken();
+        try {
+            JsonNode root = webClient.get()
+                    .uri("/api/stations/{id}", stationId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            String nom = (root != null)
+                    ? root.path("data").path("nom").asText("Station " + stationId)
+                    : "Station " + stationId;
+            return new StationInfo(nom);
+        } catch (Exception e) {
+            log.warn("exam-service injoignable pour station {} : {}", stationId, e.getMessage());
+            return new StationInfo("Station " + stationId);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Implémentation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private Map<Long, ItemInfo> fetchItemInfos(Long grilleId) {
         String bearerToken = currentBearerToken();
         try {
             JsonNode root = webClient.get()
@@ -89,17 +143,13 @@ public class ExamServiceClient {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block();
-
-            return extractItemIds(root);
+            return extractItemInfos(root, grilleId);
         } catch (WebClientResponseException e) {
-            log.error("exam-service rejected items lookup for grille {} (status {}): {}",
-                    grilleId, e.getStatusCode(), e.getResponseBodyAsString());
-            throw new BusinessException(
-                    "Validation des items impossible : exam-service a renvoyé " + e.getStatusCode());
+            log.error("exam-service HTTP {} pour grille {}", e.getStatusCode(), grilleId);
+            throw new RuntimeException("exam-service HTTP " + e.getStatusCode(), e);
         } catch (RuntimeException e) {
-            log.error("exam-service unreachable for grille {} items lookup", grilleId, e);
-            throw new BusinessException(
-                    "Validation des items impossible : exam-service injoignable");
+            log.error("exam-service injoignable pour grille {}", grilleId, e);
+            throw e;
         }
     }
 
@@ -203,6 +253,34 @@ public class ExamServiceClient {
         return ids;
     }
 
+        // Response envelope: ApiResponse<PageResponse<ItemResponse>> →
+        // {success, message, data: {content: [{id, ...}], ...}}
+    private Map<Long, ItemInfo> extractItemInfos(JsonNode root, Long grilleId) {
+        Map<Long, ItemInfo> infos = new HashMap<>();
+        if (root == null) {
+            log.warn("Réponse null pour grille {}", grilleId);
+            return infos;
+        }
+        // Enveloppe : ApiResponse<PageResponse<ItemResponse>>
+        // → { success, data: { content: [{id, ponderation, type, …}] } }
+        JsonNode content = root.path("data").path("content");
+        if (!content.isArray()) {
+            log.warn("Réponse inattendue de l'exam-service pour grille {} : data.content[] absent",
+                    grilleId);
+            return infos;
+        }
+        for (JsonNode item : content) {
+            long id = item.path("id").asLong(-1);
+            if (id <= 0) continue;
+            double ponderation = item.path("ponderation").asDouble(1.0);
+            String type        = item.path("type").asText("BINAIRE");
+            infos.put(id, new ItemInfo(id, ponderation, type));
+        }
+        log.debug("Grille {} : {} item(s) chargé(s) depuis l'exam-service",
+                grilleId, infos.size());
+        return infos;
+    }
+
     private String currentBearerToken() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth instanceof JwtAuthenticationToken jwtAuth) {
@@ -211,9 +289,7 @@ public class ExamServiceClient {
                 return jwt.getTokenValue();
             }
         }
-        // No JWT in context → can't call exam-service authoritatively. Fail-closed.
         throw new BusinessException(
-                "Validation des items impossible : aucun JWT dans le contexte d'appel");
+                "Calcul du score impossible : aucun JWT dans le contexte d'appel");
     }
-
 }

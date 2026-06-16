@@ -6,8 +6,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
-import tn.epos.scoring_service.dto.StudentGroupDTO; // New Import
+import tn.epos.scoring_service.dto.StudentGroupDTO;
 import tn.epos.scoring_service.entities.StudentGroup;
+import tn.epos.scoring_service.repositories.ILotRepository;
+import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 import tn.epos.scoring_service.service.StudentGroupService;
 
 import java.util.List;
@@ -18,15 +20,14 @@ public class StudentGroupController {
 
     private static final String NOT_FOUND_MSG = "Groupe non trouvé";
 
-    @Autowired
-    private StudentGroupService studentGroupService;
+    @Autowired private StudentGroupService   studentGroupService;
+    @Autowired private ILotRepository        lotRepository;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<List<StudentGroupDTO>>> getAllGroups() {
         List<StudentGroupDTO> dtos = studentGroupService.findAll().stream()
-                .map(StudentGroupDTO::fromEntity)
-                .toList();
+                .map(StudentGroupDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
@@ -34,7 +35,7 @@ public class StudentGroupController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<StudentGroupDTO>> getGroupById(@PathVariable Long id) {
         return studentGroupService.findById(id)
-                .map(group -> ResponseEntity.ok(ApiResponse.ok(StudentGroupDTO.fromEntity(group))))
+                .map(g -> ResponseEntity.ok(ApiResponse.ok(StudentGroupDTO.fromEntity(g))))
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
@@ -43,8 +44,7 @@ public class StudentGroupController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<List<StudentGroupDTO>>> getGroupsByLot(@PathVariable Long lotId) {
         List<StudentGroupDTO> dtos = studentGroupService.findByLotId(lotId).stream()
-                .map(StudentGroupDTO::fromEntity)
-                .toList();
+                .map(StudentGroupDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
@@ -53,6 +53,13 @@ public class StudentGroupController {
     public ResponseEntity<ApiResponse<StudentGroupDTO>> createGroup(@RequestBody StudentGroupDTO dto) {
         StudentGroup entity = new StudentGroup();
         entity.setNumeroGroupe(dto.numeroGroupe());
+
+        // Lier le lot
+        if (dto.lotId() != null) {
+            lotRepository.findById(dto.lotId())
+                    .ifPresent(entity::setLot);
+        }
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Groupe créé avec succès",
                         StudentGroupDTO.fromEntity(studentGroupService.save(entity))));
@@ -60,10 +67,13 @@ public class StudentGroupController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<StudentGroupDTO>> updateGroup(@PathVariable Long id,
-            @RequestBody StudentGroupDTO dto) {
+    public ResponseEntity<ApiResponse<StudentGroupDTO>> updateGroup(
+            @PathVariable Long id, @RequestBody StudentGroupDTO dto) {
         StudentGroup entity = new StudentGroup();
         entity.setNumeroGroupe(dto.numeroGroupe());
+        if (dto.lotId() != null) {
+            lotRepository.findById(dto.lotId()).ifPresent(entity::setLot);
+        }
         return ResponseEntity.ok(ApiResponse.ok("Groupe mis à jour",
                 StudentGroupDTO.fromEntity(studentGroupService.update(id, entity))));
     }

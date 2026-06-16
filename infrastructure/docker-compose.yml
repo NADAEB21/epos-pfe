@@ -179,6 +179,7 @@ services:
       # de temps effectif, mais on aligne la zone OS pour les logs et tout appel
       # éventuel à now(). Le planning (debutCreneau) reste ancré sur launched_at.
       - TZ=${APP_TIMEZONE:-Africa/Tunis}
+      - EXAM_SERVICE_BASE_URL=http://exam-service:8082
     depends_on:
       postgres-db:
         condition: service_healthy

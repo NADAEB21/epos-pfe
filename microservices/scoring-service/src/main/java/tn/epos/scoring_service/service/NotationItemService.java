@@ -68,18 +68,16 @@ public class NotationItemService {
      * for legacy rows where Notation.grilleId is null.
      */
     private void validateItemBelongsToParentGrille(NotationItem item) {
-        if (item.getNotation() == null || item.getNotation().getId() == null) {
-            // No parent reference — let downstream JPA constraint handle it.
-            return;
-        }
+        if (item.getNotation() == null || item.getNotation().getId() == null) return;
+
         Long notationId = item.getNotation().getId();
         Notation parent = notationRepository.findById(notationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Notation parente introuvable avec l'id : " + notationId));
+                        "Notation parente introuvable : " + notationId));
 
         Long grilleId = parent.getGrilleId();
         if (grilleId == null) {
-            log.warn("Cross-grille check skipped: notation {} has null grille_id", notationId);
+            log.warn("Validation cross-grille ignorée : notation {} sans grille_id", notationId);
             return;
         }
         if (item.getItemId() == null) {
@@ -87,11 +85,16 @@ public class NotationItemService {
         }
 
         Set<Long> allowedItems = examServiceClient.getItemIdsForGrille(grilleId);
+        if (allowedItems.isEmpty()) {
+            // exam-service indisponible → on laisse passer pour ne pas bloquer
+            log.warn("Validation cross-grille ignorée (exam-service indisponible) — item {}",
+                    item.getItemId());
+            return;
+        }
         if (!allowedItems.contains(item.getItemId())) {
             throw new BusinessException(
                     "L'item " + item.getItemId()
-                            + " n'appartient pas à la grille " + grilleId
-                            + " de la notation parente (cross-grille refusé).");
+                            + " n'appartient pas à la grille " + grilleId);
         }
     }
 }

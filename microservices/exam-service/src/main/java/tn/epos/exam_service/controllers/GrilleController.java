@@ -24,10 +24,11 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Grilles & Critères", description = "Gestion des grilles d'évaluation et critères pondérés")
-@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
 public class GrilleController {
     private final GrilleService grilleService;
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PostMapping("/api/stations/{stationId}/grille")
     @Operation(summary = "Créer la grille d'une station",
             description = "Vous pouvez inclure les items directement dans la requête (création groupée)")
@@ -53,6 +54,7 @@ public class GrilleController {
         return ResponseEntity.ok(ApiResponse.ok(grilleService.trouverParId(id)));
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PutMapping("/api/grilles/{id}")
     @Operation(summary = "Modifier une grille",
             description = "Modifie nom, noteMax et description. Pour les items, utilisez les endpoints /items")
@@ -65,6 +67,7 @@ public class GrilleController {
         );
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @DeleteMapping("/api/grilles/{id}")
     @Operation(summary = "Supprimer une grille et tous ses critères")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
@@ -73,6 +76,7 @@ public class GrilleController {
     }
 
     // items
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PostMapping("/api/grilles/{grilleId}/items")
     @Operation(summary = "Ajouter un critère à une grille",
             description = "BINAIRE : Fait/Non fait. NUMERIQUE : valeur entre 0 et valeurMax. "
@@ -99,6 +103,7 @@ public class GrilleController {
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(items)));
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PutMapping("/api/items/{id}")
     @Operation(summary = "Modifier un critère d'évaluation")
     public ResponseEntity<ApiResponse<ItemResponse>> modifierItem(
@@ -110,6 +115,7 @@ public class GrilleController {
         );
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @DeleteMapping("/api/items/{id}")
     @Operation(summary = "Supprimer un critère", description = "Les critères suivants sont réordonnés automatiquement")
     public ResponseEntity<ApiResponse<Void>> supprimerItem(@PathVariable Long id) {

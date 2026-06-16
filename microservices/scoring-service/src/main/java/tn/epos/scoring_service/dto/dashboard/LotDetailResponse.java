@@ -36,15 +36,22 @@ public class LotDetailResponse {
     private boolean           valide;
     private List<EtudiantLotResponse> etudiants;
 
-    @Getter
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
+    @Getter @Builder @NoArgsConstructor @AllArgsConstructor
     public static class EtudiantLotResponse {
         private Long    id;
         private String  nom;
         private String  prenom;
         private String  numeroInscription;
-        private Integer numeroEchantillon;   // nullable — depuis ExamenParticipation.num_echantillon
+        private Integer numeroEchantillon;
+        private boolean absent;
+        private boolean verrouille; // ← nouveau
+        private String  commentaire;                        // ← nouveau
+        private List<NotationItemResponse> notationItems;  // ← nouveau
+    }
+
+    @Getter @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class NotationItemResponse {
+        private Long  itemId;
+        private Float valeur;
     }
 }

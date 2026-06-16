@@ -24,6 +24,9 @@ public class ExamenParticipation {
 
     private Boolean est_present;
 
+    @Column(length = 500)
+    private String commentaire;
+
     // Relation avec Etudiant (le 1 du côté Etudiant et 0..* ici)
     @ManyToOne
     @JoinColumn(name = "etudiant_id")

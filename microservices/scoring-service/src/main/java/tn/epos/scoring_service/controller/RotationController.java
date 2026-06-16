@@ -6,8 +6,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
-import tn.epos.scoring_service.dto.RotationDTO; // New Import
+import tn.epos.scoring_service.dto.RotationDTO;
 import tn.epos.scoring_service.entities.Rotation;
+import tn.epos.scoring_service.repositories.IRotationRepository;
+import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 import tn.epos.scoring_service.service.RotationService;
 
 import java.util.List;
@@ -18,15 +20,14 @@ public class RotationController {
 
     private static final String NOT_FOUND_MSG = "Rotation non trouvée";
 
-    @Autowired
-    private RotationService rotationService;
+    @Autowired private RotationService          rotationService;
+    @Autowired private IStudentGroupRepository  studentGroupRepository;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<List<RotationDTO>>> getAll() {
         List<RotationDTO> dtos = rotationService.findAll().stream()
-                .map(RotationDTO::fromEntity)
-                .toList();
+                .map(RotationDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
@@ -43,8 +44,7 @@ public class RotationController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<List<RotationDTO>>> getByGroup(@PathVariable Long groupId) {
         List<RotationDTO> dtos = rotationService.findByGroup(groupId).stream()
-                .map(RotationDTO::fromEntity)
-                .toList();
+                .map(RotationDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
@@ -52,8 +52,7 @@ public class RotationController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<List<RotationDTO>>> getByStation(@PathVariable Long stationId) {
         List<RotationDTO> dtos = rotationService.findByStation(stationId).stream()
-                .map(RotationDTO::fromEntity)
-                .toList();
+                .map(RotationDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
@@ -66,26 +65,34 @@ public class RotationController {
         entity.setOrdrePassage(dto.ordrePassage());
         entity.setDebutCreneau(dto.debutCreneau());
         entity.setStatut(dto.statut());
-        // Note: The service layer usually handles the linking of the StudentGroup via
-        // the ID in the DTO
 
-        RotationDTO saved = RotationDTO.fromEntity(rotationService.save(entity));
+        // Lier le StudentGroup → clé pour le planning et la chaîne JPQL de notation
+        if (dto.studentGroupId() != null) {
+            studentGroupRepository.findById(dto.studentGroupId())
+                    .ifPresent(entity::setStudentGroup);
+        }
+
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Rotation créée", saved));
+                .body(ApiResponse.ok("Rotation créée",
+                        RotationDTO.fromEntity(rotationService.save(entity))));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationDTO>> update(@PathVariable Long id, @RequestBody RotationDTO dto) {
+    public ResponseEntity<ApiResponse<RotationDTO>> update(
+            @PathVariable Long id, @RequestBody RotationDTO dto) {
         Rotation entity = new Rotation();
         entity.setEvaluateurId(dto.evaluateurId());
         entity.setStationId(dto.stationId());
         entity.setOrdrePassage(dto.ordrePassage());
         entity.setDebutCreneau(dto.debutCreneau());
         entity.setStatut(dto.statut());
-
-        RotationDTO updated = RotationDTO.fromEntity(rotationService.update(id, entity));
-        return ResponseEntity.ok(ApiResponse.ok("Rotation mise à jour", updated));
+        if (dto.studentGroupId() != null) {
+            studentGroupRepository.findById(dto.studentGroupId())
+                    .ifPresent(entity::setStudentGroup);
+        }
+        return ResponseEntity.ok(ApiResponse.ok("Rotation mise à jour",
+                RotationDTO.fromEntity(rotationService.update(id, entity))));
     }
 
     @DeleteMapping("/{id}")

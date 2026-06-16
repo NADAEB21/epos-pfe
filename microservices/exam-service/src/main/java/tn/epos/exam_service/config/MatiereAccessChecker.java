@@ -13,19 +13,29 @@ import java.util.Set;
 /**
  * Enforces per-matiere authorization based on the caller's JWT authorities.
  *
- * <p>SUPER_ADMIN bypasses the check. RESPONSABLE_MATIERE must hold the scoped
- * authority {@code ROLE_RESPONSABLE_MATIERE:<matiereId>} matching the resource.
+ * <p>Write operations (create / modify / delete) require SUPER_ADMIN or a
+ * scoped RESPONSABLE_MATIERE authority matching the resource's matiereId.
+ * Use {@link #checkAccess(Long)} for these.
  *
- * <p>Used from service methods after loading the target entity — for endpoints
- * that take an opaque {@code {id}} path variable, controller-level SpEL cannot
- * see the resource's matiereId without loading it first.
+ * <p>Read operations (GET grille, GET station detail) also allow EVALUATEUR,
+ * because an evaluator must load the grading grid for their assigned station
+ * during an exam session. Use {@link #checkReadAccess(Long)} for these.
  */
 @Component
 public class MatiereAccessChecker {
 
-    private static final String SUPER_ADMIN = "ROLE_SUPER_ADMIN";
-    private static final String RESP_PREFIX = "ROLE_RESPONSABLE_MATIERE:";
+    private static final String SUPER_ADMIN    = "ROLE_SUPER_ADMIN";
+    private static final String RESP_PREFIX    = "ROLE_RESPONSABLE_MATIERE:";
+    private static final String EVALUATEUR     = "ROLE_EVALUATEUR";
 
+    // -------------------------------------------------------------------------
+    // Write-level access  (SUPER_ADMIN | RESPONSABLE_MATIERE:<matiereId>)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns true when the caller may perform write operations on a resource
+     * belonging to {@code matiereId}.
+     */
     public boolean canAccess(Long matiereId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || matiereId == null) {
@@ -41,6 +51,10 @@ public class MatiereAccessChecker {
         return false;
     }
 
+    /**
+     * Throws {@link AccessDeniedException} when the caller may not write to a
+     * resource belonging to {@code matiereId}.
+     */
     public void checkAccess(Long matiereId) {
         if (!canAccess(matiereId)) {
             throw new AccessDeniedException(
@@ -48,9 +62,50 @@ public class MatiereAccessChecker {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Read-level access  (SUPER_ADMIN | RESPONSABLE_MATIERE:<matiereId> | EVALUATEUR)
+    // -------------------------------------------------------------------------
+
     /**
-     * True when the caller has unlimited scope (SUPER_ADMIN) — list endpoints
-     * should not filter and should call the standard {@code findAll} path.
+     * Returns true when the caller may perform read operations on a resource
+     * belonging to {@code matiereId}. EVALUATEUR is granted read access to all
+     * grilles so they can load the grading grid for their assigned station.
+     */
+    public boolean canRead(Long matiereId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || matiereId == null) {
+            return false;
+        }
+        String scoped = RESP_PREFIX + matiereId;
+        for (GrantedAuthority a : auth.getAuthorities()) {
+            String authority = a.getAuthority();
+            if (SUPER_ADMIN.equals(authority)
+                    || scoped.equals(authority)
+                    || EVALUATEUR.equals(authority)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Throws {@link AccessDeniedException} when the caller may not read a
+     * resource belonging to {@code matiereId}.
+     */
+    public void checkReadAccess(Long matiereId) {
+        if (!canRead(matiereId)) {
+            throw new AccessDeniedException(
+                    "Accès interdit : matière hors périmètre (matiere_id=" + matiereId + ")");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * True when the caller has unlimited scope (SUPER_ADMIN). List endpoints
+     * should skip filtering and call the standard {@code findAll} path.
      */
     public boolean isUnrestricted() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -66,11 +121,10 @@ public class MatiereAccessChecker {
     }
 
     /**
-     * Returns the matière ids the caller is scoped to via
+     * Returns the matiereIds the caller is scoped to via
      * {@code ROLE_RESPONSABLE_MATIERE:<id>} authorities. Empty if the caller
-     * holds no such authority — list endpoints should treat that as "no
-     * visible matières" and return an empty page. Callers must check
-     * {@link #isUnrestricted()} first to know whether to skip filtering.
+     * holds no such authority. Callers must check {@link #isUnrestricted()}
+     * first to know whether to skip filtering.
      */
     public Set<Long> getAccessibleMatiereIds() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -85,7 +139,7 @@ public class MatiereAccessChecker {
                 try {
                     ids.add(Long.parseLong(idPart));
                 } catch (NumberFormatException ignored) {
-                    // skip malformed authority (defensive — shouldn't happen)
+                    // defensive — should never happen with well-formed tokens
                 }
             }
         }

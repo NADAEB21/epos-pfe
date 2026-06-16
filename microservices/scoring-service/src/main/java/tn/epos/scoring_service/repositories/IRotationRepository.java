@@ -25,6 +25,13 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
      */
      List<Rotation> findByEvaluateurId(Long evaluateurId);
 
+    /**
+     * Retourne la rotation la plus récente pour un évaluateur et une station.
+     * findFirst évite NonUniqueResultException si des doublons existent.
+     */
+    Optional<Rotation> findFirstByEvaluateurIdAndStationIdOrderByIdDesc(
+            Long evaluateurId, Long stationId);
+
      /**
       * Trouve la rotation d'un évaluateur pour une station donnée.
       * Utilisé lors de la création automatique d'un RotationAssignment.

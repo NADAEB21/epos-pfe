@@ -9,8 +9,10 @@ import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.dto.dashboard.*;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.*;
-import tn.epos.scoring_service.entities.Rotation;
+import tn.epos.scoring_service.client.ExamServiceClient;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -18,10 +20,23 @@ import java.util.stream.Collectors;
 /**
  * Service d'agrégation pour le dashboard de l'évaluateur (app mobile Flutter).
  *
- * Centralise toute la logique de construction des réponses dashboard.
- * Suit le même pattern que les services existants du scoring-service :
- * injection via @RequiredArgsConstructor, méthodes publiques @Transactional,
- * méthodes privées utilitaires en bas de fichier.
+ * Corrections apportées :
+ *   - FIX 1 : saisirNotation() échouait silencieusement quand
+ *             findByEtudiantIdAndStationId() ne trouvait pas la participation
+ *             (JPQL navigue via lot.groups.rotations → la chaîne doit être complète).
+ *             Ajout d'une vérification explicite et d'un log détaillé.
+ *
+ *   - FIX 2 : validerLot() met maintenant aussi à jour Rotation.statut = TERMINE
+ *             pour que resolveSessionStatut() retourne "TERMINEE" immédiatement
+ *             après la validation, sans attendre l'expiration du timer horaire.
+ *
+ *   - FIX 3 : resolveSessionStatut() — la fenêtre temporelle de détection
+ *             EN_COURS est étendue à debut + dureeStation + 30min de grâce,
+ *             pour couvrir les décalages réels entre évaluateurs.
+ *             La session passe TERMINEE uniquement si :
+ *               a) lot validé manuellement (Lot.statut == TERMINE), OU
+ *               b) rotation marquée TERMINE (via validerLot), OU
+ *               c) on est au-delà de debut + dureeStation + GRACE_PERIOD_MIN.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,26 +52,42 @@ public class EvaluateurDashboardService {
     private final INotationRepository             notationRepository;
     private final INotationItemRepository         notationItemRepository;
     private final IExamenParticipationRepository  participationRepository;
+    private final ExamServiceClient               examServiceClient;
 
-    // ── Formateur heure ──────────────────────────────────────────────────────
+    // ── Constantes ────────────────────────────────────────────────────────────
+
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+
+    /**
+     * Durée nominale d'une station en minutes (valeur par défaut du cahier des charges).
+     * Idéalement lue depuis Examen.dureeStationMin via exam-service — hardcodée ici
+     * pour éviter un appel cross-service à chaque tick dashboard.
+     */
+    private static final int DUREE_STATION_MIN = 15;
+
+    /**
+     * FIX 3 — Période de grâce après la fin théorique d'une station.
+     * La session reste EN_COURS pendant 30 minutes supplémentaires pour absorber
+     * les décalages entre évaluateurs, les démarrages en retard, etc.
+     * La session passe TERMINEE automatiquement seulement après
+     * debut + DUREE_STATION_MIN + GRACE_PERIOD_MIN.
+     */
+    private static final int GRACE_PERIOD_MIN = 30;
 
     // =========================================================================
     // 1. DASHBOARD COMPLET
-    //
-    // Construit sessions + stats + planning en un seul appel.
-    // Remplace les 3 appels mock de SessionRepositoryImpl Flutter.
     // =========================================================================
 
     @Transactional(readOnly = true)
     public EvaluateurDashboardResponse buildDashboard(Long evaluateurId) {
         log.debug("Building dashboard for evaluateur {}", evaluateurId);
 
-        List<Lot> lots = lotRepository.findByEvaluateurId(evaluateurId);
+        List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
+        List<Lot>      lots      = lotRepository.findByEvaluateurId(evaluateurId);
 
-        List<SessionResponse>      sessions = buildSessions(lots);
+        List<SessionResponse>      sessions = buildSessions(rotations, lots);
         StatsResponse              stats    = buildStats(sessions, lots);
-        List<PlanningCellResponse> planning = buildPlanning(evaluateurId);
+        List<PlanningCellResponse> planning = buildPlanning(rotations);
 
         return EvaluateurDashboardResponse.builder()
                 .sessions(sessions)
@@ -67,33 +98,23 @@ public class EvaluateurDashboardService {
 
     // =========================================================================
     // 2. DÉTAIL D'UN LOT AVEC ÉTUDIANTS
-    //
-    // Charge le lot + la liste des étudiants via lot.getParticipations().
-    // Utilise la relation @OneToMany déjà définie dans Lot.java pour éviter
-    // une requête séparée (pas de N+1).
-    //
-    // Correspond à GradingRepository.getLot(stationId, lotNumero) Flutter.
     // =========================================================================
 
     @Transactional(readOnly = true)
     public LotDetailResponse getLotDetail(Long stationId, Integer lotNumero, Long evaluateurId) {
-        log.debug("getLotDetail stationId={} lotNumero={} evaluateur={}", stationId, lotNumero, evaluateurId);
+        log.debug("getLotDetail stationId={} lotNumero={} evaluateur={}",
+                stationId, lotNumero, evaluateurId);
 
-        // Trouve le lot par évaluateur et numéro de lot
         Lot lot = lotRepository.findByEvaluateurIdAndNumeroLot(evaluateurId, lotNumero)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Lot " + lotNumero + " introuvable pour l'évaluateur " + evaluateurId));
 
         int totalLots = lotRepository.countByExamenId(lot.getExamenId());
 
-        // Utilise la relation JPA existante dans Lot.java :
-        // @OneToMany(mappedBy = "lot") List<ExamenParticipation> participations
-        // Pas de requête séparée nécessaire — Hibernate charge via la relation.
-        List<ExamenParticipation> participations = lot.getParticipations();
+        List<ExamenParticipation> participations =
+                participationRepository.findByLotId(lot.getId());
 
-        List<LotDetailResponse.EtudiantLotResponse> etudiants = participations == null
-                ? Collections.emptyList()
-                : participations.stream()
+        List<LotDetailResponse.EtudiantLotResponse> etudiants = participations.stream()
                 .filter(p -> p.getEtudiant() != null)
                 .map(p -> LotDetailResponse.EtudiantLotResponse.builder()
                         .id(p.getEtudiant().getId())
@@ -101,6 +122,10 @@ public class EvaluateurDashboardService {
                         .prenom(p.getEtudiant().getPrenom())
                         .numeroInscription(p.getEtudiant().getNumero_inscription())
                         .numeroEchantillon(parseEchantillon(p.getNum_echantillon()))
+                        .absent(!Boolean.TRUE.equals(p.getEst_present()))    // ← nouveau
+                        .verrouille(isNotationVerrouillée(p.getId()))
+                        .commentaire(p.getCommentaire())                      // ← nouveau
+                        .notationItems(loadNotationItems(p.getId()))          // ← nouveau
                         .build())
                 .collect(Collectors.toList());
 
@@ -113,35 +138,57 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
+    /** Charge les NotationItems existants pour une participation donnée. */
+    private List<LotDetailResponse.NotationItemResponse> loadNotationItems(Long participationId) {
+        return rotationAssignmentRepository.findByParticipationId(participationId)
+                .flatMap(a -> notationRepository.findByAssignmentId(a.getId()))
+                .map(n -> notationItemRepository.findByNotationId(n.getId()).stream()
+                        .map(ni -> LotDetailResponse.NotationItemResponse.builder()
+                                .itemId(ni.getItemId())
+                                .valeur(ni.getValeur())
+                                .build())
+                        .collect(Collectors.toList()))
+                .orElse(Collections.emptyList());
+    }
+
     // =========================================================================
     // 3. SAISIR UNE NOTATION
-    //
-    // Accepte { etudiantId, stationId, grilleId, itemId, valeur } et gère
-    // automatiquement la chaîne : participation → assignment → notation → item.
-    // Correspond à GradingRepository.saveNotation(notation) Flutter.
     // =========================================================================
 
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
-        log.debug("saisirNotation etudiant={} station={} item={} valeur={}",
+        log.debug("saisirNotation etudiant={} station={} grille={} item={} valeur={}",
                 request.getEtudiantId(), request.getStationId(),
-                request.getItemId(), request.getValeur());
+                request.getGrilleId(), request.getItemId(), request.getValeur());
 
-        // 1. Retrouve la participation via la requête JPQL cross-entités
+        // FIX 1 — La requête JPQL findByEtudiantIdAndStationId navigue via
+        //   ExamenParticipation → lot → groups (StudentGroup) → rotations → stationId.
+        // Si la chaîne StudentGroup → Rotation n'est pas complète en base,
+        // la requête renvoie empty et la notation n'est jamais persistée.
+        // On logue le contexte complet pour faciliter le diagnostic.
         ExamenParticipation participation =
                 participationRepository.findByEtudiantIdAndStationId(
                                 request.getEtudiantId(), request.getStationId())
-                        .orElseThrow(() -> new ResourceNotFoundException(
-                                "Participation introuvable : étudiant=" + request.getEtudiantId()
-                                        + " station=" + request.getStationId()));
+                        .orElseThrow(() -> {
+                            log.error(
+                                    "Participation introuvable — vérifiez que la chaîne " +
+                                            "ExamenParticipation→Lot→StudentGroup→Rotation est complète. " +
+                                            "etudiantId={} stationId={}",
+                                    request.getEtudiantId(), request.getStationId());
+                            return new ResourceNotFoundException(
+                                    "Participation introuvable : étudiant=" + request.getEtudiantId()
+                                            + " station=" + request.getStationId()
+                                            + ". Assurez-vous que l'étudiant est lié à un lot "
+                                            + "avec un StudentGroup ayant une Rotation sur cette station.");
+                        });
 
-        // 2. Retrouve ou crée le RotationAssignment
         RotationAssignment assignment =
                 rotationAssignmentRepository.findByParticipationId(participation.getId())
-                        .orElseGet(() -> createAssignment(participation, request.getStationId(), evaluateurId));
+                        .orElseGet(() -> createAssignment(
+                                participation, request.getStationId(), evaluateurId));
 
-        // 3. Retrouve ou crée la Notation
         Notation notation = notationRepository.findByAssignmentId(assignment.getId())
-                .orElseGet(() -> createNotation(assignment, request.getStationId(), request.getGrilleId()));
+                .orElseGet(() -> createNotation(
+                        assignment, request.getStationId(), request.getGrilleId()));
 
         if (Boolean.TRUE.equals(notation.getVerouillee())) {
             throw new BusinessException(
@@ -149,7 +196,6 @@ public class EvaluateurDashboardService {
                             + request.getEtudiantId());
         }
 
-        // 4. Upsert : met à jour si l'item existe, crée sinon
         Optional<NotationItem> existingItem =
                 notationItemRepository.findByNotationIdAndItemId(
                         notation.getId(), request.getItemId());
@@ -165,19 +211,19 @@ public class EvaluateurDashboardService {
             notationItemRepository.save(newItem);
         }
 
-        // 5. Recalcule le score final
         recalculerScoreFinal(notation);
+        log.debug("NotationItem sauvegardé — notation={} item={} valeur={}",
+                notation.getId(), request.getItemId(), request.getValeur());
     }
 
     // =========================================================================
     // 4. VALIDER UN ÉTUDIANT
-    //
-    // Verrouille la notation d'un étudiant pour une station.
-    // Correspond à GradingRepository.validerEtudiant(etudiantId, stationId) Flutter.
     // =========================================================================
 
-    public void validerEtudiant(Long etudiantId, Long stationId, Long evaluateurId) {
-        log.debug("validerEtudiant etudiant={} station={}", etudiantId, stationId);
+    public void validerEtudiant(Long etudiantId, Long stationId,
+                                Long evaluateurId, ValiderEtudiantRequest request) {
+        log.debug("validerEtudiant etudiant={} station={} absent={}",
+                etudiantId, stationId, request.isAbsent());
 
         ExamenParticipation participation =
                 participationRepository.findByEtudiantIdAndStationId(etudiantId, stationId)
@@ -185,24 +231,58 @@ public class EvaluateurDashboardService {
                                 "Participation introuvable : étudiant=" + etudiantId
                                         + " station=" + stationId));
 
-        rotationAssignmentRepository.findByParticipationId(participation.getId())
-                .ifPresent(assignment ->
-                        notationRepository.findByAssignmentId(assignment.getId())
-                                .ifPresent(notation -> {
-                                    notation.setVerouillee(true);
-                                    notationRepository.save(notation);
-                                    log.info("Notation verrouillée : étudiant={} station={}",
-                                            etudiantId, stationId);
-                                }));
+        // Créer ou récupérer l'assignment et la notation
+        RotationAssignment assignment =
+                rotationAssignmentRepository.findByParticipationId(participation.getId())
+                        .orElseGet(() -> createAssignment(participation, stationId, evaluateurId));
+
+        Notation notation = notationRepository.findByAssignmentId(assignment.getId())
+                .orElseGet(() -> createNotation(assignment, stationId, request.getGrilleId()));
+
+        // Cas absent : supprimer les items déjà saisis, forcer score = 0
+        if (request.isAbsent()) {
+            List<NotationItem> items =
+                    notationItemRepository.findByNotationId(notation.getId());
+            if (!items.isEmpty()) {
+                notationItemRepository.deleteAll(items);
+            }
+            notation.setScore_final(0.0f);
+        }
+
+        // Verrouiller la notation
+        notation.setVerouillee(true);
+        notationRepository.save(notation);
+
+        // ─── Mettre à jour la participation (un seul save) ────────────────────
+        participation.setEst_present(!request.isAbsent());
+        if (request.getCommentaire() != null && !request.getCommentaire().isBlank()) {
+            participation.setCommentaire(request.getCommentaire());
+        }
+        // Liaison étudiant ↔ note finale — c'était la colonne vide
+        participation.setNote(notation.getScore_final());
+        participationRepository.save(participation);
+        // ─────────────────────────────────────────────────────────────────────
+
+        log.info("Étudiant {} {} à la station {} — note={} (évaluateur {})",
+                etudiantId,
+                request.isAbsent() ? "ABSENT" : "validé",
+                stationId, notation.getScore_final(), evaluateurId);
     }
 
     // =========================================================================
     // 5. VALIDER UN LOT
-    //
-    // Marque le lot comme TERMINE.
-    // Correspond à GradingRepository.validerLot(lotId) Flutter.
     // =========================================================================
 
+    /**
+     * FIX 2 — validerLot() marque maintenant :
+     *   a) Lot.statut = TERMINE (comme avant)
+     *   b) Rotation.statut = TERMINE pour toutes les rotations liées au lot
+     *      via StudentGroup.
+     *
+     * Cela garantit que resolveSessionStatut() retourne "TERMINEE" immédiatement
+     * lors du prochain appel au dashboard, sans attendre l'expiration du timer
+     * horaire (debut + DUREE_STATION_MIN + GRACE_PERIOD_MIN).
+     */
     public void validerLot(Long lotId, Long evaluateurId) {
         log.debug("validerLot lot={} evaluateur={}", lotId, evaluateurId);
 
@@ -215,58 +295,142 @@ public class EvaluateurDashboardService {
                             + " n'appartient pas à l'évaluateur " + evaluateurId);
         }
 
+        // a) Marquer le lot TERMINE
         lot.setStatut(LotStatus.TERMINE);
         lotRepository.save(lot);
-        log.info("Lot {} validé par l'évaluateur {}", lotId, evaluateurId);
+
+        // b) FIX 2 — Marquer toutes les rotations liées TERMINE
+        //    Chaîne : Lot → StudentGroup → Rotation
+        if (lot.getGroups() != null) {
+            lot.getGroups().forEach(group -> {
+                if (group.getRotations() != null) {
+                    group.getRotations().forEach(rotation -> {
+                        if (rotation.getStatut() != RotationStatus.TERMINE) {
+                            rotation.setStatut(RotationStatus.TERMINE);
+                            rotationRepository.save(rotation);
+                            log.debug("Rotation {} marquée TERMINE (lot {})",
+                                    rotation.getId(), lotId);
+                        }
+                    });
+                }
+            });
+        }
+
+        log.info("Lot {} validé et rotations associées marquées TERMINE (évaluateur {})",
+                lotId, evaluateurId);
     }
 
     // =========================================================================
     // MÉTHODES PRIVÉES — Construction des réponses
     // =========================================================================
 
-    /**
-     * Construit la liste des sessions à partir des lots de l'évaluateur.
-     *
-     * Correction point 3 : stationId est extrait depuis Rotation.stationId
-     * (FK logique vers exam_db.stations, ajoutée en V2).
-     * C'est le seul champ qui relie scoring-service à exam-service.
-     *
-     * Flux :
-     *   Lot → groups (StudentGroup) → rotations (Rotation) → stationId
-     *
-     * Si aucune rotation n'est encore associée au lot (données incomplètes),
-     * stationId vaut null et la grille ne sera pas chargeable — cas traité
-     * côté Flutter par un message d'erreur explicite.
-     */
-    private List<SessionResponse> buildSessions(List<Lot> lots) {
-        return lots.stream()
-                .map(lot -> {
-                    int totalLots = lotRepository.countByExamenId(lot.getExamenId());
+    private List<SessionResponse> buildSessions(List<Rotation> rotations, List<Lot> lots) {
+        LocalDateTime maintenant = LocalDateTime.now(ZoneId.of("Africa/Tunis"));
 
-                    // Extrait stationId depuis les rotations du lot
-                    Long stationId = extractStationId(lot);
+        return rotations.stream()
+                .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
+                .map(rotation -> {
+                    String statut    = resolveSessionStatut(rotation, maintenant);
+                    String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
+                    String heureFin   = rotation.getDebutCreneau()
+                            .plusMinutes(DUREE_STATION_MIN)
+                            .format(TIME_FMT);
+
+                    Lot lotLie = resolverLotDepuisRotation(rotation, lots);
+
+                    int nbEtudiants = (lotLie != null && lotLie.getTailleLot() != null)
+                            ? lotLie.getTailleLot() : 0;
+                    int lotActuel   = (lotLie != null && lotLie.getNumeroLot() != null)
+                            ? lotLie.getNumeroLot() : 0;
+                    int totalLots   = (lotLie != null)
+                            ? lotRepository.countByExamenId(lotLie.getExamenId()) : 0;
+
+                    ExamServiceClient.StationInfo info =
+                            examServiceClient.getStationInfo(rotation.getStationId());
 
                     return SessionResponse.builder()
-                            .id(lot.getId())
-                            .stationId(stationId)                  // ← nouveau champ
-                            .stationNom("Station " + (stationId != null ? stationId : lot.getExamenId()))
+                            .id(lotLie != null ? lotLie.getId() : rotation.getId())
+                            .stationId(rotation.getStationId())
+                            .stationNom(info.nom())
                             .matiere("Chimie Thérapeutique")
-                            .annee("CT-2026")
-                            .statut(mapLotStatutToSessionStatut(lot.getStatut()))
-                            .heureDebut(getHeureDebutLot(lot))
-                            .heureFin(null)
-                            .nbEtudiants(lot.getTailleLot() != null ? lot.getTailleLot() : 4)
-                            .salle("Salle " + lot.getId())
-                            .lotActuel(lot.getNumeroLot() != null ? lot.getNumeroLot() : 0)
+                            .annee("CT-" + rotation.getDebutCreneau().getYear())
+                            .statut(statut)
+                            .heureDebut(heureDebut)
+                            .heureFin("TERMINEE".equals(statut) ? heureFin : null)
+                            .nbEtudiants(nbEtudiants)
+                            .salle("Salle " + rotation.getStationId())
+                            .lotActuel(lotActuel)
                             .totalLots(totalLots)
                             .build();
                 })
+                .sorted(Comparator
+                        .comparingInt((SessionResponse s) -> sessionStatutOrdre(s.getStatut()))
+                        .thenComparing(SessionResponse::getHeureDebut))
                 .collect(Collectors.toList());
     }
 
     /**
-     * Construit les statistiques agrégées depuis les sessions et les lots.
+     * FIX 3 — Détermine le statut d'une session avec période de grâce.
+     *
+     * Priorité (ordre strict) :
+     *   1. Rotation.statut == TERMINE → TERMINEE  (validation manuelle via validerLot)
+     *   2. Lot lié TERMINE            → TERMINEE  (validation manuelle via validerLot)
+     *   3. debutCreneau > maintenant  → A_VENIR
+     *   4. maintenant ≤ debut + duree + grace  → EN_COURS
+     *   5. maintenant > debut + duree + grace  → TERMINEE (expiration automatique)
+     *
+     * La période de grâce (30 min) évite que la session se ferme automatiquement
+     * avant que l'évaluateur ait eu le temps de valider son lot.
      */
+    private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant) {
+        // 1. Rotation explicitement terminée (mis à jour par validerLot)
+        if (rotation.getStatut() == RotationStatus.TERMINE) {
+            return "TERMINEE";
+        }
+
+        // 2. Lot validé manuellement
+        if (rotation.getStudentGroup() != null
+                && rotation.getStudentGroup().getLot() != null
+                && rotation.getStudentGroup().getLot().getStatut() == LotStatus.TERMINE) {
+            return "TERMINEE";
+        }
+
+        LocalDateTime debut   = rotation.getDebutCreneau();
+        // FIX 3 : fenêtre étendue — debut + durée nominale + période de grâce
+        LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
+
+        // 3. Pas encore commencé
+        if (maintenant.isBefore(debut)) {
+            return "A_VENIR";
+        }
+
+        // 4. Dans la fenêtre étendue → EN_COURS
+        if (!maintenant.isAfter(finReelle)) {
+            return "EN_COURS";
+        }
+
+        // 5. Au-delà de la fenêtre étendue → TERMINEE automatique
+        return "TERMINEE";
+    }
+
+    private int sessionStatutOrdre(String statut) {
+        return switch (statut) {
+            case "EN_COURS"  -> 0;
+            case "A_VENIR"   -> 1;
+            default          -> 2;
+        };
+    }
+
+    private Lot resolverLotDepuisRotation(Rotation rotation, List<Lot> lots) {
+        if (rotation.getStudentGroup() == null) return null;
+        if (rotation.getStudentGroup().getLot() == null) return null;
+        Long lotId = rotation.getStudentGroup().getLot().getId();
+        return lots.stream()
+                .filter(l -> l.getId().equals(lotId))
+                .findFirst()
+                .orElse(null);
+    }
+
     private StatsResponse buildStats(List<SessionResponse> sessions, List<Lot> lots) {
         int totalEtudiants = lots.stream()
                 .mapToInt(l -> l.getTailleLot() != null ? l.getTailleLot() : 0)
@@ -284,22 +448,22 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
-    /**
-     * Construit le planning du jour (grille heure × lot) depuis les rotations.
-     */
-    private List<PlanningCellResponse> buildPlanning(Long evaluateurId) {
-        List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
+    private List<PlanningCellResponse> buildPlanning(List<Rotation> rotations) {
+        LocalDateTime maintenant = LocalDateTime.now(ZoneId.of("Africa/Tunis"));
 
         List<PlanningCellResponse> cells = rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null)
+                .filter(r -> r.getDebutCreneau().toLocalDate()
+                        .equals(maintenant.toLocalDate()))
                 .map(r -> PlanningCellResponse.builder()
                         .heure(r.getDebutCreneau().format(TIME_FMT))
                         .lotNumero(getLotNumeroPourRotation(r))
-                        .statut(mapRotationStatutToPlanningStatut(r.getStatut()))
+                        .statut(mapRotationStatutToPlanningStatut(r, maintenant))
                         .build())
                 .collect(Collectors.toList());
 
-        cells.sort(Comparator.comparing(PlanningCellResponse::getHeure)
+        cells.sort(Comparator
+                .comparing(PlanningCellResponse::getHeure)
                 .thenComparingInt(PlanningCellResponse::getLotNumero));
 
         return cells;
@@ -313,7 +477,7 @@ public class EvaluateurDashboardService {
                                                 Long stationId,
                                                 Long evaluateurId) {
         Rotation rotation = rotationRepository
-                .findByEvaluateurIdAndStationId(evaluateurId, stationId)
+                .findFirstByEvaluateurIdAndStationIdOrderByIdDesc(evaluateurId, stationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Rotation introuvable : evaluateur=" + evaluateurId
                                 + " station=" + stationId));
@@ -337,46 +501,78 @@ public class EvaluateurDashboardService {
         return notationRepository.save(notation);
     }
 
+    /**
+     * Recalcule le score final en appliquant les pondérations de l'exam-service.
+     *
+     * Formule identique à ScoreUtils.calculerScore (Flutter) :
+     *   - BINAIRE  : valeur ∈ {0,1}  → score += valeur × pondération
+     *   - NUMERIQUE: valeur ∈ [0, pondération] → score += valeur
+     *
+     * Fallback (exam-service indisponible) : somme des valeurs brutes.
+     * La map n'étant pas mise en cache sur échec, le score se corrige
+     * automatiquement au prochain appel réussi.
+     */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
-        float score = (float) items.stream()
-                .mapToDouble(i -> i.getValeur() != null ? i.getValeur() : 0f)
-                .sum();
+
+        if (items.isEmpty()) {
+            notation.setScore_final(0.0f);
+            notationRepository.save(notation);
+            return;
+        }
+
+        Map<Long, ExamServiceClient.ItemInfo> itemInfos =
+                examServiceClient.getItemInfosForGrille(notation.getGrilleId());
+
+        final boolean pondérationsDisponibles = !itemInfos.isEmpty();
+        if (!pondérationsDisponibles) {
+            log.warn("Pondérations indisponibles (grille={}) — score calculé en fallback",
+                    notation.getGrilleId());
+        }
+
+        float score = 0f;
+        for (NotationItem ni : items) {
+            if (ni.getValeur() == null) continue;
+            float valeur = ni.getValeur();
+
+            if (pondérationsDisponibles) {
+                ExamServiceClient.ItemInfo info = itemInfos.get(ni.getItemId());
+                if (info != null && "BINAIRE".equalsIgnoreCase(info.type())) {
+                    score += valeur * (float) info.ponderation();  // ← pondération appliquée
+                } else {
+                    score += valeur;                               // ← numérique
+                }
+            } else {
+                score += valeur;                                   // ← fallback
+            }
+        }
+
         notation.setScore_final(score);
         notationRepository.save(notation);
+        log.debug("Score recalculé — notation={} grille={} : {} pts{}",
+                notation.getId(), notation.getGrilleId(), score,
+                pondérationsDisponibles ? "" : " (fallback)");
     }
 
     // =========================================================================
     // MÉTHODES PRIVÉES — Mapping et utilitaires
     // =========================================================================
 
-    private String mapLotStatutToSessionStatut(LotStatus statut) {
-        if (statut == null) return "A_VENIR";
-        return switch (statut) {
-            case EN_COURS   -> "EN_COURS";
-            case TERMINE    -> "TERMINEE";
-            case EN_ATTENTE -> "A_VENIR";
-        };
-    }
+    private String mapRotationStatutToPlanningStatut(Rotation rotation, LocalDateTime maintenant) {
+        if (rotation.getStatut() == RotationStatus.TERMINE) {
+            return "TERMINE";
+        }
+        // FIX 3 : même fenêtre étendue que resolveSessionStatut
+        LocalDateTime debut     = rotation.getDebutCreneau();
+        LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
 
-    private String mapRotationStatutToPlanningStatut(RotationStatus statut) {
-        if (statut == null) return "AUCUN";
-        return switch (statut) {
-            case TERMINE              -> "TERMINE";
-            case EN_COURS, EN_ATTENTE -> "A_VENIR";
-        };
-    }
-
-    private String getHeureDebutLot(Lot lot) {
-        if (lot.getGroups() == null || lot.getGroups().isEmpty()) return "00:00";
-        return lot.getGroups().stream()
-                .flatMap(g -> g.getRotations() == null
-                        ? java.util.stream.Stream.empty()
-                        : g.getRotations().stream())
-                .filter(r -> r.getDebutCreneau() != null)
-                .map(r -> r.getDebutCreneau().format(TIME_FMT))
-                .findFirst()
-                .orElse("00:00");
+        if (maintenant.isBefore(debut)) {
+            return "A_VENIR";
+        }
+        if (!maintenant.isAfter(finReelle)) {
+            return "A_VENIR"; // EN_COURS affiché "A_VENIR" dans la grille planning
+        }
+        return "TERMINE";
     }
 
     private int getLotNumeroPourRotation(Rotation rotation) {
@@ -395,19 +591,10 @@ public class EvaluateurDashboardService {
         }
     }
 
-    /**
-     * Remonte la chaîne Lot → groups → rotations pour extraire stationId.
-     * Retourne null si aucune rotation n'est encore assignée.
-     */
-    private Long extractStationId(Lot lot) {
-        if (lot.getGroups() == null || lot.getGroups().isEmpty()) return null;
-        return lot.getGroups().stream()
-                .flatMap(g -> g.getRotations() == null
-                        ? java.util.stream.Stream.empty()
-                        : g.getRotations().stream())
-                .filter(r -> r.getStationId() != null)
-                .map(Rotation::getStationId)
-                .findFirst()
-                .orElse(null);
+    private boolean isNotationVerrouillée(Long participationId) {
+        return rotationAssignmentRepository.findByParticipationId(participationId)
+                .flatMap(a -> notationRepository.findByAssignmentId(a.getId()))
+                .map(n -> Boolean.TRUE.equals(n.getVerouillee()))
+                .orElse(false);
     }
 }

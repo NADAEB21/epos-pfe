@@ -1,5 +1,6 @@
 package tn.epos.scoring_service.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -10,6 +11,7 @@ import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.dashboard.EvaluateurDashboardResponse;
 import tn.epos.scoring_service.dto.dashboard.LotDetailResponse;
 import tn.epos.scoring_service.dto.dashboard.SaisirNotationRequest;
+import tn.epos.scoring_service.dto.dashboard.ValiderEtudiantRequest;
 import tn.epos.scoring_service.service.EvaluateurDashboardService;
 
 /**
@@ -102,11 +104,13 @@ public class EvaluateurDashboardController {
     public ResponseEntity<ApiResponse<Void>> validerEtudiant(
             @PathVariable Long etudiantId,
             @PathVariable Long stationId,
+            @Valid @RequestBody ValiderEtudiantRequest request,
             @AuthenticationPrincipal Jwt jwt) {
 
         Long evaluateurId = extractUserId(jwt);
-        dashboardService.validerEtudiant(etudiantId, stationId, evaluateurId);
-        return ResponseEntity.ok(ApiResponse.ok("Notes verrouillées pour l'étudiant " + etudiantId));
+        dashboardService.validerEtudiant(etudiantId, stationId, evaluateurId, request);
+        return ResponseEntity.ok(
+                ApiResponse.ok("Notes verrouillées pour l'étudiant " + etudiantId));
     }
 
     // ──────────────────────────────────────────────────────────────────────────

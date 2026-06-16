@@ -84,6 +84,21 @@ export class ExamApiService {
   }
 
   /**
+   * Delete an exam (DELETE /examens/{id}). The backend gates this to
+   * BROUILLON/CONFIGURE only — it 400s (BusinessException) once EN_COURS,
+   * TERMINE or ARCHIVE, and 403s a matière out of the caller's scope. It
+   * cascades to the exam's stations + grilles (exam-service), but NOT to the
+   * roster/lots/notations in scoring-service (cross-DB logical FK, no cascade);
+   * those are only ever populated from CONFIGURE onward and are orphaned, not
+   * deleted. Returns void.
+   */
+  deleteExamen(id: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.baseUrl}/${id}`)
+      .pipe(map(() => void 0));
+  }
+
+  /**
    * Drive the exam lifecycle one legal edge at a time. The backend
    * (PATCH /examens/{id}/statut?statut=…) takes the target status as a QUERY
    * param, not a body, and only validates the state-machine edge is legal

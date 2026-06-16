@@ -133,10 +133,6 @@ ETUDIANTS = [
     ("Najjar", "Salma"), ("Ouali", "Zied"), ("Belhadj", "Cyrine"),
 ]
 
-# A couple of absentees keep the roster's presence column believable.
-ABSENT_INDEXES = {6, 13}
-
-
 def main():
     print(f"Seeding EPOS demo data against {BASE_URL}\n")
     admin = login("admin@epos.tn", "Admin@1234")
@@ -202,16 +198,21 @@ def main():
         et = must(*_req("POST", "/api/v1/etudiants", token=resp, body={
             "nom": nom, "prenom": prenom, "numero_inscription": numero,
         }), {201}, f"create etudiant {numero}")["data"]
+        # Présence + note are day-of facts (set via marquerPresence / mobile
+        # scoring once the exam runs), NOT roster-time data. This demo exam is
+        # created not-yet-launched (BROUILLON), so we leave them unset. Stamping
+        # them here was the source of the "À venir" phase-blur: authoring screens
+        # advertised presence/notes for an exam that hadn't happened yet.
         must(*_req("POST", "/api/v1/participations", token=resp, body={
             "examen_id": exam_id,
             "num_echantillon": f"E-{idx + 1:02d}",
-            "est_present": False if idx in ABSENT_INDEXES else True,
+            "est_present": None,
             "note": None,
             "etudiantId": et["id"],
         }), {201}, f"enrol etudiant {et['id']}")
         enrolled += 1
     print(f"  + {enrolled} etudiants enrolled "
-          f"({len(ABSENT_INDEXES)} marked absent)")
+          f"(presence/notes unset — exam not yet launched)")
 
     print(f"\nDone. Demo exam id = {exam_id}. "
           f"Open /examens/{exam_id}/vue-ensemble in the web app.")

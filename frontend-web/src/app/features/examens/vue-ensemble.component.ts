@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ExamenResponse, StationSummary, TypeStation } from '../../core/api/models';
@@ -306,6 +306,62 @@ const TYPE_LABELS: Record<TypeStation, string> = {
           }
         </section>
       </div>
+
+      <!-- Danger zone: cancel / delete (BROUILLON or CONFIGURE only) -->
+      @if (canDelete()) {
+        <section class="rounded-xl bg-white border border-status-danger/30 shadow-card p-5 mt-6">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div class="min-w-0">
+              <h3 class="font-semibold text-gray-900">
+                {{ e.statut === 'BROUILLON' ? "Supprimer l'examen" : "Annuler l'examen" }}
+              </h3>
+              <p class="text-sm text-gray-500 mt-1 max-w-xl">
+                @if (e.statut === 'BROUILLON') {
+                  Cet examen et toute sa configuration (stations, grilles) seront
+                  definitivement supprimes. Action irreversible.
+                } @else {
+                  L'examen est configure. Le supprimer retire sa configuration
+                  (stations, grilles) ; les inscriptions et lots eventuels ne sont
+                  plus rattaches a aucun examen. Action irreversible.
+                }
+              </p>
+            </div>
+            <div class="shrink-0">
+              @if (!confirmingDelete()) {
+                <button
+                  type="button"
+                  (click)="askDelete()"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-status-danger text-status-danger text-sm font-medium hover:bg-status-danger/5 transition-colors"
+                >
+                  {{ e.statut === 'BROUILLON' ? "Supprimer l'examen" : "Annuler l'examen" }}
+                </button>
+              } @else {
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    [disabled]="deleting()"
+                    (click)="confirmDelete(e)"
+                    class="px-3 py-1.5 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {{ deleting() ? 'Suppression…' : 'Confirmer' }}
+                  </button>
+                  <button
+                    type="button"
+                    [disabled]="deleting()"
+                    (click)="cancelDelete()"
+                    class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+          @if (deleteError()) {
+            <p role="alert" class="text-xs text-status-danger mt-3">{{ deleteError() }}</p>
+          }
+        </section>
+      }
       }
     }
   `,
@@ -315,6 +371,7 @@ export class VueEnsembleComponent {
   private readonly examApi = inject(ExamApiService);
   private readonly store = inject(ExamenWorkspaceStore);
   private readonly fb = inject(FormBuilder);
+  private readonly router = inject(Router);
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
@@ -326,6 +383,19 @@ export class VueEnsembleComponent {
 
   /** Metadata is editable only while BROUILLON (mirrors Examen.isModifiable). */
   readonly canEdit = computed(() => this.exam()?.statut === 'BROUILLON');
+
+  /**
+   * Delete/cancel is allowed only while BROUILLON or CONFIGURE — mirrors the
+   * backend gate (ExamenServiceImpl.supprimer blocks EN_COURS/TERMINE/ARCHIVE).
+   */
+  readonly canDelete = computed(() => {
+    const s = this.exam()?.statut;
+    return s === 'BROUILLON' || s === 'CONFIGURE';
+  });
+
+  readonly confirmingDelete = signal(false);
+  readonly deleting = signal(false);
+  readonly deleteError = signal<string | null>(null);
 
   readonly editing = signal(false);
   readonly saving = signal(false);
@@ -394,6 +464,42 @@ export class VueEnsembleComponent {
           else this.saveError.set('Erreur de connexion. Reessayez.');
         },
       });
+  }
+
+  // ---- delete / cancel ----------------------------------------------------
+
+  askDelete(): void {
+    this.deleteError.set(null);
+    this.confirmingDelete.set(true);
+  }
+
+  cancelDelete(): void {
+    this.confirmingDelete.set(false);
+    this.deleteError.set(null);
+  }
+
+  confirmDelete(e: ExamenResponse): void {
+    if (this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
+    this.examApi.deleteExamen(e.id).subscribe({
+      next: () => {
+        // Exam is gone — leave the workspace for the list rather than landing
+        // on a now-404 tab.
+        this.router.navigate(['/examens']);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.deleting.set(false);
+        this.confirmingDelete.set(false);
+        if (err.status === 403) this.deleteError.set("Vous n'avez pas les droits sur cet examen.");
+        else if (err.status === 400 || err.status === 409)
+          this.deleteError.set(
+            "L'examen ne peut plus etre supprime a ce statut. Rechargez la page.",
+          );
+        else if (err.status === 404) this.deleteError.set('Examen introuvable (deja supprime ?).');
+        else this.deleteError.set('Erreur de connexion. Reessayez.');
+      },
+    });
   }
 
   constructor() {

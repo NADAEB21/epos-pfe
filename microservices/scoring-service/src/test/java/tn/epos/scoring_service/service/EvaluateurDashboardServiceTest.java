@@ -16,6 +16,7 @@ import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.*;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.*;
@@ -41,16 +42,18 @@ class EvaluateurDashboardServiceTest {
     private final Long STATION_ID = 100L;
 
     @Nested
-    @DisplayName("buildDashboard() & FIX 3 (Période de grâce)")
+    @DisplayName("buildDashboard()")
     class DashboardLogic {
+        private final ZoneId TUNIS_ZONE = ZoneId.of("Africa/Tunis");
 
         @Test
         @DisplayName("Doit calculer le statut EN_COURS si dans la période de grâce")
         void resolveStatut_EnCours_PendantGrace() {
+            LocalDateTime maintenantTunis = LocalDateTime.now(TUNIS_ZONE);
             Rotation r = new Rotation();
             r.setStationId(STATION_ID);
             // Debut il y a 20 min (Durée 15 + Grace 30 = 45 min total) -> Toujours EN_COURS
-            r.setDebutCreneau(LocalDateTime.now().minusMinutes(20));
+            r.setDebutCreneau(maintenantTunis.minusMinutes(20));
             r.setStatut(RotationStatus.EN_ATTENTE);
 
             when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
@@ -65,10 +68,11 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Doit calculer le statut TERMINEE si après la période de grâce")
         void resolveStatut_Terminee_ApresGrace() {
+            LocalDateTime maintenantTunis = LocalDateTime.now(TUNIS_ZONE);
             Rotation r = new Rotation();
             r.setStationId(STATION_ID);
             // Debut il y a 60 min -> TERMINEE automatique
-            r.setDebutCreneau(LocalDateTime.now().minusMinutes(60));
+            r.setDebutCreneau(maintenantTunis.minusMinutes(60));
 
             when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
             when(examServiceClient.getStationInfo(STATION_ID))
@@ -81,7 +85,7 @@ class EvaluateurDashboardServiceTest {
     }
 
     @Nested
-    @DisplayName("saisirNotation() & FIX 1 (Chainage Participation)")
+    @DisplayName("saisirNotation()")
     class NotationLogic {
 
         @Test
@@ -167,11 +171,11 @@ class EvaluateurDashboardServiceTest {
     }
 
     @Nested
-    @DisplayName("validerLot() & FIX 2 (Cascade Statut)")
+    @DisplayName("validerLot()")
     class ValiderLotLogic {
 
         @Test
-        @DisplayName("FIX 2 - Doit passer le lot ET les rotations à TERMINE")
+        @DisplayName("Doit passer le lot ET les rotations à TERMINE")
         void validerLot_CascadeStatut() {
             Lot lot = new Lot();
             lot.setId(10L);

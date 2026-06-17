@@ -15,6 +15,8 @@ export type TypeStation = 'PRATIQUE' | 'THEORIQUE';
 
 export type TypeItem = 'BINAIRE' | 'NUMERIQUE';
 
+export type ExamStats = Record<StatutExamen, number>;
+
 export interface StationSummary {
   id: number;
   nom?: string;

@@ -1,0 +1,73 @@
+<div class="user-page">
+
+  <!-- SECTION FORMULAIRE -->
+  <section class="form-container">
+    <h3>{{ isEditing ? '✏️ Modifier Utilisateur' : '➕ Ajouter un Utilisateur' }}</h3>
+    <form [formGroup]="userForm" (ngSubmit)="onSubmit()" class="user-form">
+      <input type="text" formControlName="nom" placeholder="Nom">
+      <input type="text" formControlName="prenom" placeholder="Prénom">
+      <input type="email" formControlName="email" placeholder="Email">
+      
+      <select formControlName="role">
+        <option value="Administrateur">Administrateur</option>
+        <option value="Évaluateur">Évaluateur</option>
+        <option value="Responsable">Responsable</option>
+      </select>
+
+      <select formControlName="isActive">
+        <option [ngValue]="true">Actif</option>
+        <option [ngValue]="false">Inactif</option>
+      </select>
+
+      <button type="submit" class="btn-save" [disabled]="userForm.invalid">
+        {{ isEditing ? 'Mettre à jour' : 'Ajouter' }}
+      </button>
+    </form>
+  </section>
+
+  <!-- BARRE DE RECHERCHE ET FILTRE (Comme le prototype) -->
+  <div class="toolbar">
+    <div class="search-pill">
+      <span class="icon">🔍</span>
+      <input type="text" [(ngModel)]="searchTerm" (input)="applyFilters()" placeholder="recherche...">
+    </div>
+
+    <div class="filter-dropdown">
+      <select [(ngModel)]="roleFilter" (change)="applyFilters()">
+        <option value="">Role</option>
+        <option value="Administrateur">Administrateur</option>
+        <option value="Évaluateur">Évaluateur</option>
+        <option value="Responsable">Responsable</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- TABLEAU (Comme le prototype) -->
+  <div class="table-card">
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Prénom</th>
+          <th>Email</th>
+          <th>Rôle</th>
+          <th>Statut</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let user of filteredUsers">
+          <td>{{ user.nom }}</td>
+          <td>{{ user.prenom }}</td>
+          <td>{{ user.email }}</td>
+          <td>{{ user.role }}</td>
+          <td>{{ user.isActive ? 'Actif' : 'Inactif' }}</td>
+          <td class="actions">
+            <button class="btn-icon" (click)="onEdit(user)">✏️</button>
+            <button class="btn-icon" (click)="onDelete(user.id)">🗑️</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

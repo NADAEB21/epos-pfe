@@ -1,0 +1,119 @@
+<div class="admin-layout">
+  <!-- HEADER -->
+  <header class="main-header">
+    <div class="title-section">
+      <h1>Gestion des Examens (Oversight)</h1>
+    </div>
+    <div class="user-section">
+      <span class="icon">🔔</span>
+      <div class="user-profile">
+        <div class="user-info">
+          <span class="user-name">Dr. Admin</span>
+          <span class="user-role">Super Admin</span>
+        </div>
+        <div class="user-avatar">AD</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- STATS -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="card-content">
+        <span class="label">Total examens</span>
+        <div class="number-circle">{{ totalExamens }}</div>
+      </div>
+      <div class="card-icon">📊</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="card-content">
+        <span class="label">En cours / Configuré</span>
+        <div class="number-circle">{{ stats.CONFIGURE + stats.EN_COURS }}</div>
+      </div>
+      <div class="card-icon">📈</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="card-content">
+        <span class="label">Terminés</span>
+        <div class="number-circle">{{ stats.TERMINE }}</div>
+      </div>
+      <div class="card-icon">✅</div>
+    </div>
+  </div>
+
+  <!-- FORMULAIRE (Correction : Champ Statut ajouté) -->
+  <section class="form-section shadow-sm">
+    <div class="section-header">
+      <h3>{{ isEditing ? '✏️ Modifier l\'examen' : '➕ Ajouter un nouvel examen' }}</h3>
+    </div>
+    <form [formGroup]="examForm" (ngSubmit)="onSubmit()" class="inline-form">
+      <div class="input-group">
+        <label>Nom de l'examen</label>
+        <input type="text" formControlName="nom" placeholder="Ex: Contrôle Paracétamol">
+      </div>
+      <div class="input-group">
+        <label>Matière</label>
+        <select formControlName="matiereId">
+          <option [ngValue]="null">Choisir une matière</option>
+          <option *ngFor="let m of matieres" [ngValue]="m.id">{{ m.libelle }}</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Date</label>
+        <input type="date" formControlName="dateExamen">
+      </div>
+      <!-- NOUVEAU : Champ Statut -->
+      <div class="input-group">
+        <label>Statut</label>
+        <select formControlName="statut">
+          <option value="BROUILLON">Brouillon</option>
+          <option value="CONFIGURE">Configuré</option>
+          <option value="EN_COURS">En cours</option>
+          <option value="TERMINE">Terminé</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-save" [disabled]="examForm.invalid">
+        {{ isEditing ? 'Mettre à jour' : 'Enregistrer' }}
+      </button>
+      <button type="button" class="btn-cancel" *ngIf="isEditing" (click)="resetForm()">Annuler</button>
+    </form>
+  </section>
+
+  <!-- TABLEAU (Correction : Colonne Statut ajoutée) -->
+  <section class="table-section">
+    <div class="table-title">
+      <h3>Liste des examens plateforme</h3>
+    </div>
+    <div class="table-container">
+      <table class="epos-table">
+        <thead>
+          <tr>
+            <th>Nom examen</th>
+            <th>Matière</th>
+            <th>Date</th>
+            <th>Statut</th> <!-- Entête Statut -->
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let ex of recentExams">
+            <td class="bold">{{ ex.nom }}</td>
+            <td>{{ getMatiereNom(ex.matiereId) }}</td>
+            <td><span class="badge-date">{{ ex.dateExamen | date:'dd/MM/yyyy' }}</span></td>
+            <td>
+              <span class="status-pill" [ngClass]="ex.statut.toLowerCase()">
+                {{ ex.statut }}
+              </span>
+            </td>
+            <td class="actions">
+              <button class="btn-edit" (click)="onEdit(ex)">✏️</button>
+              <button class="btn-delete" (click)="onDelete(ex.id)">🗑️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

@@ -1,0 +1,98 @@
+<div class="template-container">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Templates Globaux</h1>
+      <p class="subtitle">Bibliothèque partagée de grilles d'évaluation.</p>
+    </div>
+    <button class="btn-new" *ngIf="!isAdding" (click)="toggleAddMode()">➕ Créer un modèle</button>
+  </header>
+
+  <!-- LISTE DES TEMPLATES -->
+  <section class="list-section" *ngIf="!isAdding">
+    <div class="table-card shadow-sm">
+      <table class="epos-table">
+        <thead>
+          <tr>
+            <th>Nom du modèle</th>
+            <th>Note Max</th>
+            <th>Nombre de Critères</th>
+            <th>Description</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let t of templates">
+            <td class="bold">{{ t.nom }}</td>
+            <td><span class="badge-pts">{{ t.noteMax }} pts</span></td>
+            <td>{{ t.items?.length }} items</td>
+            <td class="text-muted">{{ t.description || '-' }}</td>
+            <td class="actions">
+              <button class="btn-icon">✏️</button>
+              <button class="btn-icon del">🗑️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GRILLE BUILDER (DYNAMIQUE) -->
+  <section class="builder-section" *ngIf="isAdding">
+    <form [formGroup]="templateForm" (ngSubmit)="onSubmit()">
+      <div class="form-header-card">
+        <div class="main-info">
+          <div class="input-box">
+            <label>Nom du modèle</label>
+            <input type="text" formControlName="nom" placeholder="ex: Grille de Suture">
+          </div>
+          <div class="input-box small">
+            <label>Note Max (Total)</label>
+            <input type="number" formControlName="noteMax">
+          </div>
+        </div>
+        <textarea formControlName="description" placeholder="Description de l'usage du modèle..."></textarea>
+      </div>
+
+      <div class="items-editor">
+        <div class="editor-header">
+          <h3>Configuration des critères</h3>
+          <div class="total-checker" [class.valid]="getCurrentTotal() === templateForm.value.noteMax">
+            Total Points : <strong>{{ getCurrentTotal() }}</strong> / {{ templateForm.value.noteMax }}
+          </div>
+        </div>
+
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th width="150">Catégorie</th>
+              <th>Libellé du critère d'évaluation</th>
+              <th width="180">Type</th>
+              <th width="100">Points</th>
+              <th width="50"></th>
+            </tr>
+          </thead>
+          <tbody formArrayName="items">
+            <tr *ngFor="let item of items.controls; let i=index" [formGroupName]="i">
+              <td><input type="text" formControlName="categorie"></td>
+              <td><input type="text" formControlName="libelle" placeholder="Action attendue..."></td>
+              <td>
+                <select formControlName="type">
+                  <option value="BINAIRE">BINAIRE (Fait/Non-fait)</option>
+                  <option value="NUMERIQUE">NUMÉRIQUE (Échelle 0-X)</option>
+                </select>
+              </td>
+              <td><input type="number" formControlName="ponderation" step="0.5"></td>
+              <td><button type="button" class="btn-del" (click)="removeItemLine(i)">🗑️</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <button type="button" class="btn-add-line" (click)="addItemLine()">+ Ajouter un critère d'évaluation</button>
+      </div>
+
+      <div class="form-footer">
+        <button type="button" class="btn-cancel" (click)="cancelForm()">Annuler</button>
+        <button type="submit" class="btn-save" [disabled]="templateForm.invalid">💾 Enregistrer ce modèle</button>
+      </div>
+    </form>
+  </section>
+</div>

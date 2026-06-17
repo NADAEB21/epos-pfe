@@ -1,0 +1,198 @@
+// ==========================================
+// VARIABLES ET COULEURS EPOS
+// ==========================================
+$primary-green: #1b5e20;
+$light-green: #e8f5e9;
+$bg-beige: #f5f2e8;
+$white: #ffffff;
+$text-dark: #333;
+$text-muted: #666;
+
+// ==========================================
+// LAYOUT GÉNÉRAL
+// ==========================================
+.admin-content-container {
+  padding: 30px;
+  background-color: $bg-beige;
+  min-height: 100vh;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+}
+
+// ==========================================
+// HEADER (Titre à gauche, Profil à droite)
+// ==========================================
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+
+  h1 { color: $primary-green; font-size: 32px; margin: 0; font-weight: 700; }
+  .subtitle { color: $text-muted; margin: 5px 0 0 0; }
+
+  .header-profile {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+
+    .bell { font-size: 20px; cursor: pointer; opacity: 0.7; }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      
+      .text {
+        text-align: right;
+        .name { display: block; font-weight: bold; color: $text-dark; font-size: 14px; }
+        .role { font-size: 12px; color: $text-muted; }
+      }
+
+      .avatar {
+        width: 42px;
+        height: 42px;
+        background-color: $primary-green;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      }
+    }
+  }
+}
+
+// ==========================================
+// CARTES DE STATISTIQUES (3 colonnes)
+// ==========================================
+.stats-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 25px;
+  margin-bottom: 40px;
+}
+
+.stat-card {
+  background: $white;
+  padding: 25px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  transition: transform 0.2s;
+
+  &:hover { transform: translateY(-3px); }
+
+  .card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+
+    .card-label {
+      font-weight: bold;
+      font-size: 15px;
+      color: $text-dark;
+      text-transform: capitalize;
+    }
+
+    .card-number-circle {
+      width: 55px;
+      height: 55px;
+      background-color: $primary-green;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+    }
+  }
+
+  .card-icon-chart {
+    font-size: 45px;
+    opacity: 0.2; // Effet filigrane sur l'icône à droite
+  }
+}
+
+// ==========================================
+// SECTION TABLEAU
+// ==========================================
+.exams-section {
+  .section-header-title {
+    background-color: $light-green;
+    padding: 12px 20px;
+    border-radius: 4px 4px 0 0;
+    h3 { margin: 0; color: $primary-green; font-size: 18px; }
+  }
+
+  .table-responsive {
+    background: $white;
+    padding: 15px;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  }
+
+  .exams-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th {
+      text-align: left;
+      padding: 15px;
+      border-bottom: 2px solid #333; // Ligne noire comme sur la photo
+      color: $text-muted;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+
+    td {
+      padding: 18px 15px;
+      font-size: 14px;
+      color: $text-dark;
+      border-bottom: 1px solid #f0f0f0;
+
+      &.font-bold { font-weight: 600; }
+    }
+
+    .date-badge {
+      background-color: $primary-green;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    // Status Pills (Couleurs selon le statut)
+    .status-pill {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+
+      &.brouillon { background: #fff3e0; color: #ef6c00; }
+      &.configure { background: #e3f2fd; color: #1565c0; }
+      &.termine { background: #e8f5e9; color: #2e7d32; }
+      &.en_cours { background: #fffde7; color: #fbc02d; }
+    }
+
+    .btn-view {
+      background: none;
+      border: none;
+      color: $primary-green;
+      font-weight: bold;
+      text-decoration: underline;
+      cursor: pointer;
+      font-size: 14px;
+
+      &:hover { color: lighten($primary-green, 15%); }
+    }
+  }
+}
+
+// Utilitaires
+.center { text-align: center; }

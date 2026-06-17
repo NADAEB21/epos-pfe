@@ -64,11 +64,12 @@ export class SidebarComponent {
       groups.push({
         title: 'Administration',
         items: [
-          { label: "Vue d'ensemble", link: '/admin', exact: true },
+          { label: "Dashboard", link: '/admin', exact: true },
           { label: 'Utilisateurs', link: '/admin/utilisateurs' },
+          { label: 'Examens', link: '/admin/examens' },
+          { label: 'Stations', link: '/admin/stations' },
           { label: 'Matieres', link: '/admin/matieres' },
           { label: 'Templates globaux', link: '/admin/templates' },
-          { label: 'Examens', link: '/admin/examens' },
         ],
       });
     }

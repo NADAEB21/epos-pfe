@@ -1,0 +1,109 @@
+<div class="admin-wrapper">
+  <!-- HEADER -->
+  <header class="page-header">
+    <div class="titles">
+      <h1>Gestion des Stations</h1>
+      <p class="subtitle">Configuration du circuit d'examen ECOS.</p>
+    </div>
+    <div class="avatar">AD</div>
+  </header>
+
+  <!-- STATS -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="info">
+        <span class="label">Total Stations</span>
+        <div class="circle">{{ totalStations }}</div>
+      </div>
+      <span class="icon">📍</span>
+    </div>
+  </div>
+
+  <!-- FORMULAIRE -->
+  <section class="card-form shadow-sm">
+    <div class="card-header">
+      <h3>{{ isEditing ? '✏️ Modifier la Station' : '➕ Créer une nouvelle Station' }}</h3>
+    </div>
+    
+    <form [formGroup]="stationForm" (ngSubmit)="onSubmit()" class="station-grid-form">
+      <div class="input-group">
+        <label>Nom de la station</label>
+        <input type="text" formControlName="nom" placeholder="Ex: Interrogatoire">
+      </div>
+
+      <div class="input-group">
+        <label>Type de station</label>
+        <select formControlName="type">
+          <option value="PRATIQUE">Pratique</option>
+          <option value="THEORIQUE">Théorique</option>
+        </select>
+      </div>
+
+      <div class="input-group small">
+        <label>Ordre</label>
+        <input type="number" formControlName="ordre">
+      </div>
+
+      <!-- NOUVEAU : CHOIX DE LA GRILLE -->
+      <div class="input-group">
+        <label>Modèle de Grille</label>
+        <select formControlName="grilleNom">
+          <option [ngValue]="null" disabled>Sélectionner une grille...</option>
+          <option *ngFor="let template of grilleTemplates" [value]="template">{{ template }}</option>
+        </select>
+      </div>
+
+      <div class="input-group full">
+        <label>Description (optionnelle)</label>
+        <input type="text" formControlName="description" placeholder="Objectif de la station...">
+      </div>
+
+      <div class="form-buttons">
+        <button type="submit" class="btn-save" [disabled]="stationForm.invalid">
+          {{ isEditing ? 'Mettre à jour' : 'Enregistrer' }}
+        </button>
+        <button type="button" class="btn-cancel" *ngIf="isEditing" (click)="resetForm()">Annuler</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- TABLEAU -->
+  <section class="table-section">
+    <div class="table-title-bg"><h3>Liste des stations configurées</h3></div>
+    <div class="table-container">
+      <table class="epos-table">
+        <thead>
+          <tr>
+            <th>Ordre</th>
+            <th>Désignation</th>
+            <th>Type</th>
+            <th>Grille associée</th> <!-- Colonne Grille mise à jour -->
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let s of stations">
+            <td class="bold">Station #{{ s.ordre }}</td>
+            <td>
+              <div class="name-box">
+                <span class="name">{{ s.nom }}</span>
+                <small>{{ s.description }}</small>
+              </div>
+            </td>
+            <td><span class="pill" [ngClass]="s.type.toLowerCase()">{{ s.type }}</span></td>
+            <td>
+              <!-- Affichage du nom du modèle sous forme de badge -->
+              <span class="grille-badge">
+                {{ s.grilleNom }}
+              </span>
+            </td>
+            <td class="actions">
+              <button class="icon-btn" (click)="onEdit(s)">✏️</button>
+              <button class="icon-btn del" (click)="onDelete(s.id)">🗑️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

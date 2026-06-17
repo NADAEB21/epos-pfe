@@ -15,6 +15,7 @@ const TABS_SETUP: WorkspaceTab[] = [
   { label: 'Stations & Grilles', segment: 'stations-grilles' },
   { label: 'Étudiants', segment: 'etudiants' },
   { label: 'Lots', segment: 'lots' },
+  { label: 'Convocations', segment: 'convocations' },
   { label: 'Planning', segment: 'planning' },
   { label: 'Lancement', segment: 'lancement' },
 ];
@@ -22,6 +23,7 @@ const TABS_LIVE: WorkspaceTab[] = [
   { label: 'Suivi en direct', segment: 'suivi' },
   { label: 'Lots & présence', segment: 'lots' },
   { label: 'Étudiants', segment: 'etudiants' },
+  { label: 'Convocations', segment: 'convocations' },
   { label: 'Planning', segment: 'planning' },
   { label: 'Stations', segment: 'stations-grilles' },
 ];

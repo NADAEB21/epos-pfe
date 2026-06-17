@@ -11,3 +11,33 @@ body {
 body {
   @apply bg-surface text-gray-900 font-sans antialiased;
 }
+
+// Print isolation for the Convocations sheet. Scoped to a body class the
+// Convocations component toggles only while printing, so an ad-hoc Ctrl+P on
+// any other screen is unaffected. Hides the app shell + toolbar and lays out
+// one convocation slip per page.
+@media print {
+  body.printing-convocations .no-print {
+    display: none !important;
+  }
+
+  body.printing-convocations * {
+    visibility: hidden;
+  }
+
+  body.printing-convocations #convocation-print,
+  body.printing-convocations #convocation-print * {
+    visibility: visible;
+  }
+
+  body.printing-convocations #convocation-print {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+  }
+
+  body.printing-convocations .convocation-card {
+    page-break-after: always;
+    box-shadow: none;
+  }
+}

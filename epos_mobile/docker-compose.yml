@@ -1,0 +1,50 @@
+# docker-compose.yml — EPOS Mobile (complémentaire au backend)
+# ================================================
+# Ce fichier étend l'infrastructure existante du dashboard web.
+# L'app Flutter ne tourne PAS dans Docker (elle tourne sur mobile/émulateur).
+# Ce fichier sert à :
+#   1. Réutiliser la base de données PostgreSQL existante
+#   2. Ajouter éventuellement un mock API pour les tests Flutter
+# ================================================
+#
+# IMPORTANT : Ta DB est déjà lancée via le docker-compose du backend.
+# Ce fichier est OPTIONNEL — il est là pour documenter la connexion.
+#
+# Pour lancer uniquement la DB existante (depuis le dossier infrastructure/) :
+#   docker-compose up -d
+#
+# Les credentials (depuis ton docker-compose.yml existant) :
+#   Host (depuis l'émulateur Android) : 10.0.2.2
+#   Port : 5433 (mappé en local) → le backend écoute sur ce port
+#   User : admin
+#   Password : pfe_password
+#   DB : epos_master (avec auth_db, exam_db, scoring_db)
+
+version: '3.8'
+
+services:
+  # =============================================
+  # Service mock pour les tests E2E Flutter
+  # (Wiremock simule le backend Spring Boot)
+  # Utilise uniquement pour les tests automatisés
+  # =============================================
+  wiremock:
+    image: wiremock/wiremock:3.3.1-alpine
+    container_name: epos-mock-api
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./test/mocks/mappings:/home/wiremock/mappings
+      - ./test/mocks/__files:/home/wiremock/__files
+    command:
+      - --global-response-templating
+      - --verbose
+    networks:
+      - epos-network
+    profiles:
+      - testing    # Ne démarre que si : docker-compose --profile testing up
+
+networks:
+  epos-network:
+    name: epos-network   # Même réseau que le backend existant
+    external: true       # Utilise le réseau déjà créé par l'infrastructure

@@ -116,6 +116,7 @@ export interface MatiereResponse {
   id: number;
   code: string;
   libelle: string;
+  createdAt: string;
 }
 
 export interface UserResponse {

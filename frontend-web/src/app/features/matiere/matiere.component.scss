@@ -1,0 +1,78 @@
+$primary-green: #1b5e20;
+$bg-beige: #f5f2e8;
+
+.matiere-page {
+  padding: 30px;
+  background-color: $bg-beige;
+  min-height: 100vh;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  h1 { color: $primary-green; font-size: 28px; margin: 0; font-weight: 700; }
+  .subtitle { color: #666; margin: 5px 0 0; }
+  .avatar { width: 40px; height: 40px; background: $primary-green; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+}
+
+.toolbar {
+  margin-bottom: 25px;
+  .search-pill {
+    background: white;
+    padding: 10px 20px;
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    width: 420px;
+    input { border: none; outline: none; width: 100%; margin-left: 10px; font-size: 15px; }
+  }
+}
+
+.table-section {
+  .table-header-title { background: #e8f5e9; padding: 12px 20px; border-radius: 4px 4px 0 0; h3 { margin: 0; color: $primary-green; font-size: 16px; } }
+  .table-card { background: white; padding: 10px; border-radius: 0 0 4px 4px; }
+  
+  .epos-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th {
+      text-align: left;
+      padding: 15px;
+      border-bottom: 2px solid #333; // LIGNE NOIRE DU PROTOTYPE
+      color: #555;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+
+    td {
+      padding: 18px 15px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .font-semibold { font-weight: 600; }
+    .text-muted { color: #888; font-size: 12px; }
+    
+    .code-tag {
+      background: #f8f9fa;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      font-family: monospace;
+      font-weight: bold;
+    }
+
+    .actions-cell {
+      display: flex;
+      gap: 15px;
+      .btn-action { background: none; border: none; cursor: pointer; font-size: 18px; opacity: 0.7; transition: 0.2s; &:hover { opacity: 1; transform: scale(1.1); } }
+    }
+
+    .empty-state { padding: 40px; color: #999; font-style: italic; }
+  }
+}

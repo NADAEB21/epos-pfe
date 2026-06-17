@@ -1,0 +1,68 @@
+<div class="matiere-page">
+  <!-- EN-TETE -->
+  <header class="page-header">
+    <div class="title-group">
+      <h1>Catalogue des Matières</h1>
+      <p class="subtitle">Visualisation des spécialités pharmaceutiques enseignées.</p>
+    </div>
+    <div class="user-badge">
+      <div class="avatar">AD</div>
+    </div>
+  </header>
+
+  <!-- BARRE DE RECHERCHE -->
+  <div class="toolbar">
+    <div class="search-pill">
+      <span class="icon">🔍</span>
+      <input 
+        type="text" 
+        [(ngModel)]="searchTerm" 
+        (input)="applyFilter()" 
+        placeholder="Rechercher par libellé ou code matière...">
+    </div>
+  </div>
+
+  <!-- TABLEAU (SANS LA COLONNE ID) -->
+  <section class="table-section">
+    <div class="table-header-title">
+      <h3>Liste des matières</h3>
+    </div>
+    
+    <div class="table-card shadow-sm">
+      <table class="epos-table">
+        <thead>
+          <tr>
+            <th>Code Matière</th>
+            <th>Libellé / Désignation</th>
+            <th>Date d'ajout</th>
+            <th class="actions-cell">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngIf="loading">
+            <td colspan="4" class="text-center">Chargement...</td>
+          </tr>
+
+          <tr *ngFor="let m of filteredMatieres">
+            <td>
+              <span class="code-tag">{{ m.code }}</span>
+            </td>
+            <td class="font-semibold">{{ m.libelle }}</td>
+            <td class="text-muted">{{ m.createdAt | date:'dd/MM/yyyy' }}</td>
+            <td class="actions-cell">
+              <button class="btn-action view" title="Afficher">👁️</button>
+              
+            </td>
+          </tr>
+
+          <!-- Message si aucun résultat -->
+          <tr *ngIf="!loading && filteredMatieres.length === 0">
+            <td colspan="4" class="text-center empty-state">
+              Aucune matière trouvée pour votre recherche.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

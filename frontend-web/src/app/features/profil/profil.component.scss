@@ -1,0 +1,54 @@
+$primary: #1b5e20; // Vert EPOS
+$bg-beige: #f5f2e8;
+
+.profil-wrapper {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.profile-header-card {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  margin-bottom: 30px;
+
+  .avatar-large {
+    width: 80px; height: 80px;
+    background: $primary; color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: bold;
+  }
+
+  h1 { margin: 0; font-size: 24px; color: $primary; }
+  .role-badge { background: #e8f5e9; color: $primary; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+  .since { margin: 5px 0 0; color: #888; font-size: 13px; }
+}
+
+.grid-sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 25px;
+}
+
+.info-card {
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  h3 { margin-bottom: 20px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+}
+
+.form-group {
+  margin-bottom: 15px;
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; color: #555; }
+  input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; 
+    &:disabled { background: #f9f9f9; color: #aaa; cursor: not-allowed; }
+  }
+}
+
+.btn-primary { background: $primary; color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 10px; }
+.btn-outline { background: white; color: $primary; border: 1px solid $primary; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 10px; }
+.help-text { font-size: 12px; color: #777; margin-bottom: 15px; }

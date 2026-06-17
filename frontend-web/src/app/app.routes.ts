@@ -43,7 +43,7 @@ const workspaceTabs: Routes = [
 export const routes: Routes = [
   {
     path: 'login',
-    // canActivate: [guestGuard], // Désactivé pour le test
+    // canActivate: [guestGuard], 
     loadComponent: () =>
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
@@ -54,7 +54,7 @@ export const routes: Routes = [
   },
   {
     path: '',
-    // canActivate: [authGuard, webAccessGuard], // DÉSACTIVÉ POUR LE TEST
+    // canActivate: [authGuard, webAccessGuard], 
     loadComponent: () =>
       import('./core/layout/app-shell.component').then((m) => m.AppShellComponent),
     children: [
@@ -93,12 +93,17 @@ export const routes: Routes = [
         ],
       },
 
-      { path: 'parametres/profil', ...stub('Mon profil') },
+      // --- ROUTE MISE À JOUR : MON PROFIL ---
+      { 
+        path: 'parametres/profil', 
+        loadComponent: () => 
+          import('./features/profil/profil.component').then(m => m.ProfilComponent) 
+      },
 
-      // --- ADMINISTRATION (VOS INTERFACES) ---
+      // --- ADMINISTRATION ---
       {
         path: 'admin',
-        // canActivate: [superAdminGuard], // DÉSACTIVÉ POUR LE TEST
+        // canActivate: [superAdminGuard], 
         children: [
           {
             path: '',
@@ -121,9 +126,11 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/station/station.component').then((m) => m.StationComponent),
           },
-          { path: 'matieres', ...stub('Matieres (catalogue)') },
-
-          // --- ROUTE MISE À JOUR : TEMPLATES GLOBAUX ---
+          { 
+            path: 'matieres', 
+            loadComponent: () => 
+              import('./features/matiere/matiere.component').then(m => m.MatiereComponent) 
+          },
           {
             path: 'templates',
             loadComponent: () =>

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
  * Corps de POST /api/evaluateur/etudiants/{id}/stations/{id}/valider.
@@ -11,6 +12,7 @@ import lombok.NoArgsConstructor;
  * de la grille (nécessaire pour créer la Notation si elle n'existe pas encore).
  */
 @Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class ValiderEtudiantRequest {

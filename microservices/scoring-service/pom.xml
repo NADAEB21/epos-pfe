@@ -18,12 +18,6 @@
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.build.directory}/site/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
-        <sonar.exclusions>
-            src/main/java/tn/epos/scoring_service/entities/**,
-            src/main/java/tn/epos/scoring_service/repositories/**,
-            src/main/java/tn/epos/scoring_service/dto/**,
-            src/main/java/tn/epos/scoring_service/exception/**
-        </sonar.exclusions>
         <!-- The whole config/ package (SecurityConfig, ScopedAuthoritiesConverter
              and their tests) is intentionally mirrored across auth/exam/scoring —
              each microservice owns its own security config. Exclude config/ from
@@ -31,8 +25,10 @@
              duplication Quality Gate. Folding these into a shared epos-common
              module is tracked under #68. -->
         <sonar.cpd.exclusions>
+            src/main/java/tn/epos/scoring_service/entities/**,
+            src/main/java/tn/epos/scoring_service/repositories/**,
             src/main/java/tn/epos/scoring_service/config/**,
-            src/test/java/tn/epos/scoring_service/config/**,
+            src/test/java/tn/epos/scoring_service/dto/**,
             src/test/java/tn/epos/scoring_service/exception/**
         </sonar.cpd.exclusions>
         <!-- Bump byte-buddy (Mockito/Hibernate need a Java-17-aware version).
@@ -127,6 +123,11 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

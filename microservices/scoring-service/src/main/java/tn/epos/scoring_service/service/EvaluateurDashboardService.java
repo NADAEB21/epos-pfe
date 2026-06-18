@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
  *               a) lot validé manuellement (Lot.statut == TERMINE), OU
  *               b) rotation marquée TERMINE (via validerLot), OU
  *               c) on est au-delà de debut + dureeStation + GRACE_PERIOD_MIN.
+ *
+ *   - SonarQube S1192 : les littéraux répétés sont extraits en constantes.
  */
 @Service
 @RequiredArgsConstructor
@@ -58,6 +60,12 @@ public class EvaluateurDashboardService {
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
+    /** Statut renvoyé au Flutter pour une session terminée (S1192). */
+    private static final String STATUT_TERMINEE = "TERMINEE";
+
+    /** Fragment de log réutilisé pour tracer etudiantId + stationId (S1192). */
+    private static final String LOG_ETUDIANT_STATION = " station=";
+
     /**
      * Durée nominale d'une station en minutes (valeur par défaut du cahier des charges).
      * Idéalement lue depuis Examen.dureeStationMin via exam-service — hardcodée ici
@@ -69,8 +77,6 @@ public class EvaluateurDashboardService {
      * FIX 3 — Période de grâce après la fin théorique d'une station.
      * La session reste EN_COURS pendant 30 minutes supplémentaires pour absorber
      * les décalages entre évaluateurs, les démarrages en retard, etc.
-     * La session passe TERMINEE automatiquement seulement après
-     * debut + DUREE_STATION_MIN + GRACE_PERIOD_MIN.
      */
     private static final int GRACE_PERIOD_MIN = 30;
 
@@ -122,10 +128,10 @@ public class EvaluateurDashboardService {
                         .prenom(p.getEtudiant().getPrenom())
                         .numeroInscription(p.getEtudiant().getNumero_inscription())
                         .numeroEchantillon(parseEchantillon(p.getNum_echantillon()))
-                        .absent(!Boolean.TRUE.equals(p.getEst_present()))    // ← nouveau
+                        .absent(!Boolean.TRUE.equals(p.getEst_present()))
                         .verrouille(isNotationVerrouillée(p.getId()))
-                        .commentaire(p.getCommentaire())                      // ← nouveau
-                        .notationItems(loadNotationItems(p.getId()))          // ← nouveau
+                        .commentaire(p.getCommentaire())
+                        .notationItems(loadNotationItems(p.getId()))
                         .build())
                 .collect(Collectors.toList());
 
@@ -164,7 +170,6 @@ public class EvaluateurDashboardService {
         //   ExamenParticipation → lot → groups (StudentGroup) → rotations → stationId.
         // Si la chaîne StudentGroup → Rotation n'est pas complète en base,
         // la requête renvoie empty et la notation n'est jamais persistée.
-        // On logue le contexte complet pour faciliter le diagnostic.
         ExamenParticipation participation =
                 participationRepository.findByEtudiantIdAndStationId(
                                 request.getEtudiantId(), request.getStationId())
@@ -172,11 +177,11 @@ public class EvaluateurDashboardService {
                             log.error(
                                     "Participation introuvable — vérifiez que la chaîne " +
                                             "ExamenParticipation→Lot→StudentGroup→Rotation est complète. " +
-                                            "etudiantId={} stationId={}",
+                                            "etudiantId={}" + LOG_ETUDIANT_STATION + "{}",
                                     request.getEtudiantId(), request.getStationId());
                             return new ResourceNotFoundException(
                                     "Participation introuvable : étudiant=" + request.getEtudiantId()
-                                            + " station=" + request.getStationId()
+                                            + LOG_ETUDIANT_STATION + request.getStationId()
                                             + ". Assurez-vous que l'étudiant est lié à un lot "
                                             + "avec un StudentGroup ayant une Rotation sur cette station.");
                         });
@@ -229,9 +234,8 @@ public class EvaluateurDashboardService {
                 participationRepository.findByEtudiantIdAndStationId(etudiantId, stationId)
                         .orElseThrow(() -> new ResourceNotFoundException(
                                 "Participation introuvable : étudiant=" + etudiantId
-                                        + " station=" + stationId));
+                                        + LOG_ETUDIANT_STATION + stationId));
 
-        // Créer ou récupérer l'assignment et la notation
         RotationAssignment assignment =
                 rotationAssignmentRepository.findByParticipationId(participation.getId())
                         .orElseGet(() -> createAssignment(participation, stationId, evaluateurId));
@@ -239,7 +243,6 @@ public class EvaluateurDashboardService {
         Notation notation = notationRepository.findByAssignmentId(assignment.getId())
                 .orElseGet(() -> createNotation(assignment, stationId, request.getGrilleId()));
 
-        // Cas absent : supprimer les items déjà saisis, forcer score = 0
         if (request.isAbsent()) {
             List<NotationItem> items =
                     notationItemRepository.findByNotationId(notation.getId());
@@ -249,19 +252,15 @@ public class EvaluateurDashboardService {
             notation.setScore_final(0.0f);
         }
 
-        // Verrouiller la notation
         notation.setVerouillee(true);
         notationRepository.save(notation);
 
-        // ─── Mettre à jour la participation (un seul save) ────────────────────
         participation.setEst_present(!request.isAbsent());
         if (request.getCommentaire() != null && !request.getCommentaire().isBlank()) {
             participation.setCommentaire(request.getCommentaire());
         }
-        // Liaison étudiant ↔ note finale — c'était la colonne vide
         participation.setNote(notation.getScore_final());
         participationRepository.save(participation);
-        // ─────────────────────────────────────────────────────────────────────
 
         log.info("Étudiant {} {} à la station {} — note={} (évaluateur {})",
                 etudiantId,
@@ -275,13 +274,9 @@ public class EvaluateurDashboardService {
 
     /**
      * FIX 2 — validerLot() marque maintenant :
-     *   a) Lot.statut = TERMINE (comme avant)
+     *   a) Lot.statut = TERMINE
      *   b) Rotation.statut = TERMINE pour toutes les rotations liées au lot
      *      via StudentGroup.
-     *
-     * Cela garantit que resolveSessionStatut() retourne "TERMINEE" immédiatement
-     * lors du prochain appel au dashboard, sans attendre l'expiration du timer
-     * horaire (debut + DUREE_STATION_MIN + GRACE_PERIOD_MIN).
      */
     public void validerLot(Long lotId, Long evaluateurId) {
         log.debug("validerLot lot={} evaluateur={}", lotId, evaluateurId);
@@ -295,12 +290,9 @@ public class EvaluateurDashboardService {
                             + " n'appartient pas à l'évaluateur " + evaluateurId);
         }
 
-        // a) Marquer le lot TERMINE
         lot.setStatut(LotStatus.TERMINE);
         lotRepository.save(lot);
 
-        // b) FIX 2 — Marquer toutes les rotations liées TERMINE
-        //    Chaîne : Lot → StudentGroup → Rotation
         if (lot.getGroups() != null) {
             lot.getGroups().forEach(group -> {
                 if (group.getRotations() != null) {
@@ -330,7 +322,7 @@ public class EvaluateurDashboardService {
         return rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
                 .map(rotation -> {
-                    String statut    = resolveSessionStatut(rotation, maintenant);
+                    String statut     = resolveSessionStatut(rotation, maintenant);
                     String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
                     String heureFin   = rotation.getDebutCreneau()
                             .plusMinutes(DUREE_STATION_MIN)
@@ -356,7 +348,7 @@ public class EvaluateurDashboardService {
                             .annee("CT-" + rotation.getDebutCreneau().getYear())
                             .statut(statut)
                             .heureDebut(heureDebut)
-                            .heureFin("TERMINEE".equals(statut) ? heureFin : null)
+                            .heureFin(STATUT_TERMINEE.equals(statut) ? heureFin : null)
                             .nbEtudiants(nbEtudiants)
                             .salle("Salle " + rotation.getStationId())
                             .lotActuel(lotActuel)
@@ -378,39 +370,30 @@ public class EvaluateurDashboardService {
      *   3. debutCreneau > maintenant  → A_VENIR
      *   4. maintenant ≤ debut + duree + grace  → EN_COURS
      *   5. maintenant > debut + duree + grace  → TERMINEE (expiration automatique)
-     *
-     * La période de grâce (30 min) évite que la session se ferme automatiquement
-     * avant que l'évaluateur ait eu le temps de valider son lot.
      */
     private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant) {
-        // 1. Rotation explicitement terminée (mis à jour par validerLot)
         if (rotation.getStatut() == RotationStatus.TERMINE) {
-            return "TERMINEE";
+            return STATUT_TERMINEE;
         }
 
-        // 2. Lot validé manuellement
         if (rotation.getStudentGroup() != null
                 && rotation.getStudentGroup().getLot() != null
                 && rotation.getStudentGroup().getLot().getStatut() == LotStatus.TERMINE) {
-            return "TERMINEE";
+            return STATUT_TERMINEE;
         }
 
-        LocalDateTime debut   = rotation.getDebutCreneau();
-        // FIX 3 : fenêtre étendue — debut + durée nominale + période de grâce
+        LocalDateTime debut     = rotation.getDebutCreneau();
         LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
 
-        // 3. Pas encore commencé
         if (maintenant.isBefore(debut)) {
             return "A_VENIR";
         }
 
-        // 4. Dans la fenêtre étendue → EN_COURS
         if (!maintenant.isAfter(finReelle)) {
             return "EN_COURS";
         }
 
-        // 5. Au-delà de la fenêtre étendue → TERMINEE automatique
-        return "TERMINEE";
+        return STATUT_TERMINEE;
     }
 
     private int sessionStatutOrdre(String statut) {
@@ -480,7 +463,7 @@ public class EvaluateurDashboardService {
                 .findFirstByEvaluateurIdAndStationIdOrderByIdDesc(evaluateurId, stationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Rotation introuvable : evaluateur=" + evaluateurId
-                                + " station=" + stationId));
+                                + LOG_ETUDIANT_STATION + stationId));
 
         RotationAssignment assignment = new RotationAssignment();
         assignment.setRotation(rotation);
@@ -509,8 +492,6 @@ public class EvaluateurDashboardService {
      *   - NUMERIQUE: valeur ∈ [0, pondération] → score += valeur
      *
      * Fallback (exam-service indisponible) : somme des valeurs brutes.
-     * La map n'étant pas mise en cache sur échec, le score se corrige
-     * automatiquement au prochain appel réussi.
      */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
@@ -538,12 +519,12 @@ public class EvaluateurDashboardService {
             if (pondérationsDisponibles) {
                 ExamServiceClient.ItemInfo info = itemInfos.get(ni.getItemId());
                 if (info != null && "BINAIRE".equalsIgnoreCase(info.type())) {
-                    score += valeur * (float) info.ponderation();  // ← pondération appliquée
+                    score += valeur * (float) info.ponderation();
                 } else {
-                    score += valeur;                               // ← numérique
+                    score += valeur;
                 }
             } else {
-                score += valeur;                                   // ← fallback
+                score += valeur;
             }
         }
 
@@ -562,7 +543,6 @@ public class EvaluateurDashboardService {
         if (rotation.getStatut() == RotationStatus.TERMINE) {
             return "TERMINE";
         }
-        // FIX 3 : même fenêtre étendue que resolveSessionStatut
         LocalDateTime debut     = rotation.getDebutCreneau();
         LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
 
@@ -570,7 +550,7 @@ public class EvaluateurDashboardService {
             return "A_VENIR";
         }
         if (!maintenant.isAfter(finReelle)) {
-            return "A_VENIR"; // EN_COURS affiché "A_VENIR" dans la grille planning
+            return "A_VENIR";
         }
         return "TERMINE";
     }

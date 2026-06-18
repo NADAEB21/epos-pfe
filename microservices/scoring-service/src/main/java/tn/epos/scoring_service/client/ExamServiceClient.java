@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tn.epos.common.exception.BusinessException;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -38,6 +39,9 @@ public class ExamServiceClient {
     // le 'T' ISO) via @JsonFormat — il faut le même motif pour le relire.
     private static final DateTimeFormatter LAUNCHED_AT_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /** SonarQube S1192 — littéral réutilisé pour le nom de repli d'une station inconnue. */
+    private static final String STATION_FALLBACK_PREFIX = "Station ";
 
     /**
      * Informations d'un item d'évaluation issues de l'exam-service.
@@ -110,12 +114,12 @@ public class ExamServiceClient {
                     .bodyToMono(JsonNode.class)
                     .block();
             String nom = (root != null)
-                    ? root.path("data").path("nom").asText("Station " + stationId)
-                    : "Station " + stationId;
+                    ? root.path("data").path("nom").asText(STATION_FALLBACK_PREFIX + stationId)
+                    : STATION_FALLBACK_PREFIX + stationId;
             return new StationInfo(nom);
         } catch (Exception e) {
             log.warn("exam-service injoignable pour station {} : {}", stationId, e.getMessage());
-            return new StationInfo("Station " + stationId);
+            return new StationInfo(STATION_FALLBACK_PREFIX + stationId);
         }
     }
 
@@ -228,26 +232,6 @@ public class ExamServiceClient {
         }
     }
 
-    private Set<Long> extractItemIds(JsonNode root) {
-        Set<Long> ids = new HashSet<>();
-        if (root == null) return ids;
-
-        // Response envelope: ApiResponse<PageResponse<ItemResponse>> →
-        // {success, message, data: {content: [{id, ...}], ...}}
-        JsonNode content = root.path("data").path("content");
-        if (!content.isArray()) {
-            log.warn("Unexpected exam-service response shape: missing data.content[]");
-            return ids;
-        }
-        for (JsonNode item : content) {
-            long id = item.path("id").asLong(-1);
-            if (id > 0) ids.add(id);
-        }
-        return ids;
-    }
-
-        // Response envelope: ApiResponse<PageResponse<ItemResponse>> →
-        // {success, message, data: {content: [{id, ...}], ...}}
     private Map<Long, ItemInfo> extractItemInfos(JsonNode root, Long grilleId) {
         Map<Long, ItemInfo> infos = new HashMap<>();
         if (root == null) {

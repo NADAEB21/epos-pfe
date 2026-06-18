@@ -43,6 +43,27 @@ class EvaluateurDashboardControllerTest {
     private final Long EVAL_ID = 123L;
 
     @Nested
+    @DisplayName("Tests d'extraction du JWT (userId)")
+    class JwtExtractionTests {
+
+        @Test
+        @DisplayName("500 - Erreur si le claim userId est absent du token")
+        void extraction_userIdAbsent_devraitRetourner500() throws Exception {
+            mockMvc.perform(get("/api/evaluateur/dashboard")
+                            .with(jwt().jwt(j -> j.claim("sub", "someone")))) // Pas de userId
+                    .andExpect(status().isInternalServerError());
+        }
+
+        @Test
+        @DisplayName("500 - Erreur si le claim userId n'est pas un nombre")
+        void extraction_userIdInvalide_devraitRetourner500() throws Exception {
+            mockMvc.perform(get("/api/evaluateur/dashboard")
+                            .with(jwt().jwt(j -> j.claim("userId", "abc")))) // String au lieu de Number
+                    .andExpect(status().isInternalServerError());
+        }
+    }
+
+    @Nested
     @DisplayName("GET /api/evaluateur/dashboard")
     class GetDashboard {
         @Test
@@ -66,6 +87,24 @@ class EvaluateurDashboardControllerTest {
     }
 
     @Nested
+    @DisplayName("Tests de Validation DTO")
+    class ValidationTests {
+
+        @Test
+        @DisplayName("400 - Échec si la requête de validation est incomplète")
+        void validerEtudiant_invalide_devraitRetourner400() throws Exception {
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            // On ne met pas de grilleId, ce qui devrait déclencher une erreur de validation
+
+            mockMvc.perform(post("/api/evaluateur/etudiants/1/stations/1/valider")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID)))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
     @DisplayName("GET /api/evaluateur/stations/{id}/lots/{n}")
     class GetLotDetail {
         @Test
@@ -79,6 +118,24 @@ class EvaluateurDashboardControllerTest {
                     .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.id").value(10));
+        }
+    }
+
+    @Nested
+    @DisplayName("Tests de propagation d'erreurs Service")
+    class ServiceExceptionTests {
+
+        @Test
+        @DisplayName("404 - Si le lot n'existe pas dans le service")
+        void getLot_introuvable_devraitRetourner404() throws Exception {
+            // Simulation d'une exception dans le service
+            when(dashboardService.getLotDetail(anyLong(), anyInt(), anyLong()))
+                    .thenThrow(new tn.epos.common.exception.ResourceNotFoundException("Lot non trouvé"));
+
+            mockMvc.perform(get("/api/evaluateur/stations/1/lots/99")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 

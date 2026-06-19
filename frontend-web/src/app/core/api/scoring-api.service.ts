@@ -9,6 +9,8 @@ import {
   EtudiantSummary,
   ExamenResult,
   GenerationResult,
+  ImportEtudiantRow,
+  ImportResult,
   LotSummary,
   NotationSummary,
   ParticipationSummary,
@@ -84,6 +86,19 @@ export class ScoringApiService {
   createParticipation(body: CreateParticipationRequest): Observable<ParticipationSummary> {
     return this.http
       .post<ApiResponse<ParticipationSummary>>(`${this.baseUrl}/participations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Bulk import + enrol (gap #11 — POST /etudiants/import?examenId=X). The FE
+   * parses the CSV/.xlsx into normalized rows; the backend find-or-creates each
+   * student by numero_inscription and enrols them on the exam, skipping any
+   * already on the roster. Returns a per-row outcome for the result table.
+   */
+  importEtudiants(examenId: number, rows: ImportEtudiantRow[]): Observable<ImportResult> {
+    const params = new HttpParams().set('examenId', examenId);
+    return this.http
+      .post<ApiResponse<ImportResult>>(`${this.baseUrl}/etudiants/import`, rows, { params })
       .pipe(map((r) => r.data));
   }
 

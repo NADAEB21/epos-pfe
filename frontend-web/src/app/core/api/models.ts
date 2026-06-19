@@ -211,6 +211,40 @@ export interface CreateEtudiantRequest {
 }
 
 /**
+ * One row of a bulk import (POST /etudiants/import?examenId=X). The FE parses
+ * CSV/.xlsx (SheetJS) into these; field names mirror the backend
+ * ImportEtudiantRequest verbatim (snake_case numero_inscription).
+ */
+export interface ImportEtudiantRow {
+  nom: string;
+  prenom: string;
+  numero_inscription: string;
+}
+
+/** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
+export interface ImportRowResult {
+  ligne: number;
+  numero_inscription: string | null;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'CREATED' | 'ENROLLED' | 'ALREADY_ENROLLED' | 'ERROR';
+  message: string | null;
+}
+
+/**
+ * Summary of a bulk import (backend ImportResult). The four counters bucket every
+ * row by statut and sum to total.
+ */
+export interface ImportResult {
+  total: number;
+  created: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  errors: number;
+  rows: ImportRowResult[];
+}
+
+/**
  * Body for POST /participations (scoring-service ParticipationDTO). A
  * participation is the ONLY tie between a student and an exam, so this is what
  * "enrol" means. We send examen_id + etudiantId only; num_echantillon / note /

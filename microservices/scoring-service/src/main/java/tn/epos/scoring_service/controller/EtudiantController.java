@@ -7,6 +7,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.EtudiantDTO; // New Import
+import tn.epos.scoring_service.dto.ImportEtudiantRequest;
+import tn.epos.scoring_service.dto.ImportResult;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
 
@@ -54,6 +56,22 @@ public class EtudiantController {
         EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Étudiant créé avec succès", saved));
+    }
+
+    /**
+     * Bulk import + enrol (gap #11). The frontend parses CSV/.xlsx (SheetJS) into
+     * normalized rows and posts them as JSON (NOT multipart). For each row we
+     * find-or-create the student by numero_inscription, then enrol on examenId,
+     * skipping any already-enrolled. Returns a per-row outcome so the UI can show
+     * a line-by-line result table. RESPONSABLE_MATIERE-allowed, like POST /etudiants.
+     */
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<ImportResult>> importEtudiants(
+            @RequestParam Long examenId,
+            @RequestBody List<ImportEtudiantRequest> rows) {
+        ImportResult result = etudiantService.importStudents(examenId, rows);
+        return ResponseEntity.ok(ApiResponse.ok("Import terminé", result));
     }
 
     @PutMapping("/{id}")

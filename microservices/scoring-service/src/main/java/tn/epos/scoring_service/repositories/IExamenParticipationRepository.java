@@ -21,4 +21,13 @@ public interface IExamenParticipationRepository extends JpaRepository<ExamenPart
     // examen_id column above, so a derived query resolves cleanly. Used by the
     // two-phase lot workflow: per-lot presence marking and per-lot generation.
     List<ExamenParticipation> findByLotId(Long lotId);
+
+    // Pre-check for the bulk importer so an already-enrolled student is reported
+    // as ALREADY_ENROLLED instead of tripping the uq_participation_examen_etudiant
+    // unique constraint (examen_id, etudiant_id). examen_id is a flat column (no
+    // entity path) but etudiant.id IS a real association path.
+    @Query("SELECT COUNT(p) > 0 FROM ExamenParticipation p "
+            + "WHERE p.examen_id = :examenId AND p.etudiant.id = :etudiantId")
+    boolean existsByExamenAndEtudiant(@Param("examenId") Long examenId,
+                                      @Param("etudiantId") Long etudiantId);
 }

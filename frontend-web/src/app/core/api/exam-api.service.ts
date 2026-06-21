@@ -137,6 +137,35 @@ export class ExamApiService {
       .pipe(map((r) => r.data));
   }
 
+  // ---- sujet PDF ----------------------------------------------------------
+
+  /**
+   * Upload (or replace) the exam's sujet PDF (POST /examens/{id}/pdf). The
+   * backend takes a MULTIPART body with the file under the field name `fichier`
+   * (NOT JSON) — we build the FormData here and let the browser set the
+   * multipart Content-Type/boundary (never set it manually). Server-side: PDF
+   * content-type only, ~10 MB max, matière-scoped (403 out of scope). An
+   * existing PDF is overwritten. Returns the updated exam (hasPdfSujet=true,
+   * pdfSujetNom set).
+   */
+  uploadPdfSujet(id: number, fichier: File): Observable<ExamenResponse> {
+    const form = new FormData();
+    form.append('fichier', fichier);
+    return this.http
+      .post<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/pdf`, form)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Download the exam's sujet PDF (GET /examens/{id}/pdf). The endpoint is
+   * @PreAuthorize-guarded, so it can't be a plain <a href> — it needs the JWT
+   * the HttpClient interceptor attaches. We fetch it as a Blob; the caller turns
+   * it into an object URL to view/save. 404 if no PDF is attached.
+   */
+  downloadPdfSujet(id: number): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/${id}/pdf`, { responseType: 'blob' });
+  }
+
   /**
    * Stations of an exam, ordered. This is the canonical source for full station
    * data: unlike the stations embedded in getExamen(id), each row here carries

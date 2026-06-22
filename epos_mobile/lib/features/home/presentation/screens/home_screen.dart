@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/offline/offline_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/app_translations.dart';
 import '../../../auth/domain/entities/user.dart';
@@ -30,7 +31,7 @@ import '../bloc/session_bloc.dart';
 //   stationId  = session.stationId (pour retrouver l'évaluateur via sa rotation)
 //   lotNumero  = session.lotActuel (numéro du lot courant dans la rotation)
 // ================================================================
- 
+
 void _naviguerVersNotation(
   BuildContext context,
   Session session,
@@ -39,16 +40,21 @@ void _naviguerVersNotation(
   final authBloc    = context.read<AuthBloc>();
   final profileBloc = context.read<ProfileBloc>();
   final sessionBloc = context.read<SessionBloc>();
+  // BF6.2 — OfflineBloc injecté dans GradingBloc pour rafraîchir le badge
+  final offlineBloc = context.read<OfflineBloc>();
 
-  final int stationId    = session.stationId ?? session.id;
-  final int lotNumero    = session.lotActuel > 0 ? session.lotActuel : 1;
-  final debutCreneau = _parseHeureDebut(session.heureDebut);
+  final int stationId = session.stationId ?? session.id;
+  final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
+  final debutCreneau  = _parseHeureDebut(session.heureDebut);
 
-  final gradingBloc = GradingBloc(repository: gradingRepository)
-    ..add(GradingSessionStarted(
+  // BF6 — offlineBloc passé au GradingBloc pour notifier après chaque saisie
+  final gradingBloc = GradingBloc(
+    repository:  gradingRepository,
+    offlineBloc: offlineBloc,
+  )..add(GradingSessionStarted(
       stationId:    stationId,
       lotNumero:    lotNumero,
-      debutCreneau: debutCreneau,     // ← pour le timer
+      debutCreneau: debutCreneau,
     ));
 
   Navigator.of(context, rootNavigator: true)
@@ -59,12 +65,13 @@ void _naviguerVersNotation(
           BlocProvider.value(value: profileBloc),
           BlocProvider.value(value: sessionBloc),
           BlocProvider.value(value: gradingBloc),
+          // BF6.2 — propagé dans GradingScreen pour ConnectivityBanner + badge
+          BlocProvider.value(value: offlineBloc),
         ],
         child: GradingScreen(session: session),
       ),
     ))
     .then((_) {
-      // Rafraîchir les sessions dès le retour à l'accueil
       sessionBloc.add(const SessionRefreshRequested());
     });
 }

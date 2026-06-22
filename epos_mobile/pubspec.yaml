@@ -48,7 +48,7 @@ dependencies:
 
   
   # === WebSocket ===
-  stomp_dart_client: ^1.0.2   # WebSocket STOMP (Spring Boot)
+  stomp_dart_client: ^2.0.0   # WebSocket STOMP (Spring Boot)
  
   # === Authentification & Sécurité ===
   flutter_secure_storage: ^9.0.0  # Stockage sécurisé des tokens JWT

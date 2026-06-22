@@ -2,11 +2,14 @@ package tn.epos.scoring_service.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.dto.dashboard.*;
+import tn.epos.scoring_service.dto.websocket.LotStatusMessage;
+import tn.epos.scoring_service.dto.websocket.ScoreUpdateMessage;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.*;
 import tn.epos.scoring_service.client.ExamServiceClient;
@@ -22,25 +25,18 @@ import java.util.stream.Collectors;
 /**
  * Service d'agrégation pour le dashboard de l'évaluateur (app mobile Flutter).
  *
- * Corrections apportées :
- *   - FIX 1 : saisirNotation() échouait silencieusement quand
- *             findByEtudiantIdAndStationId() ne trouvait pas la participation
- *             (JPQL navigue via lot.groups.rotations → la chaîne doit être complète).
- *             Ajout d'une vérification explicite et d'un log détaillé.
+ * <p><b>BF6.1 — Synchronisation temps réel :</b> après chaque opération de
+ * notation ({@link #saisirNotation}, {@link #validerEtudiant}, {@link #validerLot}),
+ * le service diffuse un message WebSocket STOMP sur le topic correspondant.
+ * Le dashboard Angular et l'app Flutter reçoivent la mise à jour sans polling.
  *
- *   - FIX 2 : validerLot() met maintenant aussi à jour Rotation.statut = TERMINE
- *             pour que resolveSessionStatut() retourne "TERMINEE" immédiatement
- *             après la validation, sans attendre l'expiration du timer horaire.
- *
- *   - FIX 3 : resolveSessionStatut() — la fenêtre temporelle de détection
- *             EN_COURS est étendue à debut + dureeStation + 30min de grâce,
- *             pour couvrir les décalages réels entre évaluateurs.
- *             La session passe TERMINEE uniquement si :
- *               a) lot validé manuellement (Lot.statut == TERMINE), OU
- *               b) rotation marquée TERMINE (via validerLot), OU
- *               c) on est au-delà de debut + dureeStation + GRACE_PERIOD_MIN.
- *
- *   - SonarQube S1192 : les littéraux répétés sont extraits en constantes.
+ * <p>Topics diffusés :
+ * <ul>
+ *   <li>{@code /topic/stations/{stationId}/scores} — score mis à jour
+ *       ({@link ScoreUpdateMessage})</li>
+ *   <li>{@code /topic/lots/{lotId}/status} — statut lot changé
+ *       ({@link LotStatusMessage})</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -48,7 +44,7 @@ import java.util.stream.Collectors;
 @Transactional
 public class EvaluateurDashboardService {
 
-    // ── Repositories ─────────────────────────────────────────────────────────
+    // ── Repositories ──────────────────────────────────────────────────────────
 
     private final ILotRepository                  lotRepository;
     private final IRotationRepository             rotationRepository;
@@ -66,14 +62,16 @@ public class EvaluateurDashboardService {
      */
     private final Clock clock;
 
+    // Template STOMP pour la diffusion WebSocket.
+    private final SimpMessagingTemplate messagingTemplate;
+
+
     // ── Constantes ────────────────────────────────────────────────────────────
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
-    /** Statut renvoyé au Flutter pour une session terminée (S1192). */
-    private static final String STATUT_TERMINEE = "TERMINEE";
-
-    /** Fragment de log réutilisé pour tracer etudiantId + stationId (S1192). */
+    /** SonarQube S1192. */
+    private static final String STATUT_TERMINEE    = "TERMINEE";
     private static final String LOG_ETUDIANT_STATION = " station=";
 
     /**
@@ -82,14 +80,21 @@ public class EvaluateurDashboardService {
      * {@code Examen.dureeStationMin} (via {@link ExamServiceClient.ExamTiming}) ;
      * cette constante ne sert que si l'examen n'est pas résolvable.
      */
-    private static final int DUREE_STATION_MIN = 15;
 
-    /**
-     * FIX 3 — Période de grâce après la fin théorique d'une station.
-     * La session reste EN_COURS pendant 30 minutes supplémentaires pour absorber
-     * les décalages entre évaluateurs, les démarrages en retard, etc.
-     */
-    private static final int GRACE_PERIOD_MIN = 30;
+    private static final int DUREE_STATION_MIN = 15;
+    private static final int GRACE_PERIOD_MIN  = 30;
+
+    // ── Topics WebSocket ──────────────────────────────────────────────────────
+
+    /** Destination du topic score pour une station donnée. */
+    private static String topicScore(Long stationId) {
+        return "/topic/stations/" + stationId + "/scores";
+    }
+
+    /** Destination du topic statut lot. */
+    private static String topicLotStatus(Long lotId) {
+        return "/topic/lots/" + lotId + "/status";
+    }
 
     // =========================================================================
     // 1. DASHBOARD COMPLET
@@ -182,6 +187,13 @@ public class EvaluateurDashboardService {
     // 3. SAISIR UNE NOTATION
     // =========================================================================
 
+    /**
+     * Enregistre la notation d'un étudiant pour un critère donné, recalcule
+     * le score final, puis <b>diffuse le nouveau score via WebSocket</b> (BF6.1).
+     *
+     * <p>Le broadcast est effectué après la transaction de persistance pour
+     * garantir que les clients reçoivent une valeur cohérente avec la base.
+     */
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
         log.debug("saisirNotation etudiant={} station={} grille={} item={} valeur={}",
                 request.getEtudiantId(), request.getStationId(),
@@ -189,8 +201,6 @@ public class EvaluateurDashboardService {
 
         // FIX 1 — La requête JPQL findByEtudiantIdAndStationId navigue via
         //   ExamenParticipation → lot → groups (StudentGroup) → rotations → stationId.
-        // Si la chaîne StudentGroup → Rotation n'est pas complète en base,
-        // la requête renvoie empty et la notation n'est jamais persistée.
         ExamenParticipation participation =
                 participationRepository.findByEtudiantIdAndStationId(
                                 request.getEtudiantId(), request.getStationId())
@@ -222,6 +232,7 @@ public class EvaluateurDashboardService {
                             + request.getEtudiantId());
         }
 
+        // Upsert du NotationItem (dernière valeur gagne — BF6.3)
         Optional<NotationItem> existingItem =
                 notationItemRepository.findByNotationIdAndItemId(
                         notation.getId(), request.getItemId());
@@ -238,14 +249,29 @@ public class EvaluateurDashboardService {
         }
 
         recalculerScoreFinal(notation);
+
         log.debug("NotationItem sauvegardé — notation={} item={} valeur={}",
                 notation.getId(), request.getItemId(), request.getValeur());
+
+        // BF6.1 — Diffusion du score mis à jour vers tous les abonnés de la station.
+        // Exécuté après la persistance pour garantir la cohérence des données.
+        broadcastScoreUpdate(
+                request.getEtudiantId(),
+                request.getStationId(),
+                notation.getGrilleId(),
+                notation.getScore_final(),
+                Boolean.TRUE.equals(notation.getVerouillee())
+        );
     }
 
     // =========================================================================
     // 4. VALIDER UN ÉTUDIANT
     // =========================================================================
 
+    /**
+     * Verrouille les notes d'un étudiant pour une station et diffuse le
+     * statut verrouillé via WebSocket (BF6.1).
+     */
     public void validerEtudiant(Long etudiantId, Long stationId,
                                 Long evaluateurId, ValiderEtudiantRequest request) {
         log.debug("validerEtudiant etudiant={} station={} absent={}",
@@ -287,6 +313,16 @@ public class EvaluateurDashboardService {
                 etudiantId,
                 request.isAbsent() ? "ABSENT" : "validé",
                 stationId, notation.getScore_final(), evaluateurId);
+
+        // BF6.1 — Diffuse le score verrouillé. Le client Flutter passe
+        // l'étudiant dans etudiantsValides dès réception (verrouille = true).
+        broadcastScoreUpdate(
+                etudiantId,
+                stationId,
+                notation.getGrilleId(),
+                notation.getScore_final(),
+                true   // toujours verrouillé après validerEtudiant
+        );
     }
 
     // =========================================================================
@@ -294,10 +330,13 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     /**
-     * FIX 2 — validerLot() marque maintenant :
-     *   a) Lot.statut = TERMINE
-     *   b) Rotation.statut = TERMINE pour toutes les rotations liées au lot
-     *      via StudentGroup.
+     * FIX 2 — validerLot() marque :
+     *   a) {@code Lot.statut = TERMINE}
+     *   b) {@code Rotation.statut = TERMINE} pour toutes les rotations du lot.
+     *
+     * <p>BF6.1 — Diffuse le changement de statut du lot sur
+     * {@code /topic/lots/{lotId}/status} pour que l'app Flutter et le dashboard
+     * se mettent à jour instantanément.
      */
     public void validerLot(Long lotId, Long evaluateurId) {
         log.debug("validerLot lot={} evaluateur={}", lotId, evaluateurId);
@@ -314,6 +353,7 @@ public class EvaluateurDashboardService {
         lot.setStatut(LotStatus.TERMINE);
         lotRepository.save(lot);
 
+        // Marque aussi les rotations comme TERMINE (FIX 2)
         if (lot.getGroups() != null) {
             lot.getGroups().forEach(group -> {
                 if (group.getRotations() != null) {
@@ -329,12 +369,61 @@ public class EvaluateurDashboardService {
             });
         }
 
-        log.info("Lot {} validé et rotations associées marquées TERMINE (évaluateur {})",
-                lotId, evaluateurId);
+        log.info("Lot {} validé (évaluateur {})", lotId, evaluateurId);
+
+        // BF6.1 — Diffuse le changement de statut du lot.
+        int totalLots = lotRepository.countByExamenId(lot.getExamenId());
+        broadcastLotStatus(lot, totalLots);
     }
 
     // =========================================================================
-    // MÉTHODES PRIVÉES — Construction des réponses
+    // MÉTHODES PRIVÉES — Diffusion WebSocket (BF6.1)
+    // =========================================================================
+
+    /**
+     * Diffuse une mise à jour de score sur {@code /topic/stations/{stationId}/scores}.
+     *
+     * <p>Utilise {@link SimpMessagingTemplate#convertAndSend} qui est thread-safe
+     * et ne bloque pas la transaction appelante (fire-and-forget vers le broker).
+     */
+    private void broadcastScoreUpdate(Long etudiantId, Long stationId,
+                                      Long grilleId, Float score, Boolean verrouille) {
+        ScoreUpdateMessage message = ScoreUpdateMessage.builder()
+                .etudiantId(etudiantId)
+                .stationId(stationId)
+                .grilleId(grilleId)
+                .score(score)
+                .verrouille(verrouille)
+                .build();
+
+        String destination = topicScore(stationId);
+        messagingTemplate.convertAndSend(destination, message);
+
+        log.debug("WS broadcast score → {} : etudiant={} score={} verrouille={}",
+                destination, etudiantId, score, verrouille);
+    }
+
+    /**
+     * Diffuse un changement de statut de lot sur {@code /topic/lots/{lotId}/status}.
+     */
+    private void broadcastLotStatus(Lot lot, int totalLots) {
+        LotStatusMessage message = LotStatusMessage.builder()
+                .lotId(lot.getId())
+                .examenId(lot.getExamenId())
+                .statut(lot.getStatut().name())
+                .numeroLot(lot.getNumeroLot())
+                .totalLots(totalLots)
+                .build();
+
+        String destination = topicLotStatus(lot.getId());
+        messagingTemplate.convertAndSend(destination, message);
+
+        log.debug("WS broadcast lot status → {} : lot={} statut={}",
+                destination, lot.getId(), lot.getStatut());
+    }
+
+    // =========================================================================
+    // MÉTHODES PRIVÉES — Construction des réponses dashboard
     // =========================================================================
 
     private List<SessionResponse> buildSessions(List<Rotation> rotations, List<Lot> lots,
@@ -396,6 +485,7 @@ public class EvaluateurDashboardService {
     /**
      * FIX 3 — Détermine le statut d'une session avec période de grâce.
      *
+<<<<<<< HEAD
      * Priorité (ordre strict) :
      *   1. Rotation.statut == TERMINE → TERMINEE  (validation manuelle via validerLot)
      *   2. Lot lié TERMINE            → TERMINEE  (validation manuelle via validerLot)
@@ -405,12 +495,21 @@ public class EvaluateurDashboardService {
      *
      * <p>{@code maintenant} est le <b>temps effectif</b> (ADR-0012 §0) et
      * {@code dureeMin} provient de la config examen, non plus d'une constante.
+=======
+     * <p>Priorité (ordre strict) :
+     * <ol>
+     *   <li>Rotation.statut == TERMINE → TERMINEE (validation manuelle)</li>
+     *   <li>Lot lié TERMINE → TERMINEE (validation manuelle)</li>
+     *   <li>debutCreneau > maintenant → A_VENIR</li>
+     *   <li>maintenant ≤ debut + duree + grace → EN_COURS</li>
+     *   <li>maintenant > debut + duree + grace → TERMINEE (expiration)</li>
+     * </ol>
+>>>>>>> 6112141 (add websocket config)
      */
     private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant, int dureeMin) {
         if (rotation.getStatut() == RotationStatus.TERMINE) {
             return STATUT_TERMINEE;
         }
-
         if (rotation.getStudentGroup() != null
                 && rotation.getStudentGroup().getLot() != null
                 && rotation.getStudentGroup().getLot().getStatut() == LotStatus.TERMINE) {
@@ -420,14 +519,8 @@ public class EvaluateurDashboardService {
         LocalDateTime debut     = rotation.getDebutCreneau();
         LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
 
-        if (maintenant.isBefore(debut)) {
-            return "A_VENIR";
-        }
-
-        if (!maintenant.isAfter(finReelle)) {
-            return "EN_COURS";
-        }
-
+        if (maintenant.isBefore(debut))        return "A_VENIR";
+        if (!maintenant.isAfter(finReelle))    return "EN_COURS";
         return STATUT_TERMINEE;
     }
 
@@ -440,8 +533,8 @@ public class EvaluateurDashboardService {
     }
 
     private Lot resolverLotDepuisRotation(Rotation rotation, List<Lot> lots) {
-        if (rotation.getStudentGroup() == null) return null;
-        if (rotation.getStudentGroup().getLot() == null) return null;
+        if (rotation.getStudentGroup() == null
+                || rotation.getStudentGroup().getLot() == null) return null;
         Long lotId = rotation.getStudentGroup().getLot().getId();
         return lots.stream()
                 .filter(l -> l.getId().equals(lotId))
@@ -546,7 +639,6 @@ public class EvaluateurDashboardService {
         int totalEtudiants = lots.stream()
                 .mapToInt(l -> l.getTailleLot() != null ? l.getTailleLot() : 0)
                 .sum();
-
         long lotsValides = lots.stream()
                 .filter(l -> l.getStatut() == LotStatus.TERMINE)
                 .count();
@@ -591,8 +683,7 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     private RotationAssignment createAssignment(ExamenParticipation participation,
-                                                Long stationId,
-                                                Long evaluateurId) {
+                                                Long stationId, Long evaluateurId) {
         Rotation rotation = rotationRepository
                 .findFirstByEvaluateurIdAndStationIdOrderByIdDesc(evaluateurId, stationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -607,7 +698,8 @@ public class EvaluateurDashboardService {
         return rotationAssignmentRepository.save(assignment);
     }
 
-    private Notation createNotation(RotationAssignment assignment, Long stationId, Long grilleId) {
+    private Notation createNotation(RotationAssignment assignment,
+                                    Long stationId, Long grilleId) {
         Notation notation = new Notation();
         notation.setAssignment(assignment);
         notation.setStationId(stationId);
@@ -621,11 +713,12 @@ public class EvaluateurDashboardService {
     /**
      * Recalcule le score final en appliquant les pondérations de l'exam-service.
      *
-     * Formule identique à ScoreUtils.calculerScore (Flutter) :
-     *   - BINAIRE  : valeur ∈ {0,1}  → score += valeur × pondération
-     *   - NUMERIQUE: valeur ∈ [0, pondération] → score += valeur
-     *
-     * Fallback (exam-service indisponible) : somme des valeurs brutes.
+     * <p>Formule identique à {@code ScoreUtils.calculerScore()} côté Flutter :
+     * <ul>
+     *   <li>BINAIRE  : valeur ∈ {0,1} → score += valeur × pondération</li>
+     *   <li>NUMERIQUE: valeur ∈ [0, pondération] → score += valeur</li>
+     * </ul>
+     * Fallback (exam-service indisponible) : somme brute des valeurs.
      */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
@@ -649,7 +742,6 @@ public class EvaluateurDashboardService {
         for (NotationItem ni : items) {
             if (ni.getValeur() == null) continue;
             float valeur = ni.getValeur();
-
             if (pondérationsDisponibles) {
                 ExamServiceClient.ItemInfo info = itemInfos.get(ni.getItemId());
                 if (info != null && "BINAIRE".equalsIgnoreCase(info.type())) {
@@ -670,7 +762,7 @@ public class EvaluateurDashboardService {
     }
 
     // =========================================================================
-    // MÉTHODES PRIVÉES — Mapping et utilitaires
+    // MÉTHODES PRIVÉES — Utilitaires
     // =========================================================================
 
     private String mapRotationStatutToPlanningStatut(Rotation rotation,
@@ -691,8 +783,8 @@ public class EvaluateurDashboardService {
     }
 
     private int getLotNumeroPourRotation(Rotation rotation) {
-        if (rotation.getStudentGroup() == null) return 0;
-        if (rotation.getStudentGroup().getLot() == null) return 0;
+        if (rotation.getStudentGroup() == null
+                || rotation.getStudentGroup().getLot() == null) return 0;
         Integer num = rotation.getStudentGroup().getLot().getNumeroLot();
         return num != null ? num : 0;
     }

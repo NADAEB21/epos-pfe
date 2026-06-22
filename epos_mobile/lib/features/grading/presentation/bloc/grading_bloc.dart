@@ -1,6 +1,12 @@
 // lib/features/grading/presentation/bloc/grading_bloc.dart
+// ================================================
+// BF6.1 — WebSocket : réception des mises à jour de scores en temps réel.
+// BF6.2 — Offline  : la sauvegarde locale est transparente (gérée par le
+//          repository). Le bloc notifie l'OfflineBloc après chaque saisie
+//          pour maintenir le compteur de notations en attente à jour.
 
 import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
@@ -9,6 +15,8 @@ import '../../domain/entities/item_evaluation.dart';
 import '../../domain/entities/lot.dart';
 import '../../domain/entities/notation.dart';
 import '../../domain/repositories/grading_repository.dart';
+import '../../../../core/offline/offline_bloc.dart';
+import '../../../../core/offline/websocket_service.dart';
 import '../../../../core/utils/score_utils.dart';
 
 // ════════════════════════════════════════════════
@@ -16,32 +24,55 @@ import '../../../../core/utils/score_utils.dart';
 // ════════════════════════════════════════════════
 abstract class GradingEvent extends Equatable {
   const GradingEvent();
-  @override List<Object?> get props => [];
+  @override
+  List<Object?> get props => [];
 }
 
 class GradingSessionStarted extends GradingEvent {
-  final int stationId;
-  final int lotNumero;
-  final int? grilleId; // Optionnel : si on veut précharger une grille spécifique (ex : pour tests)
-  final DateTime? debutCreneau; 
-  const GradingSessionStarted({required this.stationId, required this.lotNumero,this.grilleId, this.debutCreneau});
-  @override List<Object?> get props => [stationId, lotNumero, grilleId, debutCreneau];
+  final int       stationId;
+  final int       lotNumero;
+  final int?      grilleId;
+  final DateTime? debutCreneau;
+
+  const GradingSessionStarted({
+    required this.stationId,
+    required this.lotNumero,
+    this.grilleId,
+    this.debutCreneau,
+  });
+
+  @override
+  List<Object?> get props => [stationId, lotNumero, grilleId, debutCreneau];
 }
 
 class GradingBinaryUpdated extends GradingEvent {
-  final int    etudiantId;
-  final int    itemId;
-  final bool?  fait;   // null = non saisi, true = Fait, false = Non fait
-  const GradingBinaryUpdated({required this.etudiantId, required this.itemId, required this.fait});
-  @override List<Object?> get props => [etudiantId, itemId, fait];
+  final int   etudiantId;
+  final int   itemId;
+  final bool? fait; // null = effacé, true = Fait, false = Non fait
+
+  const GradingBinaryUpdated({
+    required this.etudiantId,
+    required this.itemId,
+    required this.fait,
+  });
+
+  @override
+  List<Object?> get props => [etudiantId, itemId, fait];
 }
 
 class GradingNumericUpdated extends GradingEvent {
   final int    etudiantId;
   final int    itemId;
   final double valeur;
-  const GradingNumericUpdated({required this.etudiantId, required this.itemId, required this.valeur});
-  @override List<Object?> get props => [etudiantId, itemId, valeur];
+
+  const GradingNumericUpdated({
+    required this.etudiantId,
+    required this.itemId,
+    required this.valeur,
+  });
+
+  @override
+  List<Object?> get props => [etudiantId, itemId, valeur];
 }
 
 class GradingEtudiantValide extends GradingEvent {
@@ -70,17 +101,40 @@ class GradingLotSuivantDemande extends GradingEvent {
 class GradingEtudiantSubstitue extends GradingEvent {
   final int etudiantAbsentId;
   final int etudiantRemplacantId;
+
   const GradingEtudiantSubstitue({
     required this.etudiantAbsentId,
     required this.etudiantRemplacantId,
   });
-  @override List<Object?> get props => [etudiantAbsentId, etudiantRemplacantId];
+
+  @override
+  List<Object?> get props => [etudiantAbsentId, etudiantRemplacantId];
 }
 
 class GradingTimerTick extends GradingEvent {
   final Duration restant;
   const GradingTimerTick(this.restant);
-  @override List<Object?> get props => [restant];
+  @override
+  List<Object?> get props => [restant];
+}
+
+/// BF6.1 — Mise à jour de score reçue depuis le serveur via WebSocket.
+/// Appliquée en lecture seule : ne modifie pas les notations locales.
+class GradingWsScoreReceived extends GradingEvent {
+  final int    etudiantId;
+  final int    stationId;
+  final double score;
+  final bool   verrouille;
+
+  const GradingWsScoreReceived({
+    required this.etudiantId,
+    required this.stationId,
+    required this.score,
+    required this.verrouille,
+  });
+
+  @override
+  List<Object?> get props => [etudiantId, stationId, score, verrouille];
 }
 
 // ════════════════════════════════════════════════
@@ -88,16 +142,18 @@ class GradingTimerTick extends GradingEvent {
 // ════════════════════════════════════════════════
 abstract class GradingState extends Equatable {
   const GradingState();
-  @override List<Object?> get props => [];
+  @override
+  List<Object?> get props => [];
 }
 
-class GradingInitial  extends GradingState {}
-class GradingLoading  extends GradingState {}
+class GradingInitial extends GradingState {}
+class GradingLoading extends GradingState {}
 
 class GradingError extends GradingState {
   final String message;
   const GradingError(this.message);
-  @override List<Object?> get props => [message];
+  @override
+  List<Object?> get props => [message];
 }
 
 class GradingLoaded extends GradingState {
@@ -111,7 +167,12 @@ class GradingLoaded extends GradingState {
   final Duration?                    tempsRestant;
   final bool                         lotEnCoursDeValidation;
   final String?                      messageSucces;
-  final bool                         lotValide; 
+  final bool                         lotValide;
+
+  /// BF6.1 — Scores reçus via WebSocket (etudiantId → score serveur).
+  /// Ces valeurs sont affichées en priorité sur le calcul local
+  /// car le serveur applique les pondérations de la grille.
+  final Map<int, double>             wsScores;
 
   const GradingLoaded({
     required this.stationId,
@@ -124,14 +185,22 @@ class GradingLoaded extends GradingState {
     this.tempsRestant,
     this.lotEnCoursDeValidation = false,
     this.messageSucces,
-    this.lotValide = false,
+    this.lotValide    = false,
+    this.wsScores     = const {},
   });
 
-  // ── Calculs en temps réel ─────────────────────
-  double scoreEtudiant(int etudiantId) => ScoreUtils.calculerScore(
-    items:     grille.items,
-    notations: notations[etudiantId] ?? {},
-  );
+  // ── Calculs de score ──────────────────────────
+  /// Score affiché : priorité au score serveur (WebSocket) si disponible,
+  /// sinon calcul local temps réel. Garantit la cohérence même hors-ligne.
+  double scoreEtudiant(int etudiantId) {
+    if (wsScores.containsKey(etudiantId)) {
+      return wsScores[etudiantId]!;
+    }
+    return ScoreUtils.calculerScore(
+      items:     grille.items,
+      notations: notations[etudiantId] ?? {},
+    );
+  }
 
   double progressionEtudiant(int etudiantId) => ScoreUtils.progression(
     items:     grille.items,
@@ -146,31 +215,34 @@ class GradingLoaded extends GradingState {
 
   GradingLoaded copyWith({
     Map<int, Map<int, Notation>>? notations,
-    Set<int>?    etudiantsValides,
-    Duration?    tempsRestant,
-    bool?        lotEnCoursDeValidation,
-    String?      messageSucces,
-    Lot?         lot,
-    bool?        lotValide,
-  }) => GradingLoaded(
-    stationId:              stationId,
-    grilleId:               grilleId,
-    stationNom:             stationNom,
-    grille:                 grille,
-    lot:                    lot              ?? this.lot,
-    notations:              notations        ?? this.notations,
-    etudiantsValides:       etudiantsValides ?? this.etudiantsValides,
-    tempsRestant:           tempsRestant     ?? this.tempsRestant,
-    lotEnCoursDeValidation: lotEnCoursDeValidation ?? this.lotEnCoursDeValidation,
-    messageSucces:          messageSucces,
-    lotValide:             lotValide ?? this.lotValide,
-  );
+    Set<int>?              etudiantsValides,
+    Duration?              tempsRestant,
+    bool?                  lotEnCoursDeValidation,
+    String?                messageSucces,
+    Lot?                   lot,
+    bool?                  lotValide,
+    Map<int, double>?      wsScores,
+  }) =>
+      GradingLoaded(
+        stationId:              stationId,
+        grilleId:               grilleId,
+        stationNom:             stationNom,
+        grille:                 grille,
+        lot:                    lot              ?? this.lot,
+        notations:              notations        ?? this.notations,
+        etudiantsValides:       etudiantsValides ?? this.etudiantsValides,
+        tempsRestant:           tempsRestant     ?? this.tempsRestant,
+        lotEnCoursDeValidation: lotEnCoursDeValidation ?? this.lotEnCoursDeValidation,
+        messageSucces:          messageSucces,
+        lotValide:              lotValide ?? this.lotValide,
+        wsScores:               wsScores  ?? this.wsScores,
+      );
 
   @override
   List<Object?> get props => [
     stationId, grilleId, stationNom, grille, lot,
     notations, etudiantsValides, tempsRestant,
-    lotEnCoursDeValidation, messageSucces, lotValide,
+    lotEnCoursDeValidation, messageSucces, lotValide, wsScores,
   ];
 }
 
@@ -179,12 +251,20 @@ class GradingLoaded extends GradingState {
 // ════════════════════════════════════════════════
 class GradingBloc extends Bloc<GradingEvent, GradingState> {
   final GradingRepository _repository;
-  Timer? _timer;
 
-  static const _durationStation = Duration(minutes: 03);
+  /// BF6 — Référence optionnelle à l'OfflineBloc pour rafraîchir le badge.
+  /// Injectée depuis GradingScreen via le constructeur.
+  final OfflineBloc? offlineBloc;
 
-  GradingBloc({required GradingRepository repository})
-      : _repository = repository,
+  Timer?                       _timer;
+  StreamSubscription<ScoreUpdate>? _wsSub; // BF6.1
+
+  static const _durationStation = Duration(minutes: 15);
+
+  GradingBloc({
+    required GradingRepository repository,
+    this.offlineBloc,
+  })  : _repository = repository,
         super(GradingInitial()) {
     on<GradingSessionStarted>   (_onSessionStarted);
     on<GradingBinaryUpdated>    (_onBinaryUpdated);
@@ -194,72 +274,109 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingLotSuivantDemande>(_onLotSuivant);
     on<GradingEtudiantSubstitue>(_onSubstituer);
     on<GradingTimerTick>        (_onTimerTick);
+    on<GradingWsScoreReceived>  (_onWsScoreReceived); // BF6.1
   }
 
-  // ── Chargement initial ────────────────────────
+  // ── Chargement initial ────────────────────────────────────────────────────
   Future<void> _onSessionStarted(
-  GradingSessionStarted event,
-  Emitter<GradingState> emit,
-) async {
-  emit(GradingLoading());
-  try {
-    final results = await Future.wait([
-      _repository.getGrille(event.stationId),
-      _repository.getLot(event.stationId, event.lotNumero),
-    ]);
+    GradingSessionStarted event,
+    Emitter<GradingState> emit,
+  ) async {
+    emit(GradingLoading());
+    try {
+      final results = await Future.wait([
+        _repository.getGrille(event.stationId),
+        _repository.getLot(event.stationId, event.lotNumero),
+      ]);
 
-    final grille   = results[0] as Grille;
-    final lot      = results[1] as Lot;
-    final grilleId = event.grilleId ?? grille.id;
+      final grille   = results[0] as Grille;
+      final lot      = results[1] as Lot;
+      final grilleId = event.grilleId ?? grille.id;
 
-    // ── Restaurer progression + verrouillage ──────────────────────
-    final Map<int, Map<int, Notation>> notations    = {};
-    final Set<int>                     etudiantsValides = {};
+      // ── Restaurer la progression et le verrouillage depuis le serveur ──
+      final Map<int, Map<int, Notation>> notations        = {};
+      final Set<int>                     etudiantsValides = {};
 
-    for (final etudiant in lot.etudiants) {
-      // Absent OU verrouillé → compté comme déjà validé
-      if (etudiant.absent || etudiant.verrouille) {
-        etudiantsValides.add(etudiant.id);
+      for (final etudiant in lot.etudiants) {
+        if (etudiant.absent || etudiant.verrouille) {
+          etudiantsValides.add(etudiant.id);
+        }
+        if (etudiant.notationExistante.isNotEmpty) {
+          notations[etudiant.id] = {
+            for (final e in etudiant.notationExistante.entries)
+              e.key: Notation(
+                etudiantId: etudiant.id,
+                itemId:     e.key,
+                valeur:     e.value,
+                stationId:  event.stationId,
+                grilleId:   grilleId,
+              ),
+          };
+        }
       }
-      // Charger les notations existantes (y compris pour les verrouillés,
-      // pour que les scores s'affichent correctement en lecture seule)
-      if (etudiant.notationExistante.isNotEmpty) {
-        notations[etudiant.id] = {
-          for (final e in etudiant.notationExistante.entries)
-            e.key: Notation(
-              etudiantId: etudiant.id,
-              itemId:     e.key,
-              valeur:     e.value,
-              stationId:  event.stationId,
-              grilleId:   grilleId,
-            ),
-        };
-      }
+
+      final tempsRestant = _computeTempsRestant(event.debutCreneau);
+
+      emit(GradingLoaded(
+        stationId:        event.stationId,
+        grilleId:         grilleId,
+        stationNom:       'Station ${event.stationId}',
+        grille:           grille,
+        lot:              lot,
+        notations:        notations,
+        etudiantsValides: etudiantsValides,
+        tempsRestant:     tempsRestant,
+        lotValide:        lot.valide,
+      ));
+
+      _startTimer(tempsRestant);
+
+      // BF6.1 — Souscription WebSocket pour cette station
+      _subscribeToWebSocket(event.stationId);
+    } catch (e) {
+      emit(GradingError('Impossible de charger la session : $e'));
     }
-    // ─────────────────────────────────────────────────────────────
-
-    // Calculer le temps restant (évite la réinitialisation du timer)
-    final tempsRestant = _computeTempsRestant(event.debutCreneau);
-
-    emit(GradingLoaded(
-      stationId:        event.stationId,
-      grilleId:         grilleId,
-      stationNom:       'Station ${event.stationId}',
-      grille:           grille,
-      lot:              lot,
-      notations:        notations,
-      etudiantsValides: etudiantsValides,
-      tempsRestant:     tempsRestant,
-      lotValide:        lot.valide,
-    ));
-
-    _startTimer(tempsRestant);    // ← reprend depuis le bon temps
-  } catch (e) {
-    emit(GradingError('Impossible de charger la session : $e'));
   }
-}
 
-  // ── Mise à jour critère binaire ───────────────
+  // ── BF6.1 — Souscription WebSocket ───────────────────────────────────────
+  void _subscribeToWebSocket(int stationId) {
+    _wsSub?.cancel();
+    WebSocketService.instance.subscribeToStation(stationId);
+
+    _wsSub = WebSocketService.instance.onScoreUpdate.listen((update) {
+      if (update.stationId == stationId) {
+        add(GradingWsScoreReceived(
+          etudiantId: update.etudiantId,
+          stationId:  update.stationId,
+          score:      update.score,
+          verrouille: update.verrouille,
+        ));
+      }
+    });
+  }
+
+  // ── BF6.1 — Réception score WebSocket ────────────────────────────────────
+  void _onWsScoreReceived(
+    GradingWsScoreReceived event,
+    Emitter<GradingState> emit,
+  ) {
+    final current = state;
+    if (current is! GradingLoaded) return;
+
+    final updatedWsScores = Map<int, double>.from(current.wsScores)
+      ..[event.etudiantId] = event.score;
+
+    // Si le serveur indique que l'étudiant est verrouillé, on le marque
+    final updatedValides = Set<int>.from(current.etudiantsValides);
+    if (event.verrouille) updatedValides.add(event.etudiantId);
+
+    emit(current.copyWith(
+      wsScores:         updatedWsScores,
+      etudiantsValides: updatedValides,
+    ));
+  }
+
+  // ── Mise à jour critère binaire ───────────────────────────────────────────
   void _onBinaryUpdated(
     GradingBinaryUpdated event,
     Emitter<GradingState> emit,
@@ -272,10 +389,9 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     Map<int, Map<int, Notation>> updatedNotations;
 
     if (event.fait == null) {
-      // FIX 2 : état null → supprimer la notation (case décochée)
-      final etudiantNotations = Map<int, Notation>.from(
-        current.notations[event.etudiantId] ?? {},
-      );
+      // Case décochée → supprime la notation locale
+      final etudiantNotations =
+          Map<int, Notation>.from(current.notations[event.etudiantId] ?? {});
       etudiantNotations.remove(event.itemId);
       updatedNotations = {
         ...current.notations,
@@ -288,19 +404,21 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         event.itemId,
         event.fait! ? 1.0 : 0.0,
       );
-      _repository.saveNotation(Notation(
+
+      // BF6.2 — saveNotation gère lui-même online/offline (repository)
+      _saveAndRefreshOffline(Notation(
         etudiantId: event.etudiantId,
         itemId:     event.itemId,
         valeur:     event.fait! ? 1.0 : 0.0,
-        stationId: current.stationId,
-        grilleId: current.grilleId,
+        stationId:  current.stationId,
+        grilleId:   current.grilleId,
       ));
     }
 
     emit(current.copyWith(notations: updatedNotations));
   }
 
-  // ── Mise à jour critère numérique ─────────────
+  // ── Mise à jour critère numérique ─────────────────────────────────────────
   void _onNumericUpdated(
     GradingNumericUpdated event,
     Emitter<GradingState> emit,
@@ -310,8 +428,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     if (current.etudiantsValides.contains(event.etudiantId)) return;
     if (current.lotValide) return;
 
-    final item = current.grille.items
-        .firstWhere((i) => i.id == event.itemId);
+    final item        = current.grille.items.firstWhere((i) => i.id == event.itemId);
     final valeurClamp = event.valeur.clamp(0.0, item.valeurMax);
 
     final updated = _updateNotation(
@@ -322,44 +439,52 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     );
     emit(current.copyWith(notations: updated));
 
-    _repository.saveNotation(Notation(
+    // BF6.2 — saveNotation gère lui-même online/offline (repository)
+    _saveAndRefreshOffline(Notation(
       etudiantId: event.etudiantId,
       itemId:     event.itemId,
       valeur:     valeurClamp,
-      stationId: current.stationId,
-      grilleId: current.grilleId,
+      stationId:  current.stationId,
+      grilleId:   current.grilleId,
     ));
   }
 
-  // ── Validation d'un étudiant ──────────────────
+  /// BF6.2 — Sauvegarde la notation (online ou locale) puis notifie l'OfflineBloc.
+  void _saveAndRefreshOffline(Notation notation) {
+    _repository.saveNotation(notation).then((_) {
+      // Rafraîchit le compteur du badge dans l'OfflineBloc
+      offlineBloc?.refreshPendingCount();
+    });
+  }
+
+  // ── Validation d'un étudiant ──────────────────────────────────────────────
   Future<void> _onEtudiantValide(
-  GradingEtudiantValide event,
-  Emitter<GradingState> emit,
+    GradingEtudiantValide event,
+    Emitter<GradingState> emit,
   ) async {
-  final current = state;
-  if (current is! GradingLoaded) return;
+    final current = state;
+    if (current is! GradingLoaded) return;
 
-  // Si absent, effacer ses notations de l'état local
-  final updatedNotations = event.absent
-      ? (Map<int, Map<int, Notation>>.from(current.notations)
-            ..remove(event.etudiantId))
-      : current.notations;
+    final updatedNotations = event.absent
+        ? (Map<int, Map<int, Notation>>.from(current.notations)
+              ..remove(event.etudiantId))
+        : current.notations;
 
-  emit(current.copyWith(
-    etudiantsValides: {...current.etudiantsValides, event.etudiantId},
-    notations:        updatedNotations,
-  ));
+    emit(current.copyWith(
+      etudiantsValides: {...current.etudiantsValides, event.etudiantId},
+      notations:        updatedNotations,
+    ));
 
-  await _repository.validerEtudiant(
-    event.etudiantId,
-    current.stationId,
-    grilleId:    current.grilleId,
-    absent:      event.absent,
-    commentaire: event.commentaire,
-  );
-}
+    await _repository.validerEtudiant(
+      event.etudiantId,
+      current.stationId,
+      grilleId:    current.grilleId,
+      absent:      event.absent,
+      commentaire: event.commentaire,
+    );
+  }
 
-  // ── Validation du lot ─────────────────────────
+  // ── Validation du lot ─────────────────────────────────────────────────────
   Future<void> _onLotValide(
     GradingLotValide event,
     Emitter<GradingState> emit,
@@ -372,46 +497,46 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       await _repository.validerLot(current.lot.id);
       emit(current.copyWith(
         lotEnCoursDeValidation: false,
-        lotValide: true,
-        messageSucces: 'Lot ${current.lot.numero} validé !',
+        lotValide:              true,
+        messageSucces:          'Lot ${current.lot.numero} validé !',
       ));
-    } catch (e) {
+    } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));
     }
   }
 
-  // ── _onLotSuivant — timer repart de zéro pour le nouveau lot ─────
-Future<void> _onLotSuivant(
-  GradingLotSuivantDemande event,
-  Emitter<GradingState> emit,
-) async {
-  final current = state;
-  if (current is! GradingLoaded) return;
+  // ── Lot suivant ───────────────────────────────────────────────────────────
+  Future<void> _onLotSuivant(
+    GradingLotSuivantDemande event,
+    Emitter<GradingState> emit,
+  ) async {
+    final current = state;
+    if (current is! GradingLoaded) return;
 
-  final prochainLot = current.lot.numero + 1;
-  if (prochainLot > current.lot.total) return;
+    final prochainLot = current.lot.numero + 1;
+    if (prochainLot > current.lot.total) return;
 
-  emit(GradingLoading());
-  try {
-    final lot = await _repository.getLot(current.stationId, prochainLot);
-    emit(GradingLoaded(
-      stationId:        current.stationId,
-      grilleId:         current.grilleId,
-      stationNom:       current.stationNom,
-      grille:           current.grille,
-      lot:              lot,
-      notations:        {},
-      etudiantsValides: {},
-      tempsRestant:     _durationStation,   // nouveau lot = timer complet
-      lotValide:        lot.valide,
-    ));
-    _startTimer();   // ← sans argument = _durationStation
-  } catch (e) {
-    emit(GradingError('Impossible de charger le lot suivant : $e'));
+    emit(GradingLoading());
+    try {
+      final lot = await _repository.getLot(current.stationId, prochainLot);
+      emit(GradingLoaded(
+        stationId:        current.stationId,
+        grilleId:         current.grilleId,
+        stationNom:       current.stationNom,
+        grille:           current.grille,
+        lot:              lot,
+        notations:        {},
+        etudiantsValides: {},
+        tempsRestant:     _durationStation,
+        lotValide:        lot.valide,
+      ));
+      _startTimer();
+    } catch (e) {
+      emit(GradingError('Impossible de charger le lot suivant : $e'));
+    }
   }
-}
 
-  // ── Substitution d'un étudiant ────────────────
+  // ── Substitution d'un étudiant ────────────────────────────────────────────
   Future<void> _onSubstituer(
     GradingEtudiantSubstitue event,
     Emitter<GradingState> emit,
@@ -426,9 +551,9 @@ Future<void> _onLotSuivant(
         etudiantRemplacantId: event.etudiantRemplacantId,
       );
 
-      final etudiants = current.lot.etudiants.map((e) =>
-        e.id == event.etudiantAbsentId ? remplacant : e,
-      ).toList();
+      final etudiants = current.lot.etudiants
+          .map((e) => e.id == event.etudiantAbsentId ? remplacant : e)
+          .toList();
 
       emit(current.copyWith(
         lot: Lot(
@@ -444,39 +569,37 @@ Future<void> _onLotSuivant(
     }
   }
 
-  // ── Timer 15 minutes ─────────────────────────
+  // ── Timer ─────────────────────────────────────────────────────────────────
   void _onTimerTick(GradingTimerTick event, Emitter<GradingState> emit) {
     final current = state;
     if (current is! GradingLoaded) return;
     emit(current.copyWith(tempsRestant: event.restant));
   }
 
-  // ── Timer : accepte une durée initiale ───────────────────────────
-void _startTimer([Duration? initialDuration]) {
-  _timer?.cancel();
-  var restant = initialDuration ?? _durationStation;
-  _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-    restant -= const Duration(seconds: 1);
-    add(GradingTimerTick(restant));
-  });
-}
+  void _startTimer([Duration? initialDuration]) {
+    _timer?.cancel();
+    var restant = initialDuration ?? _durationStation;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      restant -= const Duration(seconds: 1);
+      add(GradingTimerTick(restant));
+    });
+  }
 
-/// Calcule le temps restant à partir de l'heure de début de la session.
-/// Si [debutCreneau] est null (nouvelle session), retourne la durée complète.
-Duration _computeTempsRestant(DateTime? debutCreneau) {
-  if (debutCreneau == null) return _durationStation;
-  final elapsed = DateTime.now().difference(debutCreneau);
-  return _durationStation - elapsed; // peut être négatif (dépassement)
-}
+  Duration _computeTempsRestant(DateTime? debutCreneau) {
+    if (debutCreneau == null) return _durationStation;
+    final elapsed = DateTime.now().difference(debutCreneau);
+    return _durationStation - elapsed;
+  }
 
-  // ── Utilitaire : mise à jour immuable ─────────
+  // ── Utilitaire ────────────────────────────────────────────────────────────
   Map<int, Map<int, Notation>> _updateNotation(
     Map<int, Map<int, Notation>> current,
-    int etudiantId, int itemId, double valeur,
+    int etudiantId,
+    int itemId,
+    double valeur,
   ) {
-    final etudiantNotations = Map<int, Notation>.from(
-      current[etudiantId] ?? {},
-    );
+    final etudiantNotations =
+        Map<int, Notation>.from(current[etudiantId] ?? {});
     etudiantNotations[itemId] = Notation(
       etudiantId: etudiantId,
       itemId:     itemId,
@@ -488,6 +611,12 @@ Duration _computeTempsRestant(DateTime? debutCreneau) {
   @override
   Future<void> close() {
     _timer?.cancel();
+    _wsSub?.cancel();
+    // Désabonnement WebSocket propre
+    final current = state;
+    if (current is GradingLoaded) {
+      WebSocketService.instance.unsubscribeFromStation(current.stationId);
+    }
     return super.close();
   }
 }

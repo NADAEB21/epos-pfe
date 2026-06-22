@@ -12,6 +12,7 @@ import {
   ImportEtudiantRow,
   ImportResult,
   LotSummary,
+  NotationItemSummary,
   NotationSummary,
   ParticipationSummary,
   PresenceResult,
@@ -50,6 +51,23 @@ export class ScoringApiService {
   getExamenResults(examenId: number): Observable<ExamenResult[]> {
     return this.http
       .get<ApiResponse<ExamenResult[]>>(`${this.baseUrl}/notations/examen/${examenId}/results`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * The per-critère breakdown of one station's notation (GET
+   * /notation-items/notation/{notationId} — RESPONSABLE_MATIERE allowed). Powers
+   * the Résultats deep-dive: the responsable audits HOW a station total was
+   * reached, critère by critère, not just the final score. Returns [] when the
+   * mobile app captured only a global score (the common case until per-critère
+   * scoring ships) — the screen renders the grille's critères with empty values
+   * in that case rather than nothing.
+   */
+  getNotationItems(notationId: number): Observable<NotationItemSummary[]> {
+    return this.http
+      .get<ApiResponse<NotationItemSummary[]>>(
+        `${this.baseUrl}/notation-items/notation/${notationId}`,
+      )
       .pipe(map((r) => r.data ?? []));
   }
 

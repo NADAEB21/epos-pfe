@@ -405,6 +405,25 @@ export interface ExamenResult {
   stations: StationScore[];
 }
 
+/**
+ * One scored criterion of a notation (scoring NotationItemDTO — GET
+ * /notation-items/notation/{notationId}). The per-critère breakdown behind a
+ * station's total, written by the mobile évaluateur app. Field names are
+ * snake_case (`item_id`) per the scoring Etudiant/Notation-item convention,
+ * EXCEPT `notationId` which the record declares camelCase. `item_id` is the
+ * cross-service logical FK to the grille's GrilleItem.id (in exam_db), so the
+ * Résultats deep-dive resolves each critère's libelle + barème from the grille.
+ * `valeur` is 0/1 for BINAIRE critères (acquis), awarded points for NUMERIQUE.
+ * Empty list = no per-critère detail captured (global score only).
+ */
+export interface NotationItemSummary {
+  id: number;
+  item_id: number | null;
+  valeur: number | null;
+  commentaire: string | null;
+  notationId: number | null;
+}
+
 export interface MatiereResponse {
   id: number;
   code: string;

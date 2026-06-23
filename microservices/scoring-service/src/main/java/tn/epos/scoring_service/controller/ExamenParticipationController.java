@@ -7,13 +7,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
-import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
-import tn.epos.scoring_service.entities.ExamenParticipation;
-import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.ExamenParticipation;
+import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.repositories.IEtudiantRepository;
-import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 

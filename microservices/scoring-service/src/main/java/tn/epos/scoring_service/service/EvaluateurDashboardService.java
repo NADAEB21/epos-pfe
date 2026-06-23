@@ -383,7 +383,7 @@ public class EvaluateurDashboardService {
         }
 
         LocalDateTime debut     = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
+        LocalDateTime finReelle = debut.plusMinutes((long) DUREE_STATION_MIN + GRACE_PERIOD_MIN);
 
         if (maintenant.isBefore(debut)) {
             return "A_VENIR";
@@ -544,7 +544,7 @@ public class EvaluateurDashboardService {
             return "TERMINE";
         }
         LocalDateTime debut     = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes(DUREE_STATION_MIN + GRACE_PERIOD_MIN);
+        LocalDateTime finReelle = debut.plusMinutes((long) DUREE_STATION_MIN + GRACE_PERIOD_MIN);
 
         if (maintenant.isBefore(debut)) {
             return "A_VENIR";

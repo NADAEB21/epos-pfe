@@ -53,7 +53,7 @@ public class NotationItemService {
 
     public NotationItem update(Long id, NotationItem details) {
         return repository.findById(id).map(item -> {
-            item.setItem_id(details.getItem_id());
+            item.setItemId(details.getItemId());
             item.setValeur(details.getValeur());
             item.setCommentaire(details.getCommentaire());
             item.setNotation(details.getNotation());
@@ -68,30 +68,33 @@ public class NotationItemService {
      * for legacy rows where Notation.grilleId is null.
      */
     private void validateItemBelongsToParentGrille(NotationItem item) {
-        if (item.getNotation() == null || item.getNotation().getId() == null) {
-            // No parent reference — let downstream JPA constraint handle it.
-            return;
-        }
+        if (item.getNotation() == null || item.getNotation().getId() == null) return;
+
         Long notationId = item.getNotation().getId();
         Notation parent = notationRepository.findById(notationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Notation parente introuvable avec l'id : " + notationId));
+                        "Notation parente introuvable : " + notationId));
 
         Long grilleId = parent.getGrilleId();
         if (grilleId == null) {
-            log.warn("Cross-grille check skipped: notation {} has null grille_id", notationId);
+            log.warn("Validation cross-grille ignorée : notation {} sans grille_id", notationId);
             return;
         }
-        if (item.getItem_id() == null) {
+        if (item.getItemId() == null) {
             throw new BusinessException("item_id est requis sur le NotationItem");
         }
 
         Set<Long> allowedItems = examServiceClient.getItemIdsForGrille(grilleId);
-        if (!allowedItems.contains(item.getItem_id())) {
+        if (allowedItems.isEmpty()) {
+            // exam-service indisponible → on laisse passer pour ne pas bloquer
+            log.warn("Validation cross-grille ignorée (exam-service indisponible) — item {}",
+                    item.getItemId());
+            return;
+        }
+        if (!allowedItems.contains(item.getItemId())) {
             throw new BusinessException(
-                    "L'item " + item.getItem_id()
-                            + " n'appartient pas à la grille " + grilleId
-                            + " de la notation parente (cross-grille refusé).");
+                    "cross-grille refusé : L'item " + item.getItemId()
+                            + " n'appartient pas à la grille " + grilleId);
         }
     }
 }

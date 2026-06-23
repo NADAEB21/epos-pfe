@@ -54,7 +54,7 @@ class NotationItemServiceTest {
 
         item = new NotationItem();
         item.setId(1L);
-        item.setItem_id(100L);
+        item.setItemId(100L);
         item.setValeur(15.0f);
         item.setCommentaire("Bonne réponse");
         item.setNotation(notation);
@@ -73,7 +73,7 @@ class NotationItemServiceTest {
 
             assertThat(result).hasSize(1);
             assertThat(result.get(0).getValeur()).isEqualTo(15.0f);
-            assertThat(result.get(0).getItem_id()).isEqualTo(100L);
+            assertThat(result.get(0).getItemId()).isEqualTo(100L);
             verify(repository, times(1)).findAll();
         }
 
@@ -156,7 +156,7 @@ class NotationItemServiceTest {
             NotationItem result = notationItemService.save(item);
 
             assertThat(result).isNotNull();
-            assertThat(result.getItem_id()).isEqualTo(100L);
+            assertThat(result.getItemId()).isEqualTo(100L);
             verify(examServiceClient).getItemIdsForGrille(11L);
             verify(repository).save(item);
         }
@@ -221,7 +221,7 @@ class NotationItemServiceTest {
         @Test
         @DisplayName("Doit rejeter si item_id est null malgré une grille valide")
         void save_devraitRejeterSiItemIdNull() {
-            item.setItem_id(null);
+            item.setItemId(null);
             when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
 
             assertThatThrownBy(() -> notationItemService.save(item))
@@ -273,7 +273,7 @@ class NotationItemServiceTest {
             autreNotation.setGrilleId(11L); // même grille
 
             NotationItem details = new NotationItem();
-            details.setItem_id(101L);
+            details.setItemId(101L);
             details.setValeur(18.0f);
             details.setCommentaire("Excellent");
             details.setNotation(autreNotation);
@@ -285,7 +285,7 @@ class NotationItemServiceTest {
 
             NotationItem result = notationItemService.update(1L, details);
 
-            assertThat(result.getItem_id()).isEqualTo(101L);
+            assertThat(result.getItemId()).isEqualTo(101L);
             assertThat(result.getValeur()).isEqualTo(18.0f);
             assertThat(result.getCommentaire()).isEqualTo("Excellent");
             assertThat(result.getNotation().getId()).isEqualTo(8L);
@@ -296,7 +296,7 @@ class NotationItemServiceTest {
         @DisplayName("Doit rejeter l'update si le nouvel item_id n'appartient pas à la grille")
         void update_devraitRejeterCrossGrille() {
             NotationItem details = new NotationItem();
-            details.setItem_id(999L); // pas dans la grille
+            details.setItemId(999L); // pas dans la grille
             details.setValeur(18.0f);
             details.setCommentaire("Forbidden");
             details.setNotation(notation);

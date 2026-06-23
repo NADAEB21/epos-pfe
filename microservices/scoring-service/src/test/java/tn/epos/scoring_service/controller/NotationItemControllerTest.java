@@ -53,7 +53,7 @@ class NotationItemControllerTest {
 
         item = new NotationItem();
         item.setId(1L);
-        item.setItem_id(100L);
+        item.setItemId(100L);
         item.setValeur(15.0f);
         item.setCommentaire("Bonne réponse");
         item.setNotation(notation);
@@ -156,7 +156,7 @@ class NotationItemControllerTest {
         void update_devraitRetourner200() throws Exception {
             NotationItem updated = new NotationItem();
             updated.setId(1L);
-            updated.setItem_id(200L);
+            updated.setItemId(200L);
             updated.setValeur(18.0f);
 
             when(service.update(eq(1L), any(NotationItem.class))).thenReturn(updated);

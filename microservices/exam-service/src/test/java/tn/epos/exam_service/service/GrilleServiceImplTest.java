@@ -468,7 +468,7 @@ class GrilleServiceImplTest {
         void trouverParStation_outOfScope_devraitRefuser() {
             when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.of(grille));
             doThrow(new AccessDeniedException("nope"))
-                    .when(matiereAccessChecker).checkAccess(1L);
+                    .when(matiereAccessChecker).checkReadAccess(1L);
 
             assertThatThrownBy(() -> grilleService.trouverParStation(1L))
                     .isInstanceOf(AccessDeniedException.class);
@@ -479,7 +479,7 @@ class GrilleServiceImplTest {
         void trouverParId_outOfScope_devraitRefuser() {
             when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
             doThrow(new AccessDeniedException("nope"))
-                    .when(matiereAccessChecker).checkAccess(1L);
+                    .when(matiereAccessChecker).checkReadAccess(1L);
 
             assertThatThrownBy(() -> grilleService.trouverParId(1L))
                     .isInstanceOf(AccessDeniedException.class);
@@ -526,7 +526,7 @@ class GrilleServiceImplTest {
         void listerItems_outOfScope_devraitRefuser() {
             when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
             doThrow(new AccessDeniedException("nope"))
-                    .when(matiereAccessChecker).checkAccess(1L);
+                    .when(matiereAccessChecker).checkReadAccess(1L);
 
             assertThatThrownBy(() -> grilleService.listerItems(1L, Pageable.unpaged()))
                     .isInstanceOf(AccessDeniedException.class);

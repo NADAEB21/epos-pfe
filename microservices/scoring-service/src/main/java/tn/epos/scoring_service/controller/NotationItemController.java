@@ -52,7 +52,7 @@ public class NotationItemController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     public ResponseEntity<ApiResponse<NotationItemDTO>> create(@RequestBody NotationItemDTO dto) {
         NotationItem entity = new NotationItem();
-        entity.setItem_id(dto.item_id());
+        entity.setItemId(dto.itemId());
         entity.setValeur(dto.valeur());
         entity.setCommentaire(dto.commentaire());
 

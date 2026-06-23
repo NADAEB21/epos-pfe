@@ -1,15 +1,15 @@
 package tn.epos.scoring_service.entities;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @Entity
 @Table(name = "examen_participations")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Getter
+@Setter
 public class ExamenParticipation {
 
     @Id
@@ -23,6 +23,9 @@ public class ExamenParticipation {
     private Float note;
 
     private Boolean est_present;
+
+    @Column(length = 500)
+    private String commentaire;
 
     // Relation avec Etudiant (le 1 du côté Etudiant et 0..* ici)
     @ManyToOne

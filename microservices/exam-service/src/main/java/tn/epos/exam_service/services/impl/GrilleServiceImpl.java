@@ -88,7 +88,7 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Aucune grille trouvée pour la station " + stationId
                 ));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
@@ -97,7 +97,7 @@ public class GrilleServiceImpl implements GrilleService {
     public GrilleResponse trouverParId(Long id) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(id)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, id));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
@@ -187,7 +187,7 @@ public class GrilleServiceImpl implements GrilleService {
     public Page<ItemResponse> listerItems(Long grilleId, Pageable pageable) {
         GrilleEvaluation grille = grilleRepository.findById(grilleId)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
         return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId, pageable)
                 .map(this::toItemResponse);
     }
@@ -259,9 +259,9 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Item", itemId));
     }
 
-     // Valide les règles spécifiques aux items :
-     // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
-     // - BINAIRE   : valeurMax ignorée
+    // Valide les règles spécifiques aux items :
+    // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
+    // - BINAIRE   : valeurMax ignorée
 
     private void validerItem(ItemRequest request) {
         if (request.getType() == TypeItem.NUMERIQUE) {

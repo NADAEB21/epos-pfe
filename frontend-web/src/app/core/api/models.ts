@@ -211,6 +211,40 @@ export interface CreateEtudiantRequest {
 }
 
 /**
+ * One row of a bulk import (POST /etudiants/import?examenId=X). The FE parses
+ * CSV/.xlsx (SheetJS) into these; field names mirror the backend
+ * ImportEtudiantRequest verbatim (snake_case numero_inscription).
+ */
+export interface ImportEtudiantRow {
+  nom: string;
+  prenom: string;
+  numero_inscription: string;
+}
+
+/** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
+export interface ImportRowResult {
+  ligne: number;
+  numero_inscription: string | null;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'CREATED' | 'ENROLLED' | 'ALREADY_ENROLLED' | 'ERROR';
+  message: string | null;
+}
+
+/**
+ * Summary of a bulk import (backend ImportResult). The four counters bucket every
+ * row by statut and sum to total.
+ */
+export interface ImportResult {
+  total: number;
+  created: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  errors: number;
+  rows: ImportRowResult[];
+}
+
+/**
  * Body for POST /participations (scoring-service ParticipationDTO). A
  * participation is the ONLY tie between a student and an exam, so this is what
  * "enrol" means. We send examen_id + etudiantId only; num_echantillon / note /
@@ -369,6 +403,25 @@ export interface ExamenResult {
   totalScore: number;
   stationsNotees: number;
   stations: StationScore[];
+}
+
+/**
+ * One scored criterion of a notation (scoring NotationItemDTO — GET
+ * /notation-items/notation/{notationId}). The per-critère breakdown behind a
+ * station's total, written by the mobile évaluateur app. Field names are
+ * snake_case (`item_id`) per the scoring Etudiant/Notation-item convention,
+ * EXCEPT `notationId` which the record declares camelCase. `item_id` is the
+ * cross-service logical FK to the grille's GrilleItem.id (in exam_db), so the
+ * Résultats deep-dive resolves each critère's libelle + barème from the grille.
+ * `valeur` is 0/1 for BINAIRE critères (acquis), awarded points for NUMERIQUE.
+ * Empty list = no per-critère detail captured (global score only).
+ */
+export interface NotationItemSummary {
+  id: number;
+  item_id: number | null;
+  valeur: number | null;
+  commentaire: string | null;
+  notationId: number | null;
 }
 
 export interface MatiereResponse {

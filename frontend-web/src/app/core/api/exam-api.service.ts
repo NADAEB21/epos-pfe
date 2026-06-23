@@ -84,6 +84,21 @@ export class ExamApiService {
   }
 
   /**
+   * Delete an exam (DELETE /examens/{id}). The backend gates this to
+   * BROUILLON/CONFIGURE only — it 400s (BusinessException) once EN_COURS,
+   * TERMINE or ARCHIVE, and 403s a matière out of the caller's scope. It
+   * cascades to the exam's stations + grilles (exam-service), but NOT to the
+   * roster/lots/notations in scoring-service (cross-DB logical FK, no cascade);
+   * those are only ever populated from CONFIGURE onward and are orphaned, not
+   * deleted. Returns void.
+   */
+  deleteExamen(id: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.baseUrl}/${id}`)
+      .pipe(map(() => void 0));
+  }
+
+  /**
    * Drive the exam lifecycle one legal edge at a time. The backend
    * (PATCH /examens/{id}/statut?statut=…) takes the target status as a QUERY
    * param, not a body, and only validates the state-machine edge is legal
@@ -120,6 +135,35 @@ export class ExamApiService {
     return this.http
       .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/reprendre`, null)
       .pipe(map((r) => r.data));
+  }
+
+  // ---- sujet PDF ----------------------------------------------------------
+
+  /**
+   * Upload (or replace) the exam's sujet PDF (POST /examens/{id}/pdf). The
+   * backend takes a MULTIPART body with the file under the field name `fichier`
+   * (NOT JSON) — we build the FormData here and let the browser set the
+   * multipart Content-Type/boundary (never set it manually). Server-side: PDF
+   * content-type only, ~10 MB max, matière-scoped (403 out of scope). An
+   * existing PDF is overwritten. Returns the updated exam (hasPdfSujet=true,
+   * pdfSujetNom set).
+   */
+  uploadPdfSujet(id: number, fichier: File): Observable<ExamenResponse> {
+    const form = new FormData();
+    form.append('fichier', fichier);
+    return this.http
+      .post<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/pdf`, form)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Download the exam's sujet PDF (GET /examens/{id}/pdf). The endpoint is
+   * @PreAuthorize-guarded, so it can't be a plain <a href> — it needs the JWT
+   * the HttpClient interceptor attaches. We fetch it as a Blob; the caller turns
+   * it into an object URL to view/save. 404 if no PDF is attached.
+   */
+  downloadPdfSujet(id: number): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/${id}/pdf`, { responseType: 'blob' });
   }
 
   /**

@@ -3,7 +3,14 @@ import { DecimalPipe } from '@angular/common';
 import { forkJoin, of } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { ExamenResult, StationSummary } from '../../core/api/models';
+import {
+  ExamenResult,
+  GrilleDetail,
+  GrilleItem,
+  NotationItemSummary,
+  ParticipationSummary,
+  StationSummary,
+} from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** A station column header — name + ordre + the grille's noteMax denominator. */
@@ -13,6 +20,38 @@ interface StationCol {
   ordre: number;
   noteMax: number;
 }
+
+/** The exam-level scoring-completeness summary that feeds the warning banner. */
+interface CompletenessSummary {
+  /** Present students with zero notations across all stations. */
+  nonNotes: number;
+  /** Present students scored at some but not all stations. */
+  partiels: number;
+  /** Station scores recorded but not yet locked (verrouillée=false). */
+  nonVerrouillees: number;
+  /** Present students expected to be fully scored (the denominator). */
+  presentTotal: number;
+  /** Stations in the exam (per-student expected notation count). */
+  totalStations: number;
+}
+
+/** One resolved critère line inside a station deep-dive. */
+interface CritereLine {
+  itemId: number;
+  libelle: string;
+  binaire: boolean;
+  /** ponderation (BINAIRE max) or valeurMax (NUMERIQUE max). */
+  bareme: number | null;
+  /** The student's recorded value, null when no per-critère detail exists. */
+  valeur: number | null;
+  commentaire: string | null;
+}
+
+/** Lazy-loaded state of one station's per-critère deep-dive. */
+type DeepDive =
+  | { state: 'loading' }
+  | { state: 'error' }
+  | { state: 'ready'; lignes: CritereLine[]; hasDetail: boolean };
 
 /** One student's row, enriched with the derived /20 average + rank + mention. */
 interface ResultRow {
@@ -26,6 +65,8 @@ interface ResultRow {
   scoreByStation: Map<number, number | null>;
   /** stationId → verrouillée flag. */
   lockedByStation: Map<number, boolean>;
+  /** stationId → notationId, for the per-critère deep-dive fetch. */
+  notationIdByStation: Map<number, number>;
   total: number;
   totalMax: number;
   /** Normalised average on /20, null when no max is known. */
@@ -137,6 +178,41 @@ const DEFAULT_NOTE_MAX = 20;
         </p>
       </div>
       } @else {
+      <!-- Scoring-completeness banner (gap #3): aggregate status across the present
+           roster, computed FE-side — warns while grading is incomplete or unlocked. -->
+      @if (completeness(); as c) {
+        @if (hasScoringGaps()) {
+          <div role="status" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-6">
+            <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <div class="text-sm text-amber-800">
+              <p class="font-medium">Notation incomplète</p>
+              <p class="text-amber-700">
+                @if (c.nonNotes > 0) {
+                  <span>{{ c.nonNotes }} étudiant{{ c.nonNotes > 1 ? 's' : '' }} non noté{{ c.nonNotes > 1 ? 's' : '' }}</span>
+                }
+                @if (c.partiels > 0) {
+                  <span>{{ c.nonNotes > 0 ? ' · ' : '' }}{{ c.partiels }} partiellement noté{{ c.partiels > 1 ? 's' : '' }}</span>
+                }
+                @if (c.nonVerrouillees > 0) {
+                  <span>{{ (c.nonNotes > 0 || c.partiels > 0) ? ' · ' : '' }}{{ c.nonVerrouillees }} note{{ c.nonVerrouillees > 1 ? 's' : '' }} non verrouillée{{ c.nonVerrouillees > 1 ? 's' : '' }}</span>
+                }
+                <span class="text-amber-600"> (sur {{ c.presentTotal }} présent{{ c.presentTotal > 1 ? 's' : '' }} · {{ c.totalStations }} stations)</span>
+              </p>
+            </div>
+          </div>
+        } @else {
+          <div role="status" class="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 mb-6">
+            <svg class="w-5 h-5 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-sm text-emerald-800">
+              Notation complète — {{ c.presentTotal }} étudiant{{ c.presentTotal > 1 ? 's' : '' }} présent{{ c.presentTotal > 1 ? 's' : '' }} noté{{ c.presentTotal > 1 ? 's' : '' }} et verrouillé{{ c.presentTotal > 1 ? 's' : '' }} sur {{ c.totalStations }} stations.
+            </p>
+          </div>
+        }
+      }
       <!-- Summary stats -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
@@ -207,11 +283,27 @@ const DEFAULT_NOTE_MAX = 20;
                 </td>
                 <td class="px-3 py-2.5 text-gray-500 tabular-nums">{{ row.numEchantillon || '—' }}</td>
                 @for (col of stationCols(); track col.stationId) {
-                  <td class="px-3 py-2.5 text-center tabular-nums">
+                  <td class="px-1 py-2 text-center tabular-nums">
                     @if (row.scoreByStation.get(col.stationId) != null) {
-                      <span [class.text-status-danger]="isStationFail(row, col)">
-                        {{ row.scoreByStation.get(col.stationId) | number: '1.0-1' }}
-                      </span>
+                      <!-- Scored cell: click to drill into the per-critère breakdown. -->
+                      <button
+                        type="button"
+                        (click)="toggleCell(row, col)"
+                        [attr.aria-expanded]="isExpanded(row, col)"
+                        [title]="'Voir le détail par critère · ' + col.nom"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-brand-50 transition-colors"
+                        [class.bg-brand-50]="isExpanded(row, col)"
+                      >
+                        <span [class.text-status-danger]="isStationFail(row, col)">
+                          {{ row.scoreByStation.get(col.stationId) | number: '1.0-1' }}
+                        </span>
+                        @if (!row.lockedByStation.get(col.stationId)) {
+                          <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Note non verrouillée"></span>
+                        }
+                        <svg class="w-3 h-3 text-gray-300 transition-transform" [class.rotate-180]="isExpanded(row, col)" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                      </button>
                     } @else {
                       <span class="text-gray-300">—</span>
                     }
@@ -226,6 +318,73 @@ const DEFAULT_NOTE_MAX = 20;
                   </span>
                 </td>
               </tr>
+              <!-- Per-critère deep-dive (gap #3): one expansion row under the student,
+                   for whichever station cell is open. -->
+              @if (expandedColFor(row); as col) {
+                <tr class="bg-gray-50/80">
+                  <td [attr.colspan]="stationCols().length + 5" class="px-4 py-3 border-t border-gray-100">
+                    <div class="flex items-center justify-between mb-2">
+                      <h4 class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                        Détail par critère · {{ col.nom }}
+                        <span class="ml-1 font-normal text-gray-400 normal-case">— {{ row.nom }}</span>
+                      </h4>
+                      <button type="button" (click)="toggleCell(row, col)" class="text-xs text-gray-400 hover:text-gray-600">Fermer</button>
+                    </div>
+                    @switch (deepDiveFor(row, col)?.state) {
+                      @case ('loading') {
+                        <div class="h-12 rounded bg-gray-200/70 animate-pulse"></div>
+                      }
+                      @case ('error') {
+                        <p class="text-sm text-status-danger">Impossible de charger le détail des critères.</p>
+                      }
+                      @case ('ready') {
+                        @let dd = deepDiveFor(row, col);
+                        @if (dd && dd.state === 'ready') {
+                          @if (!dd.hasDetail) {
+                            <p class="text-xs text-gray-500 mb-2 italic">
+                              Note saisie globalement — pas de détail par critère pour cette station.
+                              La grille comporte {{ dd.lignes.length }} critère{{ dd.lignes.length > 1 ? 's' : '' }} :
+                            </p>
+                          }
+                          <table class="w-full text-sm bg-white rounded-lg border border-gray-200 overflow-hidden">
+                            <thead>
+                              <tr class="text-left text-gray-400 border-b border-gray-100">
+                                <th class="px-3 py-2 font-medium">Critère</th>
+                                <th class="px-3 py-2 font-medium text-center w-28">Note</th>
+                                <th class="px-3 py-2 font-medium">Commentaire</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-50">
+                              @for (l of dd.lignes; track l.itemId) {
+                                <tr>
+                                  <td class="px-3 py-2 text-gray-700">{{ l.libelle }}</td>
+                                  <td class="px-3 py-2 text-center tabular-nums">
+                                    @if (l.valeur == null) {
+                                      <span class="text-gray-300">—</span>
+                                    } @else if (l.binaire) {
+                                      @if (l.valeur >= 1) {
+                                        <span class="text-emerald-700 font-medium">Acquis</span>
+                                        @if (l.bareme != null) { <span class="text-gray-400"> (+{{ l.bareme }})</span> }
+                                      } @else {
+                                        <span class="text-gray-500">Non acquis</span>
+                                        <span class="text-gray-400"> (0)</span>
+                                      }
+                                    } @else {
+                                      <span class="font-medium text-gray-800">{{ l.valeur | number: '1.0-1' }}</span>
+                                      @if (l.bareme != null) { <span class="text-gray-400"> / {{ l.bareme }}</span> }
+                                    }
+                                  </td>
+                                  <td class="px-3 py-2 text-gray-500">{{ l.commentaire || '—' }}</td>
+                                </tr>
+                              }
+                            </tbody>
+                          </table>
+                        }
+                      }
+                    }
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -247,6 +406,17 @@ export class ResultatsComponent {
   readonly rows = signal<ResultRow[]>([]);
   readonly stationCols = signal<StationCol[]>([]);
 
+  /** Exam-level scoring-completeness summary for the warning banner. */
+  readonly completeness = signal<CompletenessSummary | null>(null);
+
+  // ---- per-critère deep-dive (lazy, per student×station) -----------------
+  /** Currently expanded cell, keyed `${participationId}:${stationId}`; null = none. */
+  readonly expandedKey = signal<string | null>(null);
+  /** notationId → loaded/loading deep-dive state (cached across expand toggles). */
+  readonly deepDives = signal<Map<number, DeepDive>>(new Map());
+  /** stationId → full grille (items resolved once during load) for critère labels. */
+  private readonly grilleByStation = new Map<number, GrilleDetail>();
+
   // Shared with the workspace shell — archiving updates the header chip + lifecycle
   // bar reactively (the store is route-scoped, one instance per open workspace).
   readonly exam = this.store.exam;
@@ -267,6 +437,12 @@ export class ResultatsComponent {
     if (r.length === 0) return null;
     const ok = r.filter((x) => (x.moyenne20 as number) >= 10).length;
     return (ok / r.length) * 100;
+  });
+
+  /** Any non-noté / partiel / unlocked score → the banner warns rather than confirms. */
+  readonly hasScoringGaps = computed(() => {
+    const c = this.completeness();
+    return !!c && (c.nonNotes > 0 || c.partiels > 0 || c.nonVerrouillees > 0);
   });
 
   readonly minMaxLabel = computed(() => {
@@ -340,18 +516,26 @@ export class ResultatsComponent {
   private load(examId: number): void {
     this.loading.set(true);
     this.error.set(false);
+    this.expandedKey.set(null);
+    this.deepDives.set(new Map());
+    this.grilleByStation.clear();
+    // The roster (participations) gives the present-student denominator the
+    // results endpoint can't — it only returns students who have ≥1 notation.
     forkJoin({
       results: this.scoring.getExamenResults(examId),
       stations: this.examApi.listStations(examId),
+      participations: this.scoring.listParticipations(examId),
     }).subscribe({
-      next: ({ results, stations }) => {
+      next: ({ results, stations, participations }) => {
         if (results.length === 0) {
           this.rows.set([]);
           this.stationCols.set([]);
+          this.completeness.set(this.computeCompleteness([], stations, participations));
           this.loading.set(false);
           return;
         }
-        // Resolve each scored station's grille noteMax (once, for the headers).
+        // Resolve each scored station's grille (once) — noteMax for the column
+        // denominator AND the full item list for the per-critère deep-dive.
         const scoredStationIds = new Set<number>();
         for (const r of results) {
           for (const s of r.stations) if (s.stationId != null) scoredStationIds.add(s.stationId);
@@ -366,8 +550,10 @@ export class ResultatsComponent {
             scored.forEach((s, i) => {
               const g = grilles[i];
               noteMaxByStation.set(s.id, g?.noteMax ?? DEFAULT_NOTE_MAX);
+              if (g) this.grilleByStation.set(s.id, g);
             });
             this.buildTable(results, stations, noteMaxByStation);
+            this.completeness.set(this.computeCompleteness(results, stations, participations));
             this.loading.set(false);
           },
           error: () => {
@@ -375,6 +561,7 @@ export class ResultatsComponent {
             const noteMaxByStation = new Map<number, number>();
             scored.forEach((s) => noteMaxByStation.set(s.id, DEFAULT_NOTE_MAX));
             this.buildTable(results, stations, noteMaxByStation);
+            this.completeness.set(this.computeCompleteness(results, stations, participations));
             this.loading.set(false);
           },
         });
@@ -384,6 +571,37 @@ export class ResultatsComponent {
         this.loading.set(false);
       },
     });
+  }
+
+  /**
+   * Exam-level scoring completeness, computed FE-side (no backend summary exists).
+   * Denominator is the PRESENT roster — absent students legitimately have no notes
+   * and must not read as "missing". A student is "non noté" when no notation row
+   * came back for their participation, "partiel" when scored at some-but-not-all
+   * stations, and a station score is "non verrouillée" until an évaluateur locks it.
+   */
+  private computeCompleteness(
+    results: ExamenResult[],
+    stations: StationSummary[],
+    participations: ParticipationSummary[],
+  ): CompletenessSummary {
+    const totalStations = stations.length;
+    const present = participations.filter((p) => p.est_present === true);
+    const noted = new Map(results.map((r) => [r.participationId, r]));
+    let nonNotes = 0;
+    let partiels = 0;
+    for (const p of present) {
+      const r = noted.get(p.id);
+      if (!r || r.stationsNotees === 0) nonNotes++;
+      else if (totalStations > 0 && r.stationsNotees < totalStations) partiels++;
+    }
+    let nonVerrouillees = 0;
+    for (const r of results) {
+      for (const s of r.stations) {
+        if (s.score != null && s.verrouillee !== true) nonVerrouillees++;
+      }
+    }
+    return { nonNotes, partiels, nonVerrouillees, presentTotal: present.length, totalStations };
   }
 
   private buildTable(
@@ -409,11 +627,13 @@ export class ResultatsComponent {
     const rows: ResultRow[] = results.map((r) => {
       const scoreByStation = new Map<number, number | null>();
       const lockedByStation = new Map<number, boolean>();
+      const notationIdByStation = new Map<number, number>();
       let totalMax = 0;
       for (const s of r.stations) {
         if (s.stationId == null) continue;
         scoreByStation.set(s.stationId, s.score);
         lockedByStation.set(s.stationId, s.verrouillee === true);
+        if (s.notationId != null) notationIdByStation.set(s.stationId, s.notationId);
         if (s.score != null) totalMax += noteMaxByStation.get(s.stationId) ?? DEFAULT_NOTE_MAX;
       }
       const moyenne20 = totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
@@ -427,6 +647,7 @@ export class ResultatsComponent {
         numEchantillon: r.numEchantillon,
         scoreByStation,
         lockedByStation,
+        notationIdByStation,
         total: r.totalScore,
         totalMax,
         moyenne20,
@@ -444,6 +665,114 @@ export class ResultatsComponent {
   isStationFail(row: ResultRow, col: StationCol): boolean {
     const score = row.scoreByStation.get(col.stationId);
     return score != null && score < col.noteMax / 2;
+  }
+
+  // ---- per-critère deep-dive --------------------------------------------
+
+  cellKey(row: ResultRow, col: StationCol): string {
+    return `${row.participationId}:${col.stationId}`;
+  }
+
+  isExpanded(row: ResultRow, col: StationCol): boolean {
+    return this.expandedKey() === this.cellKey(row, col);
+  }
+
+  /** Whether a cell can be drilled into — only scored cells have a notation. */
+  hasNotation(row: ResultRow, col: StationCol): boolean {
+    return row.notationIdByStation.has(col.stationId);
+  }
+
+  /**
+   * Toggle the per-critère drill-down for one student×station cell. Collapses if
+   * already open; otherwise opens it and lazily fetches the notation's critère
+   * scores (cached by notationId so re-expanding is instant). Only one cell is
+   * open at a time to keep the table readable.
+   */
+  toggleCell(row: ResultRow, col: StationCol): void {
+    const notationId = row.notationIdByStation.get(col.stationId);
+    if (notationId == null) return;
+    const key = this.cellKey(row, col);
+    if (this.expandedKey() === key) {
+      this.expandedKey.set(null);
+      return;
+    }
+    this.expandedKey.set(key);
+    if (!this.deepDives().has(notationId)) {
+      this.fetchDeepDive(notationId, col.stationId);
+    }
+  }
+
+  /** The station column currently expanded within this row, or null. */
+  expandedColFor(row: ResultRow): StationCol | null {
+    const key = this.expandedKey();
+    if (!key || !key.startsWith(`${row.participationId}:`)) return null;
+    const stationId = Number(key.slice(key.indexOf(':') + 1));
+    return this.stationCols().find((c) => c.stationId === stationId) ?? null;
+  }
+
+  /** The deep-dive state for the currently expanded cell of this row, or null. */
+  deepDiveFor(row: ResultRow, col: StationCol): DeepDive | null {
+    const notationId = row.notationIdByStation.get(col.stationId);
+    if (notationId == null) return null;
+    return this.deepDives().get(notationId) ?? null;
+  }
+
+  private fetchDeepDive(notationId: number, stationId: number): void {
+    this.patchDeepDive(notationId, { state: 'loading' });
+    this.scoring.getNotationItems(notationId).subscribe({
+      next: (items) => {
+        const lignes = this.resolveCriteres(stationId, items);
+        this.patchDeepDive(notationId, {
+          state: 'ready',
+          lignes,
+          hasDetail: items.length > 0,
+        });
+      },
+      error: () => this.patchDeepDive(notationId, { state: 'error' }),
+    });
+  }
+
+  /**
+   * Join the notation's recorded values onto the station grille's critère
+   * definitions (libellé + barème). Driven by the grille so the full critère list
+   * shows even when no per-critère detail was captured (empty values then).
+   */
+  private resolveCriteres(stationId: number, items: NotationItemSummary[]): CritereLine[] {
+    const grille = this.grilleByStation.get(stationId);
+    const valueByItem = new Map<number, NotationItemSummary>();
+    for (const it of items) if (it.item_id != null) valueByItem.set(it.item_id, it);
+    const grilleItems: GrilleItem[] = (grille?.items ?? [])
+      .slice()
+      .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+    if (grilleItems.length === 0) {
+      // Grille unavailable — surface the raw recorded values rather than nothing.
+      return items.map((it) => ({
+        itemId: it.item_id ?? 0,
+        libelle: it.item_id != null ? `Critère #${it.item_id}` : 'Critère',
+        binaire: false,
+        bareme: null,
+        valeur: it.valeur,
+        commentaire: it.commentaire,
+      }));
+    }
+    return grilleItems.map((gi) => {
+      const binaire = gi.type === 'BINAIRE';
+      const rec = valueByItem.get(gi.id);
+      return {
+        itemId: gi.id,
+        libelle: gi.libelle,
+        binaire,
+        bareme: binaire ? (gi.ponderation ?? null) : (gi.valeurMax ?? null),
+        valeur: rec?.valeur ?? null,
+        commentaire: rec?.commentaire ?? null,
+      };
+    });
+  }
+
+  private patchDeepDive(notationId: number, state: DeepDive): void {
+    const next = new Map(this.deepDives());
+    next.set(notationId, state);
+    this.deepDives.set(next);
   }
 
   private mentionFor(moyenne20: number | null): { mention: string; mentionClass: string } {

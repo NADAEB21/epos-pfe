@@ -53,4 +53,13 @@ public interface IExamenParticipationRepository extends JpaRepository<ExamenPart
     Optional<ExamenParticipation> findByEtudiantIdAndStationId(
             @Param("etudiantId") Long etudiantId,
             @Param("stationId") Long stationId);
+
+    // Pre-check for the bulk importer so an already-enrolled student is reported
+    // as ALREADY_ENROLLED instead of tripping the uq_participation_examen_etudiant
+    // unique constraint (examen_id, etudiant_id). examen_id is a flat column (no
+    // entity path) but etudiant.id IS a real association path.
+    @Query("SELECT COUNT(p) > 0 FROM ExamenParticipation p "
+            + "WHERE p.examen_id = :examenId AND p.etudiant.id = :etudiantId")
+    boolean existsByExamenAndEtudiant(@Param("examenId") Long examenId,
+                                      @Param("etudiantId") Long etudiantId);
 }

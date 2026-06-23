@@ -1,12 +1,31 @@
 spring:
+  # In-memory H2 in PostgreSQL-compatibility mode — tests must NEVER touch the
+  # real dev/CI auth_db. (Previously this pointed at jdbc:postgresql://localhost/auth_db
+  # with ddl-auto=create-drop, which dropped every table in the live database on
+  # test teardown.) Mirrors scoring-service / exam-service application-test.properties.
   datasource:
-    url: jdbc:postgresql://localhost:5432/auth_db
-    username: admin
-    password: pfe_password
+    url: jdbc:h2:mem:authdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
   jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+    properties:
+      hibernate:
+        # Stop Hibernate probing the real DB metadata at startup.
+        temp:
+          use_jdbc_metadata_defaults: false
+  cloud:
+    config:
+      enabled: false
+    discovery:
+      enabled: false
+    service-registry:
+      auto-registration:
+        enabled: false
 
 eureka:
   client:

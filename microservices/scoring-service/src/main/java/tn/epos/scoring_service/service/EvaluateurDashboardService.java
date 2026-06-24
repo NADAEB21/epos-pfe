@@ -25,18 +25,28 @@ import java.util.stream.Collectors;
 /**
  * Service d'agrégation pour le dashboard de l'évaluateur (app mobile Flutter).
  *
- * <p><b>BF6.1 — Synchronisation temps réel :</b> après chaque opération de
- * notation ({@link #saisirNotation}, {@link #validerEtudiant}, {@link #validerLot}),
- * le service diffuse un message WebSocket STOMP sur le topic correspondant.
- * Le dashboard Angular et l'app Flutter reçoivent la mise à jour sans polling.
+ * Corrections apportées dans cette version :
  *
- * <p>Topics diffusés :
- * <ul>
- *   <li>{@code /topic/stations/{stationId}/scores} — score mis à jour
- *       ({@link ScoreUpdateMessage})</li>
- *   <li>{@code /topic/lots/{lotId}/status} — statut lot changé
- *       ({@link LotStatusMessage})</li>
- * </ul>
+ *   FIX 4 — Dashboard vide (sessions=[], stats=0, planning=[]).
+ *            Cause racine : Lot.evaluateurId n'est jamais renseigné lors de la
+ *            répartition dans LotAssignmentService.repartir(). Par conséquent,
+ *            lotRepository.findByEvaluateurId(evaluateurId) retournait toujours
+ *            une liste vide, ce qui rendait resolverLotDepuisRotation() incapable
+ *            de retrouver les lots liés aux rotations → sessions sans étudiants
+ *            ni lot, stats à zéro, planning vide.
+ *            Correction : les lots sont désormais déduits depuis les rotations de
+ *            l'évaluateur via la chaîne Rotation → StudentGroup → Lot, qui est la
+ *            seule source fiable du lien évaluateur ↔ lot dans ce modèle de données.
+ *
+ *   FIX 5 — getLotDetail() échouait pour la même raison (findByEvaluateurIdAndNumeroLot
+ *            cherchait sur Lot.evaluateurId toujours null). Correction : le lot est
+ *            retrouvé depuis les rotations de l'évaluateur.
+ *
+ *   FIX 6 — Broadcast WebSocket (BF6.1) : après chaque saisirNotation() et validerLot(),
+ *            le score mis à jour est publié sur /topic/stations/{id}/scores et
+ *            le statut du lot sur /topic/lots/{id}/status.
+ *
+ *   FIX 1-3 — Conservés sans modification (log détaillé, Rotation TERMINE, grâce 30min).
  */
 @Service
 @RequiredArgsConstructor
@@ -44,15 +54,16 @@ import java.util.stream.Collectors;
 @Transactional
 public class EvaluateurDashboardService {
 
-    // ── Repositories ──────────────────────────────────────────────────────────
+    // ── Repositories ─────────────────────────────────────────────────────────
 
-    private final ILotRepository                  lotRepository;
-    private final IRotationRepository             rotationRepository;
-    private final IRotationAssignmentRepository   rotationAssignmentRepository;
-    private final INotationRepository             notationRepository;
-    private final INotationItemRepository         notationItemRepository;
-    private final IExamenParticipationRepository  participationRepository;
-    private final ExamServiceClient               examServiceClient;
+    private final ILotRepository                 lotRepository;
+    private final IRotationRepository            rotationRepository;
+    private final IRotationAssignmentRepository  rotationAssignmentRepository;
+    private final INotationRepository            notationRepository;
+    private final INotationItemRepository        notationItemRepository;
+    private final IExamenParticipationRepository participationRepository;
+    private final ExamServiceClient              examServiceClient;
+
 
     /**
      * Horloge injectable pinnée sur {@code app.timezone} (ADR-0010, voir
@@ -62,17 +73,16 @@ public class EvaluateurDashboardService {
      */
     private final Clock clock;
 
-    // Template STOMP pour la diffusion WebSocket.
-    private final SimpMessagingTemplate messagingTemplate;
+    /** BF6.1 — Template STOMP pour le push WebSocket temps réel. */
+    private final SimpMessagingTemplate          messagingTemplate;
+
 
 
     // ── Constantes ────────────────────────────────────────────────────────────
 
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
-
-    /** SonarQube S1192. */
-    private static final String STATUT_TERMINEE    = "TERMINEE";
-    private static final String LOG_ETUDIANT_STATION = " station=";
+    private static final DateTimeFormatter TIME_FMT            = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String            STATUT_TERMINEE     = "TERMINEE";
+    private static final String            LOG_ETUDIANT_STATION = " station=";
 
     /**
      * Durée nominale d'une station en minutes — <b>repli uniquement</b>.
@@ -87,25 +97,28 @@ public class EvaluateurDashboardService {
     // ── Topics WebSocket ──────────────────────────────────────────────────────
 
     /** Destination du topic score pour une station donnée. */
-    private static String topicScore(Long stationId) {
-        return "/topic/stations/" + stationId + "/scores";
-    }
+    /** Topics WebSocket — BF6.1. */
+    private static final String TOPIC_SCORES = "/topic/stations/%d/scores";
+    private static final String TOPIC_LOT    = "/topic/lots/%d/status";
 
-    /** Destination du topic statut lot. */
-    private static String topicLotStatus(Long lotId) {
-        return "/topic/lots/" + lotId + "/status";
-    }
 
     // =========================================================================
     // 1. DASHBOARD COMPLET
     // =========================================================================
 
+    /**
+     * FIX 4 — Les lots sont déduits depuis les rotations de l'évaluateur
+     * (Rotation → StudentGroup → Lot) au lieu de lotRepository.findByEvaluateurId()
+     * qui retourne toujours vide car Lot.evaluateurId n'est jamais renseigné.
+     */
     @Transactional(readOnly = true)
     public EvaluateurDashboardResponse buildDashboard(Long evaluateurId) {
         log.debug("Building dashboard for evaluateur {}", evaluateurId);
 
         List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
-        List<Lot>      lots      = lotRepository.findByEvaluateurId(evaluateurId);
+
+        // FIX 4 — déduire les lots depuis les rotations, seule source fiable.
+        List<Lot> lots = deriverLotsDepuisRotations(rotations);
 
         // ADR-0012 §0 : "maintenant" effectif. On lit l'état de pause de chaque
         // examen concerné UNE fois, puis on dérive un temps effectif par examen
@@ -118,6 +131,9 @@ public class EvaluateurDashboardService {
         StatsResponse              stats    = buildStats(sessions, lots);
         List<PlanningCellResponse> planning = buildPlanning(rotations, rawNow, timingByExam);
 
+        log.debug("Dashboard évaluateur {} : {} rotation(s), {} lot(s), {} session(s)",
+                evaluateurId, rotations.size(), lots.size(), sessions.size());
+
         return EvaluateurDashboardResponse.builder()
                 // ADR-0012 : horloge serveur unique renvoyée à l'app évaluateur
                 // pour corriger l'offset de son horloge locale (compte à rebours).
@@ -128,18 +144,53 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
+    /**
+     * Extrait les lots uniques liés aux rotations de l'évaluateur.
+     *
+     * <p>La chaîne utilisée est : Rotation → StudentGroup → Lot.
+     * On utilise un LinkedHashMap pour dédupliquer par lotId tout en
+     * préservant l'ordre d'apparition (stabilité de l'affichage Flutter).</p>
+     */
+    private List<Lot> deriverLotsDepuisRotations(List<Rotation> rotations) {
+        return rotations.stream()
+                .filter(r -> r.getStudentGroup() != null
+                        && r.getStudentGroup().getLot() != null)
+                .map(r -> r.getStudentGroup().getLot())
+                .collect(Collectors.toMap(
+                        Lot::getId,
+                        l -> l,
+                        (existant, doublon) -> existant,   // keep first occurrence
+                        LinkedHashMap::new))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
+    }
+
     // =========================================================================
     // 2. DÉTAIL D'UN LOT AVEC ÉTUDIANTS
     // =========================================================================
 
+    /**
+     * FIX 5 — Retrouve le lot via les rotations de l'évaluateur au lieu de
+     * findByEvaluateurIdAndNumeroLot() qui échouait (Lot.evaluateurId = null).
+     */
     @Transactional(readOnly = true)
     public LotDetailResponse getLotDetail(Long stationId, Integer lotNumero, Long evaluateurId) {
         log.debug("getLotDetail stationId={} lotNumero={} evaluateur={}",
                 stationId, lotNumero, evaluateurId);
 
-        Lot lot = lotRepository.findByEvaluateurIdAndNumeroLot(evaluateurId, lotNumero)
+        List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
+
+        // FIX 5 — chercher le lot depuis les rotations, pas depuis Lot.evaluateurId.
+        Lot lot = rotations.stream()
+                .filter(r -> r.getStudentGroup() != null
+                        && r.getStudentGroup().getLot() != null
+                        && lotNumero.equals(r.getStudentGroup().getLot().getNumeroLot()))
+                .map(r -> r.getStudentGroup().getLot())
+                .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Lot " + lotNumero + " introuvable pour l'évaluateur " + evaluateurId));
+                        "Lot numéro " + lotNumero + " introuvable pour l'évaluateur " + evaluateurId
+                                + ". Vérifiez que les rotations sont générées pour ce lot."));
 
         int totalLots = lotRepository.countByExamenId(lot.getExamenId());
 
@@ -170,7 +221,6 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
-    /** Charge les NotationItems existants pour une participation donnée. */
     private List<LotDetailResponse.NotationItemResponse> loadNotationItems(Long participationId) {
         return rotationAssignmentRepository.findByParticipationId(participationId)
                 .flatMap(a -> notationRepository.findByAssignmentId(a.getId()))
@@ -184,23 +234,15 @@ public class EvaluateurDashboardService {
     }
 
     // =========================================================================
-    // 3. SAISIR UNE NOTATION
+    // 3. SAISIR UNE NOTATION — avec broadcast WebSocket (FIX 6 / BF6.1)
     // =========================================================================
 
-    /**
-     * Enregistre la notation d'un étudiant pour un critère donné, recalcule
-     * le score final, puis <b>diffuse le nouveau score via WebSocket</b> (BF6.1).
-     *
-     * <p>Le broadcast est effectué après la transaction de persistance pour
-     * garantir que les clients reçoivent une valeur cohérente avec la base.
-     */
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
         log.debug("saisirNotation etudiant={} station={} grille={} item={} valeur={}",
                 request.getEtudiantId(), request.getStationId(),
                 request.getGrilleId(), request.getItemId(), request.getValeur());
 
-        // FIX 1 — La requête JPQL findByEtudiantIdAndStationId navigue via
-        //   ExamenParticipation → lot → groups (StudentGroup) → rotations → stationId.
+        // FIX 1 — log explicite si la chaîne ExamenParticipation→Lot→StudentGroup→Rotation est brisée.
         ExamenParticipation participation =
                 participationRepository.findByEtudiantIdAndStationId(
                                 request.getEtudiantId(), request.getStationId())
@@ -232,7 +274,7 @@ public class EvaluateurDashboardService {
                             + request.getEtudiantId());
         }
 
-        // Upsert du NotationItem (dernière valeur gagne — BF6.3)
+        // Upsert du NotationItem : mise à jour si existe, création sinon.
         Optional<NotationItem> existingItem =
                 notationItemRepository.findByNotationIdAndItemId(
                         notation.getId(), request.getItemId());
@@ -250,28 +292,17 @@ public class EvaluateurDashboardService {
 
         recalculerScoreFinal(notation);
 
+        // FIX 6 — Broadcast WebSocket du score recalculé (BF6.1).
+        broadcastScore(notation, request.getStationId());
+
         log.debug("NotationItem sauvegardé — notation={} item={} valeur={}",
                 notation.getId(), request.getItemId(), request.getValeur());
-
-        // BF6.1 — Diffusion du score mis à jour vers tous les abonnés de la station.
-        // Exécuté après la persistance pour garantir la cohérence des données.
-        broadcastScoreUpdate(
-                request.getEtudiantId(),
-                request.getStationId(),
-                notation.getGrilleId(),
-                notation.getScore_final(),
-                Boolean.TRUE.equals(notation.getVerouillee())
-        );
     }
 
     // =========================================================================
     // 4. VALIDER UN ÉTUDIANT
     // =========================================================================
 
-    /**
-     * Verrouille les notes d'un étudiant pour une station et diffuse le
-     * statut verrouillé via WebSocket (BF6.1).
-     */
     public void validerEtudiant(Long etudiantId, Long stationId,
                                 Long evaluateurId, ValiderEtudiantRequest request) {
         log.debug("validerEtudiant etudiant={} station={} absent={}",
@@ -291,8 +322,7 @@ public class EvaluateurDashboardService {
                 .orElseGet(() -> createNotation(assignment, stationId, request.getGrilleId()));
 
         if (request.isAbsent()) {
-            List<NotationItem> items =
-                    notationItemRepository.findByNotationId(notation.getId());
+            List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
             if (!items.isEmpty()) {
                 notationItemRepository.deleteAll(items);
             }
@@ -309,34 +339,22 @@ public class EvaluateurDashboardService {
         participation.setNote(notation.getScore_final());
         participationRepository.save(participation);
 
+        // FIX 6 — Broadcast WebSocket : score verrouillé visible par les autres évaluateurs (BF6.1).
+        broadcastScore(notation, stationId);
+
         log.info("Étudiant {} {} à la station {} — note={} (évaluateur {})",
                 etudiantId,
                 request.isAbsent() ? "ABSENT" : "validé",
                 stationId, notation.getScore_final(), evaluateurId);
-
-        // BF6.1 — Diffuse le score verrouillé. Le client Flutter passe
-        // l'étudiant dans etudiantsValides dès réception (verrouille = true).
-        broadcastScoreUpdate(
-                etudiantId,
-                stationId,
-                notation.getGrilleId(),
-                notation.getScore_final(),
-                true   // toujours verrouillé après validerEtudiant
-        );
     }
 
     // =========================================================================
-    // 5. VALIDER UN LOT
+    // 5. VALIDER UN LOT — avec broadcast WebSocket (FIX 2 + FIX 6)
     // =========================================================================
 
     /**
-     * FIX 2 — validerLot() marque :
-     *   a) {@code Lot.statut = TERMINE}
-     *   b) {@code Rotation.statut = TERMINE} pour toutes les rotations du lot.
-     *
-     * <p>BF6.1 — Diffuse le changement de statut du lot sur
-     * {@code /topic/lots/{lotId}/status} pour que l'app Flutter et le dashboard
-     * se mettent à jour instantanément.
+     * FIX 2 — Marque Lot.statut et Rotation.statut = TERMINE.
+     * FIX 6 — Broadcast /topic/lots/{id}/status après validation.
      */
     public void validerLot(Long lotId, Long evaluateurId) {
         log.debug("validerLot lot={} evaluateur={}", lotId, evaluateurId);
@@ -344,16 +362,22 @@ public class EvaluateurDashboardService {
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot introuvable : " + lotId));
 
-        if (!lot.getEvaluateurId().equals(evaluateurId)) {
+        // Vérification ownership via les rotations (Lot.evaluateurId n'est pas fiable — FIX 4).
+        boolean isOwner = rotationRepository.findByEvaluateurId(evaluateurId).stream()
+                .anyMatch(r -> r.getStudentGroup() != null
+                        && r.getStudentGroup().getLot() != null
+                        && lot.getId().equals(r.getStudentGroup().getLot().getId()));
+
+        if (!isOwner) {
             throw new BusinessException(
                     "Accès refusé : le lot " + lotId
-                            + " n'appartient pas à l'évaluateur " + evaluateurId);
+                            + " n'est pas associé à l'évaluateur " + evaluateurId);
         }
 
         lot.setStatut(LotStatus.TERMINE);
         lotRepository.save(lot);
 
-        // Marque aussi les rotations comme TERMINE (FIX 2)
+        // FIX 2 — Marque aussi toutes les rotations du lot comme TERMINE.
         if (lot.getGroups() != null) {
             lot.getGroups().forEach(group -> {
                 if (group.getRotations() != null) {
@@ -369,127 +393,87 @@ public class EvaluateurDashboardService {
             });
         }
 
-        log.info("Lot {} validé (évaluateur {})", lotId, evaluateurId);
+        // FIX 6 — Broadcast WebSocket : statut du lot mis à jour (BF6.1).
+        broadcastLotStatus(lotId, "TERMINE");
 
-        // BF6.1 — Diffuse le changement de statut du lot.
-        int totalLots = lotRepository.countByExamenId(lot.getExamenId());
-        broadcastLotStatus(lot, totalLots);
+        log.info("Lot {} validé et rotations associées marquées TERMINE (évaluateur {})",
+                lotId, evaluateurId);
     }
 
     // =========================================================================
-    // MÉTHODES PRIVÉES — Diffusion WebSocket (BF6.1)
+    // MÉTHODES PRIVÉES — Construction des réponses
     // =========================================================================
-
-    /**
-     * Diffuse une mise à jour de score sur {@code /topic/stations/{stationId}/scores}.
-     *
-     * <p>Utilise {@link SimpMessagingTemplate#convertAndSend} qui est thread-safe
-     * et ne bloque pas la transaction appelante (fire-and-forget vers le broker).
-     */
-    private void broadcastScoreUpdate(Long etudiantId, Long stationId,
-                                      Long grilleId, Float score, Boolean verrouille) {
-        ScoreUpdateMessage message = ScoreUpdateMessage.builder()
-                .etudiantId(etudiantId)
-                .stationId(stationId)
-                .grilleId(grilleId)
-                .score(score)
-                .verrouille(verrouille)
-                .build();
-
-        String destination = topicScore(stationId);
-        messagingTemplate.convertAndSend(destination, message);
-
-        log.debug("WS broadcast score → {} : etudiant={} score={} verrouille={}",
-                destination, etudiantId, score, verrouille);
-    }
-
-    /**
-     * Diffuse un changement de statut de lot sur {@code /topic/lots/{lotId}/status}.
-     */
-    private void broadcastLotStatus(Lot lot, int totalLots) {
-        LotStatusMessage message = LotStatusMessage.builder()
-                .lotId(lot.getId())
-                .examenId(lot.getExamenId())
-                .statut(lot.getStatut().name())
-                .numeroLot(lot.getNumeroLot())
-                .totalLots(totalLots)
-                .build();
-
-        String destination = topicLotStatus(lot.getId());
-        messagingTemplate.convertAndSend(destination, message);
-
-        log.debug("WS broadcast lot status → {} : lot={} statut={}",
-                destination, lot.getId(), lot.getStatut());
-    }
-
-    // =========================================================================
-    // MÉTHODES PRIVÉES — Construction des réponses dashboard
-    // =========================================================================
-
     private List<SessionResponse> buildSessions(List<Rotation> rotations, List<Lot> lots,
                                                 LocalDateTime rawNow,
                                                 Map<Long, ExamServiceClient.ExamTiming> timingByExam) {
-        return rotations.stream()
-                .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
-                .map(rotation -> {
-                    ExamServiceClient.ExamTiming timing = timingFor(rotation, timingByExam);
-                    LocalDateTime maintenant = effectiveNow(timing, rawNow);
-                    int dureeMin = dureeMinFor(timing);
 
-                    // ADR-0012 : instant absolu prédit du passage + métadonnées du
-                    // compte à rebours/avertissement, à dérouler localement côté mobile.
-                    LocalDateTime debutPrevu = debutPrevu(rotation, timing, rawNow);
+            // Index lots par ID pour une résolution O(1) (FIX 4 de ta collègue)
+            Map<Long, Lot> lotsParId = lots.stream()
+                    .collect(Collectors.toMap(Lot::getId, l -> l));
 
-                    String statut     = resolveSessionStatut(rotation, maintenant, dureeMin);
-                    String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
-                    String heureFin   = rotation.getDebutCreneau()
-                            .plusMinutes(dureeMin)
-                            .format(TIME_FMT);
+            return rotations.stream()
+                    .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
+                    .map(rotation -> {
+                        ExamServiceClient.ExamTiming timing = timingFor(rotation, timingByExam);
+                        LocalDateTime maintenant = effectiveNow(timing, rawNow);
+                        int dureeMin = dureeMinFor(timing);
 
-                    Lot lotLie = resolverLotDepuisRotation(rotation, lots);
+                        // ADR-0012 : temps absolu prédit
+                        LocalDateTime debutPrevu = debutPrevu(rotation, timing, rawNow);
 
-                    int nbEtudiants = (lotLie != null && lotLie.getTailleLot() != null)
-                            ? lotLie.getTailleLot() : 0;
-                    int lotActuel   = (lotLie != null && lotLie.getNumeroLot() != null)
-                            ? lotLie.getNumeroLot() : 0;
-                    int totalLots   = (lotLie != null)
-                            ? lotRepository.countByExamenId(lotLie.getExamenId()) : 0;
+                        String statut     = resolveSessionStatut(rotation, maintenant, dureeMin);
+                        String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
+                        String heureFin   = rotation.getDebutCreneau()
+                                .plusMinutes(dureeMin)
+                                .format(TIME_FMT);
 
-                    ExamServiceClient.StationInfo info =
-                            examServiceClient.getStationInfo(rotation.getStationId());
+                        Lot lotLie      = resolverLotDepuisRotation(rotation, lotsParId);
+                        int nbEtudiants = (lotLie != null && lotLie.getTailleLot() != null)
+                                ? lotLie.getTailleLot() : 0;
+                        int lotActuel   = (lotLie != null && lotLie.getNumeroLot() != null)
+                                ? lotLie.getNumeroLot() : 0;
+                        int totalLots   = (lotLie != null)
+                                ? lotRepository.countByExamenId(lotLie.getExamenId()) : 0;
 
-                    return SessionResponse.builder()
-                            .id(lotLie != null ? lotLie.getId() : rotation.getId())
-                            .stationId(rotation.getStationId())
-                            .stationNom(info.nom())
-                            .matiere("Chimie Thérapeutique")
-                            .annee("CT-" + rotation.getDebutCreneau().getYear())
-                            .statut(statut)
-                            .heureDebut(heureDebut)
-                            .heureFin(STATUT_TERMINEE.equals(statut) ? heureFin : null)
-                            .nbEtudiants(nbEtudiants)
-                            .salle("Salle " + rotation.getStationId())
-                            .lotActuel(lotActuel)
-                            .totalLots(totalLots)
-                            .debutPrevu(debutPrevu)
-                            .avertissementLeadSec(timing.avertissementLeadSec())
-                            .enPause(timing.enPause())
-                            .build();
-                })
-                .sorted(Comparator
-                        .comparingInt((SessionResponse s) -> sessionStatutOrdre(s.getStatut()))
-                        .thenComparing(SessionResponse::getHeureDebut))
-                .collect(Collectors.toList());
-    }
+                        ExamServiceClient.StationInfo info =
+                                examServiceClient.getStationInfo(rotation.getStationId());
+
+                        return SessionResponse.builder()
+                                .id(lotLie != null ? lotLie.getId() : rotation.getId())
+                                .stationId(rotation.getStationId())
+                                .stationNom(info.nom())
+                                .matiere("Chimie Thérapeutique")
+                                .annee("CT-" + rotation.getDebutCreneau().getYear())
+                                .statut(statut)
+                                .heureDebut(heureDebut)
+                                .heureFin(STATUT_TERMINEE.equals(statut) ? heureFin : null)
+                                .nbEtudiants(nbEtudiants)
+                                .salle("Salle " + rotation.getStationId())
+                                .lotActuel(lotActuel)
+                                .totalLots(totalLots)
+                                .debutPrevu(debutPrevu)
+                                .avertissementLeadSec(timing.avertissementLeadSec())
+                                .enPause(timing.enPause())
+                                .build();
+                    })
+                    .sorted(Comparator
+                            .comparingInt((SessionResponse s) -> sessionStatutOrdre(s.getStatut()))
+                            .thenComparing(SessionResponse::getHeureDebut))
+                    .collect(Collectors.toList());
+        }
 
     /**
-     * FIX 3 — Détermine le statut d'une session avec période de grâce.
+     * FIX 3 — Statut de session avec période de grâce de 30 min.
      *
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 4bc9e51 (fix dashboard evaluateur)
      * Priorité (ordre strict) :
      *   1. Rotation.statut == TERMINE → TERMINEE  (validation manuelle via validerLot)
      *   2. Lot lié TERMINE            → TERMINEE  (validation manuelle via validerLot)
      *   3. debutCreneau > maintenant  → A_VENIR
+<<<<<<< HEAD
      *   4. maintenant ≤ debut + duree + grace  → EN_COURS
      *   5. maintenant > debut + duree + grace  → TERMINEE (expiration automatique)
      *
@@ -505,11 +489,16 @@ public class EvaluateurDashboardService {
      *   <li>maintenant > debut + duree + grace → TERMINEE (expiration)</li>
      * </ol>
 >>>>>>> 6112141 (add websocket config)
+=======
+     *   4. maintenant ≤ debut + duree + grace → EN_COURS
+     *   5. sinon                      → TERMINEE  (expiration automatique)
+>>>>>>> 4bc9e51 (fix dashboard evaluateur)
      */
     private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant, int dureeMin) {
         if (rotation.getStatut() == RotationStatus.TERMINE) {
             return STATUT_TERMINEE;
         }
+
         if (rotation.getStudentGroup() != null
                 && rotation.getStudentGroup().getLot() != null
                 && rotation.getStudentGroup().getLot().getStatut() == LotStatus.TERMINE) {
@@ -519,27 +508,24 @@ public class EvaluateurDashboardService {
         LocalDateTime debut     = rotation.getDebutCreneau();
         LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
 
-        if (maintenant.isBefore(debut))        return "A_VENIR";
-        if (!maintenant.isAfter(finReelle))    return "EN_COURS";
+        if (maintenant.isBefore(debut))         return "A_VENIR";
+        if (!maintenant.isAfter(finReelle))     return "EN_COURS";
         return STATUT_TERMINEE;
     }
 
     private int sessionStatutOrdre(String statut) {
         return switch (statut) {
-            case "EN_COURS"  -> 0;
-            case "A_VENIR"   -> 1;
-            default          -> 2;
+            case "EN_COURS" -> 0;
+            case "A_VENIR"  -> 1;
+            default         -> 2;
         };
     }
 
-    private Lot resolverLotDepuisRotation(Rotation rotation, List<Lot> lots) {
+    /** Résout le lot lié à une rotation via l'index O(1) construit dans buildSessions. */
+    private Lot resolverLotDepuisRotation(Rotation rotation, Map<Long, Lot> lotsParId) {
         if (rotation.getStudentGroup() == null
                 || rotation.getStudentGroup().getLot() == null) return null;
-        Long lotId = rotation.getStudentGroup().getLot().getId();
-        return lots.stream()
-                .filter(l -> l.getId().equals(lotId))
-                .findFirst()
-                .orElse(null);
+        return lotsParId.get(rotation.getStudentGroup().getLot().getId());
     }
 
     // =========================================================================
@@ -711,14 +697,13 @@ public class EvaluateurDashboardService {
     }
 
     /**
-     * Recalcule le score final en appliquant les pondérations de l'exam-service.
+     * Recalcule le score final en appliquant les pondérations depuis l'exam-service.
      *
-     * <p>Formule identique à {@code ScoreUtils.calculerScore()} côté Flutter :
-     * <ul>
-     *   <li>BINAIRE  : valeur ∈ {0,1} → score += valeur × pondération</li>
-     *   <li>NUMERIQUE: valeur ∈ [0, pondération] → score += valeur</li>
-     * </ul>
-     * Fallback (exam-service indisponible) : somme brute des valeurs.
+     * Formule identique à ScoreUtils.calculerScore (Flutter) :
+     *   BINAIRE   → score += valeur × pondération
+     *   NUMERIQUE → score += valeur  (déjà bornée à valeurMax côté Flutter)
+     *
+     * Fallback si exam-service indisponible : somme des valeurs brutes (sans pondération).
      */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
@@ -732,8 +717,8 @@ public class EvaluateurDashboardService {
         Map<Long, ExamServiceClient.ItemInfo> itemInfos =
                 examServiceClient.getItemInfosForGrille(notation.getGrilleId());
 
-        final boolean pondérationsDisponibles = !itemInfos.isEmpty();
-        if (!pondérationsDisponibles) {
+        final boolean ponderationsDisponibles = !itemInfos.isEmpty();
+        if (!ponderationsDisponibles) {
             log.warn("Pondérations indisponibles (grille={}) — score calculé en fallback",
                     notation.getGrilleId());
         }
@@ -742,7 +727,7 @@ public class EvaluateurDashboardService {
         for (NotationItem ni : items) {
             if (ni.getValeur() == null) continue;
             float valeur = ni.getValeur();
-            if (pondérationsDisponibles) {
+            if (ponderationsDisponibles) {
                 ExamServiceClient.ItemInfo info = itemInfos.get(ni.getItemId());
                 if (info != null && "BINAIRE".equalsIgnoreCase(info.type())) {
                     score += valeur * (float) info.ponderation();
@@ -758,7 +743,53 @@ public class EvaluateurDashboardService {
         notationRepository.save(notation);
         log.debug("Score recalculé — notation={} grille={} : {} pts{}",
                 notation.getId(), notation.getGrilleId(), score,
-                pondérationsDisponibles ? "" : " (fallback)");
+                ponderationsDisponibles ? "" : " (fallback)");
+    }
+
+    // =========================================================================
+    // FIX 6 — Broadcast WebSocket (BF6.1)
+    // =========================================================================
+
+    /**
+     * Publie le score d'un étudiant sur /topic/stations/{stationId}/scores.
+     * Reçu par GradingBloc (GradingWsScoreReceived) côté Flutter.
+     */
+    private void broadcastScore(Notation notation, Long stationId) {
+        if (notation.getAssignment() == null
+                || notation.getAssignment().getParticipation() == null
+                || notation.getAssignment().getParticipation().getEtudiant() == null) {
+            log.warn("Broadcast score ignoré — chaîne notation→étudiant incomplète (notation={})",
+                    notation.getId());
+            return;
+        }
+
+        Long   etudiantId = notation.getAssignment().getParticipation().getEtudiant().getId();
+        String topic      = String.format(TOPIC_SCORES, stationId);
+
+        ScoreUpdateMessage message = ScoreUpdateMessage.builder()
+                .etudiantId(etudiantId)
+                .stationId(stationId)
+                .score(notation.getScore_final())
+                .verrouille(Boolean.TRUE.equals(notation.getVerouillee()))
+                .build();
+
+        messagingTemplate.convertAndSend(topic, message);
+        log.debug("WS broadcast {} → etudiant={} score={} verrouille={}",
+                topic, etudiantId, notation.getScore_final(), notation.getVerouillee());
+    }
+
+    /**
+     * Publie le changement de statut d'un lot sur /topic/lots/{lotId}/status.
+     * Reçu par WebSocketService (onLotStatusUpdate) côté Flutter.
+     */
+    private void broadcastLotStatus(Long lotId, String statut) {
+        String topic = String.format(TOPIC_LOT, lotId);
+        LotStatusMessage message = LotStatusMessage.builder()
+                .lotId(lotId)
+                .statut(statut)
+                .build();
+        messagingTemplate.convertAndSend(topic, message);
+        log.debug("WS broadcast {} → statut={}", topic, statut);
     }
 
     // =========================================================================

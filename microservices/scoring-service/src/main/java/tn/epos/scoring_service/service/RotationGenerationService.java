@@ -23,21 +23,16 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Generates the OSCE rotation plan for a single <b>lot</b> (Phase 2 of the
- * two-phase workflow — exam day, after that lot's presence is marked).
+ * Generates the OSCE rotation plan for a single <b>lot</b> (Phase 2 — exam day,
+ * after that lot's presence is marked).
  *
- * <p>This is a deliberate gate flip from the original Option-B design (PR #130),
- * which generated once for the whole exam at CONFIGURE time. The real workflow is:
- * <ol>
- *   <li>CONFIGURE: students are partitioned into lots (waves) —
- *       {@link LotAssignmentService#repartir}.</li>
- *   <li>Exam day, per wave: mark presence —
- *       {@link LotAssignmentService#markPresence} flips the lot to EN_COURS.</li>
- *   <li>Exam day, per wave: generate <i>that lot's</i> circuit here, over only the
- *       students who actually showed up. No stale-plan trap, absences handled
- *       cleanly.</li>
- * </ol>
+ * <p><b>FIX dashboard vide</b> : lors de la génération, l'évaluateur de la
+ * première station du circuit est propagé sur {@code Lot.evaluateurId}. Cela
+ * permet à {@code ILotRepository.findByEvaluateurId()} de retourner les lots
+ * assignés à un évaluateur, ce que le dashboard Flutter exploite pour construire
+ * les sessions et les statistiques.
  *
+<<<<<<< HEAD
  * <p>The circuit itself is the same Latin square as #130, now scoped to one lot:
  * <ul>
  *   <li>K stations → K student groups → K créneaux; every group visits every
@@ -51,23 +46,36 @@ import java.util.List;
  * i.e. {@code examStart + (m−1)·K·slot}, where {@code slot = dureeStationMin +
  * tempsBattementMin} (ADR-0012). The {@code tempsBattementMin} transition buffer
  * defaults to 0 — a zero buffer reproduces the historical back-to-back schedule.
+=======
+ * <p>Choix du « premier évaluateur » : dans un circuit OSCE, chaque évaluateur
+ * est fixé sur sa station pour toute la journée. La relation est donc bijective
+ * (station ↔ évaluateur) et le lot « appartient » à l'évaluateur de la station
+ * qu'il occupera au créneau t=0 (ordrePassage=1). C'est la valeur stockée sur
+ * {@code Lot.evaluateurId}.
+>>>>>>> 4bc9e51 (fix dashboard evaluateur)
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class RotationGenerationService {
 
+<<<<<<< HEAD
     private static final LocalTime DEFAULT_START = LocalTime.of(9, 0);
     private static final int DEFAULT_DUREE_MIN = 15;
     private static final int DEFAULT_BATTEMENT_MIN = 0;
     private static final int DEFAULT_CAPACITE = 4;
+=======
+    private static final LocalTime DEFAULT_START   = LocalTime.of(9, 0);
+    private static final int       DEFAULT_DUREE   = 15;
+    private static final int       DEFAULT_CAPACITE = 4;
+>>>>>>> 4bc9e51 (fix dashboard evaluateur)
 
-    private final ExamServiceClient examServiceClient;
-    private final IExamenParticipationRepository participationRepository;
-    private final ILotRepository lotRepository;
-    private final IStudentGroupRepository studentGroupRepository;
-    private final IRotationRepository rotationRepository;
-    private final IRotationAssignmentRepository assignmentRepository;
+    private final ExamServiceClient               examServiceClient;
+    private final IExamenParticipationRepository  participationRepository;
+    private final ILotRepository                  lotRepository;
+    private final IStudentGroupRepository         studentGroupRepository;
+    private final IRotationRepository             rotationRepository;
+    private final IRotationAssignmentRepository   assignmentRepository;
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
@@ -76,9 +84,6 @@ public class RotationGenerationService {
 
         ExamGenerationView exam = examServiceClient.getExamForGeneration(lot.getExamenId());
 
-        // Gate flip: rotations are now an exam-day, per-lot action, not a
-        // CONFIGURE-time exam-wide one. The exam must be launched (EN_COURS) and
-        // the lot's presence must already be marked (lot EN_COURS).
         if (!"EN_COURS".equals(exam.statut())) {
             throw new BusinessException(
                     "Les rotations se génèrent le jour de l'examen, une fois celui-ci lancé "
@@ -90,7 +95,7 @@ public class RotationGenerationService {
                             + " avant de générer ses rotations.");
         }
 
-        // Stations ordered by display order; nulls last for determinism.
+        // Stations triées par ordre d'affichage
         List<ExamGenerationView.StationView> stations = new ArrayList<>(exam.stations());
         stations.sort(Comparator.comparing(
                 ExamGenerationView.StationView::ordre,
@@ -101,28 +106,30 @@ public class RotationGenerationService {
                     "Aucune station : ajoutez au moins une station avant de générer les rotations.");
         }
 
-        // Present students of THIS lot only (skip explicit absentees; null = present).
-        List<ExamenParticipation> lotParticipations = participationRepository.findByLotId(lotId);
+        // Étudiants présents du lot
+        List<ExamenParticipation> lotParticipations =
+                participationRepository.findByLotId(lotId);
         List<ExamenParticipation> present = lotParticipations.stream()
                 .filter(p -> !Boolean.FALSE.equals(p.getEst_present()))
                 .sorted(Comparator.comparing(ExamenParticipation::getId))
                 .toList();
-        int n = present.size();
+        int n       = present.size();
         int absents = lotParticipations.size() - n;
         if (n == 0) {
             throw new BusinessException(
                     "Aucun étudiant présent dans le lot " + lot.getNumeroLot() + ".");
         }
 
-        // Re-runnable per lot: clear only THIS lot's prior groups (cascade to its
-        // rotations/assignments). Other lots and the roster are untouched.
+        // Re-runnable : purge le plan précédent de ce lot uniquement
         wipeLotGroups(lotId);
 
-        LocalTime start = exam.heureDebut() != null ? exam.heureDebut() : DEFAULT_START;
-        LocalDate date = exam.dateExamen();
-        int duree = exam.dureeStationMin() != null ? exam.dureeStationMin() : DEFAULT_DUREE_MIN;
-        int capacite = exam.nbEtudiantsParStation() != null ? exam.nbEtudiantsParStation() : DEFAULT_CAPACITE;
+        LocalTime start   = exam.heureDebut()       != null ? exam.heureDebut()       : DEFAULT_START;
+        LocalDate date    = exam.dateExamen();
+        int       duree   = exam.dureeStationMin()   != null ? exam.dureeStationMin()   : DEFAULT_DUREE;
+        int       capacite = exam.nbEtudiantsParStation() != null
+                ? exam.nbEtudiantsParStation() : DEFAULT_CAPACITE;
 
+<<<<<<< HEAD
         // ADR-0012 : tampon de transition inter-créneau. L'unité de créneau ("slot")
         // devient (durée + battement) au lieu de la seule durée, ce qui insère un
         // intervalle entre les passages successifs ET décale les vagues d'autant.
@@ -135,13 +142,16 @@ public class RotationGenerationService {
         // runs post-launch, so launched_at is normally set), so the plan and the
         // live clock share one origin and a late launch shifts all créneaux with it.
         // Fall back to the planned start (dateExamen + heureDebut) for legacy rows.
+=======
+        // Ancre temporelle (ADR-0010)
+>>>>>>> 4bc9e51 (fix dashboard evaluateur)
         LocalDateTime examStart = exam.launchedAt() != null
                 ? exam.launchedAt()
                 : LocalDateTime.of(date, start);
         int waveIndex = (lot.getNumeroLot() != null ? lot.getNumeroLot() : 1) - 1;
         LocalDateTime waveStart = examStart.plusMinutes((long) waveIndex * k * slot);
 
-        // Partition present students into K balanced groups (round-robin keeps sizes within 1).
+        // Partition des étudiants présents en K groupes équilibrés
         List<List<ExamenParticipation>> groupStudents = new ArrayList<>();
         for (int g = 0; g < k; g++) {
             groupStudents.add(new ArrayList<>());
@@ -149,13 +159,13 @@ public class RotationGenerationService {
         for (int i = 0; i < n; i++) {
             groupStudents.get(i % k).add(present.get(i));
         }
-        int maxGroupSize = (int) Math.ceil((double) n / k);
+        int    maxGroupSize  = (int) Math.ceil((double) n / k);
         String avertissement = maxGroupSize > capacite
                 ? "Capacité dépassée : " + maxGroupSize + " étudiants/station alors que "
-                        + capacite + " sont configurés. Ajoutez des stations ou réduisez l'effectif du lot."
+                + capacite + " sont configurés. Ajoutez des stations ou réduisez l'effectif du lot."
                 : null;
 
-        // K student groups under the lot.
+        // K groupes d'étudiants rattachés au lot
         List<StudentGroup> groups = new ArrayList<>();
         for (int g = 0; g < k; g++) {
             StudentGroup sg = new StudentGroup();
@@ -164,16 +174,20 @@ public class RotationGenerationService {
             groups.add(studentGroupRepository.save(sg));
         }
 
-        // Latin square: at créneau t, group g sits at station (g + t) mod K.
-        int rotationCount = 0;
-        int assignmentCount = 0;
+        // ── Carré latin : au créneau t, groupe g → station (g+t) mod K ──────
+        int  rotationCount  = 0;
+        int  assignmentCount = 0;
+
+        // FIX — évaluateur de la station occupée par le groupe 0 au créneau 0
+        // (station index 0, celle qui démarre le circuit). Propagé sur le lot
+        // pour que findByEvaluateurId() fonctionne dans le dashboard.
+        Long evaluateurPrincipal = resolveEvaluateur(stations, 0);
+
         for (int t = 0; t < k; t++) {
             LocalDateTime creneau = waveStart.plusMinutes((long) t * slot);
             for (int g = 0; g < k; g++) {
                 ExamGenerationView.StationView station = stations.get((g + t) % k);
-                Long evaluateurId = (station.evaluateurIds() != null && !station.evaluateurIds().isEmpty())
-                        ? station.evaluateurIds().get(0)
-                        : null;
+                Long evaluateurId = resolveEvaluateur(stations, (g + t) % k);
 
                 Rotation rotation = new Rotation();
                 rotation.setStationId(station.id());
@@ -189,23 +203,43 @@ public class RotationGenerationService {
                     RotationAssignment a = new RotationAssignment();
                     a.setRotation(rotation);
                     a.setParticipation(p);
-                    a.setPresenceConfirmee(true); // already confirmed present at lot level
+                    a.setPresenceConfirmee(true);
                     assignmentRepository.save(a);
                     assignmentCount++;
                 }
             }
         }
 
-        log.info("Rotations générées pour le lot {} (examen {}) : {} groupes, {} rotations, {} assignments ({} présents, {} absents)",
+        // FIX — Propage l'évaluateur principal sur le lot pour le dashboard.
+        // Sans cette ligne, findByEvaluateurId() retourne toujours une liste vide
+        // car repartir() ne connaît pas encore les évaluateurs (assignés plus tard).
+        if (evaluateurPrincipal != null && lot.getEvaluateurId() == null) {
+            lot.setEvaluateurId(evaluateurPrincipal);
+            lotRepository.save(lot);
+            log.debug("Lot {} : evaluateurId propagé = {}", lotId, evaluateurPrincipal);
+        }
+
+        log.info("Rotations générées pour lot {} (examen {}) : {} groupes, {} rotations, "
+                        + "{} assignments ({} présents, {} absents)",
                 lotId, lot.getExamenId(), k, rotationCount, assignmentCount, n, absents);
 
-        return new GenerationResult(1, k, k, k, rotationCount, assignmentCount, n, absents, avertissement);
+        return new GenerationResult(1, k, k, k, rotationCount, assignmentCount,
+                n, absents, avertissement);
+    }
+
+    // ── Utilitaires privés ────────────────────────────────────────────────────
+
+    /** Résout l'évaluateur d'une station par son index dans la liste triée. */
+    private Long resolveEvaluateur(List<ExamGenerationView.StationView> stations, int index) {
+        ExamGenerationView.StationView s = stations.get(index);
+        return (s.evaluateurIds() != null && !s.evaluateurIds().isEmpty())
+                ? s.evaluateurIds().get(0)
+                : null;
     }
 
     /**
-     * Purges the prior plan for a single lot. Deleting the lot's student groups
-     * cascades to their rotations and assignments (DB ON DELETE CASCADE + JPA
-     * cascade=ALL). The lot itself, its participations, and other lots are kept.
+     * Purge le plan existant d'un lot (groupes → rotations → assignments en cascade).
+     * Le lot lui-même, ses participations et les autres lots sont conservés.
      */
     private void wipeLotGroups(Long lotId) {
         List<StudentGroup> groups = studentGroupRepository.findByLotId(lotId);

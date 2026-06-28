@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
@@ -15,6 +16,7 @@ import tn.epos.scoring_service.dto.dashboard.*;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.*;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
@@ -41,6 +43,10 @@ class EvaluateurDashboardServiceTest {
     @Mock private INotationItemRepository        notationItemRepository;
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private ExamServiceClient              examServiceClient;
+
+    // Vraie horloge (pas un mock) pinnée Africa/Tunis comme ClockConfig, pour que
+    // le temps effectif du service s'aligne sur les debutCreneau construits ici.
+    @Spy private Clock clock = Clock.system(ZoneId.of("Africa/Tunis"));
 
     @InjectMocks
     private EvaluateurDashboardService service;
@@ -199,6 +205,88 @@ class EvaluateurDashboardServiceTest {
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
             assertThat(resp.getSessions()).isEmpty();
+        }
+    }
+
+    // =========================================================================
+    // buildDashboard — temps effectif / pause (ADR-0012 §0)
+    // =========================================================================
+
+    @Nested
+    @DisplayName("buildDashboard() — réconciliation du temps effectif (pause)")
+    class EffectiveTimePauseReconciliation {
+
+        private static final Long EXAMEN_ID = 99L;  // celui que pose lotFor(...)
+
+        @BeforeEach
+        void stubCommon() {
+            lenient().when(examServiceClient.getStationInfo(STATION_ID))
+                    .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
+            lenient().when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
+        }
+
+        private String statutOf(Rotation r) {
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
+            return service.buildDashboard(EVAL_ID).getSessions().get(0).getStatut();
+        }
+
+        @Test
+        @DisplayName("Pause active : l'horloge effective recule → A_VENIR (brut = EN_COURS)")
+        void pauseActive_rembobine_versAVenir() {
+            // debut il y a 5 min : en heure brute la session serait EN_COURS.
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(5));
+            lotFor(r, LotStatus.EN_COURS);
+
+            // En pause depuis 10 min → temps effectif ≈ maintenant − 10 min,
+            // soit AVANT le début → A_VENIR.
+            when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
+                    new ExamServiceClient.ExamTiming(
+                            true, LocalDateTime.now(TUNIS).minusMinutes(10), 0, 15));
+
+            assertThat(statutOf(r)).isEqualTo("A_VENIR");
+        }
+
+        @Test
+        @DisplayName("Pause cumulée : temps effectif reculé → encore EN_COURS (brut = TERMINEE)")
+        void pauseCumulee_maintientEnCours() {
+            // debut il y a 50 min : brut → 50 > 15+30 grâce → TERMINEE.
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(50));
+            lotFor(r, LotStatus.EN_COURS);
+
+            // 20 min de pause cumulée → effectif ≈ −30 min depuis le début,
+            // dans la fenêtre 15+30 → EN_COURS.
+            when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
+                    new ExamServiceClient.ExamTiming(false, null, 20 * 60, 15));
+
+            assertThat(statutOf(r)).isEqualTo("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Durée lue de la config examen (60) élargit la fenêtre → EN_COURS")
+        void dureeDepuisConfig_elargitFenetre() {
+            // debut il y a 50 min, sans pause : avec la durée par défaut (15) la
+            // session serait TERMINEE (50 > 45). Avec dureeStationMin=60 de la
+            // config : fenêtre 60+30=90 → EN_COURS.
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(50));
+            lotFor(r, LotStatus.EN_COURS);
+
+            when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
+                    new ExamServiceClient.ExamTiming(false, null, 0, 60));
+
+            assertThat(statutOf(r)).isEqualTo("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Timing neutre (exam-service injoignable) : repli sur l'heure brute")
+        void timingNeutre_repliSurHeureBrute() {
+            // Sans pause ni durée → comportement identique à l'heure murale brute.
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(20));
+            lotFor(r, LotStatus.EN_COURS);
+
+            when(examServiceClient.getExamTiming(EXAMEN_ID))
+                    .thenReturn(ExamServiceClient.ExamTiming.neutral());
+
+            assertThat(statutOf(r)).isEqualTo("EN_COURS");
         }
     }
 

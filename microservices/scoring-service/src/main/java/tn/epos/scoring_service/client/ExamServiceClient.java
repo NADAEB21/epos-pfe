@@ -43,6 +43,9 @@ public class ExamServiceClient {
     /** SonarQube S1192 — littéral réutilisé pour le nom de repli d'une station inconnue. */
     private static final String STATION_FALLBACK_PREFIX = "Station ";
 
+    /** SonarQube S1192 — nom du champ JSON lu dans extractExamView + getExamTiming. */
+    private static final String FIELD_DUREE_STATION_MIN = "dureeStationMin";
+
     /**
      * Informations d'un item d'évaluation issues de l'exam-service.
      *
@@ -172,8 +175,8 @@ public class ExamServiceClient {
             LocalDateTime pausedAt = parseServerTimestamp(data.path("pausedAt"));
             int totalPauseSec = data.path("totalPauseSec").isNumber()
                     ? data.path("totalPauseSec").asInt() : 0;
-            Integer duree = data.path("dureeStationMin").isNumber()
-                    ? data.path("dureeStationMin").asInt() : null;
+            Integer duree = data.path(FIELD_DUREE_STATION_MIN).isNumber()
+                    ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
             return new ExamTiming(enPause, pausedAt, totalPauseSec, duree);
         } catch (Exception e) {
             log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
@@ -267,7 +270,7 @@ public class ExamServiceClient {
                 data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
                 parseLaunchedAt(data.path("launchedAt")),
-                data.path("dureeStationMin").isNumber() ? data.path("dureeStationMin").asInt() : null,
+                data.path(FIELD_DUREE_STATION_MIN).isNumber() ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null,
                 data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
                 data.path("statut").asText(null),
                 stations);

@@ -14,6 +14,7 @@ import tn.epos.scoring_service.client.ExamServiceClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -439,7 +440,7 @@ public class EvaluateurDashboardService {
     }
 
     // =========================================================================
-    // MÉTHODES PRIVÉES — Temps effectif (ADR-0012 §0)
+    // MÉTHODES PRIVÉES — Temps effectif réconcilié avec la pause, ADR-0012
     // =========================================================================
 
     /**
@@ -482,11 +483,15 @@ public class EvaluateurDashboardService {
      * côtés. Une pause "recule" donc l'horloge — une session affichée pendant
      * une pause ne dérive plus vers le mauvais étudiant.
      */
-    private static LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing,
-                                              LocalDateTime rawNow) {
+    private LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing,
+                                       LocalDateTime rawNow) {
         long pausedSec = Math.max(0, timing.totalPauseSec());
         if (timing.enPause() && timing.pausedAt() != null) {
-            long live = Duration.between(timing.pausedAt(), rawNow).getSeconds();
+            // Zone-aware avant de mesurer l'écart : les deux instants vivent dans
+            // la zone pinnée de l'horloge (app.timezone, ADR-0010).
+            ZoneId zone = clock.getZone();
+            long live = Duration.between(
+                    timing.pausedAt().atZone(zone), rawNow.atZone(zone)).getSeconds();
             if (live > 0) {
                 pausedSec += live;   // garde-fou contre un paused_at futur (skew d'horloge)
             }
@@ -520,8 +525,8 @@ public class EvaluateurDashboardService {
     private List<PlanningCellResponse> buildPlanning(List<Rotation> rotations,
                                                      LocalDateTime rawNow,
                                                      Map<Long, ExamServiceClient.ExamTiming> timingByExam) {
-        // Le filtre "jour J" reste sur l'heure murale (jour calendaire réel) ;
-        // seul le STATUT de la cellule utilise le temps effectif.
+        // Le filtre jour J reste sur l'heure murale du jour calendaire réel.
+        // Seul le statut de chaque cellule utilise le temps effectif.
         List<PlanningCellResponse> cells = rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null)
                 .filter(r -> r.getDebutCreneau().toLocalDate()

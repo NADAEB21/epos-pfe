@@ -434,4 +434,88 @@ class ExamServiceClientTest {
                     .hasMessageContaining("introuvable");
         }
     }
+
+    // =========================================================================
+    // getExamTiming (ADR-0012 §0)
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getExamTiming()")
+    class GetExamTiming {
+
+        @Test
+        @DisplayName("Parse enPause / pausedAt / totalPauseSec / dureeStationMin + transmet le JWT")
+        void happyPath_parseTiming() {
+            List<ClientRequest> requests = new ArrayList<>();
+            String body = "{\"success\":true,\"data\":{\"id\":16," +
+                    "\"enPause\":true,\"pausedAt\":\"2026-06-20 10:15:30\"," +
+                    "\"totalPauseSec\":600,\"dureeStationMin\":20}}";
+            ExamServiceClient client = clientReturning(okJson(body), requests);
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(16L);
+
+            assertThat(t.enPause()).isTrue();
+            assertThat(t.pausedAt()).isEqualTo(LocalDateTime.of(2026, 6, 20, 10, 15, 30));
+            assertThat(t.totalPauseSec()).isEqualTo(600);
+            assertThat(t.dureeStationMin()).isEqualTo(20);
+            assertThat(requests.get(0).url().toString()).contains("/api/examens/16");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
+                    .isEqualTo("Bearer fake-test-token");
+        }
+
+        @Test
+        @DisplayName("Examen non en pause → enPause=false, pausedAt=null, defaults sûrs")
+        void pasEnPause_defaults() {
+            String body = "{\"success\":true,\"data\":{\"id\":1,\"enPause\":false}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(1L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.totalPauseSec()).isZero();
+            assertThat(t.dureeStationMin()).isNull();
+        }
+
+        @Test
+        @DisplayName("pausedAt malformé → null, le reste du timing reste lu")
+        void pausedAtMalformé_null() {
+            String body = "{\"success\":true,\"data\":{\"id\":1,\"enPause\":true," +
+                    "\"pausedAt\":\"pas-une-date\",\"totalPauseSec\":120}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(1L);
+
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.enPause()).isTrue();
+            assertThat(t.totalPauseSec()).isEqualTo(120);
+        }
+
+        @Test
+        @DisplayName("Examen introuvable (data sans id) → état neutre, pas d'exception")
+        void examenIntrouvable_neutre() {
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"message\":\"x\"}}"), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(404L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.totalPauseSec()).isZero();
+            assertThat(t.dureeStationMin()).isNull();
+        }
+
+        @Test
+        @DisplayName("Erreur réseau → état neutre (fail-soft), pas d'exception")
+        void erreurReseau_neutre() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("timeout"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(5L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.totalPauseSec()).isZero();
+        }
+    }
 }

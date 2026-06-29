@@ -309,6 +309,7 @@ class ExamServiceClientTest {
                         "\"dateExamen\":\"2026-06-20\"," +
                         "\"heureDebut\":\"08:30\"," +
                         "\"dureeStationMin\":10," +
+                        "\"tempsBattementMin\":5," +
                         "\"nbEtudiantsParStation\":4," +
                         "\"statut\":\"CONFIGURE\"," +
                         "\"stations\":[" +
@@ -330,6 +331,7 @@ class ExamServiceClientTest {
             assertThat(view.dateExamen()).isEqualTo(LocalDate.of(2026, 6, 20));
             assertThat(view.heureDebut()).isEqualTo(LocalTime.of(8, 30));
             assertThat(view.dureeStationMin()).isEqualTo(10);
+            assertThat(view.tempsBattementMin()).isEqualTo(5);   // ADR-0012
             assertThat(view.nbEtudiantsParStation()).isEqualTo(4);
             assertThat(view.statut()).isEqualTo("CONFIGURE");
             assertThat(view.launchedAt()).isNull();
@@ -355,6 +357,7 @@ class ExamServiceClientTest {
             assertThat(view.dateExamen()).isNull();
             assertThat(view.heureDebut()).isNull();
             assertThat(view.dureeStationMin()).isNull();
+            assertThat(view.tempsBattementMin()).isNull();   // ADR-0012 absent → null
             assertThat(view.stations()).isEmpty();
         }
 
@@ -444,12 +447,13 @@ class ExamServiceClientTest {
     class GetExamTiming {
 
         @Test
-        @DisplayName("Parse enPause / pausedAt / totalPauseSec / dureeStationMin + transmet le JWT")
+        @DisplayName("Parse enPause / pausedAt / totalPauseSec / dureeStationMin / avertissementLeadSec + transmet le JWT")
         void happyPath_parseTiming() {
             List<ClientRequest> requests = new ArrayList<>();
             String body = "{\"success\":true,\"data\":{\"id\":16," +
                     "\"enPause\":true,\"pausedAt\":\"2026-06-20 10:15:30\"," +
-                    "\"totalPauseSec\":600,\"dureeStationMin\":20}}";
+                    "\"totalPauseSec\":600,\"dureeStationMin\":20," +
+                    "\"avertissementLeadSec\":90}}";
             ExamServiceClient client = clientReturning(okJson(body), requests);
 
             ExamServiceClient.ExamTiming t = client.getExamTiming(16L);
@@ -458,6 +462,7 @@ class ExamServiceClientTest {
             assertThat(t.pausedAt()).isEqualTo(LocalDateTime.of(2026, 6, 20, 10, 15, 30));
             assertThat(t.totalPauseSec()).isEqualTo(600);
             assertThat(t.dureeStationMin()).isEqualTo(20);
+            assertThat(t.avertissementLeadSec()).isEqualTo(90);   // ADR-0012
             assertThat(requests.get(0).url().toString()).contains("/api/examens/16");
             assertThat(requests.get(0).headers().getFirst("Authorization"))
                     .isEqualTo("Bearer fake-test-token");
@@ -475,6 +480,7 @@ class ExamServiceClientTest {
             assertThat(t.pausedAt()).isNull();
             assertThat(t.totalPauseSec()).isZero();
             assertThat(t.dureeStationMin()).isNull();
+            assertThat(t.avertissementLeadSec()).isZero();   // ADR-0012 absent → 0
         }
 
         @Test

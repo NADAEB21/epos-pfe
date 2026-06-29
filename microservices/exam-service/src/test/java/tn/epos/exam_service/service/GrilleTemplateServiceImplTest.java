@@ -436,6 +436,9 @@ class GrilleTemplateServiceImplTest {
         @DisplayName("Doit dupliquer l'examen avec stations et grilles")
         void dupliquer_devraitCreerCopieComplete() {
             examenBrouillon.setStations(new ArrayList<>(List.of(station)));
+            // ADR-0012 : la config de transition de la source doit suivre la copie.
+            examenBrouillon.setTempsBattementMin(5);
+            examenBrouillon.setAvertissementLeadSec(90);
 
             Examen copie = Examen.builder().id(42L).nom("Copie Examen")
                     .matiereId(1L).statut(StatutExamen.BROUILLON)
@@ -452,7 +455,10 @@ class GrilleTemplateServiceImplTest {
             Long nouvelId = templateService.dupliquerExamen(1L, "Copie Examen");
 
             assertThat(nouvelId).isEqualTo(42L);
-            verify(examenRepository).save(any(Examen.class));
+            ArgumentCaptor<Examen> captor = ArgumentCaptor.forClass(Examen.class);
+            verify(examenRepository).save(captor.capture());
+            assertThat(captor.getValue().getTempsBattementMin()).isEqualTo(5);
+            assertThat(captor.getValue().getAvertissementLeadSec()).isEqualTo(90);
             verify(stationRepository).save(any(Station.class));
             verify(grilleRepository).save(any(GrilleEvaluation.class));
         }

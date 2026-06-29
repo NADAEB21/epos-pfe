@@ -237,6 +237,11 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                 .dateExamen(source.getDateExamen())
                 .dureeStationMin(source.getDureeStationMin())
                 .nbEtudiantsParStation(source.getNbEtudiantsParStation())
+                // ADR-0012 : la copie hérite aussi du tampon inter-créneau et du
+                // délai d'avertissement, sinon dupliquer un examen réinitialise
+                // silencieusement sa configuration de transition à 0.
+                .tempsBattementMin(source.getTempsBattementMin())
+                .avertissementLeadSec(source.getAvertissementLeadSec())
                 .description(source.getDescription())
                 .statut(StatutExamen.BROUILLON)
                 .build();

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -117,6 +118,24 @@ class ExamenServiceImplTest {
             examenService.creer(examenRequest);
 
             verify(examenRepository, times(1)).save(any(Examen.class));
+        }
+
+        @Test
+        @DisplayName("ADR-0012 : tempsBattementMin et avertissementLeadSec sont copiés vers l'entité")
+        void creer_devraitCopierBattementEtAvertissement() {
+            examenRequest.setTempsBattementMin(5);
+            examenRequest.setAvertissementLeadSec(90);
+            when(examenRepository.save(any(Examen.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            ArgumentCaptor<Examen> captor = ArgumentCaptor.forClass(Examen.class);
+            ExamenResponse result = examenService.creer(examenRequest);
+
+            verify(examenRepository).save(captor.capture());
+            assertThat(captor.getValue().getTempsBattementMin()).isEqualTo(5);
+            assertThat(captor.getValue().getAvertissementLeadSec()).isEqualTo(90);
+            // Et toResponse les re-surface (contrat exposé au front + scoring).
+            assertThat(result.getTempsBattementMin()).isEqualTo(5);
+            assertThat(result.getAvertissementLeadSec()).isEqualTo(90);
         }
     }
 

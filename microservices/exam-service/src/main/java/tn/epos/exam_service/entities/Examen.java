@@ -58,6 +58,24 @@ public class Examen {
     @Builder.Default
     private Integer nbEtudiantsParStation = 4;
 
+    // Tampon de transition inter-créneau, en minutes (ADR-0012). 0 = aucun gap
+    // (back-to-back, comportement historique). Reformate le planning côté
+    // scoring : l'unité de créneau devient (dureeStationMin + tempsBattementMin).
+    @Min(value = 0, message = "Le temps de battement ne peut pas être négatif")
+    @Max(value = 60, message = "Le temps de battement ne peut pas dépasser 60 minutes")
+    @Column(name = "temps_battement_min", nullable = false)
+    @Builder.Default
+    private Integer tempsBattementMin = 0;
+
+    // Délai (secondes) avant le prochain passage auquel l'avertissement se
+    // déclenche sur l'appareil de l'évaluateur (ADR-0012). 0 = désactivé.
+    // Ne stocke aucun état de planning : gouverne seulement le préavis.
+    @Min(value = 0, message = "Le délai d'avertissement ne peut pas être négatif")
+    @Max(value = 600, message = "Le délai d'avertissement ne peut pas dépasser 600 secondes")
+    @Column(name = "avertissement_lead_sec", nullable = false)
+    @Builder.Default
+    private Integer avertissementLeadSec = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default

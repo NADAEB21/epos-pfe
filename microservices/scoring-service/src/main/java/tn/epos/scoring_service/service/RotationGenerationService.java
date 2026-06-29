@@ -47,9 +47,10 @@ import java.util.List;
  *   <li>One {@link RotationAssignment} per (present student × station).</li>
  * </ul>
  *
- * <p>The lot's wave start is staggered back-to-back: lot {@code m} (1-based) runs
- * after the {@code m−1} preceding circuits, i.e.
- * {@code heureDebut + (m−1)·K·dureeStationMin}.
+ * <p>The lot's wave start is staggered by the {@code m−1} preceding circuits,
+ * i.e. {@code examStart + (m−1)·K·slot}, where {@code slot = dureeStationMin +
+ * tempsBattementMin} (ADR-0012). The {@code tempsBattementMin} transition buffer
+ * defaults to 0 — a zero buffer reproduces the historical back-to-back schedule.
  */
 @Service
 @RequiredArgsConstructor
@@ -58,6 +59,7 @@ public class RotationGenerationService {
 
     private static final LocalTime DEFAULT_START = LocalTime.of(9, 0);
     private static final int DEFAULT_DUREE_MIN = 15;
+    private static final int DEFAULT_BATTEMENT_MIN = 0;
     private static final int DEFAULT_CAPACITE = 4;
 
     private final ExamServiceClient examServiceClient;
@@ -121,6 +123,13 @@ public class RotationGenerationService {
         int duree = exam.dureeStationMin() != null ? exam.dureeStationMin() : DEFAULT_DUREE_MIN;
         int capacite = exam.nbEtudiantsParStation() != null ? exam.nbEtudiantsParStation() : DEFAULT_CAPACITE;
 
+        // ADR-0012 : tampon de transition inter-créneau. L'unité de créneau ("slot")
+        // devient (durée + battement) au lieu de la seule durée, ce qui insère un
+        // intervalle entre les passages successifs ET décale les vagues d'autant.
+        // battement = 0 (défaut, rétro-compatible) régénère un planning identique.
+        int battement = exam.tempsBattementMin() != null ? exam.tempsBattementMin() : DEFAULT_BATTEMENT_MIN;
+        int slot = duree + battement;
+
         // Back-to-back waves: lot m (1-based) starts after the m-1 preceding circuits.
         // ADR-0010: anchor on the ACTUAL launch instant when known (generation only
         // runs post-launch, so launched_at is normally set), so the plan and the
@@ -130,7 +139,7 @@ public class RotationGenerationService {
                 ? exam.launchedAt()
                 : LocalDateTime.of(date, start);
         int waveIndex = (lot.getNumeroLot() != null ? lot.getNumeroLot() : 1) - 1;
-        LocalDateTime waveStart = examStart.plusMinutes((long) waveIndex * k * duree);
+        LocalDateTime waveStart = examStart.plusMinutes((long) waveIndex * k * slot);
 
         // Partition present students into K balanced groups (round-robin keeps sizes within 1).
         List<List<ExamenParticipation>> groupStudents = new ArrayList<>();
@@ -159,7 +168,7 @@ public class RotationGenerationService {
         int rotationCount = 0;
         int assignmentCount = 0;
         for (int t = 0; t < k; t++) {
-            LocalDateTime creneau = waveStart.plusMinutes((long) t * duree);
+            LocalDateTime creneau = waveStart.plusMinutes((long) t * slot);
             for (int g = 0; g < k; g++) {
                 ExamGenerationView.StationView station = stations.get((g + t) % k);
                 Long evaluateurId = (station.evaluateurIds() != null && !station.evaluateurIds().isEmpty())

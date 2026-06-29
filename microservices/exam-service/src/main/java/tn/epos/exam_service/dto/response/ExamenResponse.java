@@ -23,6 +23,14 @@ public class ExamenResponse {
 
     private Integer dureeStationMin;
     private Integer nbEtudiantsParStation;
+
+    // Tampon de transition inter-créneau (minutes) et délai d'avertissement
+    // avant le prochain passage (secondes) — ADR-0012. Tous deux 0 par défaut.
+    // scoring-service les relit : tempsBattementMin reformate le planning,
+    // avertissementLeadSec est renvoyé tel quel à l'app évaluateur.
+    private Integer tempsBattementMin;
+    private Integer avertissementLeadSec;
+
     private StatutExamen statut;
     private String description;
     private boolean hasPdfSujet;

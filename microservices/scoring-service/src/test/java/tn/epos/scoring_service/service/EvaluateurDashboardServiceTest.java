@@ -241,7 +241,7 @@ class EvaluateurDashboardServiceTest {
             // soit AVANT le début → A_VENIR.
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
                     new ExamServiceClient.ExamTiming(
-                            true, LocalDateTime.now(TUNIS).minusMinutes(10), 0, 15));
+                            true, LocalDateTime.now(TUNIS).minusMinutes(10), 0, 15, 0));
 
             assertThat(statutOf(r)).isEqualTo("A_VENIR");
         }
@@ -256,7 +256,7 @@ class EvaluateurDashboardServiceTest {
             // 20 min de pause cumulée → effectif ≈ −30 min depuis le début,
             // dans la fenêtre 15+30 → EN_COURS.
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
-                    new ExamServiceClient.ExamTiming(false, null, 20 * 60, 15));
+                    new ExamServiceClient.ExamTiming(false, null, 20 * 60, 15, 0));
 
             assertThat(statutOf(r)).isEqualTo("EN_COURS");
         }
@@ -271,7 +271,7 @@ class EvaluateurDashboardServiceTest {
             lotFor(r, LotStatus.EN_COURS);
 
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
-                    new ExamServiceClient.ExamTiming(false, null, 0, 60));
+                    new ExamServiceClient.ExamTiming(false, null, 0, 60, 0));
 
             assertThat(statutOf(r)).isEqualTo("EN_COURS");
         }
@@ -287,6 +287,119 @@ class EvaluateurDashboardServiceTest {
                     .thenReturn(ExamServiceClient.ExamTiming.neutral());
 
             assertThat(statutOf(r)).isEqualTo("EN_COURS");
+        }
+    }
+
+    // =========================================================================
+    // buildDashboard — projection du compte à rebours / avertissement (ADR-0012)
+    // =========================================================================
+
+    @Nested
+    @DisplayName("buildDashboard() — debutPrevu / serverNow / lead / enPause (ADR-0012)")
+    class CountdownProjection {
+
+        private static final Long EXAMEN_ID = 99L;  // celui que pose lotFor(...)
+
+        @BeforeEach
+        void stubCommon() {
+            lenient().when(examServiceClient.getStationInfo(STATION_ID))
+                    .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
+            lenient().when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
+        }
+
+        private SessionResponse sessionFor(Rotation r) {
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
+            return service.buildDashboard(EVAL_ID).getSessions().get(0);
+        }
+
+        @Test
+        @DisplayName("serverNow renseigné sur l'enveloppe (≈ maintenant, zone horloge)")
+        void serverNow_renseigne() {
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).plusHours(1));
+            lotFor(r, LotStatus.EN_COURS);
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
+            when(examServiceClient.getExamTiming(EXAMEN_ID))
+                    .thenReturn(ExamServiceClient.ExamTiming.neutral());
+
+            LocalDateTime serverNow = service.buildDashboard(EVAL_ID).getServerNow();
+
+            assertThat(serverNow).isNotNull()
+                    .isCloseTo(LocalDateTime.now(TUNIS),
+                            within(1, java.time.temporal.ChronoUnit.MINUTES));
+        }
+
+        @Test
+        @DisplayName("Sans pause : debutPrevu == debutCreneau (instant absolu inchangé)")
+        void debutPrevu_sansPause_egalDebutCreneau() {
+            LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
+            Rotation r = rotationAt(debut);
+            lotFor(r, LotStatus.EN_COURS);
+            when(examServiceClient.getExamTiming(EXAMEN_ID))
+                    .thenReturn(ExamServiceClient.ExamTiming.neutral());
+
+            assertThat(sessionFor(r).getDebutPrevu()).isEqualTo(debut);
+        }
+
+        @Test
+        @DisplayName("Pause cumulée : debutPrevu = debutCreneau + totalPauseSec (recule en heure murale)")
+        void debutPrevu_avecPauseCumulee_decale() {
+            LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
+            Rotation r = rotationAt(debut);
+            lotFor(r, LotStatus.EN_COURS);
+            // 10 min de pause terminée → le passage glisse de 10 min en heure murale.
+            when(examServiceClient.getExamTiming(EXAMEN_ID))
+                    .thenReturn(new ExamServiceClient.ExamTiming(false, null, 10 * 60, 15, 0));
+
+            assertThat(sessionFor(r).getDebutPrevu()).isEqualTo(debut.plusMinutes(10));
+        }
+
+        @Test
+        @DisplayName("Pause en cours : debutPrevu intègre aussi le temps de pause vivant")
+        void debutPrevu_pauseEnCours_integreLive() {
+            LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
+            Rotation r = rotationAt(debut);
+            lotFor(r, LotStatus.EN_COURS);
+            // En pause depuis 5 min, +120s cumulés → décalage ≈ 5 min + 120 s.
+            when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
+                    new ExamServiceClient.ExamTiming(
+                            true, LocalDateTime.now(TUNIS).minusMinutes(5), 120, 15, 0));
+
+            LocalDateTime debutPrevu = sessionFor(r).getDebutPrevu();
+
+            // ≈ debut + 5min + 120s = debut + 7min (tolérance 2s pour l'exécution).
+            assertThat(debutPrevu).isCloseTo(debut.plusMinutes(7),
+                    within(2, java.time.temporal.ChronoUnit.SECONDS));
+        }
+
+        @Test
+        @DisplayName("avertissementLeadSec et enPause sont échoés depuis la config/état de l'examen")
+        void leadEtEnPause_echoes() {
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).plusMinutes(30));
+            lotFor(r, LotStatus.EN_COURS);
+            when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
+                    new ExamServiceClient.ExamTiming(
+                            true, LocalDateTime.now(TUNIS).minusMinutes(1), 0, 15, 90));
+
+            SessionResponse s = sessionFor(r);
+
+            assertThat(s.getAvertissementLeadSec()).isEqualTo(90);
+            assertThat(s.isEnPause()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Timing neutre (exam-service injoignable) : lead=0, enPause=false, debutPrevu brut")
+        void timingNeutre_valeursSures() {
+            LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
+            Rotation r = rotationAt(debut);
+            lotFor(r, LotStatus.EN_COURS);
+            when(examServiceClient.getExamTiming(EXAMEN_ID))
+                    .thenReturn(ExamServiceClient.ExamTiming.neutral());
+
+            SessionResponse s = sessionFor(r);
+
+            assertThat(s.getAvertissementLeadSec()).isZero();
+            assertThat(s.isEnPause()).isFalse();
+            assertThat(s.getDebutPrevu()).isEqualTo(debut);
         }
     }
 

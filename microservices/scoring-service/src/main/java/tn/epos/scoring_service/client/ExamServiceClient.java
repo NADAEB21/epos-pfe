@@ -46,6 +46,12 @@ public class ExamServiceClient {
     /** SonarQube S1192 — nom du champ JSON lu dans extractExamView + getExamTiming. */
     private static final String FIELD_DUREE_STATION_MIN = "dureeStationMin";
 
+    /** SonarQube S1192 — champ JSON du tampon inter-créneau (ADR-0012). */
+    private static final String FIELD_TEMPS_BATTEMENT_MIN = "tempsBattementMin";
+
+    /** SonarQube S1192 — champ JSON du délai d'avertissement (ADR-0012). */
+    private static final String FIELD_AVERTISSEMENT_LEAD_SEC = "avertissementLeadSec";
+
     /**
      * Informations d'un item d'évaluation issues de l'exam-service.
      *
@@ -74,13 +80,17 @@ public class ExamServiceClient {
      * @param totalPauseSec secondes de pause cumulées sur les intervalles terminés
      * @param dureeStationMin durée nominale d'une station (config examen) —
      *                      remplace la constante codée en dur côté dashboard
+     * @param avertissementLeadSec délai (secondes) avant le prochain passage
+     *                      auquel l'app évaluateur déclenche l'avertissement
+     *                      (ADR-0012) ; 0 = avertissements désactivés
      */
     public record ExamTiming(boolean enPause, LocalDateTime pausedAt,
-                             int totalPauseSec, Integer dureeStationMin) {
+                             int totalPauseSec, Integer dureeStationMin,
+                             int avertissementLeadSec) {
 
-        /** État neutre (pas de pause) — repli si exam-service est injoignable. */
+        /** État neutre (pas de pause, pas d'avertissement) — repli si exam-service est injoignable. */
         public static ExamTiming neutral() {
-            return new ExamTiming(false, null, 0, null);
+            return new ExamTiming(false, null, 0, null, 0);
         }
     }
 
@@ -177,7 +187,9 @@ public class ExamServiceClient {
                     ? data.path("totalPauseSec").asInt() : 0;
             Integer duree = data.path(FIELD_DUREE_STATION_MIN).isNumber()
                     ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
-            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree);
+            int leadSec = data.path(FIELD_AVERTISSEMENT_LEAD_SEC).isNumber()
+                    ? data.path(FIELD_AVERTISSEMENT_LEAD_SEC).asInt() : 0;
+            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec);
         } catch (Exception e) {
             log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
                     examenId, e.getMessage());
@@ -271,6 +283,7 @@ public class ExamServiceClient {
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
                 parseLaunchedAt(data.path("launchedAt")),
                 data.path(FIELD_DUREE_STATION_MIN).isNumber() ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null,
+                data.path(FIELD_TEMPS_BATTEMENT_MIN).isNumber() ? data.path(FIELD_TEMPS_BATTEMENT_MIN).asInt() : null,
                 data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
                 data.path("statut").asText(null),
                 stations);

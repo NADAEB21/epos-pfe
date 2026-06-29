@@ -114,6 +114,9 @@ public class EvaluateurDashboardService {
         List<PlanningCellResponse> planning = buildPlanning(rotations, rawNow, timingByExam);
 
         return EvaluateurDashboardResponse.builder()
+                // ADR-0012 : horloge serveur unique renvoyée à l'app évaluateur
+                // pour corriger l'offset de son horloge locale (compte à rebours).
+                .serverNow(rawNow)
                 .sessions(sessions)
                 .stats(stats)
                 .planning(planning)
@@ -344,6 +347,10 @@ public class EvaluateurDashboardService {
                     LocalDateTime maintenant = effectiveNow(timing, rawNow);
                     int dureeMin = dureeMinFor(timing);
 
+                    // ADR-0012 : instant absolu prédit du passage + métadonnées du
+                    // compte à rebours/avertissement, à dérouler localement côté mobile.
+                    LocalDateTime debutPrevu = debutPrevu(rotation, timing, rawNow);
+
                     String statut     = resolveSessionStatut(rotation, maintenant, dureeMin);
                     String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
                     String heureFin   = rotation.getDebutCreneau()
@@ -375,6 +382,9 @@ public class EvaluateurDashboardService {
                             .salle("Salle " + rotation.getStationId())
                             .lotActuel(lotActuel)
                             .totalLots(totalLots)
+                            .debutPrevu(debutPrevu)
+                            .avertissementLeadSec(timing.avertissementLeadSec())
+                            .enPause(timing.enPause())
                             .build();
                 })
                 .sorted(Comparator
@@ -485,6 +495,18 @@ public class EvaluateurDashboardService {
      */
     private LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing,
                                        LocalDateTime rawNow) {
+        return rawNow.minusSeconds(pauseSeconds(timing, rawNow));
+    }
+
+    /**
+     * Temps de pause total (secondes) à retrancher de l'horloge murale : pauses
+     * terminées cumulées + (si en pause maintenant) le temps écoulé depuis le
+     * début de la pause en cours. Source unique partagée par {@link #effectiveNow}
+     * (qui le soustrait à {@code now}) et par {@code debutPrevu} (qui l'ajoute à
+     * {@code debutCreneau}) — les deux sens d'une même réconciliation ADR-0012,
+     * de sorte que l'horloge live et le compte à rebours ne peuvent pas diverger.
+     */
+    private long pauseSeconds(ExamServiceClient.ExamTiming timing, LocalDateTime rawNow) {
         long pausedSec = Math.max(0, timing.totalPauseSec());
         if (timing.enPause() && timing.pausedAt() != null) {
             // Zone-aware avant de mesurer l'écart : les deux instants vivent dans
@@ -496,7 +518,22 @@ public class EvaluateurDashboardService {
                 pausedSec += live;   // garde-fou contre un paused_at futur (skew d'horloge)
             }
         }
-        return rawNow.minusSeconds(pausedSec);
+        return pausedSec;
+    }
+
+    /**
+     * Instant absolu prédit du début d'un passage (ADR-0012 §2). {@code debutCreneau}
+     * est déjà ancré sur {@code launched_at} (ADR-0010) en temps effectif ; pour le
+     * projeter en heure murale il faut <b>rajouter</b> le temps de pause — l'inverse
+     * exact d'{@link #effectiveNow} (qui le retranche). Démonstration : le passage
+     * démarre quand {@code effectiveNow == debutCreneau}, c.-à-d.
+     * {@code rawNow − pause == debutCreneau}, soit {@code rawNow == debutCreneau + pause}.
+     * Pendant une pause, {@code debutPrevu} recule poll après poll → le compte à
+     * rebours se fige naturellement (et {@code enPause} le confirme côté client).
+     */
+    private LocalDateTime debutPrevu(Rotation rotation, ExamServiceClient.ExamTiming timing,
+                                     LocalDateTime rawNow) {
+        return rotation.getDebutCreneau().plusSeconds(pauseSeconds(timing, rawNow));
     }
 
     /** Durée de station : config examen si disponible, sinon repli constant. */

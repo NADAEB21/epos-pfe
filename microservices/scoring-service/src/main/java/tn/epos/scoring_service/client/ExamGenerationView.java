@@ -18,6 +18,7 @@ public record ExamGenerationView(
         LocalTime heureDebut,
         LocalDateTime launchedAt,
         Integer dureeStationMin,
+        Integer tempsBattementMin,
         Integer nbEtudiantsParStation,
         String statut,
         List<StationView> stations) {

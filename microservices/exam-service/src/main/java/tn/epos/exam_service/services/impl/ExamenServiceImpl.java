@@ -58,6 +58,8 @@ public class ExamenServiceImpl implements ExamenService {
                 .heureDebut(request.getHeureDebut())
                 .dureeStationMin(request.getDureeStationMin())
                 .nbEtudiantsParStation(request.getNbEtudiantsParStation())
+                .tempsBattementMin(request.getTempsBattementMin())
+                .avertissementLeadSec(request.getAvertissementLeadSec())
                 .description(request.getDescription())
                 .statut(StatutExamen.BROUILLON)
                 .build();
@@ -124,6 +126,8 @@ public class ExamenServiceImpl implements ExamenService {
         examen.setHeureDebut(request.getHeureDebut());
         examen.setDureeStationMin(request.getDureeStationMin());
         examen.setNbEtudiantsParStation(request.getNbEtudiantsParStation());
+        examen.setTempsBattementMin(request.getTempsBattementMin());
+        examen.setAvertissementLeadSec(request.getAvertissementLeadSec());
         examen.setDescription(request.getDescription());
 
         return toResponse(examenRepository.save(examen), false);
@@ -326,6 +330,8 @@ public class ExamenServiceImpl implements ExamenService {
         response.setHeureDebut(examen.getHeureDebut());
         response.setDureeStationMin(examen.getDureeStationMin());
         response.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());
+        response.setTempsBattementMin(examen.getTempsBattementMin());
+        response.setAvertissementLeadSec(examen.getAvertissementLeadSec());
         response.setStatut(examen.getStatut());
         response.setDescription(examen.getDescription());
         response.setHasPdfSujet(examen.getPdfSujetPath() != null);

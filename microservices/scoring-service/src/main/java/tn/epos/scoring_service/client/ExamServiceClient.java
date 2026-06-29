@@ -43,6 +43,9 @@ public class ExamServiceClient {
     /** SonarQube S1192 — littéral réutilisé pour le nom de repli d'une station inconnue. */
     private static final String STATION_FALLBACK_PREFIX = "Station ";
 
+    /** SonarQube S1192 — nom du champ JSON lu dans extractExamView + getExamTiming. */
+    private static final String FIELD_DUREE_STATION_MIN = "dureeStationMin";
+
     /**
      * Informations d'un item d'évaluation issues de l'exam-service.
      *
@@ -57,6 +60,29 @@ public class ExamServiceClient {
      * utilisées par EvaluateurDashboardService pour enrichir les SessionResponse.
      */
     public record StationInfo(String nom) {}
+
+    /**
+     * Snapshot de l'état temporel d'un examen, lu par
+     * {@code EvaluateurDashboardService} pour calculer le <b>temps effectif</b>
+     * (ADR-0009/0010, ADR-0012 §0) : l'horloge live de l'évaluateur doit
+     * soustraire le temps de pause, sinon une session affichée pendant une pause
+     * compte vers le mauvais étudiant.
+     *
+     * @param enPause       l'examen est-il actuellement en pause
+     * @param pausedAt      début de la pause en cours (null si non en pause) —
+     *                      moment serveur estampillé, zone {@code app.timezone}
+     * @param totalPauseSec secondes de pause cumulées sur les intervalles terminés
+     * @param dureeStationMin durée nominale d'une station (config examen) —
+     *                      remplace la constante codée en dur côté dashboard
+     */
+    public record ExamTiming(boolean enPause, LocalDateTime pausedAt,
+                             int totalPauseSec, Integer dureeStationMin) {
+
+        /** État neutre (pas de pause) — repli si exam-service est injoignable. */
+        public static ExamTiming neutral() {
+            return new ExamTiming(false, null, 0, null);
+        }
+    }
 
     private final WebClient webClient;
 
@@ -120,6 +146,42 @@ public class ExamServiceClient {
         } catch (Exception e) {
             log.warn("exam-service injoignable pour station {} : {}", stationId, e.getMessage());
             return new StationInfo(STATION_FALLBACK_PREFIX + stationId);
+        }
+    }
+
+    /**
+     * Lit l'état temporel (pause + durée station) d'un examen pour le calcul du
+     * temps effectif côté dashboard (ADR-0012 §0). <b>Fail-soft</b> : en cas
+     * d'indisponibilité de l'exam-service ou d'examen introuvable, retourne
+     * {@link ExamTiming#neutral()} (pas de pause) plutôt que d'échouer — le
+     * dashboard dégrade alors vers l'horloge murale brute, comme
+     * {@link #getStationInfo(Long)}. Non mis en cache : la pause est mutable.
+     */
+    public ExamTiming getExamTiming(Long examenId) {
+        String bearerToken = currentBearerToken();
+        try {
+            JsonNode root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            JsonNode data = root == null ? null : root.path("data");
+            if (data == null || data.isMissingNode() || data.isNull() || !data.path("id").isNumber()) {
+                log.warn("getExamTiming : examen {} introuvable — état neutre", examenId);
+                return ExamTiming.neutral();
+            }
+            boolean enPause = data.path("enPause").asBoolean(false);
+            LocalDateTime pausedAt = parseServerTimestamp(data.path("pausedAt"));
+            int totalPauseSec = data.path("totalPauseSec").isNumber()
+                    ? data.path("totalPauseSec").asInt() : 0;
+            Integer duree = data.path(FIELD_DUREE_STATION_MIN).isNumber()
+                    ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
+            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree);
+        } catch (Exception e) {
+            log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
+                    examenId, e.getMessage());
+            return ExamTiming.neutral();
         }
     }
 
@@ -208,7 +270,7 @@ public class ExamServiceClient {
                 data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
                 parseLaunchedAt(data.path("launchedAt")),
-                data.path("dureeStationMin").isNumber() ? data.path("dureeStationMin").asInt() : null,
+                data.path(FIELD_DUREE_STATION_MIN).isNumber() ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null,
                 data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
                 data.path("statut").asText(null),
                 stations);
@@ -221,13 +283,22 @@ public class ExamServiceClient {
      * whole generation.
      */
     private LocalDateTime parseLaunchedAt(JsonNode node) {
+        return parseServerTimestamp(node);
+    }
+
+    /**
+     * Reads a machine-stamped {@code "yyyy-MM-dd HH:mm:ss"} timestamp
+     * (launched_at, paused_at — same {@code @JsonFormat} on ExamenResponse).
+     * Absent / null / malformed → {@code null}, logged but never fatal.
+     */
+    private LocalDateTime parseServerTimestamp(JsonNode node) {
         if (node == null || !node.isTextual()) {
             return null;
         }
         try {
             return LocalDateTime.parse(node.asText(), LAUNCHED_AT_FMT);
         } catch (DateTimeParseException e) {
-            log.warn("launched_at illisible ('{}') — fallback départ planifié", node.asText());
+            log.warn("timestamp serveur illisible ('{}') — ignoré", node.asText());
             return null;
         }
     }

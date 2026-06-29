@@ -11,6 +11,8 @@ import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.*;
 import tn.epos.scoring_service.client.ExamServiceClient;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -56,6 +58,14 @@ public class EvaluateurDashboardService {
     private final IExamenParticipationRepository  participationRepository;
     private final ExamServiceClient               examServiceClient;
 
+    /**
+     * Horloge injectable pinnée sur {@code app.timezone} (ADR-0010, voir
+     * {@code ClockConfig}). Remplace {@code now(ZoneId.of("Africa/Tunis"))}
+     * codé en dur : "maintenant" et {@code paused_at} doivent vivre dans la même
+     * zone pour que le calcul du temps effectif (ADR-0012 §0) soit correct.
+     */
+    private final Clock clock;
+
     // ── Constantes ────────────────────────────────────────────────────────────
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
@@ -67,9 +77,10 @@ public class EvaluateurDashboardService {
     private static final String LOG_ETUDIANT_STATION = " station=";
 
     /**
-     * Durée nominale d'une station en minutes (valeur par défaut du cahier des charges).
-     * Idéalement lue depuis Examen.dureeStationMin via exam-service — hardcodée ici
-     * pour éviter un appel cross-service à chaque tick dashboard.
+     * Durée nominale d'une station en minutes — <b>repli uniquement</b>.
+     * ADR-0012 §0 : la durée réelle est désormais lue depuis
+     * {@code Examen.dureeStationMin} (via {@link ExamServiceClient.ExamTiming}) ;
+     * cette constante ne sert que si l'examen n'est pas résolvable.
      */
     private static final int DUREE_STATION_MIN = 15;
 
@@ -91,9 +102,16 @@ public class EvaluateurDashboardService {
         List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
         List<Lot>      lots      = lotRepository.findByEvaluateurId(evaluateurId);
 
-        List<SessionResponse>      sessions = buildSessions(rotations, lots);
+        // ADR-0012 §0 : "maintenant" effectif. On lit l'état de pause de chaque
+        // examen concerné UNE fois, puis on dérive un temps effectif par examen
+        // (horloge murale moins le temps de pause) au lieu de comparer l'heure
+        // brute à debutCreneau — qui dérivait dès la première pause.
+        LocalDateTime rawNow = LocalDateTime.now(clock);
+        Map<Long, ExamServiceClient.ExamTiming> timingByExam = fetchTimings(rotations);
+
+        List<SessionResponse>      sessions = buildSessions(rotations, lots, rawNow, timingByExam);
         StatsResponse              stats    = buildStats(sessions, lots);
-        List<PlanningCellResponse> planning = buildPlanning(rotations);
+        List<PlanningCellResponse> planning = buildPlanning(rotations, rawNow, timingByExam);
 
         return EvaluateurDashboardResponse.builder()
                 .sessions(sessions)
@@ -316,16 +334,20 @@ public class EvaluateurDashboardService {
     // MÉTHODES PRIVÉES — Construction des réponses
     // =========================================================================
 
-    private List<SessionResponse> buildSessions(List<Rotation> rotations, List<Lot> lots) {
-        LocalDateTime maintenant = LocalDateTime.now(ZoneId.of("Africa/Tunis"));
-
+    private List<SessionResponse> buildSessions(List<Rotation> rotations, List<Lot> lots,
+                                                LocalDateTime rawNow,
+                                                Map<Long, ExamServiceClient.ExamTiming> timingByExam) {
         return rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
                 .map(rotation -> {
-                    String statut     = resolveSessionStatut(rotation, maintenant);
+                    ExamServiceClient.ExamTiming timing = timingFor(rotation, timingByExam);
+                    LocalDateTime maintenant = effectiveNow(timing, rawNow);
+                    int dureeMin = dureeMinFor(timing);
+
+                    String statut     = resolveSessionStatut(rotation, maintenant, dureeMin);
                     String heureDebut = rotation.getDebutCreneau().format(TIME_FMT);
                     String heureFin   = rotation.getDebutCreneau()
-                            .plusMinutes(DUREE_STATION_MIN)
+                            .plusMinutes(dureeMin)
                             .format(TIME_FMT);
 
                     Lot lotLie = resolverLotDepuisRotation(rotation, lots);
@@ -370,8 +392,11 @@ public class EvaluateurDashboardService {
      *   3. debutCreneau > maintenant  → A_VENIR
      *   4. maintenant ≤ debut + duree + grace  → EN_COURS
      *   5. maintenant > debut + duree + grace  → TERMINEE (expiration automatique)
+     *
+     * <p>{@code maintenant} est le <b>temps effectif</b> (ADR-0012 §0) et
+     * {@code dureeMin} provient de la config examen, non plus d'une constante.
      */
-    private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant) {
+    private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant, int dureeMin) {
         if (rotation.getStatut() == RotationStatus.TERMINE) {
             return STATUT_TERMINEE;
         }
@@ -383,7 +408,7 @@ public class EvaluateurDashboardService {
         }
 
         LocalDateTime debut     = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes((long) DUREE_STATION_MIN + GRACE_PERIOD_MIN);
+        LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
 
         if (maintenant.isBefore(debut)) {
             return "A_VENIR";
@@ -414,6 +439,72 @@ public class EvaluateurDashboardService {
                 .orElse(null);
     }
 
+    // =========================================================================
+    // MÉTHODES PRIVÉES — Temps effectif réconcilié avec la pause, ADR-0012
+    // =========================================================================
+
+    /**
+     * Lit l'état temporel (pause + durée) de chaque examen concerné par les
+     * rotations, une seule fois par examen distinct. Une rotation sans
+     * studentGroup/lot résolvable (ex. legacy) n'a pas d'examen → absente de la
+     * map → repli sur l'heure murale brute via {@link #timingFor}.
+     */
+    private Map<Long, ExamServiceClient.ExamTiming> fetchTimings(List<Rotation> rotations) {
+        Map<Long, ExamServiceClient.ExamTiming> map = new HashMap<>();
+        for (Rotation r : rotations) {
+            Long examenId = resolveExamenId(r);
+            if (examenId != null) {
+                map.computeIfAbsent(examenId, examServiceClient::getExamTiming);
+            }
+        }
+        return map;
+    }
+
+    private Long resolveExamenId(Rotation rotation) {
+        if (rotation.getStudentGroup() == null) return null;
+        if (rotation.getStudentGroup().getLot() == null) return null;
+        return rotation.getStudentGroup().getLot().getExamenId();
+    }
+
+    /** Timing de l'examen de la rotation, ou état neutre (pas de pause) en repli. */
+    private ExamServiceClient.ExamTiming timingFor(
+            Rotation rotation, Map<Long, ExamServiceClient.ExamTiming> timingByExam) {
+        Long examenId = resolveExamenId(rotation);
+        ExamServiceClient.ExamTiming t = (examenId != null) ? timingByExam.get(examenId) : null;
+        return (t != null) ? t : ExamServiceClient.ExamTiming.neutral();
+    }
+
+    /**
+     * Temps effectif = heure murale moins le temps de pause cumulé moins (si
+     * l'examen est en pause maintenant) le temps écoulé depuis le début de la
+     * pause en cours (ADR-0009/0010). Comparer ce temps à {@code debutCreneau}
+     * (lui-même ancré sur {@code launched_at}, ADR-0010) reste correct sans
+     * connaître {@code launched_at} : le décalage de pause s'annule des deux
+     * côtés. Une pause "recule" donc l'horloge — une session affichée pendant
+     * une pause ne dérive plus vers le mauvais étudiant.
+     */
+    private LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing,
+                                       LocalDateTime rawNow) {
+        long pausedSec = Math.max(0, timing.totalPauseSec());
+        if (timing.enPause() && timing.pausedAt() != null) {
+            // Zone-aware avant de mesurer l'écart : les deux instants vivent dans
+            // la zone pinnée de l'horloge (app.timezone, ADR-0010).
+            ZoneId zone = clock.getZone();
+            long live = Duration.between(
+                    timing.pausedAt().atZone(zone), rawNow.atZone(zone)).getSeconds();
+            if (live > 0) {
+                pausedSec += live;   // garde-fou contre un paused_at futur (skew d'horloge)
+            }
+        }
+        return rawNow.minusSeconds(pausedSec);
+    }
+
+    /** Durée de station : config examen si disponible, sinon repli constant. */
+    private int dureeMinFor(ExamServiceClient.ExamTiming timing) {
+        Integer d = timing.dureeStationMin();
+        return (d != null && d > 0) ? d : DUREE_STATION_MIN;
+    }
+
     private StatsResponse buildStats(List<SessionResponse> sessions, List<Lot> lots) {
         int totalEtudiants = lots.stream()
                 .mapToInt(l -> l.getTailleLot() != null ? l.getTailleLot() : 0)
@@ -431,18 +522,24 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
-    private List<PlanningCellResponse> buildPlanning(List<Rotation> rotations) {
-        LocalDateTime maintenant = LocalDateTime.now(ZoneId.of("Africa/Tunis"));
-
+    private List<PlanningCellResponse> buildPlanning(List<Rotation> rotations,
+                                                     LocalDateTime rawNow,
+                                                     Map<Long, ExamServiceClient.ExamTiming> timingByExam) {
+        // Le filtre jour J reste sur l'heure murale du jour calendaire réel.
+        // Seul le statut de chaque cellule utilise le temps effectif.
         List<PlanningCellResponse> cells = rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null)
                 .filter(r -> r.getDebutCreneau().toLocalDate()
-                        .equals(maintenant.toLocalDate()))
-                .map(r -> PlanningCellResponse.builder()
-                        .heure(r.getDebutCreneau().format(TIME_FMT))
-                        .lotNumero(getLotNumeroPourRotation(r))
-                        .statut(mapRotationStatutToPlanningStatut(r, maintenant))
-                        .build())
+                        .equals(rawNow.toLocalDate()))
+                .map(r -> {
+                    ExamServiceClient.ExamTiming timing = timingFor(r, timingByExam);
+                    return PlanningCellResponse.builder()
+                            .heure(r.getDebutCreneau().format(TIME_FMT))
+                            .lotNumero(getLotNumeroPourRotation(r))
+                            .statut(mapRotationStatutToPlanningStatut(
+                                    r, effectiveNow(timing, rawNow), dureeMinFor(timing)))
+                            .build();
+                })
                 .collect(Collectors.toList());
 
         cells.sort(Comparator
@@ -539,12 +636,13 @@ public class EvaluateurDashboardService {
     // MÉTHODES PRIVÉES — Mapping et utilitaires
     // =========================================================================
 
-    private String mapRotationStatutToPlanningStatut(Rotation rotation, LocalDateTime maintenant) {
+    private String mapRotationStatutToPlanningStatut(Rotation rotation,
+                                                     LocalDateTime maintenant, int dureeMin) {
         if (rotation.getStatut() == RotationStatus.TERMINE) {
             return "TERMINE";
         }
         LocalDateTime debut     = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes((long) DUREE_STATION_MIN + GRACE_PERIOD_MIN);
+        LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
 
         if (maintenant.isBefore(debut)) {
             return "A_VENIR";

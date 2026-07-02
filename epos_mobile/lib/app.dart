@@ -13,6 +13,9 @@ import 'features/home/presentation/bloc/session_bloc.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/profile/domain/entities/profile_settings.dart';
 import 'features/profile/presentation/bloc/profile_bloc.dart';
+import 'core/offline/connectivity_service.dart'; 
+import 'core/offline/offline_bloc.dart';        
+import 'core/offline/sync_service.dart'; 
 
 class EposApp extends StatefulWidget {
   final AuthRepository    authRepository;
@@ -36,6 +39,7 @@ class _EposAppState extends State<EposApp> {
   late final AuthBloc    _authBloc;
   late final SessionBloc _sessionBloc;
   late final ProfileBloc _profileBloc;
+  late final OfflineBloc _offlineBloc; 
 
   bool _isAuthenticated  = false;
   // _isInitialLoading : true uniquement pendant la vérification du token au
@@ -52,6 +56,7 @@ class _EposAppState extends State<EposApp> {
         ..add(const AuthCheckRequested());
     _sessionBloc = SessionBloc(repository: widget.sessionRepository);
     _profileBloc = ProfileBloc();
+    _offlineBloc = OfflineBloc();
 
     _authBloc.stream.listen((state) {
       if (!mounted) return;
@@ -83,6 +88,7 @@ class _EposAppState extends State<EposApp> {
     _authBloc.close();
     _sessionBloc.close();
     _profileBloc.close();
+    _offlineBloc.close(); 
     super.dispose();
   }
 
@@ -93,6 +99,7 @@ class _EposAppState extends State<EposApp> {
         BlocProvider.value(value: _authBloc),
         BlocProvider.value(value: _sessionBloc),
         BlocProvider.value(value: _profileBloc),
+        BlocProvider.value(value: _offlineBloc),
       ],
       child: BlocBuilder<ProfileBloc, ProfileState>(
         bloc: _profileBloc,

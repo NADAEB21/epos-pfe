@@ -1,10 +1,17 @@
 // lib/features/grading/presentation/screens/grading_screen.dart
+// ================================================
+// BF6.1 — WebSocket : le badge OfflinePendingBadge dans l'AppBar affiche
+//          les notes en attente et l'état de connexion temps réel.
+// BF6.2 — Offline  : ConnectivityBanner enveloppe le contenu pour afficher
+//          la bannière hors-ligne / sync en cours.
+//          L'OfflineBloc est fourni par home_screen.dart (MultiBlocProvider).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-//import 'dart:ui';
 
+import '../../../../core/offline/connectivity_banner.dart';
+import '../../../../core/offline/offline_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/item_evaluation.dart';
 import '../../domain/entities/notation.dart';
@@ -12,7 +19,7 @@ import '../../../home/domain/entities/session.dart';
 import '../bloc/grading_bloc.dart';
 import 'student_detail_screen.dart';
 
-// ── Dimensions adaptatives ────────────────────────────────────────
+// ── Dimensions adaptatives ────────────────────────────────────────────────────
 class _Layout {
   final double critereColWidth;
   final double studentColWidth;
@@ -28,24 +35,16 @@ class _Layout {
     required this.isTablet,
   });
 
-  /// Calcule le layout selon la largeur disponible et le nb d'étudiants.
-  /// Sur tablette : on essaie d'afficher tous les étudiants sans scroll.
-  /// Sur mobile  : colonnes fixes, scroll horizontal activé.
   factory _Layout.of(BuildContext context, int nbEtudiants) {
     final width    = MediaQuery.of(context).size.width;
     final isTablet = width >= 600;
 
     if (isTablet) {
-      // Sur tablette : calcule la largeur idéale pour tout afficher
       const double critereWidth = 160.0;
       const double minStudentW  =  90.0;
       const double divider      =   1.0;
-
-      // Largeur disponible pour les colonnes étudiants
-      final available = width - critereWidth - divider;
-      // Largeur par étudiant : idéalement équilibrée, minimum 90
-      final studentW  = (available / nbEtudiants).clamp(minStudentW, 160.0);
-
+      final available           = width - critereWidth - divider;
+      final studentW = (available / nbEtudiants).clamp(minStudentW, 160.0);
       return _Layout(
         critereColWidth: critereWidth,
         studentColWidth: studentW,
@@ -54,7 +53,6 @@ class _Layout {
         isTablet:        true,
       );
     } else {
-      // Mobile : valeurs fixes calibrées pour ~360–430px
       return const _Layout(
         critereColWidth: 125.0,
         studentColWidth:  95.0,
@@ -65,58 +63,69 @@ class _Layout {
     }
   }
 
-  /// Largeur totale de la zone étudiants
-  double get studentAreaWidth => studentColWidth * 1; // multiplié par nbEtudiants à l'usage
-  
-  /// Vrai si le scroll horizontal est nécessaire
   bool needsHScroll(BuildContext context, int nbEtudiants) {
     final totalContent = critereColWidth + 1 + studentColWidth * nbEtudiants;
     return totalContent > MediaQuery.of(context).size.width;
   }
 }
 
-// ── Couleurs adaptatives ──────────────────────────────────────────
+// ── Couleurs adaptatives ──────────────────────────────────────────────────────
 class _GC {
   final bool d;
   const _GC(this.d);
-  Color get bg => d ? const Color(0xFF1A1F14) : AppTheme.background;
-  Color get rowEven => d ? const Color(0xFF1E2518) : AppTheme.background;
-  Color get rowOdd => d ? const Color(0xFF222D19) : const Color(0xFFF7F5EF);
+  Color get bg        => d ? const Color(0xFF1A1F14) : AppTheme.background;
+  Color get rowEven   => d ? const Color(0xFF1E2518) : AppTheme.background;
+  Color get rowOdd    => d ? const Color(0xFF222D19) : const Color(0xFFF7F5EF);
   Color get rowHeader => d ? const Color(0xFF2A3320) : AppTheme.surface;
-  Color get border => d ? const Color(0xFF3A4E28) : const Color(0xFFEEEBE3);
-  Color get textPrim => d ? Colors.white : AppTheme.textPrimary;
-  Color get textSec => d ? const Color(0xFFAABB99) : AppTheme.textSecondary;
-  Color get numFill => d ? const Color(0xFF2C3822) : AppTheme.surface;
-  Color get numBorder => d ? const Color(0xFF4A6030) : const Color(0xFFDDD8CC);
+  Color get border    => d ? const Color(0xFF3A4E28) : const Color(0xFFEEEBE3);
+  Color get textPrim  => d ? Colors.white             : AppTheme.textPrimary;
+  Color get textSec   => d ? const Color(0xFFAABB99)  : AppTheme.textSecondary;
+  Color get numFill   => d ? const Color(0xFF2C3822)  : AppTheme.surface;
+  Color get numBorder => d ? const Color(0xFF4A6030)  : const Color(0xFFDDD8CC);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// GRADING SCREEN
+// ═══════════════════════════════════════════════════════════════════════════════
 class GradingScreen extends StatelessWidget {
   final Session session;
   const GradingScreen({super.key, required this.session});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _GC(Theme.of(context).brightness == Brightness.dark).bg,
-      body: BlocConsumer<GradingBloc, GradingState>(
-        listener: (context, state) {
-          if (state is GradingError) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(state.message),
-              backgroundColor: AppTheme.scoreRed,
-              behavior: SnackBarBehavior.floating,
-            ));
-          }
-        },
-        builder: (context, state) {
-          if (state is GradingLoaded) return _GradingView(state: state);
-          return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
-        },
+    // BF6.2 — ConnectivityBanner enveloppe tout le Scaffold.
+    // Elle lit l'OfflineBloc injecté par home_screen (MultiBlocProvider).
+    return ConnectivityBanner(
+      child: Scaffold(
+        backgroundColor:
+            _GC(Theme.of(context).brightness == Brightness.dark).bg,
+        body: BlocConsumer<GradingBloc, GradingState>(
+          listener: (context, state) {
+            if (state is GradingError) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content:         Text(state.message),
+                backgroundColor: AppTheme.scoreRed,
+                behavior:        SnackBarBehavior.floating,
+              ));
+            }
+          },
+          builder: (context, state) {
+            if (state is GradingLoaded) {
+              return _GradingView(state: state);
+            }
+            return const Center(
+              child: CircularProgressIndicator(color: AppTheme.primary),
+            );
+          },
+        ),
       ),
     );
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// VUE PRINCIPALE
+// ═══════════════════════════════════════════════════════════════════════════════
 class _GradingView extends StatefulWidget {
   final GradingLoaded state;
   const _GradingView({required this.state});
@@ -126,12 +135,11 @@ class _GradingView extends StatefulWidget {
 }
 
 class _GradingViewState extends State<_GradingView> {
-  // 3 controllers séparés — chacun attaché à UN SEUL ScrollView
-  late final ScrollController _headerHScroll; // en-tête avatars
-  late final ScrollController _bodyHScroll;   // grille corps
-  late final ScrollController _footerHScroll; // footer scores
+  late final ScrollController _headerHScroll;
+  late final ScrollController _bodyHScroll;
+  late final ScrollController _footerHScroll;
 
-  bool _syncing = false; // garde-fou anti-boucle infinie
+  bool _syncing = false;
 
   void _syncFrom(ScrollController source, List<ScrollController> targets) {
     if (_syncing) return;
@@ -151,12 +159,10 @@ class _GradingViewState extends State<_GradingView> {
     _bodyHScroll   = ScrollController();
     _footerHScroll = ScrollController();
 
-    // Quand l'un bouge, les autres suivent
-    _headerHScroll.addListener(() =>
-        _syncFrom(_headerHScroll, [_bodyHScroll, _footerHScroll]));
-    _bodyHScroll.addListener(() =>
-        _syncFrom(_bodyHScroll, [_headerHScroll, _footerHScroll]));
-    // Footer NeverScrollable → pas besoin de listener sur lui
+    _headerHScroll.addListener(
+        () => _syncFrom(_headerHScroll, [_bodyHScroll, _footerHScroll]));
+    _bodyHScroll.addListener(
+        () => _syncFrom(_bodyHScroll, [_headerHScroll, _footerHScroll]));
   }
 
   @override
@@ -168,44 +174,47 @@ class _GradingViewState extends State<_GradingView> {
   }
 
   @override
-Widget build(BuildContext context) {
-  final layout = _Layout.of(context, widget.state.lot.etudiants.length);
+  Widget build(BuildContext context) {
+    final layout = _Layout.of(context, widget.state.lot.etudiants.length);
 
-  return Column(
-    children: [
-      _GradingAppBar(state: widget.state),
-      _StickyStudentHeader(
-        state:   widget.state,
-        hScroll: _headerHScroll,
-        layout:  layout,
-      ),
-      Expanded(
-        child: _GradingBody(
+    return Column(
+      children: [
+        _GradingAppBar(state: widget.state),
+        _StickyStudentHeader(
           state:   widget.state,
-          hScroll: _bodyHScroll,
+          hScroll: _headerHScroll,
           layout:  layout,
         ),
-      ),
-      _GradingFooter(
-        state:   widget.state,
-        hScroll: _footerHScroll,
-        layout:  layout,
-      ),
-    ],
-  );
-}
+        Expanded(
+          child: _GradingBody(
+            state:   widget.state,
+            hScroll: _bodyHScroll,
+            layout:  layout,
+          ),
+        ),
+        _GradingFooter(
+          state:   widget.state,
+          hScroll: _footerHScroll,
+          layout:  layout,
+        ),
+      ],
+    );
+  }
 }
 
-// ════════════════════════════════════════════════════════════════
-// CORPS — Stack avec colonne Critère fixe overlay
-// L'en-tête avatars a été retiré d'ici (il est maintenant
-// dans _StickyStudentHeader au-dessus)
-// ════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// CORPS — grille de notation
+// ═══════════════════════════════════════════════════════════════════════════════
 class _GradingBody extends StatelessWidget {
   final GradingLoaded    state;
   final ScrollController hScroll;
   final _Layout          layout;
-  const _GradingBody({required this.state, required this.hScroll, required this.layout});
+
+  const _GradingBody({
+    required this.state,
+    required this.hScroll,
+    required this.layout,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -217,8 +226,7 @@ class _GradingBody extends StatelessWidget {
       scrollDirection: Axis.vertical,
       child: Stack(
         children: [
-
-          // ── 1. Grille scrollable horizontalement ──
+          // ── 1. Grille scrollable horizontalement ──────────────────────────
           SingleChildScrollView(
             controller:      hScroll,
             scrollDirection: Axis.horizontal,
@@ -229,33 +237,32 @@ class _GradingBody extends StatelessWidget {
                   return IntrinsicHeight(
                     child: Row(
                       children: [
-                        // Cellule Critère INVISIBLE — sert uniquement
-                        // à forcer la hauteur de la ligne (le vrai texte
-                        // est affiché par l'overlay Positioned ci-dessous)
+                        // Cellule fantôme : force la hauteur de la ligne
                         _CritereCell(
                           item:      entry.value,
                           gc:        gc,
                           invisible: true,
-                          width:     layout.critereColWidth,     // ← adaptatif
-                          minHeight: layout.cellMinHeight,       // ← adaptatif
+                          width:     layout.critereColWidth,
+                          minHeight: layout.cellMinHeight,
                         ),
-                        // Cellules de notation
-                        ...etudiants.map((e) => Container(
-                          width: layout.studentColWidth,
-                          decoration: BoxDecoration(
-                            color: entry.key.isEven ? gc.rowEven : gc.rowOdd,
-                            border: Border(
-                              left:   BorderSide(color: gc.border, width: 0.5),
-                              bottom: BorderSide(color: gc.border, width: 0.8),
+                        ...etudiants.map(
+                          (e) => Container(
+                            width: layout.studentColWidth,
+                            decoration: BoxDecoration(
+                              color: entry.key.isEven ? gc.rowEven : gc.rowOdd,
+                              border: Border(
+                                left:   BorderSide(color: gc.border, width: 0.5),
+                                bottom: BorderSide(color: gc.border, width: 0.8),
+                              ),
+                            ),
+                            child: _NotationCell(
+                              etudiant:  e,
+                              item:      entry.value,
+                              notation:  state.notations[e.id]?[entry.value.id],
+                              estValide: state.etudiantsValides.contains(e.id),
                             ),
                           ),
-                          child: _NotationCell(
-                            etudiant:  e,
-                            item:      entry.value,
-                            notation:  state.notations[e.id]?[entry.value.id],
-                            estValide: state.etudiantsValides.contains(e.id),
-                          ),
-                        )),
+                        ),
                       ],
                     ),
                   );
@@ -264,7 +271,7 @@ class _GradingBody extends StatelessWidget {
             ),
           ),
 
-          // ── 2. Overlay Critère FIXE (ne scroll pas horizontalement) ──
+          // ── 2. Overlay Critère fixe (ne scroll pas horizontalement) ───────
           Positioned(
             left: 0, top: 0, bottom: 0,
             child: Container(
@@ -273,26 +280,25 @@ class _GradingBody extends StatelessWidget {
                 color: gc.bg,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.10),
+                    color:      Colors.black.withOpacity(0.10),
                     blurRadius: 4,
-                    offset: const Offset(2, 0),
+                    offset:     const Offset(2, 0),
                   ),
                 ],
               ),
               child: Column(
                 children: items.asMap().entries.map((entry) {
                   return _CritereCell(
-                    item:  entry.value,
-                    gc:    gc,
-                    index: entry.key,
-                    width: layout.critereColWidth,     // ← adaptatif
-                    minHeight: layout.cellMinHeight,   // ← adaptatif
+                    item:      entry.value,
+                    gc:        gc,
+                    index:     entry.key,
+                    width:     layout.critereColWidth,
+                    minHeight: layout.cellMinHeight,
                   );
                 }).toList(),
               ),
             ),
           ),
-
         ],
       ),
     );
@@ -301,92 +307,157 @@ class _GradingBody extends StatelessWidget {
 
 class _CritereCell extends StatelessWidget {
   final ItemEvaluation item;
-  final _GC gc;
-  final int? index;
-  final bool invisible;
-  final double         width;      // ← plus de constante
-  final double         minHeight;  // ← plus de constante
+  final _GC            gc;
+  final int?           index;
+  final bool           invisible;
+  final double         width;
+  final double         minHeight;
 
-  const _CritereCell({required this.item, required this.gc, this.index, this.invisible = false, required this.width, required this.minHeight,});
+  const _CritereCell({
+    required this.item,
+    required this.gc,
+    this.index,
+    this.invisible = false,
+    required this.width,
+    required this.minHeight,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final bg = invisible ? Colors.transparent : (index ! % 2 == 0 ? gc.rowEven : gc.rowOdd);
+    final bg = invisible
+        ? Colors.transparent
+        : (index! % 2 == 0 ? gc.rowEven : gc.rowOdd);
     return Container(
-      width: width,
-      constraints: BoxConstraints(minHeight: minHeight), 
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: bg,
+      width:       width,
+      constraints: BoxConstraints(minHeight: minHeight),
+      padding:     const EdgeInsets.all(10),
+      decoration:  BoxDecoration(
+        color:  bg,
         border: Border(bottom: BorderSide(color: gc.border, width: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment:  MainAxisAlignment.center,
+        mainAxisSize:       MainAxisSize.min,
         children: [
-          Text(item.libelle, 
-            style: TextStyle(fontSize: 11, color: invisible ? Colors.transparent : gc.textPrim, height: 1.3)),
+          Text(
+            item.libelle,
+            style: TextStyle(
+              fontSize: 11,
+              color:    invisible ? Colors.transparent : gc.textPrim,
+              height:   1.3,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text('${item.ponderation.toInt()} pts', 
-            style: TextStyle(fontSize: 10, color: invisible ? Colors.transparent : AppTheme.primary, fontWeight: FontWeight.bold)),
+          Text(
+            '${item.ponderation.toInt()} pts',
+            style: TextStyle(
+              fontSize:   10,
+              color:      invisible ? Colors.transparent : AppTheme.primary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-// ── Footer ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// FOOTER — scores + boutons
+// ═══════════════════════════════════════════════════════════════════════════════
 class _GradingFooter extends StatelessWidget {
-  final GradingLoaded state;
+  final GradingLoaded    state;
   final ScrollController hScroll;
-  final _Layout          layout; 
+  final _Layout          layout;
 
-  const _GradingFooter({required this.state, required this.hScroll, required this.layout,});
+  const _GradingFooter({
+    required this.state,
+    required this.hScroll,
+    required this.layout,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppTheme.primaryDark,
+        color:        AppTheme.primaryDark,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      padding: EdgeInsets.fromLTRB(0, 14, 0, MediaQuery.of(context).padding.bottom + 14),
+      padding: EdgeInsets.fromLTRB(
+        0, 14, 0,
+        MediaQuery.of(context).padding.bottom + 14,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ── Ligne des scores ───────────────────────────────────────────────
           Row(
             children: [
               SizedBox(
-                width: layout.critereColWidth, // aligné avec la colonne Critère
-                child: Padding(
+                width: layout.critereColWidth,
+                child: const Padding(
                   padding: EdgeInsets.only(left: 16),
-                  child: Text('Score /20', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+                  child:   Text(
+                    'Score /20',
+                    style: TextStyle(
+                      color:      Colors.white70,
+                      fontSize:   13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               Expanded(
                 child: SingleChildScrollView(
-                  controller: hScroll,
+                  controller:      hScroll,
                   scrollDirection: Axis.horizontal,
-                  physics: const NeverScrollableScrollPhysics(),
+                  physics:         const NeverScrollableScrollPhysics(),
                   child: Row(
                     children: state.lot.etudiants.map((e) {
                       final s = state.scoreEtudiant(e.id);
+                      // BF6.1 — indicateur que le score vient du serveur
+                      final isWsScore = state.wsScores.containsKey(e.id);
                       return SizedBox(
                         width: layout.studentColWidth,
                         child: Center(
-                          child: Container(
-                            width: 65,
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.scoreColor(s),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              s.toStringAsFixed(s == s.truncateToDouble() ? 0 : 1),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                            ),
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width:   65,
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                decoration: BoxDecoration(
+                                  color:        AppTheme.scoreColor(s),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  s.toStringAsFixed(
+                                    s == s.truncateToDouble() ? 0 : 1,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color:      Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize:   15,
+                                  ),
+                                ),
+                              ),
+                              // Petit point vert = score synchronisé (BF6.1)
+                              if (isWsScore)
+                                Positioned(
+                                  top:   -3,
+                                  right: -3,
+                                  child: Container(
+                                    width:  8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: AppTheme.scoreGreen,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       );
@@ -396,35 +467,46 @@ class _GradingFooter extends StatelessWidget {
               ),
             ],
           ),
+
           const SizedBox(height: 15),
+
+          // ── Boutons Valider lot / Lot suivant ──────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: state.lotEnCoursDeValidation ? null : () => _confirmerValidation(context),
-                    icon: const Icon(Icons.check, size: 18),
+                    onPressed: state.lotEnCoursDeValidation
+                        ? null
+                        : () => _confirmerValidation(context),
+                    icon:  const Icon(Icons.check, size: 18),
                     label: const Text('Valider lot'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white54),
+                      side:    const BorderSide(color: Colors.white54),
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape:   RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: state.lot.numero >= state.lot.total ? null : () => _confirmerLotSuivant(context),
-                    icon: const Icon(Icons.arrow_forward, size: 18),
+                    onPressed: state.lot.numero >= state.lot.total
+                        ? null
+                        : () => _confirmerLotSuivant(context),
+                    icon:  const Icon(Icons.arrow_forward, size: 18),
                     label: const Text('Lot suivant'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                 ),
@@ -437,16 +519,29 @@ class _GradingFooter extends StatelessWidget {
   }
 
   void _confirmerValidation(BuildContext context) {
-    final nonValides = state.lot.etudiants.where((e) => !state.etudiantsValides.contains(e.id)).toList();
+    final nonValides = state.lot.etudiants
+        .where((e) => !state.etudiantsValides.contains(e.id))
+        .toList();
     if (nonValides.isNotEmpty) {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Étudiants non validés'),
-          content: Text('${nonValides.length} étudiant(s) restants. Valider quand même ?'),
+          title:   const Text('Étudiants non validés'),
+          content: Text(
+            '${nonValides.length} étudiant(s) restants. Valider quand même ?',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () { Navigator.pop(context); context.read<GradingBloc>().add(const GradingLotValide()); }, child: const Text('Confirmer')),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                context.read<GradingBloc>().add(const GradingLotValide());
+              },
+              child: const Text('Confirmer'),
+            ),
           ],
         ),
       );
@@ -460,11 +555,24 @@ class _GradingFooter extends StatelessWidget {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Lot suivant ?'),
-          content: const Text('Certains étudiants ne sont pas validés. Voulez-vous continuer ?'),
+          title:   const Text('Lot suivant ?'),
+          content: const Text(
+            'Certains étudiants ne sont pas validés. Voulez-vous continuer ?',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () { Navigator.pop(context); context.read<GradingBloc>().add(const GradingLotSuivantDemande()); }, child: const Text('Continuer')),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                context
+                    .read<GradingBloc>()
+                    .add(const GradingLotSuivantDemande());
+              },
+              child: const Text('Continuer'),
+            ),
           ],
         ),
       );
@@ -474,8 +582,9 @@ class _GradingFooter extends StatelessWidget {
   }
 }
 
-// ── Éléments de cellule ──────────────────────────────────────────
-// ── Cellule de notation ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// CELLULE DE NOTATION
+// ═══════════════════════════════════════════════════════════════════════════════
 class _NotationCell extends StatelessWidget {
   final dynamic        etudiant;
   final ItemEvaluation item;
@@ -492,7 +601,8 @@ class _NotationCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (item.type == TypeCritere.binaire) {
-      final bool? fait = notation == null ? null : notation!.valeur == 1.0;
+      final bool? fait =
+          notation == null ? null : notation!.valeur == 1.0;
       return Center(
         child: GestureDetector(
           onTap: estValide
@@ -510,7 +620,8 @@ class _NotationCell extends StatelessWidget {
                   ));
                 },
           child: Container(
-            width: 38, height: 38,
+            width:  38,
+            height: 38,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: fait == null
@@ -531,7 +642,7 @@ class _NotationCell extends StatelessWidget {
                 ? null
                 : Icon(
                     fait ? Icons.check : Icons.close,
-                    size: 20,
+                    size:  20,
                     color: fait ? Colors.green : Colors.red,
                   ),
           ),
@@ -539,7 +650,6 @@ class _NotationCell extends StatelessWidget {
       );
     }
 
-    // Cellule numérique — StatefulWidget dédié
     return _NumericCell(
       etudiant:  etudiant,
       item:      item,
@@ -549,7 +659,7 @@ class _NotationCell extends StatelessWidget {
   }
 }
 
-// ── Cellule numérique — controller persistant ────────────────────
+// ── Cellule numérique ─────────────────────────────────────────────────────────
 class _NumericCell extends StatefulWidget {
   final dynamic        etudiant;
   final ItemEvaluation item;
@@ -570,14 +680,11 @@ class _NumericCell extends StatefulWidget {
 class _NumericCellState extends State<_NumericCell> {
   late final TextEditingController _ctrl;
 
-  // Formate sans arrondi :
-  //   3.0   → "3"
-  //   3.5   → "3.5"
-  //   3.50  → "3.5"  (pas de zéro inutile)
   String _fmt(double v) {
     if (v == v.truncateToDouble()) return v.toInt().toString();
-    // Retire les zéros trailing sans arrondir
-    return v.toString().replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return v.toString()
+        .replaceAll(RegExp(r'0+$'), '')
+        .replaceAll(RegExp(r'\.$'), '');
   }
 
   @override
@@ -597,15 +704,15 @@ class _NumericCellState extends State<_NumericCell> {
   @override
   Widget build(BuildContext context) {
     final gc = _GC(Theme.of(context).brightness == Brightness.dark);
-
     return Center(
       child: SizedBox(
         width: 55,
         child: TextField(
-          controller:   _ctrl,
-          enabled:      !widget.estValide,
-          textAlign:    TextAlign.center,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          controller:      _ctrl,
+          enabled:         !widget.estValide,
+          textAlign:       TextAlign.center,
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
             _DecimalFormatter(max: widget.item.valeurMax),
           ],
@@ -616,18 +723,18 @@ class _NumericCellState extends State<_NumericCell> {
           ),
           decoration: InputDecoration(
             contentPadding: EdgeInsets.zero,
-            isDense:   true,
-            filled:    true,
-            fillColor: gc.numFill,
-            hintText:  '—',
+            isDense:        true,
+            filled:         true,
+            fillColor:      gc.numFill,
+            hintText:       '—',
             hintStyle: TextStyle(color: gc.textSec, fontSize: 14),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: gc.numBorder),
+              borderSide:   BorderSide(color: gc.numBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: gc.numBorder),
+              borderSide:   BorderSide(color: gc.numBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -635,7 +742,6 @@ class _NumericCellState extends State<_NumericCell> {
             ),
           ),
           onChanged: (val) {
-            // Champ vide → valeur 0 dans le bloc mais on garde l'affichage vide
             if (val.trim().isEmpty || val == '.') {
               context.read<GradingBloc>().add(GradingNumericUpdated(
                 etudiantId: widget.etudiant.id,
@@ -644,7 +750,6 @@ class _NumericCellState extends State<_NumericCell> {
               ));
               return;
             }
-            // Le formatter a déjà normalisé la virgule → point
             final parsed = double.tryParse(val);
             if (parsed != null) {
               context.read<GradingBloc>().add(GradingNumericUpdated(
@@ -660,7 +765,6 @@ class _NumericCellState extends State<_NumericCell> {
   }
 }
 
-// ── Formatter : virgule → point, chiffres uniquement, max respecté ─
 class _DecimalFormatter extends TextInputFormatter {
   final double max;
   _DecimalFormatter({required this.max});
@@ -670,21 +774,13 @@ class _DecimalFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    // Normalise les séparateurs décimaux (virgule arabe incluse)
     final normalized = newValue.text
         .replaceAll(',', '.')
         .replaceAll('\u060C', '.')
         .replaceAll('\u066B', '.');
-
-    // N'autorise que chiffres + un seul point
     if (!RegExp(r'^\d*\.?\d*$').hasMatch(normalized)) return oldValue;
-
-    // Bloque si la valeur dépasse le max
-    // (on vérifie seulement si c'est un nombre complet, pas "3.")
     final parsed = double.tryParse(normalized);
     if (parsed != null && parsed > max) return oldValue;
-
-    // Retourne la valeur normalisée avec la sélection à la fin
     return newValue.copyWith(
       text:      normalized,
       selection: TextSelection.collapsed(offset: normalized.length),
@@ -692,11 +788,9 @@ class _DecimalFormatter extends TextInputFormatter {
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// EN-TÊTE AVATARS FIXE
-// Scroll horizontal via hScroll (même controller que la grille)
-// NeverScrollableScrollPhysics : le geste vient de la grille
-// ════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// EN-TÊTE AVATARS (fixe, scroll synchro avec la grille)
+// ═══════════════════════════════════════════════════════════════════════════════
 class _StickyStudentHeader extends StatelessWidget {
   final GradingLoaded    state;
   final ScrollController hScroll;
@@ -719,25 +813,24 @@ class _StickyStudentHeader extends StatelessWidget {
         border: Border(
           bottom: BorderSide(color: gc.border, width: 0.8),
         ),
-        // Légère ombre vers le bas pour bien séparer l'en-tête du corps
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(
-                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.08),
+            color:      Colors.black.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.08,
+            ),
             blurRadius: 4,
-            offset: const Offset(0, 2),
+            offset:     const Offset(0, 2),
           ),
         ],
       ),
-      height: layout.headerHeight,      // ← adaptatif
+      height: layout.headerHeight,
       child: Row(
         children: [
-          // Cellule "Critère" alignée avec la colonne fixe de la grille
           Container(
-            width: layout.critereColWidth, // ← adaptatif
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            width:     layout.critereColWidth,
+            padding:   const EdgeInsets.symmetric(horizontal: 12),
             alignment: Alignment.centerLeft,
-            color: gc.rowHeader,
+            color:     gc.rowHeader,
             child: Text(
               'Critère',
               style: TextStyle(
@@ -747,23 +840,17 @@ class _StickyStudentHeader extends StatelessWidget {
               ),
             ),
           ),
-
-          // Zone avatars — suit le scroll horizontal de la grille
           Expanded(
             child: SingleChildScrollView(
               controller:      hScroll,
               scrollDirection: Axis.horizontal,
-              // NeverScrollable ici : les gestes horizontaux
-              // sont capturés par la grille en dessous.
-              // Les deux ScrollViews partagent le même controller
-              // donc ils bougent ensemble.
-              physics: const ClampingScrollPhysics(),
+              physics:         const ClampingScrollPhysics(),
               child: Row(
                 children: etudiants
                     .map((e) => SizedBox(
                           width:  layout.studentColWidth,
                           height: layout.headerHeight,
-                          child: _EtudiantHeader(
+                          child:  _EtudiantHeader(
                             etudiant:  e,
                             estValide: state.etudiantsValides.contains(e.id),
                             state:     state,
@@ -779,13 +866,16 @@ class _StickyStudentHeader extends StatelessWidget {
   }
 }
 
-// ── Header Étudiant (Avatar + Navigation) ──────────────────────────
 class _EtudiantHeader extends StatelessWidget {
-  final dynamic etudiant;
-  final bool estValide;
-  final GradingLoaded state;
+  final dynamic        etudiant;
+  final bool           estValide;
+  final GradingLoaded  state;
 
-  const _EtudiantHeader({required this.etudiant, required this.estValide, required this.state});
+  const _EtudiantHeader({
+    required this.etudiant,
+    required this.estValide,
+    required this.state,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -794,27 +884,53 @@ class _EtudiantHeader extends StatelessWidget {
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => BlocProvider.value(
           value: context.read<GradingBloc>(),
-          child: StudentDetailScreen(etudiant: etudiant, stationNom: state.stationNom),
+          child: StudentDetailScreen(
+            etudiant:   etudiant,
+            stationNom: state.stationNom,
+          ),
         ),
       )),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           CircleAvatar(
-            radius: 20,
-            backgroundColor: estValide ? AppTheme.scoreGreen : AppTheme.primaryDark,
-            child: Text(etudiant.initiales, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+            radius:          20,
+            backgroundColor: estValide
+                ? AppTheme.scoreGreen
+                : AppTheme.primaryDark,
+            child: Text(
+              etudiant.initiales,
+              style: const TextStyle(
+                color:      Colors.white,
+                fontSize:   13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(height: 6),
-          Text(etudiant.prenom, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: gc.textPrim), overflow: TextOverflow.ellipsis),
-          Text(etudiant.nom, style: TextStyle(fontSize: 9, color: gc.textSec), overflow: TextOverflow.ellipsis),
+          Text(
+            etudiant.prenom,
+            style: TextStyle(
+              fontSize:   10,
+              fontWeight: FontWeight.w600,
+              color:      gc.textPrim,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            etudiant.nom,
+            style: TextStyle(fontSize: 9, color: gc.textSec),
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
   }
 }
 
-// ── AppBar & Timer ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// APPBAR — BF6.1 : badge offline + état WebSocket
+// ═══════════════════════════════════════════════════════════════════════════════
 class _GradingAppBar extends StatelessWidget {
   final GradingLoaded state;
   const _GradingAppBar({required this.state});
@@ -822,32 +938,143 @@ class _GradingAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: AppTheme.primaryDark,
-      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8, bottom: 12),
-      child: Column(children: [
-        Row(children: [
-          IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18), onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
-          Expanded(child: Text(state.stationNom, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold))),
-        ]),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(children: [
-            _badge(state.lot.label, bold: true),
-            const SizedBox(width: 8),
-            _badge('${state.lot.etudiants.length} étudiants'),
-            const Spacer(),
-            _TimerBadge(restant: state.tempsRestant),
-          ]),
-        ),
-      ]),
+      color:   AppTheme.primaryDark,
+      padding: EdgeInsets.only(
+        top:    MediaQuery.of(context).padding.top + 8,
+        bottom: 12,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size:  18,
+                ),
+                onPressed: () =>
+                    Navigator.of(context, rootNavigator: true).pop(),
+              ),
+              Expanded(
+                child: Text(
+                  state.stationNom,
+                  style: const TextStyle(
+                    color:      Colors.white,
+                    fontSize:   17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              // BF6.2 — Badge : notations en attente de synchronisation
+              const OfflinePendingBadge(),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _badge(state.lot.label, bold: true),
+                const SizedBox(width: 8),
+                _badge('${state.lot.etudiants.length} étudiants'),
+                const Spacer(),
+                // BF6.1 — Indicateur de connexion WebSocket temps réel
+                _WsStatusBadge(),
+                const SizedBox(width: 8),
+                _TimerBadge(restant: state.tempsRestant),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _badge(String t, {bool bold = false}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(20)),
-    child: Text(t, style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+    padding:    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color:        Colors.white12,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      t,
+      style: TextStyle(
+        color:      Colors.white,
+        fontSize:   12,
+        fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+      ),
+    ),
   );
+}
+
+/// BF6.1 — Indicateur compact de l'état WebSocket dans l'AppBar.
+class _WsStatusBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<OfflineBloc, OfflineState>(
+      buildWhen: (prev, curr) => prev.isOnline != curr.isOnline,
+      builder: (context, offlineState) {
+        if (offlineState.isOnline) {
+          // En ligne → WebSocket actif (point vert pulsant)
+          return const _PulsingDot(color: AppTheme.scoreGreen);
+        }
+        // Hors-ligne → WebSocket inactif (point gris)
+        return const _PulsingDot(color: Colors.white38, pulse: false);
+      },
+    );
+  }
+}
+
+class _PulsingDot extends StatefulWidget {
+  final Color color;
+  final bool  pulse;
+
+  const _PulsingDot({required this.color, this.pulse = true});
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync:    this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _anim = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+    if (widget.pulse) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width:  8,
+        height: 8,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.color.withOpacity(
+            widget.pulse ? _anim.value : 1.0,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _TimerBadge extends StatelessWidget {
@@ -859,21 +1086,36 @@ class _TimerBadge extends StatelessWidget {
     if (restant == null) return const SizedBox.shrink();
     final isDepasse = restant!.inSeconds <= 0;
     final aff = restant!.abs();
-    final mm = aff.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = aff.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final mm  = aff.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss  = aff.inSeconds.remainder(60).toString().padLeft(2, '0');
     final color = isDepasse ? AppTheme.scoreRed : Colors.white;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
+        color:        color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border:       Border.all(color: color.withOpacity(0.5)),
       ),
-      child: Row(children: [
-        Icon(isDepasse ? Icons.timer_off : Icons.timer, size: 14, color: color),
-        const SizedBox(width: 5),
-        Text('${isDepasse ? "+" : ""}$mm:$ss', style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold, fontFeatures: const [FontFeature.tabularFigures()])),
-      ]),
+      child: Row(
+        children: [
+          Icon(
+            isDepasse ? Icons.timer_off : Icons.timer,
+            size:  14,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            '${isDepasse ? "+" : ""}$mm:$ss',
+            style: TextStyle(
+              color:       color,
+              fontSize:    13,
+              fontWeight:  FontWeight.bold,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

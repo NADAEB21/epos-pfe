@@ -9,6 +9,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.client.ExamServiceClient;
@@ -28,9 +29,13 @@ import static org.mockito.Mockito.*;
 /**
  * Unit tests for {@link EvaluateurDashboardService}.
  *
- * Covers every public method and non-trivial private branch:
+ * Couvre chaque méthode publique et les branches non triviales :
  *   buildDashboard / resolveSessionStatut / buildSessions / buildPlanning /
  *   getLotDetail / saisirNotation / validerEtudiant / validerLot.
+ *
+ * NB: aligné sur la nouvelle logique du service (lots dérivés des rotations,
+ * plus de vérification d'accès en service, plus de gestion du commentaire
+ * dans validerEtudiant, avertissementLeadSec non propagé, etc.)
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("EvaluateurDashboardService — tests complets")
@@ -43,6 +48,7 @@ class EvaluateurDashboardServiceTest {
     @Mock private INotationItemRepository        notationItemRepository;
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private ExamServiceClient              examServiceClient;
+    @Mock private SimpMessagingTemplate          messagingTemplate;
 
     // Vraie horloge (pas un mock) pinnée Africa/Tunis comme ClockConfig, pour que
     // le temps effectif du service s'aligne sur les debutCreneau construits ici.
@@ -85,6 +91,21 @@ class EvaluateurDashboardServiceTest {
         return lot;
     }
 
+    /**
+     * Relie une rotation minimale (sans créneau) à un lot donné, via un
+     * StudentGroup — reproduit exactement ce que lit
+     * resolverLotsDepuisRotations() / getLotDetail() côté service.
+     */
+    private Rotation rotationWithLot(Long rotationId, Lot lot) {
+        Rotation r = new Rotation();
+        r.setId(rotationId);
+        StudentGroup sg = new StudentGroup();
+        sg.setLot(lot);
+        sg.setRotations(List.of(r));
+        r.setStudentGroup(sg);
+        return r;
+    }
+
     private ExamenParticipation participation(Long id) {
         Etudiant e = new Etudiant();
         e.setId(id);
@@ -112,7 +133,6 @@ class EvaluateurDashboardServiceTest {
         void stubStation() {
             lenient().when(examServiceClient.getStationInfo(STATION_ID))
                     .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
-            lenient().when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
         }
 
         @Test
@@ -161,20 +181,23 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("TERMINEE : lot associé au statut TERMINE")
-        void statut_terminee_lotTermine() {
+        @DisplayName("Le statut du lot associé n'influence plus le statut de session (découplage)")
+        void statutSession_independantDuStatutDuLot() {
+            // Rotation active, démarrée il y a 5 min → dans la fenêtre (15+30) → EN_COURS,
+            // même si le lot lié est déjà marqué TERMINE : resolveSessionStatut() ne lit
+            // plus que rotation.getStatut() et le temps.
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(5));
-            lotFor(r, LotStatus.TERMINE);   // attache le sg avec lot TERMINE sur la rotation
+            lotFor(r, LotStatus.TERMINE);
             when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
-            assertThat(resp.getSessions().get(0).getStatut()).isEqualTo("TERMINEE");
+            assertThat(resp.getSessions().get(0).getStatut()).isEqualTo("EN_COURS");
         }
 
         @Test
-        @DisplayName("heureFin non nulle uniquement pour les sessions TERMINEE")
-        void heureFin_seulementPourTerminee() {
+        @DisplayName("heureFin est toujours renseignée (debutCreneau + durée), quel que soit le statut")
+        void heureFin_toujoursRenseignee() {
             Rotation rTerminee = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(60));
             Rotation rAVenir   = rotationAt(LocalDateTime.now(TUNIS).plusHours(1));
             rAVenir.setId(2L);
@@ -184,14 +207,7 @@ class EvaluateurDashboardServiceTest {
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
-            // sessions triées : EN_COURS avant A_VENIR avant TERMINEE.
-            // Ici les deux ont des statuts distincts; trouver TERMINEE par filtre.
-            resp.getSessions().stream()
-                    .filter(s -> "TERMINEE".equals(s.getStatut()))
-                    .forEach(s -> assertThat(s.getHeureFin()).isNotNull());
-            resp.getSessions().stream()
-                    .filter(s -> !"TERMINEE".equals(s.getStatut()))
-                    .forEach(s -> assertThat(s.getHeureFin()).isNull());
+            resp.getSessions().forEach(s -> assertThat(s.getHeureFin()).isNotNull());
         }
 
         @Test
@@ -222,7 +238,6 @@ class EvaluateurDashboardServiceTest {
         void stubCommon() {
             lenient().when(examServiceClient.getStationInfo(STATION_ID))
                     .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
-            lenient().when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
         }
 
         private String statutOf(Rotation r) {
@@ -233,12 +248,9 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Pause active : l'horloge effective recule → A_VENIR (brut = EN_COURS)")
         void pauseActive_rembobine_versAVenir() {
-            // debut il y a 5 min : en heure brute la session serait EN_COURS.
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(5));
             lotFor(r, LotStatus.EN_COURS);
 
-            // En pause depuis 10 min → temps effectif ≈ maintenant − 10 min,
-            // soit AVANT le début → A_VENIR.
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
                     new ExamServiceClient.ExamTiming(
                             true, LocalDateTime.now(TUNIS).minusMinutes(10), 0, 15, 0));
@@ -249,12 +261,9 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Pause cumulée : temps effectif reculé → encore EN_COURS (brut = TERMINEE)")
         void pauseCumulee_maintientEnCours() {
-            // debut il y a 50 min : brut → 50 > 15+30 grâce → TERMINEE.
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(50));
             lotFor(r, LotStatus.EN_COURS);
 
-            // 20 min de pause cumulée → effectif ≈ −30 min depuis le début,
-            // dans la fenêtre 15+30 → EN_COURS.
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
                     new ExamServiceClient.ExamTiming(false, null, 20 * 60, 15, 0));
 
@@ -264,9 +273,6 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Durée lue de la config examen (60) élargit la fenêtre → EN_COURS")
         void dureeDepuisConfig_elargitFenetre() {
-            // debut il y a 50 min, sans pause : avec la durée par défaut (15) la
-            // session serait TERMINEE (50 > 45). Avec dureeStationMin=60 de la
-            // config : fenêtre 60+30=90 → EN_COURS.
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(50));
             lotFor(r, LotStatus.EN_COURS);
 
@@ -279,7 +285,6 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Timing neutre (exam-service injoignable) : repli sur l'heure brute")
         void timingNeutre_repliSurHeureBrute() {
-            // Sans pause ni durée → comportement identique à l'heure murale brute.
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).minusMinutes(20));
             lotFor(r, LotStatus.EN_COURS);
 
@@ -295,7 +300,7 @@ class EvaluateurDashboardServiceTest {
     // =========================================================================
 
     @Nested
-    @DisplayName("buildDashboard() — debutPrevu / serverNow / lead / enPause (ADR-0012)")
+    @DisplayName("buildDashboard() — debutPrevu / serverNow / enPause (ADR-0012)")
     class CountdownProjection {
 
         private static final Long EXAMEN_ID = 99L;  // celui que pose lotFor(...)
@@ -304,7 +309,6 @@ class EvaluateurDashboardServiceTest {
         void stubCommon() {
             lenient().when(examServiceClient.getStationInfo(STATION_ID))
                     .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
-            lenient().when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
         }
 
         private SessionResponse sessionFor(Rotation r) {
@@ -346,7 +350,6 @@ class EvaluateurDashboardServiceTest {
             LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
             Rotation r = rotationAt(debut);
             lotFor(r, LotStatus.EN_COURS);
-            // 10 min de pause terminée → le passage glisse de 10 min en heure murale.
             when(examServiceClient.getExamTiming(EXAMEN_ID))
                     .thenReturn(new ExamServiceClient.ExamTiming(false, null, 10 * 60, 15, 0));
 
@@ -359,21 +362,19 @@ class EvaluateurDashboardServiceTest {
             LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
             Rotation r = rotationAt(debut);
             lotFor(r, LotStatus.EN_COURS);
-            // En pause depuis 5 min, +120s cumulés → décalage ≈ 5 min + 120 s.
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
                     new ExamServiceClient.ExamTiming(
                             true, LocalDateTime.now(TUNIS).minusMinutes(5), 120, 15, 0));
 
             LocalDateTime debutPrevu = sessionFor(r).getDebutPrevu();
 
-            // ≈ debut + 5min + 120s = debut + 7min (tolérance 2s pour l'exécution).
             assertThat(debutPrevu).isCloseTo(debut.plusMinutes(7),
                     within(2, java.time.temporal.ChronoUnit.SECONDS));
         }
 
         @Test
-        @DisplayName("avertissementLeadSec et enPause sont échoés depuis la config/état de l'examen")
-        void leadEtEnPause_echoes() {
+        @DisplayName("enPause est échoé depuis l'état de l'examen ; avertissementLeadSec n'est plus propagé")
+        void enPause_echoe_leadSecNonPropage() {
             Rotation r = rotationAt(LocalDateTime.now(TUNIS).plusMinutes(30));
             lotFor(r, LotStatus.EN_COURS);
             when(examServiceClient.getExamTiming(EXAMEN_ID)).thenReturn(
@@ -382,12 +383,13 @@ class EvaluateurDashboardServiceTest {
 
             SessionResponse s = sessionFor(r);
 
-            assertThat(s.getAvertissementLeadSec()).isEqualTo(90);
+            // Le service ne mappe plus avertissementLeadSec dans SessionResponse.
+            assertThat(s.getAvertissementLeadSec()).isZero();
             assertThat(s.isEnPause()).isTrue();
         }
 
         @Test
-        @DisplayName("Timing neutre (exam-service injoignable) : lead=0, enPause=false, debutPrevu brut")
+        @DisplayName("Timing neutre (exam-service injoignable) : enPause=false, debutPrevu brut")
         void timingNeutre_valeursSures() {
             LocalDateTime debut = LocalDateTime.now(TUNIS).plusMinutes(30);
             Rotation r = rotationAt(debut);
@@ -397,7 +399,6 @@ class EvaluateurDashboardServiceTest {
 
             SessionResponse s = sessionFor(r);
 
-            assertThat(s.getAvertissementLeadSec()).isZero();
             assertThat(s.isEnPause()).isFalse();
             assertThat(s.getDebutPrevu()).isEqualTo(debut);
         }
@@ -412,29 +413,48 @@ class EvaluateurDashboardServiceTest {
     class BuildDashboardMisc {
         @BeforeEach
         void setup() {
-            // FIX NPE: buildDashboard appelle buildSessions qui appelle examServiceClient.getStationInfo
-            // On le met en lenient car tous les tests de ce bloc n'en ont pas forcément besoin,
-            // mais buildDashboard l'appelle systématiquement.
             lenient().when(examServiceClient.getStationInfo(anyLong()))
                     .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
         }
 
         @Test
-        @DisplayName("Stats : totalEtudiants = somme des tailleLot, lotsValides = lots TERMINE")
+        @DisplayName("Stats : lots dérivés des rotations (resolverLotsDepuisRotations) — totalEtudiants, lotsValides")
         void stats_agregation() {
-            Lot l1 = new Lot(); l1.setId(1L); l1.setExamenId(1L); l1.setTailleLot(10);
-            l1.setStatut(LotStatus.TERMINE);
-            Lot l2 = new Lot(); l2.setId(2L); l2.setExamenId(1L); l2.setTailleLot(8);
-            l2.setStatut(LotStatus.EN_ATTENTE);
+            Lot l1 = new Lot(); l1.setId(1L); l1.setExamenId(1L); l1.setNumeroLot(1);
+            l1.setTailleLot(10); l1.setStatut(LotStatus.TERMINE);
+            Lot l2 = new Lot(); l2.setId(2L); l2.setExamenId(1L); l2.setNumeroLot(2);
+            l2.setTailleLot(8); l2.setStatut(LotStatus.EN_ATTENTE);
 
-            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
-            when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(l1, l2));
+            Rotation r1 = rotationWithLot(1L, l1);
+            Rotation r2 = rotationWithLot(2L, l2);
+
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r1, r2));
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
             assertThat(resp.getStats().getTotalEtudiants()).isEqualTo(18);
             assertThat(resp.getStats().getLotsValides()).isEqualTo(1);
             assertThat(resp.getStats().getTotalLots()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Deux rotations pointant vers le même lot ne comptent le lot qu'une fois (dédoublonnage)")
+        void stats_dedoublonnageLot() {
+            Lot lot = new Lot(); lot.setId(1L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            lot.setTailleLot(6); lot.setStatut(LotStatus.EN_ATTENTE);
+
+            StudentGroup sg = new StudentGroup();
+            sg.setLot(lot);
+            Rotation r1 = new Rotation(); r1.setId(1L); r1.setStudentGroup(sg);
+            Rotation r2 = new Rotation(); r2.setId(2L); r2.setStudentGroup(sg);
+            sg.setRotations(List.of(r1, r2));
+
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r1, r2));
+
+            EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
+
+            assertThat(resp.getStats().getTotalLots()).isEqualTo(1);
+            assertThat(resp.getStats().getTotalEtudiants()).isEqualTo(6);
         }
 
         @Test
@@ -450,7 +470,6 @@ class EvaluateurDashboardServiceTest {
 
             when(rotationRepository.findByEvaluateurId(EVAL_ID))
                     .thenReturn(List.of(rAujourdHui, rDemain));
-            when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
@@ -465,7 +484,6 @@ class EvaluateurDashboardServiceTest {
             r.setStatut(RotationStatus.TERMINE);
 
             when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
-            when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
@@ -475,12 +493,12 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Lot sans tailleLot (null) compte pour 0 dans totalEtudiants")
         void stats_tailleLotNull() {
-            Lot lot = new Lot(); lot.setId(1L); lot.setExamenId(1L);
+            Lot lot = new Lot(); lot.setId(1L); lot.setExamenId(1L); lot.setNumeroLot(1);
             lot.setStatut(LotStatus.EN_ATTENTE);
             // tailleLot = null intentionnellement
 
-            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
-            when(lotRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(lot));
+            Rotation r = rotationWithLot(1L, lot);
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
 
             EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
 
@@ -502,11 +520,11 @@ class EvaluateurDashboardServiceTest {
             Lot lot = new Lot();
             lot.setId(10L); lot.setExamenId(99L); lot.setNumeroLot(2);
             lot.setTailleLot(2); lot.setStatut(LotStatus.EN_COURS);
+            Rotation r = rotationWithLot(1L, lot);
 
             ExamenParticipation p = participation(1L);
-            p.setLot(lot);
 
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 2)).thenReturn(Optional.of(lot));
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
             when(lotRepository.countByExamenId(99L)).thenReturn(3);
             when(participationRepository.findByLotId(10L)).thenReturn(List.of(p));
             when(rotationAssignmentRepository.findByParticipationId(1L)).thenReturn(Optional.empty());
@@ -527,8 +545,9 @@ class EvaluateurDashboardServiceTest {
             Lot lot = new Lot();
             lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
             lot.setStatut(LotStatus.TERMINE);
+            Rotation r = rotationWithLot(1L, lot);
 
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 1)).thenReturn(Optional.of(lot));
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
             when(lotRepository.countByExamenId(1L)).thenReturn(1);
             when(participationRepository.findByLotId(5L)).thenReturn(List.of());
 
@@ -543,12 +562,13 @@ class EvaluateurDashboardServiceTest {
             Lot lot = new Lot();
             lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
             lot.setStatut(LotStatus.EN_ATTENTE);
+            Rotation r = rotationWithLot(1L, lot);
 
             ExamenParticipation orphan = new ExamenParticipation();
             orphan.setId(99L);
             orphan.setEtudiant(null);    // pas d'étudiant lié
 
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 1)).thenReturn(Optional.of(lot));
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
             when(lotRepository.countByExamenId(1L)).thenReturn(1);
             when(participationRepository.findByLotId(5L)).thenReturn(List.of(orphan));
 
@@ -563,14 +583,14 @@ class EvaluateurDashboardServiceTest {
             Lot lot = new Lot();
             lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
             lot.setStatut(LotStatus.EN_ATTENTE);
+            Rotation r = rotationWithLot(1L, lot);
 
             ExamenParticipation p = participation(7L);
-            p.setLot(lot);
 
             RotationAssignment ra = new RotationAssignment(); ra.setId(20L);
             Notation n = new Notation(); n.setId(30L); n.setVerouillee(true);
 
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 1)).thenReturn(Optional.of(lot));
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(r));
             when(lotRepository.countByExamenId(1L)).thenReturn(1);
             when(participationRepository.findByLotId(5L)).thenReturn(List.of(p));
             when(rotationAssignmentRepository.findByParticipationId(7L)).thenReturn(Optional.of(ra));
@@ -585,8 +605,7 @@ class EvaluateurDashboardServiceTest {
         @Test
         @DisplayName("Lot introuvable → ResourceNotFoundException")
         void lotDetail_lotIntrouvable() {
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 99))
-                    .thenReturn(Optional.empty());
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of());
 
             assertThatThrownBy(() -> service.getLotDetail(STATION_ID, 99, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
@@ -594,24 +613,26 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("num_echantillon non numérique → numeroEchantillon = null")
-        void lotDetail_echantillonNonNumerique() {
-            Lot lot = new Lot();
-            lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
-            lot.setStatut(LotStatus.EN_ATTENTE);
+        @DisplayName("Plusieurs rotations : seule celle correspondant au numéroLot est retenue")
+        void lotDetail_plusieursRotations_filtreCorrect() {
+            Lot lotCible = new Lot();
+            lotCible.setId(7L); lotCible.setExamenId(2L); lotCible.setNumeroLot(3);
+            lotCible.setStatut(LotStatus.EN_ATTENTE);
+            Lot autreLot = new Lot();
+            autreLot.setId(8L); autreLot.setExamenId(2L); autreLot.setNumeroLot(4);
+            autreLot.setStatut(LotStatus.EN_ATTENTE);
 
-            ExamenParticipation p = participation(3L);
-            p.setNum_echantillon("ABC");  // non numérique
-            p.setLot(lot);
+            Rotation rAutre = rotationWithLot(1L, autreLot);
+            Rotation rCible = rotationWithLot(2L, lotCible);
 
-            when(lotRepository.findByEvaluateurIdAndNumeroLot(EVAL_ID, 1)).thenReturn(Optional.of(lot));
-            when(lotRepository.countByExamenId(1L)).thenReturn(1);
-            when(participationRepository.findByLotId(5L)).thenReturn(List.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(3L)).thenReturn(Optional.empty());
+            when(rotationRepository.findByEvaluateurId(EVAL_ID)).thenReturn(List.of(rAutre, rCible));
+            when(lotRepository.countByExamenId(2L)).thenReturn(5);
+            when(participationRepository.findByLotId(7L)).thenReturn(List.of());
 
-            LotDetailResponse resp = service.getLotDetail(STATION_ID, 1, EVAL_ID);
+            LotDetailResponse resp = service.getLotDetail(STATION_ID, 3, EVAL_ID);
 
-            assertThat(resp.getEtudiants().get(0).getNumeroEchantillon()).isNull();
+            assertThat(resp.getId()).isEqualTo(7L);
+            assertThat(resp.getNumero()).isEqualTo(3);
         }
     }
 
@@ -624,15 +645,37 @@ class EvaluateurDashboardServiceTest {
     class SaisirNotation {
 
         @Test
-        @DisplayName("Participation introuvable → ResourceNotFoundException")
+        @DisplayName("Participation introuvable (même après repli findByEtudiantId) → ResourceNotFoundException")
         void participationIntrouvable() {
             SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 1L, 10f);
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.empty());
+            // findByEtudiantId non stubbé → Mockito renvoie une liste vide par défaut → repli échoue aussi
 
             assertThatThrownBy(() -> service.saisirNotation(req, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Participation introuvable");
+                    .hasMessageContaining("Inexistant");
+        }
+
+        @Test
+        @DisplayName("Participation résolue via le repli findByEtudiantId quand aucune ne correspond à la station")
+        void saisirNotation_fallbackParticipation() {
+            ExamenParticipation p = participation(2L); p.setId(150L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(250L);
+            Notation n = new Notation(); n.setId(2L); n.setGrilleId(1L); n.setVerouillee(false);
+
+            when(participationRepository.findByEtudiantIdAndStationId(2L, STATION_ID))
+                    .thenReturn(Optional.empty());
+            when(participationRepository.findByEtudiantId(2L)).thenReturn(List.of(p));
+            when(rotationAssignmentRepository.findByParticipationId(150L)).thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(250L)).thenReturn(Optional.of(n));
+            when(notationItemRepository.findByNotationIdAndItemId(2L, 5L)).thenReturn(Optional.empty());
+            when(notationItemRepository.findByNotationId(2L)).thenReturn(List.of());
+            when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
+
+            service.saisirNotation(new SaisirNotationRequest(2L, STATION_ID, 1L, 5L, 1.0f), EVAL_ID);
+
+            verify(notationItemRepository).save(any(NotationItem.class));
         }
 
         @Test
@@ -652,7 +695,7 @@ class EvaluateurDashboardServiceTest {
 
             assertThatThrownBy(() -> service.saisirNotation(req, EVAL_ID))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("verrouillée");
+                    .hasMessageContaining("Verrouillé");
         }
 
         @Test
@@ -698,8 +741,6 @@ class EvaluateurDashboardServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(1L, 7L))
                     .thenReturn(Optional.empty());
 
-            // On utilise lenient() ici car selon si la liste est vide ou non,
-            // les appels suivants peuvent être ignorés par le compilateur JIT ou la logique métier.
             lenient().when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
             lenient().when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
 
@@ -724,7 +765,6 @@ class EvaluateurDashboardServiceTest {
             when(rotationRepository.findFirstByEvaluateurIdAndStationIdOrderByIdDesc(EVAL_ID, STATION_ID))
                     .thenReturn(Optional.of(rotation));
 
-            // Utilisation de lenient() pour les sauvegardes et les calculs de score
             lenient().when(rotationAssignmentRepository.save(any(RotationAssignment.class))).thenReturn(savedRa);
             lenient().when(notationRepository.findByAssignmentId(anyLong())).thenReturn(Optional.of(n));
             lenient().when(notationItemRepository.findByNotationIdAndItemId(anyLong(), anyLong()))
@@ -866,8 +906,8 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("Présent avec commentaire : commentaire persisté")
-        void validerEtudiant_present_avecCommentaire() {
+        @DisplayName("Présent : notation verrouillée, présence confirmée, note = score de la notation")
+        void validerEtudiant_present() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
             Notation n = new Notation(); n.setId(10L); n.setScore_final(12f);
@@ -880,17 +920,40 @@ class EvaluateurDashboardServiceTest {
 
             ValiderEtudiantRequest req = new ValiderEtudiantRequest();
             req.setAbsent(false);
-            req.setCommentaire("Bon travail");
             req.setGrilleId(1L);
             service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
 
-            assertThat(p.getCommentaire()).isEqualTo("Bon travail");
+            assertThat(n.getVerouillee()).isTrue();
             assertThat(p.getEst_present()).isTrue();
             assertThat(p.getNote()).isEqualTo(12f);
+            verify(participationRepository).save(p);
         }
 
         @Test
-        @DisplayName("Participation introuvable → ResourceNotFoundException")
+        @DisplayName("validerEtudiant déclenche le broadcast du score via WebSocket")
+        void validerEtudiant_broadcastScore() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
+            ra.setParticipation(p);
+            Notation n = new Notation(); n.setId(10L); n.setScore_final(8f); n.setAssignment(ra);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationId(1L))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            req.setAbsent(false);
+            req.setGrilleId(1L);
+            service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
+
+            verify(messagingTemplate).convertAndSend(
+                    eq("/topic/stations/" + STATION_ID + "/scores"), any(Object.class));
+        }
+
+        @Test
+        @DisplayName("Participation introuvable (repli findByEtudiantId aussi vide) → ResourceNotFoundException")
         void validerEtudiant_participationIntrouvable() {
             when(participationRepository.findByEtudiantIdAndStationId(99L, STATION_ID))
                     .thenReturn(Optional.empty());
@@ -900,11 +963,11 @@ class EvaluateurDashboardServiceTest {
 
             assertThatThrownBy(() -> service.validerEtudiant(99L, STATION_ID, EVAL_ID, req))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Participation introuvable");
+                    .hasMessageContaining("Inexistant");
         }
 
         @Test
-        @DisplayName("Absent sans items existants : deleteAll non appelé")
+        @DisplayName("Absent sans items existants : deleteAll est quand même invoqué avec une liste vide")
         void validerEtudiant_absent_sansItems() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
@@ -921,28 +984,10 @@ class EvaluateurDashboardServiceTest {
             req.setAbsent(true); req.setGrilleId(1L);
             service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
 
-            verify(notationItemRepository, never()).deleteAll(anyList());
-        }
-
-        @Test
-        @DisplayName("Commentaire vide ou blank n'écrase pas le commentaire existant")
-        void validerEtudiant_commentaireBlank() {
-            ExamenParticipation p = participation(1L); p.setId(1L);
-            p.setCommentaire("ancien");
-            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
-            Notation n = new Notation(); n.setId(10L); n.setScore_final(5f);
-
-            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
-                    .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(1L))
-                    .thenReturn(Optional.of(ra));
-            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
-
-            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
-            req.setAbsent(false); req.setCommentaire("   "); req.setGrilleId(1L);
-            service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
-
-            assertThat(p.getCommentaire()).isEqualTo("ancien");
+            // Le service ne garde pas contre une liste vide : deleteAll(List.of()) est
+            // bien appelé, il n'y a pas de branchement isEmpty() dans validerEtudiant().
+            verify(notationItemRepository).deleteAll(List.of());
+            assertThat(n.getScore_final()).isEqualTo(0.0f);
         }
     }
 
@@ -976,7 +1021,7 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("Rotation déjà TERMINE : pas de double save")
+        @DisplayName("Rotation déjà TERMINE : toujours sauvegardée (pas de garde spécifique)")
         void validerLot_rotationDejaTermine() {
             Lot lot = new Lot();
             lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
@@ -990,7 +1035,8 @@ class EvaluateurDashboardServiceTest {
 
             service.validerLot(10L, EVAL_ID);
 
-            verify(rotationRepository, never()).save(r);
+            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
+            verify(rotationRepository).save(r);
         }
 
         @Test
@@ -1007,15 +1053,17 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("Accès refusé si le lot appartient à un autre évaluateur")
-        void validerLot_forbidden() {
+        @DisplayName("Diffuse le nouveau statut du lot via WebSocket après validation")
+        void validerLot_broadcastStatut() {
             Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(999L);
+            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
+            lot.setGroups(null);
+
             when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
 
-            assertThatThrownBy(() -> service.validerLot(10L, EVAL_ID))
-                    .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("Accès refusé");
+            service.validerLot(10L, EVAL_ID);
+
+            verify(messagingTemplate).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
         }
 
         @Test

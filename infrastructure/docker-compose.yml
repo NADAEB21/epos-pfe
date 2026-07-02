@@ -82,6 +82,10 @@ services:
     environment:
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # Comma-separated list of allowed CORS origins.
+      # Angular dashboard runs on :4200, Flutter Web on :4300.
+      # Add further origins here without touching application code.
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200,http://localhost:4300}
     depends_on:
       discovery-server:
         condition: service_healthy

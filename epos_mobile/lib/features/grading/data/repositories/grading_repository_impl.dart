@@ -1,25 +1,27 @@
 // lib/features/grading/data/repositories/grading_repository_impl.dart
+// ================================================
+// BF6.2 — Mise à jour du repository avec stratégie offline-first.
+//
+// PATCH par rapport à l'implémentation précédente :
+//   saveNotation() adopte la stratégie "essaie en ligne, si échec réseau
+//   → stocke localement". Compatible avec l'interface GradingRepository
+//   existante — aucun changement de signature.
+//
+// Remplace entièrement grading_repository_impl.dart.
 
 import 'package:dio/dio.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/network/api_client.dart';
+import '../../../../core/offline/connectivity_service.dart';
+import '../../../../core/offline/offline_storage_service.dart';
+import '../../../../core/offline/sync_service.dart';
 import '../../domain/entities/grille.dart';
 import '../../domain/entities/lot.dart';
 import '../../domain/entities/notation.dart';
 import '../../domain/repositories/grading_repository.dart';
 import '../models/grading_models.dart';
 
-/// Implémentation réelle du GradingRepository.
-///
-/// Corrections des décalages E, G, H :
-///   - getLot         → GET  /evaluateur/stations/{id}/lots/{num}
-///   - saveNotation   → POST /evaluateur/notations/saisir
-///   - validerEtudiant→ POST /evaluateur/etudiants/{id}/stations/{id}/valider
-///   - validerLot     → POST /evaluateur/lots/{id}/valider
-///
-/// getGrille reste inchangé car l'endpoint /stations/{id}/grille
-/// de l'exam-service est déjà correctement routé par la gateway.
 class GradingRepositoryImpl implements GradingRepository {
   final ApiClient _apiClient;
 
@@ -27,10 +29,6 @@ class GradingRepositoryImpl implements GradingRepository {
       : _apiClient = apiClient;
 
   // ── GET /stations/{id}/grille ─────────────────────────────────────────────
-  /// Charge la grille d'évaluation depuis l'exam-service.
-  ///
-  /// La réponse est enveloppée dans ApiResponse<GrilleResponse> :
-  /// { "success": true, "data": { "id": 1, "nom": "...", "noteMax": 20.0, "items": [...] } }
   @override
   Future<Grille> getGrille(int stationId) async {
     try {
@@ -38,7 +36,6 @@ class GradingRepositoryImpl implements GradingRepository {
         ApiConstants.stationGrille(stationId),
       );
       final body = response.data as Map<String, dynamic>;
-      // Déballe l'enveloppe ApiResponse
       final data = body['data'] as Map<String, dynamic>;
       return GrilleModel.fromJson(data);
     } on DioException catch (e) {
@@ -47,13 +44,6 @@ class GradingRepositoryImpl implements GradingRepository {
   }
 
   // ── GET /evaluateur/stations/{id}/lots/{num} ──────────────────────────────
-  /// Charge le lot courant avec ses étudiants.
-  ///
-  /// Correction décalage E : l'ancien endpoint /stations/{id}/lots/{num}
-  /// n'existait pas → remplacé par /evaluateur/stations/{id}/lots/{num}.
-  ///
-  /// Réponse JSON (LotDetailResponse) :
-  /// { "success": true, "data": { "id": 12, "numero": 3, "total": 8, "valide": false, "etudiants": [...] } }
   @override
   Future<Lot> getLot(int stationId, int lotNumero) async {
     try {
@@ -68,45 +58,56 @@ class GradingRepositoryImpl implements GradingRepository {
     }
   }
 
-  // ── POST /evaluateur/notations/saisir ─────────────────────────────────────
-  /// Sauvegarde une notation pour un critère d'un étudiant.
-  ///
-  /// Correction décalage G : l'ancien POST /notations envoyait
-  /// {etudiantId, itemId, valeur} — structure incompatible avec le backend réel.
-  /// Le nouveau endpoint /evaluateur/notations/saisir accepte
-  /// {etudiantId, stationId, grilleId, itemId, valeur} et gère automatiquement
-  /// la chaîne Notation → RotationAssignment → ExamenParticipation.
-  ///
-  /// stationId et grilleId sont portés par Notation (ajoutés dans notation.dart).
-  /// En mode offline (pas de connexion), la saisie continue sans erreur.
+  // ── POST /evaluateur/notations/saisir — stratégie offline-first ───────────
+  //
+  // Ordre de priorité :
+  //   1. Si en ligne → envoi direct au backend
+  //   2. Si hors-ligne ou erreur réseau → stockage SQLite local
+  //
+  // La synchronisation est ensuite gérée par SyncService à la reconnexion.
   @override
   Future<void> saveNotation(Notation notation) async {
-    // Ignore les notations sans contexte (stationId/grilleId null = mode mock)
     if (notation.stationId == null || notation.grilleId == null) return;
 
-    try {
-      await _apiClient.post(
-        ApiConstants.saisirNotation,
-        data: {
-          'etudiantId': notation.etudiantId,
-          'stationId':  notation.stationId,
-          'grilleId':   notation.grilleId,
-          'itemId':     notation.itemId,
-          'valeur':     notation.valeur,
-        },
-      );
-    } on DioException catch (e) {
-      // Erreur réseau → on laisse l'état local intact (CA-4.3)
-      if (e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.connectionTimeout) {
+    final isOnline = ConnectivityService.instance.isOnline;
+
+    if (isOnline) {
+      try {
+        await _apiClient.post(
+          ApiConstants.saisirNotation,
+          data: {
+            'etudiantId': notation.etudiantId,
+            'stationId':  notation.stationId,
+            'grilleId':   notation.grilleId,
+            'itemId':     notation.itemId,
+            'valeur':     notation.valeur,
+          },
+        );
+        // Succès en ligne : la notation est déjà en base sur le serveur,
+        // on n'a pas besoin de la stocker localement.
         return;
+      } on DioException catch (e) {
+        // Erreur réseau → fallback local
+        final isNetworkError =
+            e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout;
+
+        if (!isNetworkError) {
+          // Erreur métier (400, 403, 409…) → on la propage
+          throw _handleError(e, 'Erreur lors de la sauvegarde de la notation');
+        }
+        // Réseau coupé → stockage local (voir ci-dessous)
       }
-      throw _handleError(e, 'Erreur lors de la sauvegarde de la notation');
     }
+
+    // Hors-ligne ou erreur réseau → persistance SQLite locale
+    await OfflineStorageService.instance.upsertNotation(
+      PendingNotation.fromNotation(notation),
+    );
   }
 
-  // ── POST /evaluateur/notations/saisir (batch) ─────────────────────────────
-  /// Synchronise plusieurs notations (mode offline → reconnexion).
+  // ── Batch sync (appelé par SyncService) ──────────────────────────────────
   @override
   Future<void> saveNotations(List<Notation> notations) async {
     for (final n in notations) {
@@ -115,36 +116,29 @@ class GradingRepositoryImpl implements GradingRepository {
   }
 
   // ── POST /evaluateur/etudiants/{id}/stations/{id}/valider ─────────────────
-  /// Verrouille les notes d'un étudiant pour une station.
-  ///
-  /// Correction décalage H : l'ancien endpoint /stations/{id}/etudiants/{id}/valider
-  /// n'existait pas dans le backend réel.
   @override
   Future<void> validerEtudiant(
-  int etudiantId,
-  int stationId, {
-  required int grilleId,
-  bool    absent      = false,
-  String? commentaire,
-}) async {
-  try {
-    await _apiClient.post(
-      ApiConstants.validerEtudiant(etudiantId, stationId),
-      data: {
-        'grilleId':    grilleId,
-        'absent':      absent,
-        'commentaire': commentaire,
-      },
-    );
-  } on DioException catch (e) {
-    throw _handleError(e, "Impossible de valider l'étudiant");
+    int etudiantId,
+    int stationId, {
+    required int grilleId,
+    bool    absent      = false,
+    String? commentaire,
+  }) async {
+    try {
+      await _apiClient.post(
+        ApiConstants.validerEtudiant(etudiantId, stationId),
+        data: {
+          'grilleId':    grilleId,
+          'absent':      absent,
+          'commentaire': commentaire,
+        },
+      );
+    } on DioException catch (e) {
+      throw _handleError(e, "Impossible de valider l'étudiant");
+    }
   }
-}
 
   // ── POST /evaluateur/lots/{id}/valider ────────────────────────────────────
-  /// Valide tout le lot et le marque comme TERMINE.
-  ///
-  /// Correction décalage H : l'endpoint /lots/{id}/valider n'existait pas.
   @override
   Future<void> validerLot(int lotId) async {
     try {
@@ -154,29 +148,31 @@ class GradingRepositoryImpl implements GradingRepository {
     }
   }
 
-  // ── Substitution (non bloquant — hors scope MVP) ──────────────────────────
+  // ── Substitution ──────────────────────────────────────────────────────────
   @override
   Future<Etudiant> substituerEtudiant({
     required int lotId,
     required int etudiantAbsentId,
     required int etudiantRemplacantId,
   }) async {
-    // Fonctionnalité BF3.4 — à implémenter lors du sprint 7.
-    // Retourne un étudiant fictif pour ne pas bloquer la compilation.
     throw UnimplementedError(
       'substituerEtudiant sera implémenté au sprint 7 (BF3.4).',
     );
   }
 
-  // ── Offline sync (non bloquant — hors scope MVP) ──────────────────────────
+  // ── Offline sync helpers ──────────────────────────────────────────────────
   @override
-  Future<List<Notation>> getNotationsNonSynchro() async => [];
+  Future<List<Notation>> getNotationsNonSynchro() async {
+    final pending = await OfflineStorageService.instance.getPendingNotations();
+    return pending.map((pn) => pn.toNotation()).toList();
+  }
 
   @override
-  Future<void> marquerSynchro(List<int> notationIds) async {}
+  Future<void> marquerSynchro(List<int> notationIds) async {
+    await OfflineStorageService.instance.deleteByIds(notationIds);
+  }
 
   // ── Gestion centralisée des erreurs ──────────────────────────────────────
-
   Exception _handleError(DioException e, String message) {
     switch (e.response?.statusCode) {
       case 401:

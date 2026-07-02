@@ -62,4 +62,26 @@ public interface IExamenParticipationRepository extends JpaRepository<ExamenPart
             + "WHERE p.examen_id = :examenId AND p.etudiant.id = :etudiantId")
     boolean existsByExamenAndEtudiant(@Param("examenId") Long examenId,
                                       @Param("etudiantId") Long etudiantId);
+
+    /**
+     * Fallback de {@link #findByEtudiantIdAndStationId} : retrouve la participation
+     * d'un étudiant dans un examen directement, sans passer par la chaîne des rotations.
+     *
+     * <p>Utilisé par {@code saisirNotation()} quand les rotations ne sont pas encore
+     * générées pour le lot de l'étudiant (cas de test ou flux simplifié sans génération
+     * préalable). L'examenId est résolu depuis le lot de la participation.
+     */
+    @Query("SELECT p FROM ExamenParticipation p " +
+            "WHERE p.etudiant.id = :etudiantId " +
+            "AND p.lot.examenId = :examenId")
+    Optional<ExamenParticipation> findByEtudiantIdAndExamenId(
+            @Param("etudiantId") Long etudiantId,
+            @Param("examenId") Long examenId);
+
+    /**
+     * Retrouve toutes les participations d'un étudiant (tous examens confondus).
+     * Utilisé pour le fallback quand on ne connaît pas l'examenId.
+     */
+    @Query("SELECT p FROM ExamenParticipation p WHERE p.etudiant.id = :etudiantId")
+    List<ExamenParticipation> findByEtudiantId(@Param("etudiantId") Long etudiantId);
 }

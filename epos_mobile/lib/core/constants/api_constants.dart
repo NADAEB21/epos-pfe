@@ -1,6 +1,7 @@
 // lib/core/constants/api_constants.dart
 // ================================================
-// Centralise toutes les URLs et endpoints de l'API
+// Centralise toutes les URLs et endpoints de l'API.
+// ================================================
 
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
@@ -8,25 +9,44 @@ import 'package:flutter/foundation.dart';
 class ApiConstants {
   ApiConstants._();
 
-  /// URL résolue à l'exécution selon la plateforme.
+  /// URL de base de l'API REST (via gateway).
   static String get baseUrl {
     if (kDebugMode) {
       if (kIsWeb) {
-        // Flutter Web (Chrome) : lancer avec flutter run -d chrome --web-port 4200 pour correspondre
-        // à l'origine CORS autorisée par la gateway.
         return 'http://localhost:8080/api/v1';
       }
       if (Platform.isAndroid) {
-        // Émulateur Android : 10.0.2.2 = localhost de la machine hôte.
-        // Appareil physique : remplacer par l'IP LAN de la machine
-        // ex : return 'http://192.168.1.XXX:8080/api/v1';
         return 'http://10.0.2.2:8080/api/v1';
       }
     }
-    // Production ou override via --dart-define=API_BASE_URL=...
     return const String.fromEnvironment(
       'API_BASE_URL',
       defaultValue: 'http://localhost:8080/api/v1',
+    );
+  }
+
+  /// URL de base du scoring-service (connexion WebSocket directe).
+  ///
+  /// BF6.1 — La connexion WebSocket STOMP/SockJS est établie directement
+  /// avec le scoring-service et non via la gateway, car Spring Cloud Gateway
+  /// nécessite une configuration supplémentaire pour le proxy WebSocket.
+  ///
+  /// Port 8083 = port interne du scoring-service (défini dans docker-compose).
+  /// En production : utiliser une variable d'environnement WS_BASE_URL.
+  static String get wsBaseUrl {
+    if (kDebugMode) {
+      if (kIsWeb) {
+        // Flutter Web : même machine, port scoring direct
+        return 'http://localhost:8083';
+      }
+      if (Platform.isAndroid) {
+        // Émulateur Android : 10.0.2.2 = hôte, port scoring direct
+        return 'http://10.0.2.2:8083';
+      }
+    }
+    return const String.fromEnvironment(
+      'WS_BASE_URL',
+      defaultValue: 'http://localhost:8083',
     );
   }
 
@@ -56,10 +76,17 @@ class ApiConstants {
   static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
 
   // === Timeouts ===
-  static const Duration connectTimeout = Duration(seconds: 20); //10s en prod
-  static const Duration receiveTimeout = Duration(seconds: 20); //15s en prod
+  static const Duration connectTimeout = Duration(seconds: 20);
+  static const Duration receiveTimeout = Duration(seconds: 20);
 
-  // === WebSocket ===
-  static String get wsUrl              => baseUrl.replaceFirst('/api/v1', '/ws');
+  // === WebSocket (BF6.1) ===
+  /// URL de connexion SockJS vers le scoring-service.
+  /// Format : http(s)://host:port/ws  (SockJS préfère http, pas ws)
+  static String get wsUrl => '$wsBaseUrl/ws';
+
+  /// Topic STOMP pour les mises à jour de score d'une station.
   static String wsScore(int stationId) => '/topic/stations/$stationId/scores';
+
+  /// Topic STOMP pour les changements de statut d'un lot.
+  static String wsLotStatus(int lotId) => '/topic/lots/$lotId/status';
 }

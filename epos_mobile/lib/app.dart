@@ -1,18 +1,8 @@
-// lib/app.dart
-// ================================================
-// BF6.1 — getAccessToken est passé à AuthBloc pour initialiser le
-//          WebSocketService immédiatement après chaque login réussi.
-// BF6.2 — L'OfflineBloc est créé ici (singleton app-level) et injecté
-//          dans le MultiBlocProvider global, ce qui le rend disponible
-//          dans ConnectivityBanner (GradingScreen) et OfflinePendingBadge
-//          sans aucun Provider supplémentaire dans les sous-arborescences.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/network/api_client.dart';
-import 'core/offline/offline_bloc.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
@@ -23,6 +13,9 @@ import 'features/home/presentation/bloc/session_bloc.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/profile/domain/entities/profile_settings.dart';
 import 'features/profile/presentation/bloc/profile_bloc.dart';
+import 'core/offline/connectivity_service.dart'; 
+import 'core/offline/offline_bloc.dart';        
+import 'core/offline/sync_service.dart'; 
 
 class EposApp extends StatefulWidget {
   final AuthRepository    authRepository;
@@ -46,33 +39,24 @@ class _EposAppState extends State<EposApp> {
   late final AuthBloc    _authBloc;
   late final SessionBloc _sessionBloc;
   late final ProfileBloc _profileBloc;
-  // BF6.2 — OfflineBloc au niveau app pour que ConnectivityBanner
-  // et OfflinePendingBadge y accèdent sans re-création à chaque navigation.
-  late final OfflineBloc _offlineBloc;
+  late final OfflineBloc _offlineBloc; 
 
   bool _isAuthenticated  = false;
+  // _isInitialLoading : true uniquement pendant la vérification du token au
+  // démarrage.  Dès que la vérification est terminée (quel que soit le résultat),
+  // il passe définitivement à false.
+  // Pendant une tentative de login, il reste false → LoginScreen reste monté →
+  // son BlocListener reçoit AuthFailure → la snackbar d'erreur s'affiche.
   bool _isInitialLoading = true;
 
   @override
   void initState() {
     super.initState();
-
-    // BF6.2 — Créé avant AuthBloc pour être prêt dès le premier event.
-    _offlineBloc = OfflineBloc();
-
-    // BF6.1 — getAccessToken est transmis à AuthBloc pour qu'il puisse
-    // initialiser le WebSocketService avec le JWT après chaque login.
-    // En mode mock (apiClient == null) : la lambda retourne null, le
-    // WebSocket n'est pas démarré, le reste de l'app fonctionne normalement.
-    _authBloc = AuthBloc(
-      authRepository: widget.authRepository,
-      getAccessToken: widget.apiClient != null
-          ? () => widget.apiClient!.getAccessToken()
-          : null,
-    )..add(const AuthCheckRequested());
-
+    _authBloc    = AuthBloc(authRepository: widget.authRepository)
+        ..add(const AuthCheckRequested());
     _sessionBloc = SessionBloc(repository: widget.sessionRepository);
     _profileBloc = ProfileBloc();
+    _offlineBloc = OfflineBloc();
 
     _authBloc.stream.listen((state) {
       if (!mounted) return;
@@ -83,13 +67,19 @@ class _EposAppState extends State<EposApp> {
           _isAuthenticated  = true;
           _isInitialLoading = false;
         });
+
       } else if (state is AuthUnauthenticated || state is AuthFailure) {
         setState(() {
           _isAuthenticated  = false;
           _isInitialLoading = false;
         });
+
       }
-      // AuthLoading / AuthInitial → pas de setState nécessaire.
+      // AuthLoading / AuthInitial → pas de setState nécessaire :
+      //   • Vérification initiale : _isInitialLoading est encore true →
+      //     SplashScreen déjà affiché, pas de rebuild utile.
+      //   • Tentative de login : _isInitialLoading est false →
+      //     LoginScreen reste monté avec son propre spinner dans le bouton.
     });
   }
 
@@ -98,7 +88,7 @@ class _EposAppState extends State<EposApp> {
     _authBloc.close();
     _sessionBloc.close();
     _profileBloc.close();
-    _offlineBloc.close(); // BF6.2
+    _offlineBloc.close(); 
     super.dispose();
   }
 
@@ -109,7 +99,6 @@ class _EposAppState extends State<EposApp> {
         BlocProvider.value(value: _authBloc),
         BlocProvider.value(value: _sessionBloc),
         BlocProvider.value(value: _profileBloc),
-        // BF6.2 — OfflineBloc disponible dans toute l'arborescence de widgets.
         BlocProvider.value(value: _offlineBloc),
       ],
       child: BlocBuilder<ProfileBloc, ProfileState>(
@@ -139,15 +128,14 @@ class _EposAppState extends State<EposApp> {
             ],
             builder: (ctx, child) => Directionality(
               textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
-              child:         child!,
+              child: child!,
             ),
             home: _AuthGate(
-              isInitialLoading:  _isInitialLoading,
+              isInitialLoading:  _isInitialLoading,  // ← renommé
               isAuthenticated:   _isAuthenticated,
               authBloc:          _authBloc,
               sessionBloc:       _sessionBloc,
               profileBloc:       _profileBloc,
-              offlineBloc:       _offlineBloc, // BF6.2
               gradingRepository: widget.gradingRepository,
             ),
           );
@@ -160,12 +148,11 @@ class _EposAppState extends State<EposApp> {
 final GlobalKey<NavigatorState> _appNavigatorKey = GlobalKey<NavigatorState>();
 
 class _AuthGate extends StatelessWidget {
-  final bool              isInitialLoading;
+  final bool              isInitialLoading;   // ← renommé
   final bool              isAuthenticated;
   final AuthBloc          authBloc;
   final SessionBloc       sessionBloc;
   final ProfileBloc       profileBloc;
-  final OfflineBloc       offlineBloc;       // BF6.2
   final GradingRepository gradingRepository;
 
   const _AuthGate({
@@ -174,7 +161,6 @@ class _AuthGate extends StatelessWidget {
     required this.authBloc,
     required this.sessionBloc,
     required this.profileBloc,
-    required this.offlineBloc,
     required this.gradingRepository,
   });
 
@@ -183,23 +169,22 @@ class _AuthGate extends StatelessWidget {
       BlocProvider.value(value: authBloc),
       BlocProvider.value(value: sessionBloc),
       BlocProvider.value(value: profileBloc),
-      // BF6.2 — Propagé dans chaque branche de navigation.
-      BlocProvider.value(value: offlineBloc),
     ],
     child: child,
   );
 
   @override
   Widget build(BuildContext context) {
+    // SplashScreen uniquement pendant la vérification du token au démarrage
     if (isInitialLoading) return _wrap(const _SplashScreen());
     if (isAuthenticated)  return _wrap(HomeScreen(gradingRepository: gradingRepository));
+    // LoginScreen reste monté pendant les tentatives de login →
+    // son BlocListener peut désormais recevoir AuthFailure et afficher la snackbar
     return _wrap(const LoginScreen());
   }
 }
 
-// ════════════════════════════════════════════════
-// THÈME SOMBRE (inchangé)
-// ════════════════════════════════════════════════
+// ... (buildDarkTheme et _SplashScreen inchangés)
 ThemeData buildDarkTheme() {
   return ThemeData(
     useMaterial3:            true,
@@ -236,9 +221,7 @@ ThemeData buildDarkTheme() {
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected)
-            ? AppTheme.primaryLight
-            : Colors.grey,
+        (s) => s.contains(WidgetState.selected) ? AppTheme.primaryLight : Colors.grey,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
@@ -268,9 +251,6 @@ ThemeData buildDarkTheme() {
   );
 }
 
-// ════════════════════════════════════════════════
-// SPLASH SCREEN (inchangé)
-// ════════════════════════════════════════════════
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
@@ -283,8 +263,7 @@ class _SplashScreen extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width:  90,
-              height: 90,
+              width: 90, height: 90,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withValues(alpha: 0.15),
@@ -293,20 +272,17 @@ class _SplashScreen extends StatelessWidget {
                 child: Text(
                   'EPOS',
                   style: TextStyle(
-                    color:      Colors.white,
-                    fontSize:   20,
-                    fontWeight: FontWeight.bold,
+                    color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 32),
             const SizedBox(
-              width:  28,
-              height: 28,
-              child:  CircularProgressIndicator(
+              width: 28, height: 28,
+              child: CircularProgressIndicator(
                 strokeWidth: 2.5,
-                valueColor:  AlwaysStoppedAnimation<Color>(Colors.white70),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
               ),
             ),
           ],

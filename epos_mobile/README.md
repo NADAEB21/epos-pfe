@@ -39,7 +39,7 @@ flutter devices
 flutter run --device-id <device_id>
 
 # Sur Chrome (Recommendé)
-flutter run -d chrome --web-port 4200
+flutter run -d chrome --web-port 4300
 ```
 
 > **Note :** Le backend Spring Boot doit tourner sur `localhost:8080`. Depuis l'émulateur Android, l'alias est automatiquement `10.0.2.2`.

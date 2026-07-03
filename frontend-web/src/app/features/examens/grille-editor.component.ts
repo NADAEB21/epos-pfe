@@ -104,6 +104,67 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
               </button>
             </div>
           </form>
+        } @else if (replacingGrille()) {
+          <!-- #161 : remplacer la grille en un seul geste (create-or-replace, PUT) -->
+          <form [formGroup]="replaceForm" (ngSubmit)="submitReplace()" novalidate class="space-y-3">
+            <div class="text-sm font-semibold text-gray-900">Remplacer par une nouvelle grille</div>
+            <p class="text-xs text-status-warning">
+              Les {{ g.nombreItems ?? g.items?.length ?? 0 }} critère(s) actuels seront supprimés et
+              remplacés par cette nouvelle grille (à repeupler ensuite).
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div class="sm:col-span-3">
+                <label class="block text-xs font-medium text-gray-700 mb-1">Nom de la grille</label>
+                <input
+                  type="text"
+                  formControlName="nom"
+                  maxlength="150"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Note max</label>
+                <input
+                  type="number"
+                  formControlName="noteMax"
+                  min="1"
+                  max="100"
+                  step="0.5"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">
+                Description <span class="text-gray-400">(optionnel)</span>
+              </label>
+              <textarea
+                formControlName="description"
+                rows="2"
+                maxlength="300"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+              ></textarea>
+            </div>
+            @if (replaceError()) {
+              <p role="alert" class="text-xs text-status-danger">{{ replaceError() }}</p>
+            }
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                (click)="cancelReplace()"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                [disabled]="replaceForm.invalid || replacingBusy()"
+                class="px-3 py-1.5 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {{ replacingBusy() ? 'Remplacement…' : 'Remplacer la grille' }}
+              </button>
+            </div>
+          </form>
         } @else {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -116,6 +177,13 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
               <div class="flex items-center gap-2 shrink-0">
                 <button type="button" (click)="openMeta()" class="text-xs text-gray-500 hover:text-brand">
                   Modifier
+                </button>
+                <button
+                  type="button"
+                  (click)="openReplace()"
+                  class="text-xs text-gray-500 hover:text-brand"
+                >
+                  Remplacer
                 </button>
                 <button
                   type="button"
@@ -682,6 +750,16 @@ export class GrilleEditorComponent {
     description: ['', [Validators.maxLength(300)]],
   });
 
+  // replace grille from scratch (#161, single-gesture create-or-replace via PUT)
+  readonly replacingGrille = signal(false);
+  readonly replacingBusy = signal(false);
+  readonly replaceError = signal<string | null>(null);
+  readonly replaceForm = this.fb.nonNullable.group({
+    nom: ['', [Validators.required, Validators.maxLength(150)]],
+    noteMax: [20, [Validators.required, Validators.min(1), Validators.max(100)]],
+    description: ['', [Validators.maxLength(300)]],
+  });
+
   // delete grille
   readonly confirmDeleteGrille = signal(false);
   readonly deletingGrille = signal(false);
@@ -894,6 +972,50 @@ export class GrilleEditorComponent {
         error: (err: HttpErrorResponse) => {
           this.savingMeta.set(false);
           this.metaError.set(this.mutationMessage(err));
+        },
+      });
+  }
+
+  // ---- replace grille from scratch (#161) ---------------------------------
+
+  openReplace(): void {
+    // Start blank — a "remplacer" means a fresh grille, not an edit of the old one.
+    this.editingMeta.set(false);
+    this.confirmDeleteGrille.set(false);
+    this.replaceForm.reset({ nom: '', noteMax: 20, description: '' });
+    this.replaceError.set(null);
+    this.replacingGrille.set(true);
+  }
+
+  cancelReplace(): void {
+    this.replacingGrille.set(false);
+    this.replaceError.set(null);
+  }
+
+  submitReplace(): void {
+    if (this.replaceForm.invalid || this.replacingBusy()) return;
+    const raw = this.replaceForm.getRawValue();
+    this.replacingBusy.set(true);
+    this.replaceError.set(null);
+    // One idempotent PUT: overwrites meta + purges old critères in place. No
+    // delete→create, so no unique station_id conflict is possible.
+    this.examApi
+      .replaceStationGrille(this.stationId(), {
+        nom: raw.nom.trim(),
+        noteMax: Number(raw.noteMax),
+        description: raw.description.trim() || undefined,
+      })
+      .subscribe({
+        next: (grille) => {
+          this.replacingBusy.set(false);
+          this.replacingGrille.set(false);
+          this.grille.set(grille);
+          // Still exists (replaced, not deleted) — keep the parent row in sync.
+          this.existenceChanged.emit(true);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.replacingBusy.set(false);
+          this.replaceError.set(this.mutationMessage(err));
         },
       });
   }

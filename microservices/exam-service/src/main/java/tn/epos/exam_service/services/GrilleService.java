@@ -11,6 +11,14 @@ public interface GrilleService {
     /** Créer et associer une grille à une station (avec items optionnels) */
     GrilleResponse creerPourStation(Long stationId, GrilleRequest request);
 
+    /**
+     * #161 : « Remplacer la grille » — pose la grille de la station EN PLACE
+     * (crée si absente, remplace items compris si présente) de façon idempotente.
+     * Évite le duo delete→create côté client et la violation de contrainte unique
+     * station_id, en réutilisant la ligne existante comme {@code appliquerSurStation}.
+     */
+    GrilleResponse remplacerPourStation(Long stationId, GrilleRequest request);
+
     /** Récupérer la grille d'une station avec ses items */
     GrilleResponse trouverParStation(Long stationId);
 

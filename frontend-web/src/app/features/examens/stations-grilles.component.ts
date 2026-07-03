@@ -319,22 +319,26 @@ const TYPES: TypeStation[] = ['PRATIQUE', 'THEORIQUE'];
                     <span class="text-xs text-gray-400">Aucun evaluateur affecte</span>
                   }
 
-                  <!-- picker -->
+                  <!-- picker (#163: évaluateurs pris par une autre station sont
+                       listés désactivés — un évaluateur = une seule station/examen) -->
                   @if (editable()) {
-                    @if (available(s); as opts) {
-                      @if (opts.length > 0) {
-                        <select
-                          #pick
-                          [disabled]="savingId() === s.id"
-                          (change)="addEvaluateur(s, pick.value); pick.value = ''"
-                          class="text-xs border border-gray-200 rounded-full px-2.5 py-1 text-gray-600 bg-white disabled:opacity-40"
-                        >
-                          <option value="">+ ajouter</option>
-                          @for (u of opts; track u.id) {
-                            <option [value]="u.id">{{ u.prenom }} {{ u.nom }}</option>
-                          }
-                        </select>
-                      }
+                    @if (pickerHasOptions(s)) {
+                      <select
+                        #pick
+                        [disabled]="savingId() === s.id"
+                        (change)="addEvaluateur(s, pick.value); pick.value = ''"
+                        class="text-xs border border-gray-200 rounded-full px-2.5 py-1 text-gray-600 bg-white disabled:opacity-40"
+                      >
+                        <option value="">+ ajouter</option>
+                        @for (u of available(s); track u.id) {
+                          <option [value]="u.id">{{ u.prenom }} {{ u.nom }}</option>
+                        }
+                        @for (e of takenElsewhere(s); track e.user.id) {
+                          <option [value]="e.user.id" disabled>
+                            {{ e.user.prenom }} {{ e.user.nom }} — déjà sur {{ e.station }}
+                          </option>
+                        }
+                      </select>
                     }
                     @if (savingId() === s.id) {
                       <span class="text-xs text-gray-400">Enregistrement…</span>
@@ -343,7 +347,7 @@ const TYPES: TypeStation[] = ['PRATIQUE', 'THEORIQUE'];
                 </div>
                 @if (saveErrorId() === s.id) {
                   <p class="text-xs text-status-danger mt-1.5">
-                    Echec de l'enregistrement. Reessayez.
+                    {{ saveError() ?? 'Echec de l\'enregistrement. Reessayez.' }}
                   </p>
                 }
               </div>
@@ -437,6 +441,7 @@ export class StationsGrillesComponent {
   // évaluateur binding
   readonly savingId = signal<number | null>(null);
   readonly saveErrorId = signal<number | null>(null);
+  readonly saveError = signal<string | null>(null);
 
   readonly expandedId = signal<number | null>(null);
 
@@ -620,18 +625,55 @@ export class StationsGrillesComponent {
 
   // ---- évaluateur binding -------------------------------------------------
 
-  /** Active évaluateurs not already bound to this station, for the picker. */
+  /**
+   * Active évaluateurs pickable for this station: not already bound here AND not
+   * bound to any OTHER station of the exam (#163 — one évaluateur = one station
+   * per exam). Those taken elsewhere are surfaced separately (disabled) so the
+   * responsable sees why they're unavailable rather than them silently vanishing.
+   */
   available(s: StationSummary): UserResponse[] {
     const bound = new Set(s.evaluateurIds ?? []);
+    const elsewhere = this.evaluateurStationMap(s.id);
     return this.evaluateurs()
-      .filter((u) => u.isActive && !bound.has(u.id))
+      .filter((u) => u.isActive && !bound.has(u.id) && !elsewhere.has(u.id))
       .sort((a, b) => a.nom.localeCompare(b.nom));
+  }
+
+  /** Active évaluateurs already bound to another station of this exam, with the
+   *  name of that station — rendered as disabled picker options (#163). */
+  takenElsewhere(s: StationSummary): { user: UserResponse; station: string }[] {
+    const bound = new Set(s.evaluateurIds ?? []);
+    const elsewhere = this.evaluateurStationMap(s.id);
+    return this.evaluateurs()
+      .filter((u) => u.isActive && !bound.has(u.id) && elsewhere.has(u.id))
+      .map((u) => ({ user: u, station: elsewhere.get(u.id)! }))
+      .sort((a, b) => a.user.nom.localeCompare(b.user.nom));
+  }
+
+  /** Whether the picker should render at all (something to add or to explain). */
+  pickerHasOptions(s: StationSummary): boolean {
+    return this.available(s).length > 0 || this.takenElsewhere(s).length > 0;
+  }
+
+  /** évaluateur id → nom of the OTHER station (of THIS exam) it is bound to. */
+  private evaluateurStationMap(excludeStationId: number): Map<number, string> {
+    const m = new Map<number, string>();
+    for (const st of this.stations()) {
+      if (st.id === excludeStationId) continue;
+      for (const id of st.evaluateurIds ?? []) {
+        if (!m.has(id)) m.set(id, st.nom || `Station ${st.ordre ?? ''}`.trim());
+      }
+    }
+    return m;
   }
 
   addEvaluateur(s: StationSummary, rawId: string): void {
     const id = Number(rawId);
     if (!Number.isFinite(id) || id === 0) return;
     if ((s.evaluateurIds ?? []).includes(id)) return;
+    // Guard the conflict client-side (disabled options can't fire, but be safe);
+    // the backend also 409s if a race slips through.
+    if (this.evaluateurStationMap(s.id).has(id)) return;
     this.patchEvaluateurs(s, [...(s.evaluateurIds ?? []), id]);
   }
 
@@ -642,6 +684,7 @@ export class StationsGrillesComponent {
   private patchEvaluateurs(s: StationSummary, nextIds: number[]): void {
     this.savingId.set(s.id);
     this.saveErrorId.set(null);
+    this.saveError.set(null);
     this.examApi.setStationEvaluateurs(s.id, nextIds).subscribe({
       next: (updated) => {
         // Refresh from the response rather than the optimistic guess — the
@@ -649,8 +692,11 @@ export class StationsGrillesComponent {
         this.replaceStation(s.id, { evaluateurIds: updated.evaluateurIds ?? nextIds });
         this.savingId.set(null);
       },
-      error: () => {
+      error: (err: HttpErrorResponse) => {
+        // #163: a 409 carries the conflicting station name — surface it verbatim
+        // instead of the generic retry message.
         this.saveErrorId.set(s.id);
+        this.saveError.set(this.mutationMessage(err));
         this.savingId.set(null);
       },
     });

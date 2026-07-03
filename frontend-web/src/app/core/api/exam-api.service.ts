@@ -209,6 +209,20 @@ export class ExamApiService {
   }
 
   /**
+   * Replace a station's grille in one idempotent call (PUT /stations/{id}/grille,
+   * #161). Create-or-replace in place: creates the grille if the station has none,
+   * otherwise overwrites its meta and purges its items — no delete→create dance,
+   * so the unique station_id constraint can never conflict. Like create, this
+   * sends meta only (items are re-added one-by-one through the validated /items
+   * endpoint). Gated to BROUILLON/CONFIGURE + matière scope. Returns the grille.
+   */
+  replaceStationGrille(stationId: number, body: GrilleRequest): Observable<GrilleDetail> {
+    return this.http
+      .put<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * Edit a grille's meta (PUT /grilles/{id}). Only nom/noteMax/description are
    * applied — items are untouched. Note the backend does NOT re-check the items'
    * pondération sum against a lowered noteMax, so the caller should warn when

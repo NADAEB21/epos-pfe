@@ -90,20 +90,46 @@ class LotAssignmentServiceTest {
     class Repartition {
 
         @Test
-        @DisplayName("K=3, cap=4 → lotSize 12 ; 54 inscrits → 5 lots (4×12 + 1×6)")
+        @DisplayName("K=3, cap=4 → lotSize 12 ; 54 inscrits → 5 lots équilibrés (4×11 + 1×10)")
         void repartit_54en5lots() {
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
             when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(54));
 
             RepartitionResult r = service.repartir(EXAM_ID);
 
-            assertThat(r.lotSize()).isEqualTo(12);
+            // #164 : même nombre de lots (ceil(54/12)=5) mais tailles équilibrées
+            // (base 10 + 4 lots à +1) plutôt que 4×12 + 1×6.
+            assertThat(r.lotSize()).isEqualTo(12);   // capacité max par lot, inchangée
             assertThat(r.lots()).isEqualTo(5);
             assertThat(r.etudiantsRepartis()).isEqualTo(54);
             assertThat(r.details()).hasSize(5);
-            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 12);
-            assertThat(r.details().get(4).taille()).isEqualTo(6);
+            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 11);
+            assertThat(r.details().get(4).taille()).isEqualTo(10);
             assertThat(r.details().get(0).numeroLot()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("#164 équilibrage : K=3, cap=4, 15 inscrits → 2 lots 8/7 (jamais 12/3)")
+        void repartit_equilibre_15en2lots() {
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(15));
+
+            RepartitionResult r = service.repartir(EXAM_ID);
+
+            // nbLots = ceil(15/12) = 2. Glouton aurait donné 12 + 3 ; l'équilibrage
+            // donne 8 + 7 : les tailles ne diffèrent jamais de plus de 1.
+            assertThat(r.lots()).isEqualTo(2);
+            assertThat(r.etudiantsRepartis()).isEqualTo(15);
+            assertThat(r.details()).hasSize(2);
+            assertThat(r.details().get(0).taille()).isEqualTo(8);
+            assertThat(r.details().get(1).taille()).isEqualTo(7);
+            // aucun lot ne dépasse la capacité max (lotSize=12) et l'écart est ≤ 1
+            int max = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).max().orElseThrow();
+            int min = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).min().orElseThrow();
+            assertThat(max - min).isLessThanOrEqualTo(1);
+            assertThat(max).isLessThanOrEqualTo(12);
+            // somme des tailles = effectif total (aucun étudiant perdu ni dupliqué)
+            assertThat(r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).sum()).isEqualTo(15);
         }
 
         @Test

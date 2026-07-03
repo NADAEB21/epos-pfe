@@ -86,16 +86,27 @@ public class LotAssignmentService {
         // Re-runnable: detach participations + drop any prior lots/plan first.
         wipeLots(examenId);
 
+        // #164 : nombre de vagues inchangé (ceil(n / lotSize)), MAIS répartition
+        // équilibrée au lieu du remplissage glouton qui laissait un dernier lot
+        // maigre (ex. 15 étudiants, lotSize 12 → 12 + 3). On calcule une base
+        // (n / nbLots) et les `reste` premiers lots reçoivent un étudiant de plus :
+        // les tailles ne diffèrent jamais de plus de 1 (15,K=3,cap=4 → 8 + 7, jamais
+        // 12 + 3). base + 1 ≤ lotSize est garanti car nbLots = ceil(n / lotSize).
         int nbLots = (int) Math.ceil((double) n / lotSize);
+        int base = n / nbLots;
+        int reste = n % nbLots;
         List<RepartitionResult.LotInfo> details = new ArrayList<>();
+        int curseur = 0;
         for (int m = 0; m < nbLots; m++) {
-            int from = m * lotSize;
-            int to = Math.min(from + lotSize, n);
+            int taille = base + (m < reste ? 1 : 0);
+            int from = curseur;
+            int to = curseur + taille;
+            curseur = to;
 
             Lot lot = new Lot();
             lot.setExamenId(examenId);
             lot.setNumeroLot(m + 1);
-            lot.setTailleLot(to - from);
+            lot.setTailleLot(taille);
             lot.setStatut(LotStatus.EN_ATTENTE);
             lot = lotRepository.save(lot);
 

@@ -189,6 +189,93 @@ class GrilleServiceImplTest {
     }
 
     // ================================================================
+    // #161 — REMPLACER GRILLE (create-or-replace idempotent, en place)
+    // ================================================================
+
+    @Nested
+    @DisplayName("remplacerPourStation()")
+    class RemplacerPourStation {
+
+        @Test
+        @DisplayName("Doit remplacer EN PLACE la grille existante sans delete (pas de 23505)")
+        void remplacer_grilleExistante_devraitReutiliserLaLigne() {
+            ItemEvaluation ancien = ItemEvaluation.builder()
+                    .libelle("ancien critère").type(TypeItem.BINAIRE).ponderation(5.0)
+                    .ordre(1).grille(grille).build();
+            grille.getItems().add(ancien);
+            grilleRequest.setItems(List.of(itemBinaireRequest)); // nouveau contenu
+
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.of(grille));
+            when(grilleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            GrilleResponse result = grilleService.remplacerPourStation(1L, grilleRequest);
+
+            assertThat(result).isNotNull();
+            // La MÊME ligne (id conservé) est réutilisée, jamais supprimée → aucun
+            // conflit de contrainte unique station_id possible.
+            verify(grilleRepository).save(argThat(g ->
+                    g.getId() != null && g.getId().equals(1L)          // ligne existante conservée
+                            && g.getItems().size() == 1                 // anciens critères purgés
+                            && "Choix de l'indicateur".equals(g.getItems().get(0).getLibelle())));
+            verify(grilleRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("Doit créer la grille si la station n'en a pas encore")
+        void remplacer_grilleAbsente_devraitCreer() {
+            grilleRequest.setItems(List.of(itemBinaireRequest));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(grilleRepository.findByStationIdWithItems(1L)).thenReturn(Optional.empty());
+            when(grilleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            GrilleResponse result = grilleService.remplacerPourStation(1L, grilleRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getNom()).isEqualTo("Grille Station 3");
+            verify(grilleRepository).save(any());
+            verify(grilleRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si station introuvable")
+        void remplacer_stationIntrouvable_devraitEchouer() {
+            when(stationRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> grilleService.remplacerPourStation(99L, grilleRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si examen non modifiable")
+        void remplacer_examenVerrouille_devraitEchouer() {
+            examenBrouillon.setStatut(StatutExamen.EN_COURS);
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+
+            assertThatThrownBy(() -> grilleService.remplacerPourStation(1L, grilleRequest))
+                    .isInstanceOf(BusinessException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Régression delete→create : après supprimer(), creerPourStation() réussit sans erreur")
+        void deletePuisCreate_devraitReussir() {
+            // supprimer() valide + delete (transaction propre committée côté HTTP).
+            when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
+            grilleService.supprimer(1L);
+            verify(grilleRepository).delete(grille);
+
+            // create ensuite : la station n'a plus de grille → existsByStationId=false → OK.
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(grilleRepository.existsByStationId(1L)).thenReturn(false);
+            when(grilleRepository.save(any())).thenReturn(grille);
+
+            GrilleResponse result = grilleService.creerPourStation(1L, grilleRequest);
+            assertThat(result).isNotNull();
+        }
+    }
+
+    // ================================================================
     // TROUVER GRILLE
     // ================================================================
 
@@ -459,6 +546,18 @@ class GrilleServiceImplTest {
                     .when(matiereAccessChecker).checkAccess(1L);
 
             assertThatThrownBy(() -> grilleService.creerPourStation(1L, grilleRequest))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("remplacerPourStation() rejects when caller is out of scope")
+        void remplacer_outOfScope_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.remplacerPourStation(1L, grilleRequest))
                     .isInstanceOf(AccessDeniedException.class);
             verify(grilleRepository, never()).save(any());
         }

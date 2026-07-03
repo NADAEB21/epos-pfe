@@ -81,6 +81,46 @@ public class GrilleServiceImpl implements GrilleService {
         return toResponse(sauvegardee);
     }
 
+    // #161 : Remplacement idempotent de la grille d'une station (create-or-replace).
+    // Mise à jour EN PLACE de la ligne existante — même raison que
+    // GrilleTemplateServiceImpl.appliquerSurStation : deux lignes ne peuvent
+    // coexister sur station_id (contrainte unique), et Hibernate ordonnerait
+    // l'INSERT avant le DELETE dans un même flush → 23505. Réutiliser la grille
+    // existante évite le conflit, préserve son id, et rend l'opération sûre sans
+    // aucun delete→create côté client.
+    @Override
+    public GrilleResponse remplacerPourStation(Long stationId, GrilleRequest request) {
+        Station station = stationRepository.findById(stationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Station", stationId));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
+
+        if (!station.getExamen().isGrilleModifiable()) {
+            throw new BusinessException(
+                    "Impossible de remplacer la grille : l'examen est au statut "
+                            + station.getExamen().getStatut()
+            );
+        }
+
+        GrilleEvaluation grille = grilleRepository.findByStationIdWithItems(stationId)
+                .orElseGet(() -> GrilleEvaluation.builder().station(station).build());
+
+        grille.setNom(request.getNom());
+        grille.setNoteMax(request.getNoteMax());
+        grille.setDescription(request.getDescription());
+        grille.getItems().clear();   // orphanRemoval supprime les anciens critères
+
+        if (request.getItems() != null) {
+            for (ItemRequest itemReq : request.getItems()) {
+                grille.addItem(buildItem(itemReq));
+            }
+        }
+
+        GrilleEvaluation sauvegardee = grilleRepository.save(grille);
+        log.info("Grille de la station {} remplacée en place ('{}', {} items)",
+                stationId, request.getNom(), sauvegardee.getItems().size());
+        return toResponse(sauvegardee);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public GrilleResponse trouverParStation(Long stationId) {

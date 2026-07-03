@@ -42,6 +42,22 @@ public class GrilleController {
                 .body(ApiResponse.ok("Grille créée avec succès", response));
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    @PutMapping("/api/stations/{stationId}/grille")
+    @Operation(summary = "Remplacer la grille d'une station (create-or-replace)",
+            description = "Pose la grille de la station de façon idempotente : la crée si absente, "
+                    + "la remplace intégralement (items compris) si présente. Évite le duo "
+                    + "supprimer→créer côté client. Renvoie 200.")
+    public ResponseEntity<ApiResponse<GrilleResponse>> remplacer(
+            @PathVariable Long stationId,
+            @Valid @RequestBody GrilleRequest request) {
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("Grille remplacée avec succès",
+                        grilleService.remplacerPourStation(stationId, request))
+        );
+    }
+
     @GetMapping("/api/stations/{stationId}/grille")
     @Operation(summary = "Récupérer la grille d'une station avec ses critères")
     public ResponseEntity<ApiResponse<GrilleResponse>> trouverParStation(@PathVariable Long stationId) {

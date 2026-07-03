@@ -18,6 +18,7 @@ import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.enums.TypeStation;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.exam_service.exception.ConflictException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.impl.StationServiceImpl;
@@ -321,6 +322,91 @@ class StationServiceImplTest {
 
             verify(stationRepository).save(argThat(s ->
                     s.getEvaluateurIds().size() == 4));
+        }
+    }
+
+    // ================================================================
+    // #163 — un évaluateur ne peut tenir qu'UNE station par examen.
+    // Conflit avec une AUTRE station du même examen → 409 ConflictException.
+    // ================================================================
+
+    @Nested
+    @DisplayName("Unicité évaluateur par examen (#163)")
+    class EvaluateurUniciteParExamen {
+
+        private Station autreStation(Long id, String nom, Long... evaluateurs) {
+            return Station.builder()
+                    .id(id)
+                    .nom(nom)
+                    .type(TypeStation.PRATIQUE)
+                    .ordre(2)
+                    .examen(examenBrouillon)
+                    .evaluateurIds(new ArrayList<>(List.of(evaluateurs)))
+                    .build();
+        }
+
+        @Test
+        @DisplayName("affecterEvaluateurs() → 409 si l'évaluateur est déjà sur une autre station")
+        void affecter_conflitAutreStation_devraitLever409() {
+            station.setEvaluateurIds(new ArrayList<>());
+            Station autre = autreStation(2L, "Station 2", 10L);
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.findByExamenIdOrderByOrdreAsc(1L))
+                    .thenReturn(List.of(station, autre));
+
+            assertThatThrownBy(() -> stationService.affecterEvaluateurs(1L, List.of(10L)))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("Station 2")
+                    .hasMessageContaining("une seule station");
+            verify(stationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("affecterEvaluateurs() → OK si l'évaluateur n'est nulle part ailleurs")
+        void affecter_pasDeConflit_devraitReussir() {
+            station.setEvaluateurIds(new ArrayList<>());
+            Station autre = autreStation(2L, "Station 2", 99L);
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            when(stationRepository.findByExamenIdOrderByOrdreAsc(1L))
+                    .thenReturn(List.of(station, autre));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            StationResponse r = stationService.affecterEvaluateurs(1L, List.of(10L));
+
+            assertThat(r).isNotNull();
+            verify(stationRepository).save(argThat(s -> s.getEvaluateurIds().contains(10L)));
+        }
+
+        @Test
+        @DisplayName("affecterEvaluateurs() → OK en réaffectant le même évaluateur à SA station (exclusion de soi)")
+        void affecter_memeStation_pasDeFauxConflit() {
+            station.setEvaluateurIds(new ArrayList<>(List.of(10L)));
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+            // La seule station portant le 10 est la station courante elle-même.
+            when(stationRepository.findByExamenIdOrderByOrdreAsc(1L))
+                    .thenReturn(List.of(station));
+            when(stationRepository.save(any())).thenReturn(station);
+
+            StationResponse r = stationService.affecterEvaluateurs(1L, List.of(10L));
+
+            assertThat(r).isNotNull();
+            verify(stationRepository).save(any());
+        }
+
+        @Test
+        @DisplayName("ajouter() → 409 si la nouvelle station réclame un évaluateur déjà pris")
+        void ajouter_conflit_devraitLever409() {
+            stationRequest.setEvaluateurIds(List.of(10L));
+            Station autre = autreStation(2L, "Station 2", 10L);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(stationRepository.existsByNomAndExamenId(any(), anyLong())).thenReturn(false);
+            when(stationRepository.findByExamenIdOrderByOrdreAsc(1L))
+                    .thenReturn(List.of(autre));
+
+            assertThatThrownBy(() -> stationService.ajouter(1L, stationRequest))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("Station 2");
+            verify(stationRepository, never()).save(any());
         }
     }
 

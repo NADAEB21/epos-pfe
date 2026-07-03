@@ -279,6 +279,9 @@ class NotationItemServiceTest {
             details.setNotation(autreNotation);
 
             when(repository.findById(1L)).thenReturn(Optional.of(item));
+            // #23 : le verrou de la notation parente d'origine (id 5) est vérifié
+            // avant la réassignation — elle est ouverte ici.
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
             when(notationRepository.findById(8L)).thenReturn(Optional.of(autreNotation));
             when(examServiceClient.getItemIdsForGrille(11L)).thenReturn(Set.of(100L, 101L));
             when(repository.save(any(NotationItem.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -320,6 +323,81 @@ class NotationItemServiceTest {
             assertThatThrownBy(() -> notationItemService.update(99L, new NotationItem()))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
+        }
+    }
+
+    // ================================================================
+    // #23 — notation verrouillée : aucune écriture via les endpoints item.
+    // Le seul chemin autorisé pour changer un score verrouillé est le
+    // réajustement audité (réclamation), jamais cette porte dérobée.
+    // ================================================================
+
+    @Nested
+    @DisplayName("Verrou de la notation parente (#23)")
+    class VerrouNotation {
+
+        private Notation locked() {
+            Notation n = new Notation();
+            n.setId(5L);
+            n.setGrilleId(null); // isole du contrôle cross-grille (#84)
+            n.setVerouillee(true);
+            return n;
+        }
+
+        @Test
+        @DisplayName("save() sur une notation verrouillée → BusinessException, rien de sauvé")
+        void save_notationVerrouillee_refuse() {
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(locked()));
+
+            assertThatThrownBy(() -> notationItemService.save(item))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("verrouillée");
+
+            verify(examServiceClient, never()).getItemIdsForGrille(any());
+            verify(repository, never()).save(any(NotationItem.class));
+        }
+
+        @Test
+        @DisplayName("update() d'un critère sous notation verrouillée → BusinessException")
+        void update_notationVerrouillee_refuse() {
+            item.setNotation(locked()); // le parent d'origine est verrouillé
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(locked()));
+
+            NotationItem details = new NotationItem();
+            details.setValeur(20.0f);
+
+            assertThatThrownBy(() -> notationItemService.update(1L, details))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("verrouillée");
+
+            verify(repository, never()).save(any(NotationItem.class));
+        }
+
+        @Test
+        @DisplayName("delete() d'un critère sous notation verrouillée → BusinessException, rien de supprimé")
+        void delete_notationVerrouillee_refuse() {
+            item.setNotation(locked());
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(locked()));
+
+            assertThatThrownBy(() -> notationItemService.delete(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("verrouillée");
+
+            verify(repository, never()).deleteById(any());
+        }
+
+        @Test
+        @DisplayName("delete() sur une notation ouverte → suppression normale")
+        void delete_notationOuverte_supprime() {
+            // `notation` (setUp) est ouverte (verouillee=false).
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+
+            notationItemService.delete(1L);
+
+            verify(repository).deleteById(1L);
         }
     }
 }

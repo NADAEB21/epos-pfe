@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { forkJoin, of } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
@@ -7,6 +7,7 @@ import {
   ExamenResult,
   GrilleDetail,
   GrilleItem,
+  NotationAdjustmentSummary,
   NotationItemSummary,
   ParticipationSummary,
   StationSummary,
@@ -101,7 +102,7 @@ const DEFAULT_NOTE_MAX = 20;
 @Component({
   selector: 'app-resultats',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, DatePipe],
   template: `
     @if (loading()) {
       <div class="space-y-6 animate-pulse">
@@ -379,6 +380,66 @@ const DEFAULT_NOTE_MAX = 20;
                               }
                             </tbody>
                           </table>
+                          @if (isLocked(row, col)) {
+                            @let notationId = notationIdOf(row, col);
+                            <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                              <div class="flex items-center justify-between">
+                                <h5 class="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                                  Note verrouillée — réajustement sur réclamation
+                                </h5>
+                                @if (reajustOpen() !== notationId) {
+                                  <button type="button"
+                                    (click)="openReajust(notationId!, row.scoreByStation.get(col.stationId) ?? null)"
+                                    class="text-xs font-medium text-amber-800 underline hover:text-amber-900">
+                                    Réajuster (réclamation)
+                                  </button>
+                                }
+                              </div>
+                              @if (notationId != null && adjustmentsFor(notationId).length > 0) {
+                                <ul class="mt-2 space-y-1">
+                                  @for (a of adjustmentsFor(notationId); track a.id) {
+                                    <li class="text-xs text-gray-600">
+                                      <span class="font-medium tabular-nums text-gray-800">{{ a.ancienScore | number: '1.0-2' }} → {{ a.nouveauScore | number: '1.0-2' }}</span>
+                                      <span class="text-gray-400"> · {{ a.adjustedAt | date: 'dd/MM/yyyy HH:mm' }}</span>
+                                      <span class="block italic text-gray-500">« {{ a.motif }} »</span>
+                                    </li>
+                                  }
+                                </ul>
+                              } @else if (reajustOpen() !== notationId) {
+                                <p class="mt-1 text-xs italic text-gray-400">Aucun réajustement pour cette note.</p>
+                              }
+                              @if (reajustOpen() === notationId) {
+                                <div class="mt-2 space-y-2">
+                                  <label class="block text-xs text-gray-600">
+                                    Nouvelle note (total station)
+                                    <input type="number" step="0.5" [value]="reajustValeur() ?? ''"
+                                      (input)="reajustValeur.set($any($event.target).valueAsNumber)"
+                                      class="mt-1 block w-32 rounded border border-gray-300 px-2 py-1 text-sm tabular-nums" />
+                                  </label>
+                                  <label class="block text-xs text-gray-600">
+                                    Motif de la réclamation <span class="text-status-danger">*</span>
+                                    <textarea rows="2" (input)="reajustMotif.set($any($event.target).value)"
+                                      class="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                      placeholder="Ex. : recomptage suite à la réclamation de l'étudiant"></textarea>
+                                  </label>
+                                  @if (reajustError()) {
+                                    <p class="text-xs text-status-danger">{{ reajustError() }}</p>
+                                  }
+                                  <div class="flex gap-2">
+                                    <button type="button" (click)="submitReajust(notationId!)" [disabled]="reajustBusy()"
+                                      class="rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">
+                                      {{ reajustBusy() ? 'Enregistrement…' : 'Enregistrer le réajustement' }}
+                                    </button>
+                                    <button type="button" (click)="cancelReajust()" [disabled]="reajustBusy()"
+                                      class="rounded px-3 py-1 text-xs text-gray-500 hover:text-gray-700">Annuler</button>
+                                  </div>
+                                  <p class="text-[11px] text-gray-400">
+                                    La note reste verrouillée. Le changement est tracé (qui, quand, ancienne → nouvelle valeur, motif).
+                                  </p>
+                                </div>
+                              }
+                            </div>
+                          }
                         }
                       }
                     }
@@ -416,6 +477,16 @@ export class ResultatsComponent {
   readonly deepDives = signal<Map<number, DeepDive>>(new Map());
   /** stationId → full grille (items resolved once during load) for critère labels. */
   private readonly grilleByStation = new Map<number, GrilleDetail>();
+
+  // ---- audited réajustement (ADR-0013 Part 2) ----------------------------
+  /** notationId → its adjustment history (loaded when a locked cell expands). */
+  readonly adjustmentsByNotation = signal<Map<number, NotationAdjustmentSummary[]>>(new Map());
+  /** notationId whose réajustement form is open, or null. */
+  readonly reajustOpen = signal<number | null>(null);
+  readonly reajustValeur = signal<number | null>(null);
+  readonly reajustMotif = signal('');
+  readonly reajustBusy = signal(false);
+  readonly reajustError = signal<string | null>(null);
 
   // Shared with the workspace shell — archiving updates the header chip + lifecycle
   // bar reactively (the store is route-scoped, one instance per open workspace).
@@ -682,6 +753,11 @@ export class ResultatsComponent {
     return row.notationIdByStation.has(col.stationId);
   }
 
+  /** The notationId behind a student×station cell, or null when not scored. */
+  notationIdOf(row: ResultRow, col: StationCol): number | null {
+    return row.notationIdByStation.get(col.stationId) ?? null;
+  }
+
   /**
    * Toggle the per-critère drill-down for one student×station cell. Collapses if
    * already open; otherwise opens it and lazily fetches the notation's critère
@@ -694,11 +770,17 @@ export class ResultatsComponent {
     const key = this.cellKey(row, col);
     if (this.expandedKey() === key) {
       this.expandedKey.set(null);
+      this.reajustOpen.set(null);
       return;
     }
     this.expandedKey.set(key);
+    this.reajustOpen.set(null);
     if (!this.deepDives().has(notationId)) {
       this.fetchDeepDive(notationId, col.stationId);
+    }
+    // Locked score → surface its réclamation trail alongside the critères.
+    if (row.lockedByStation.get(col.stationId) === true && !this.adjustmentsByNotation().has(notationId)) {
+      this.loadAdjustments(notationId);
     }
   }
 
@@ -773,6 +855,80 @@ export class ResultatsComponent {
     const next = new Map(this.deepDives());
     next.set(notationId, state);
     this.deepDives.set(next);
+  }
+
+  // ---- audited réajustement (ADR-0013 Part 2) ----------------------------
+
+  /** True when this student×station score is locked (verrouillée). */
+  isLocked(row: ResultRow, col: StationCol): boolean {
+    return row.lockedByStation.get(col.stationId) === true;
+  }
+
+  /** The adjustment history loaded for a notation (most-recent first). */
+  adjustmentsFor(notationId: number): NotationAdjustmentSummary[] {
+    return this.adjustmentsByNotation().get(notationId) ?? [];
+  }
+
+  private loadAdjustments(notationId: number): void {
+    this.scoring.listReajustements(notationId).subscribe({
+      next: (list) => {
+        const next = new Map(this.adjustmentsByNotation());
+        next.set(notationId, list);
+        this.adjustmentsByNotation.set(next);
+      },
+      // History is auxiliary — a load failure just leaves it empty, no error UI.
+      error: () => void 0,
+    });
+  }
+
+  /** Open the réajustement form for a locked station, prefilled with its total. */
+  openReajust(notationId: number, currentScore: number | null): void {
+    this.reajustOpen.set(notationId);
+    this.reajustValeur.set(currentScore);
+    this.reajustMotif.set('');
+    this.reajustError.set(null);
+  }
+
+  cancelReajust(): void {
+    this.reajustOpen.set(null);
+    this.reajustBusy.set(false);
+    this.reajustError.set(null);
+  }
+
+  /**
+   * Submit an audited réajustement of a locked total (ADR-0013 Part 2). motif is
+   * required; the notation stays locked. On success we reload the whole table (the
+   * total moved) and refresh this notation's history.
+   */
+  submitReajust(notationId: number): void {
+    const valeur = this.reajustValeur();
+    const motif = this.reajustMotif().trim();
+    if (valeur == null || Number.isNaN(valeur)) {
+      this.reajustError.set('Renseignez la nouvelle note.');
+      return;
+    }
+    if (!motif) {
+      this.reajustError.set('Le motif de la réclamation est obligatoire.');
+      return;
+    }
+    this.reajustBusy.set(true);
+    this.reajustError.set(null);
+    this.scoring.reajusterNotation(notationId, { itemId: null, nouvelleValeur: valeur, motif }).subscribe({
+      next: () => {
+        this.reajustBusy.set(false);
+        this.reajustOpen.set(null);
+        this.loadAdjustments(notationId);
+        this.load(Number(this.id()));
+      },
+      error: (err: { status?: number; error?: { message?: string } }) => {
+        this.reajustBusy.set(false);
+        this.reajustError.set(
+          err?.status === 403
+            ? "Vous n'avez pas les droits pour réajuster cette note."
+            : (err?.error?.message ?? 'Le réajustement a échoué.'),
+        );
+      },
+    });
   }
 
   private mentionFor(moyenne20: number | null): { mention: string; mentionClass: string } {

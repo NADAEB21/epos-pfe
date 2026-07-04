@@ -1,7 +1,7 @@
 # ADR 0013: Notation lock integrity + audited réajustement
 
-- **Date:** 2026-07-03
-- **Status:** Accepted (Part 1 shipped; Part 2 planned)
+- **Date:** 2026-07-03 (Part 2 shipped 2026-07-04)
+- **Status:** Accepted (Part 1 + Part 2 shipped)
 - **Deciders:** Nada (lead architect).
 - **Related:** issue #23 (lock bypass), #135 (réajustement), #136 (réclamation),
   #64 (audit trail), #85 / ADR 0007 (évaluateur scoping — who may lock),
@@ -55,7 +55,7 @@ The parent is always re-fetched from the repository (not trusted from the
 client-supplied object), so a forged `verouillee=false` in the request body
 cannot bypass it.
 
-### Part 2 — Audited réajustement channel (#135, planned)
+### Part 2 — Audited réajustement channel (#135, shipped)
 
 One dedicated, atomic, always-logged endpoint — **not** an unlock→edit→relock
 dance (which would leave an abusable "unlocked window"):
@@ -76,6 +76,27 @@ dance (which would leave an abusable "unlocked window"):
   reference the same adjustment records.
 - Évaluateur notification on adjustment is **deferred** (recorded in the audit
   now; active notification later, given the limited notification infra).
+
+**Implementation notes (as shipped):**
+
+- Endpoints: `POST /api/notations/{id}/reajustement` `{itemId?, nouvelleValeur,
+  motif}` and `GET /api/notations/{id}/reajustements` (history), both
+  `@PreAuthorize hasAnyRole('SUPER_ADMIN','RESPONSABLE_MATIERE')`. New
+  `NotationReajustementService` writes the item/score **directly** (never through
+  the item endpoints, which reject a locked parent) so the lock is never lifted.
+- The audit write is **synchronous** inside the same `@Transactional` as the
+  mutation — deliberately *unlike* auth-service's `@Async` `AuditLog`. Here the
+  row is the integrity record for a privileged change; it must commit atomically
+  with the change or not at all (an `@Async` failure would leave a silent edit,
+  the exact thing #23 forbids).
+- An item-level réajustement recomputes `score_final` with the **same weighted
+  formula** as évaluateur grading (`BINAIRE → valeur×pondération`), so a corrected
+  critère yields the total grading would have produced. Formula currently
+  duplicated from `EvaluateurDashboardService.recalculerScoreFinal`; unify under
+  #68.
+- **Scope caveat:** authorization is role-only (RESP + ADMIN). Per-matière
+  narrowing of the responsable rides on **#86** (per-matière 403 is unbuilt
+  everywhere in scoring today) — not faked here.
 
 ## Consequences
 

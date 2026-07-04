@@ -12,9 +12,11 @@ import {
   ImportEtudiantRow,
   ImportResult,
   LotSummary,
+  NotationAdjustmentSummary,
   NotationItemSummary,
   NotationSummary,
   ParticipationSummary,
+  ReajustementRequest,
   PresenceResult,
   RepartitionResult,
   RotationAssignmentSummary,
@@ -67,6 +69,35 @@ export class ScoringApiService {
     return this.http
       .get<ApiResponse<NotationItemSummary[]>>(
         `${this.baseUrl}/notation-items/notation/${notationId}`,
+      )
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Audited réajustement of a LOCKED notation (POST /notations/{id}/reajustement —
+   * RESPONSABLE_MATIERE + SUPER_ADMIN only, ADR-0013 Part 2). The only sanctioned
+   * way to change a verrouillée score, on a student réclamation: the notation stays
+   * locked, and the change is recorded (old→new, motif, who) in one transaction.
+   * `motif` is required. Returns the notation with its updated total.
+   */
+  reajusterNotation(notationId: number, body: ReajustementRequest): Observable<NotationSummary> {
+    return this.http
+      .post<ApiResponse<NotationSummary>>(
+        `${this.baseUrl}/notations/${notationId}/reajustement`,
+        body,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Adjustment history of one notation (GET /notations/{id}/reajustements —
+   * RESPONSABLE_MATIERE + SUPER_ADMIN). Most-recent first; empty when the notation
+   * was never réajustée. Powers the réclamation trail under the Résultats deep-dive.
+   */
+  listReajustements(notationId: number): Observable<NotationAdjustmentSummary[]> {
+    return this.http
+      .get<ApiResponse<NotationAdjustmentSummary[]>>(
+        `${this.baseUrl}/notations/${notationId}/reajustements`,
       )
       .pipe(map((r) => r.data ?? []));
   }

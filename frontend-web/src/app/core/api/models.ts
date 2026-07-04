@@ -424,6 +424,37 @@ export interface NotationItemSummary {
   notationId: number | null;
 }
 
+/**
+ * One audited réajustement of a locked notation (scoring NotationAdjustmentDTO —
+ * GET /notations/{id}/reajustements, ADR-0013 Part 2). The immutable trail of a
+ * responsable/admin correction on a student réclamation: who, when, old→new value
+ * (item-level) and old→new total score, plus the required motif. `itemId` is null
+ * for a total-level override. Most-recent first.
+ */
+export interface NotationAdjustmentSummary {
+  id: number;
+  notationId: number;
+  itemId: number | null;
+  ancienneValeur: number | null;
+  nouvelleValeur: number | null;
+  ancienScore: number | null;
+  nouveauScore: number | null;
+  motif: string;
+  adjustedByUserId: number;
+  adjustedAt: string;
+}
+
+/**
+ * Body of POST /notations/{id}/reajustement (ADR-0013 Part 2). `itemId` present →
+ * réajuste that critère then recomputes the total; absent → overrides the total
+ * directly. `motif` is required (the réclamation reason).
+ */
+export interface ReajustementRequest {
+  itemId?: number | null;
+  nouvelleValeur: number;
+  motif: string;
+}
+
 export interface MatiereResponse {
   id: number;
   code: string;

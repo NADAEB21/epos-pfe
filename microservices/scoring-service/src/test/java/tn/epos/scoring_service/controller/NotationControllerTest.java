@@ -16,6 +16,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.entities.Notation;
+import tn.epos.scoring_service.service.NotationReajustementService;
 import tn.epos.scoring_service.service.NotationService;
 
 import java.util.List;
@@ -39,6 +40,9 @@ class NotationControllerTest {
 
     @MockBean
     private NotationService service;
+
+    @MockBean
+    private NotationReajustementService reajustementService;
 
     private ObjectMapper objectMapper;
     private Notation notation;

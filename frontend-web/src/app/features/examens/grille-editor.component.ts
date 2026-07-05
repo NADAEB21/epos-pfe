@@ -337,6 +337,11 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
                       @if (it.categorie) {
                         <span class="ml-1 text-xs text-gray-400">{{ it.categorie }}</span>
                       }
+                      @if (it.conditionsAttendues) {
+                        <span class="block text-xs text-gray-400 mt-0.5">
+                          <span class="text-gray-500">Attendu :</span> {{ it.conditionsAttendues }}
+                        </span>
+                      }
                     </span>
                     <span class="flex items-center gap-2 shrink-0">
                       <span class="text-xs text-gray-500 text-right">
@@ -578,6 +583,21 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
             </div>
           }
         </div>
+        <!-- réponse attendue / corrigé (#162) — un seul champ libre : la réponse
+             n'est pas toujours un nombre exact (intervalle, composé organique,
+             tolérance, phrase). Comparé à la saisie lors des résultats. -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Réponse attendue <span class="font-normal text-gray-400">(corrigé — optionnel)</span>
+          </label>
+          <input
+            type="text"
+            formControlName="conditionsAttendues"
+            maxlength="1000"
+            [placeholder]="answerPlaceholder()"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+          />
+        </div>
         @if (valeurMaxExceedsPonderation()) {
           <p class="text-xs text-status-danger">
             La valeur max ne peut pas dépasser la pondération.
@@ -776,6 +796,8 @@ export class GrilleEditorComponent {
     ponderation: [1, [Validators.required, Validators.min(0.5), Validators.max(20)]],
     valeurMax: [null as number | null],
     categorie: ['', [Validators.maxLength(100)]],
+    // Réponse attendue / corrigé (#162) — champ libre optionnel, tous types.
+    conditionsAttendues: ['', [Validators.maxLength(1000)]],
   });
 
   // item delete
@@ -837,6 +859,14 @@ export class GrilleEditorComponent {
   /** Snapshot of the item form's value as a signal, to drive computed()s that
    *  must react to value changes (valueChanges → signal via a small effect). */
   private readonly itemFormSignal = signal(this.itemFormGroup.getRawValue());
+
+  /** Type-aware hint for the free-text answer key: a numeric criterion usually
+   *  expects a value/interval/tolerance, a binary one a compound or observation. */
+  readonly answerPlaceholder = computed(() =>
+    this.itemFormSignal().type === 'NUMERIQUE'
+      ? 'ex. 4,5–5,5 mg/L, ou 300 mg ± 5 %'
+      : 'ex. Paracétamol identifié, coloration violette observée',
+  );
 
   constructor() {
     // Load the grille lazily the first time the editor is mounted for a station
@@ -1058,6 +1088,7 @@ export class GrilleEditorComponent {
       ponderation: 1,
       valeurMax: null,
       categorie: '',
+      conditionsAttendues: '',
     });
     this.addingItem.set(true);
   }
@@ -1071,6 +1102,7 @@ export class GrilleEditorComponent {
       ponderation: it.ponderation ?? 1,
       valeurMax: it.valeurMax ?? null,
       categorie: it.categorie ?? '',
+      conditionsAttendues: it.conditionsAttendues ?? '',
     });
     this.editingItemId.set(it.id);
   }
@@ -1093,6 +1125,7 @@ export class GrilleEditorComponent {
       ponderation: Number(raw.ponderation),
       valeurMax: raw.type === 'NUMERIQUE' ? Number(raw.valeurMax) : null,
       categorie: raw.categorie.trim() || undefined,
+      conditionsAttendues: raw.conditionsAttendues.trim() || null,
     };
     this.savingItem.set(true);
     this.itemError.set(null);

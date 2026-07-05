@@ -46,6 +46,8 @@ interface CritereLine {
   /** The student's recorded value, null when no per-critère detail exists. */
   valeur: number | null;
   commentaire: string | null;
+  /** Answer key (#162): free-text expected answer from the grille, null when unset. */
+  conditionsAttendues: string | null;
 }
 
 /** Lazy-loaded state of one station's per-critère deep-dive. */
@@ -352,6 +354,7 @@ const DEFAULT_NOTE_MAX = 20;
                               <tr class="text-left text-gray-400 border-b border-gray-100">
                                 <th class="px-3 py-2 font-medium">Critère</th>
                                 <th class="px-3 py-2 font-medium text-center w-28">Note</th>
+                                <th class="px-3 py-2 font-medium">Attendu</th>
                                 <th class="px-3 py-2 font-medium">Commentaire</th>
                               </tr>
                             </thead>
@@ -373,6 +376,13 @@ const DEFAULT_NOTE_MAX = 20;
                                     } @else {
                                       <span class="font-medium text-gray-800">{{ l.valeur | number: '1.0-1' }}</span>
                                       @if (l.bareme != null) { <span class="text-gray-400"> / {{ l.bareme }}</span> }
+                                    }
+                                  </td>
+                                  <td class="px-3 py-2 text-gray-500">
+                                    @if (l.conditionsAttendues) {
+                                      {{ l.conditionsAttendues }}
+                                    } @else {
+                                      <span class="text-gray-300">—</span>
                                     }
                                   </td>
                                   <td class="px-3 py-2 text-gray-500">{{ l.commentaire || '—' }}</td>
@@ -835,6 +845,7 @@ export class ResultatsComponent {
         bareme: null,
         valeur: it.valeur,
         commentaire: it.commentaire,
+        conditionsAttendues: null,
       }));
     }
     return grilleItems.map((gi) => {
@@ -847,6 +858,7 @@ export class ResultatsComponent {
         bareme: binaire ? (gi.ponderation ?? null) : (gi.valeurMax ?? null),
         valeur: rec?.valeur ?? null,
         commentaire: rec?.commentaire ?? null,
+        conditionsAttendues: gi.conditionsAttendues ?? null,
       };
     });
   }

@@ -265,6 +265,8 @@ public class GrilleServiceImpl implements GrilleService {
         item.setPonderation(request.getPonderation());
         item.setValeurMax(request.getType() == TypeItem.NUMERIQUE ? request.getValeurMax() : null);
         item.setCategorie(request.getCategorie());
+        item.setValeurAttendue(request.getValeurAttendue());
+        item.setConditionsAttendues(request.getConditionsAttendues());
 
         return toItemResponse(itemRepository.save(item));
     }
@@ -331,6 +333,8 @@ public class GrilleServiceImpl implements GrilleService {
                 .ponderation(request.getPonderation())
                 .valeurMax(request.getType() == TypeItem.NUMERIQUE ? request.getValeurMax() : null)
                 .categorie(request.getCategorie())
+                .valeurAttendue(request.getValeurAttendue())
+                .conditionsAttendues(request.getConditionsAttendues())
                 .build();
     }
 
@@ -366,6 +370,8 @@ public class GrilleServiceImpl implements GrilleService {
         response.setValeurMax(item.getValeurMax());
         response.setOrdre(item.getOrdre());
         response.setCategorie(item.getCategorie());
+        response.setValeurAttendue(item.getValeurAttendue());
+        response.setConditionsAttendues(item.getConditionsAttendues());
         response.setGrilleId(item.getGrille().getId());
         response.setCreatedAt(item.getCreatedAt());
         return response;

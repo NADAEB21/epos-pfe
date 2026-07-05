@@ -39,6 +39,8 @@ public class ExamenExportResponse {
         private Double ponderation;
         private Double valeurMax;
         private String categorie;
+        private Double valeurAttendue;       // clé de réponse (#162)
+        private String conditionsAttendues;  // clé de réponse (#162)
         private Integer ordre;
     }
 }

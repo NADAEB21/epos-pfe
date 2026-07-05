@@ -62,6 +62,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                     .ponderation(item.getPonderation())
                     .valeurMax(item.getValeurMax())
                     .categorie(item.getCategorie())
+                    .valeurAttendue(item.getValeurAttendue())
+                    .conditionsAttendues(item.getConditionsAttendues())
                     .ordre(item.getOrdre())
                     .build();
             template.addItem(it);
@@ -93,6 +95,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                         .ponderation(ir.getPonderation())
                         .valeurMax(ir.getValeurMax())
                         .categorie(ir.getCategorie())
+                        .valeurAttendue(ir.getValeurAttendue())
+                        .conditionsAttendues(ir.getConditionsAttendues())
                         .ordre(i + 1)
                         .build();
                 template.addItem(it);
@@ -161,6 +165,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                     .ponderation(it.getPonderation())
                     .valeurMax(it.getValeurMax())
                     .categorie(it.getCategorie())
+                    .valeurAttendue(it.getValeurAttendue())
+                    .conditionsAttendues(it.getConditionsAttendues())
                     .ordre(it.getOrdre())
                     .build();
             grille.addItem(item);
@@ -210,6 +216,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                             ie.setPonderation(item.getPonderation());
                             ie.setValeurMax(item.getValeurMax());
                             ie.setCategorie(item.getCategorie());
+                            ie.setValeurAttendue(item.getValeurAttendue());
+                            ie.setConditionsAttendues(item.getConditionsAttendues());
                             ie.setOrdre(item.getOrdre());
                             return ie;
                         }).collect(Collectors.toList()));
@@ -274,6 +282,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                             .ponderation(item.getPonderation())
                             .valeurMax(item.getValeurMax())
                             .categorie(item.getCategorie())
+                            .valeurAttendue(item.getValeurAttendue())
+                            .conditionsAttendues(item.getConditionsAttendues())
                             .ordre(item.getOrdre())
                             .build();
                     nouvelleGrille.addItem(nouvelItem);
@@ -326,6 +336,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                         .ponderation(ie.getPonderation())
                         .valeurMax(ie.getValeurMax())
                         .categorie(ie.getCategorie())
+                        .valeurAttendue(ie.getValeurAttendue())
+                        .conditionsAttendues(ie.getConditionsAttendues())
                         .ordre(ie.getOrdre())
                         .build();
                 grille.addItem(item);
@@ -357,6 +369,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
             ir.setValeurMax(it.getValeurMax());
             ir.setOrdre(it.getOrdre());
             ir.setCategorie(it.getCategorie());
+            ir.setValeurAttendue(it.getValeurAttendue());
+            ir.setConditionsAttendues(it.getConditionsAttendues());
             return ir;
         }).collect(Collectors.toList()));
         return r;

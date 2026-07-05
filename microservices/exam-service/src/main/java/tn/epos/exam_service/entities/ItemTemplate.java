@@ -29,6 +29,14 @@ public class ItemTemplate {
 
     private Integer ordre;
 
+    // Corrigé / clé de réponse (#162) — repris tel quel lors de l'application
+    // d'un template à une station.
+    @Column(name = "valeur_attendue")
+    private Double valeurAttendue;
+
+    @Column(name = "conditions_attendues", length = 1000)
+    private String conditionsAttendues;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "template_id")
     private GrilleTemplate template;

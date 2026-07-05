@@ -34,9 +34,10 @@ export interface GrilleItem {
   valeurMax?: number | null;
   ordre?: number | null;
   categorie?: string | null;
-  /** Answer key (#162): expected numeric value / free-text conditions the
-   *  recorded score is compared against. Both optional, null when unset. */
-  valeurAttendue?: number | null;
+  /** Answer key (#162): free-text expected answer — a value, interval, tolerance,
+   *  organic compound, or observation. Optional, null when unset. (The backend
+   *  also carries a numeric `valeurAttendue` column, left dormant for a possible
+   *  future auto-grading feature; the responsable UI uses free text only.) */
   conditionsAttendues?: string | null;
 }
 
@@ -107,8 +108,8 @@ export interface GrilleRequest {
  * sent. The server rejects an add/edit that pushes the pondération sum above
  * the grille's noteMax (BusinessException → 400).
  *
- * Answer key (#162): valeurAttendue (≥0) and conditionsAttendues (≤1000) are
- * both optional corrigé fields the backend stores as-is for any type.
+ * Answer key (#162): conditionsAttendues (≤1000) is an optional free-text corrigé
+ * the backend stores as-is for any type — a value, interval, compound, or phrase.
  */
 export interface ItemRequest {
   libelle: string;
@@ -116,7 +117,6 @@ export interface ItemRequest {
   ponderation: number;
   valeurMax?: number | null;
   categorie?: string;
-  valeurAttendue?: number | null;
   conditionsAttendues?: string | null;
 }
 

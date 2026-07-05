@@ -46,8 +46,7 @@ interface CritereLine {
   /** The student's recorded value, null when no per-critère detail exists. */
   valeur: number | null;
   commentaire: string | null;
-  /** Answer key (#162): expected value / conditions from the grille, null when unset. */
-  attendu: number | null;
+  /** Answer key (#162): free-text expected answer from the grille, null when unset. */
   conditionsAttendues: string | null;
 }
 
@@ -380,14 +379,10 @@ const DEFAULT_NOTE_MAX = 20;
                                     }
                                   </td>
                                   <td class="px-3 py-2 text-gray-500">
-                                    @if (l.attendu == null && !l.conditionsAttendues) {
-                                      <span class="text-gray-300">—</span>
+                                    @if (l.conditionsAttendues) {
+                                      {{ l.conditionsAttendues }}
                                     } @else {
-                                      @if (l.attendu != null) {
-                                        <span class="tabular-nums font-medium text-gray-700">{{ l.attendu | number: '1.0-2' }}</span>
-                                      }
-                                      @if (l.attendu != null && l.conditionsAttendues) { <span> · </span> }
-                                      @if (l.conditionsAttendues) { <span>{{ l.conditionsAttendues }}</span> }
+                                      <span class="text-gray-300">—</span>
                                     }
                                   </td>
                                   <td class="px-3 py-2 text-gray-500">{{ l.commentaire || '—' }}</td>
@@ -850,7 +845,6 @@ export class ResultatsComponent {
         bareme: null,
         valeur: it.valeur,
         commentaire: it.commentaire,
-        attendu: null,
         conditionsAttendues: null,
       }));
     }
@@ -864,7 +858,6 @@ export class ResultatsComponent {
         bareme: binaire ? (gi.ponderation ?? null) : (gi.valeurMax ?? null),
         valeur: rec?.valeur ?? null,
         commentaire: rec?.commentaire ?? null,
-        attendu: gi.valeurAttendue ?? null,
         conditionsAttendues: gi.conditionsAttendues ?? null,
       };
     });

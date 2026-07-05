@@ -34,6 +34,10 @@ export interface GrilleItem {
   valeurMax?: number | null;
   ordre?: number | null;
   categorie?: string | null;
+  /** Answer key (#162): expected numeric value / free-text conditions the
+   *  recorded score is compared against. Both optional, null when unset. */
+  valeurAttendue?: number | null;
+  conditionsAttendues?: string | null;
 }
 
 /** Grille with its items — only returned by the station detail endpoint. */
@@ -102,6 +106,9 @@ export interface GrilleRequest {
  * backend nulls it for BINAIRE regardless. `ordre` is server-assigned, never
  * sent. The server rejects an add/edit that pushes the pondération sum above
  * the grille's noteMax (BusinessException → 400).
+ *
+ * Answer key (#162): valeurAttendue (≥0) and conditionsAttendues (≤1000) are
+ * both optional corrigé fields the backend stores as-is for any type.
  */
 export interface ItemRequest {
   libelle: string;
@@ -109,6 +116,8 @@ export interface ItemRequest {
   ponderation: number;
   valeurMax?: number | null;
   categorie?: string;
+  valeurAttendue?: number | null;
+  conditionsAttendues?: string | null;
 }
 
 export interface ExamenResponse {

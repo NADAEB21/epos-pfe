@@ -24,4 +24,11 @@ public class ItemRequest {
 
     @Size(max = 100)
     private String categorie;
+
+    // Corrigé / clé de réponse (#162) — optionnels.
+    @DecimalMin(value = "0.0")
+    private Double valeurAttendue;
+
+    @Size(max = 1000)
+    private String conditionsAttendues;
 }

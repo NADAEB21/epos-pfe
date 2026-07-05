@@ -337,6 +337,20 @@ class GrilleServiceImplTest {
         }
 
         @Test
+        @DisplayName("Doit propager la clé de réponse (#162) valeurAttendue + conditionsAttendues dans la réponse")
+        void ajouterItem_devraitPropagerCleDeReponse() {
+            itemNumeriqueRequest.setValeurAttendue(4.5);
+            itemNumeriqueRequest.setConditionsAttendues("Masse comprise entre 4 et 5 g");
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+            when(grilleRepository.save(any())).thenReturn(grille);
+
+            ItemResponse result = grilleService.ajouterItem(1L, itemNumeriqueRequest);
+
+            assertThat(result.getValeurAttendue()).isEqualTo(4.5);
+            assertThat(result.getConditionsAttendues()).isEqualTo("Masse comprise entre 4 et 5 g");
+        }
+
+        @Test
         @DisplayName("Doit lever BusinessException si NUMERIQUE sans valeurMax")
         void ajouterItem_numeriqueSansValeurMax_devraitEchouer() {
             itemNumeriqueRequest.setValeurMax(null);

@@ -15,6 +15,8 @@ public class ItemResponse {
     private Double valeurMax;   // null si BINAIRE
     private Integer ordre;
     private String categorie;
+    private Double valeurAttendue;       // clé de réponse (#162)
+    private String conditionsAttendues;  // clé de réponse (#162)
     private Long grilleId;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

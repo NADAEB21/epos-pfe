@@ -54,6 +54,17 @@ public class ItemEvaluation {
     @Column(length = 100)
     private String categorie;
 
+    // Corrigé / clé de réponse (#162) — optionnels, non contraints par le type.
+    // valeurAttendue = la valeur numérique attendue (ex: dose correcte) ;
+    // conditionsAttendues = description libre des conditions à remplir.
+    @DecimalMin(value = "0.0")
+    @Column(name = "valeur_attendue")
+    private Double valeurAttendue;
+
+    @Size(max = 1000)
+    @Column(name = "conditions_attendues", length = 1000)
+    private String conditionsAttendues;
+
     // relations
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "grille_id", nullable = false)

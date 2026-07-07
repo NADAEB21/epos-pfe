@@ -20,6 +20,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 
 @RestController
 @RequiredArgsConstructor
@@ -137,5 +139,33 @@ public class GrilleController {
     public ResponseEntity<ApiResponse<Void>> supprimerItem(@PathVariable Long id) {
         grilleService.supprimerItem(id);
         return ResponseEntity.ok(ApiResponse.ok("Critère supprimé avec succès", null));
+    }
+
+    // sub criteria
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    @PostMapping("/api/items/{itemId}/sous-criteres")
+    @Operation(summary = "Ajouter un sous-critère à un critère existant",
+            description = "Un seul niveau de profondeur (#160). La somme des pondérations "
+                    + "des sous-critères doit égaler la pondération du parent.")
+    public ResponseEntity<ApiResponse<ItemResponse>> ajouterSousCritere(
+            @PathVariable Long itemId,
+            @Valid @RequestBody ItemRequest request) {
+        ItemResponse response = grilleService.ajouterSousCritere(itemId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Sous-critère ajouté avec succès", response));
+    }
+
+    @GetMapping("/api/items/{itemId}/sous-criteres")
+    @Operation(summary = "Lister les sous-critères d'un critère")
+    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerSousCriteres(@PathVariable Long itemId) {
+        return ResponseEntity.ok(ApiResponse.ok(grilleService.listerSousCriteres(itemId)));
+    }
+
+    @GetMapping("/api/grilles/{grilleId}/items/feuilles")
+    @Operation(summary = "Lister les items notables (feuilles) d'une grille",
+            description = "Aplati la hiérarchie : ne renvoie que les critères sans sous-critères, "
+                    + "ceux que l'évaluateur note réellement (#160).")
+    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerItemsFeuilles(@PathVariable Long grilleId) {
+        return ResponseEntity.ok(ApiResponse.ok(grilleService.listerItemsFeuilles(grilleId)));
     }
 }

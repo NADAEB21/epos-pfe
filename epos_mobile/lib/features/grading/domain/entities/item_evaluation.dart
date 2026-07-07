@@ -12,6 +12,7 @@ class ItemEvaluation extends Equatable {
   final double      valeurMax;
   final int         ordre;
   final String?     categorie;
+  final List<ItemEvaluation> sousCriteres;
 
   const ItemEvaluation({
     required this.id,
@@ -21,9 +22,13 @@ class ItemEvaluation extends Equatable {
     required this.valeurMax,
     required this.ordre,
     this.categorie,
+    this.sousCriteres = const [],
   });
 
-  @override
-  List<Object?> get props =>
-      [id, libelle, type, ponderation, valeurMax, ordre, categorie];
+  bool get hasSousCriteres => sousCriteres.isNotEmpty;
+
+    @override
+    List<Object?> get props =>
+        [id, libelle, type, ponderation, valeurMax, ordre, categorie, sousCriteres];
+
 }

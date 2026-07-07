@@ -19,6 +19,7 @@ class ItemEvaluationModel extends ItemEvaluation {
     required super.valeurMax,
     required super.ordre,
     super.categorie,
+    super.sousCriteres,
   });
 
   /// Réponse JSON de GET /stations/{id}/grille → data.items[]:
@@ -31,12 +32,10 @@ class ItemEvaluationModel extends ItemEvaluation {
   ///   "ordre": 1,
   ///   "categorie": null
   /// }
+
   factory ItemEvaluationModel.fromJson(Map<String, dynamic> json) {
     final type = _parseType((json['type'] as String? ?? 'BINAIRE'));
 
-    // valeurMax est nullable en base (null pour les items BINAIRE).
-    // Pour les items BINAIRE, on utilise 1.0 comme valeur de référence
-    // (Fait = 1, Non fait = 0), ce qui correspond à la logique métier.
     final double valeurMax;
     final rawValeurMax = json['valeurMax'];
     if (rawValeurMax != null) {
@@ -45,14 +44,21 @@ class ItemEvaluationModel extends ItemEvaluation {
       valeurMax = type == TypeCritere.binaire ? 1.0 : 0.0;
     }
 
+    final rawSousCriteres = json['sousCriteres'];
+    final sousCriteres = (rawSousCriteres is List ? rawSousCriteres : <dynamic>[])
+        .map((sc) => ItemEvaluationModel.fromJson(sc as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => a.ordre.compareTo(b.ordre));
+
     return ItemEvaluationModel(
-      id:          _toInt(json['id']),
-      libelle:     json['libelle'] as String? ?? '',
-      type:        type,
-      ponderation: _toDouble(json['ponderation']),
-      valeurMax:   valeurMax,
-      ordre:       _toInt(json['ordre']),
-      categorie:   json['categorie'] as String?,
+      id:           _toInt(json['id']),
+      libelle:      json['libelle'] as String? ?? '',
+      type:         type,
+      ponderation:  _toDouble(json['ponderation']),
+      valeurMax:    valeurMax,
+      ordre:        _toInt(json['ordre']),
+      categorie:    json['categorie'] as String?,
+      sousCriteres: sousCriteres,
     );
   }
 
@@ -64,6 +70,7 @@ class ItemEvaluationModel extends ItemEvaluation {
     'valeurMax':   valeurMax,
     'ordre':       ordre,
     'categorie':   categorie,
+    'sousCriteres': sousCriteres,
   };
 
   static TypeCritere _parseType(String type) =>
@@ -137,7 +144,7 @@ class EtudiantModel extends Etudiant {
       id:                json['id']                as int,
       nom:               json['nom']               as String,
       prenom:            json['prenom']             as String,
-      numeroInscription: json['numeroInscription']  as String,
+      numeroInscription: json['numeroInscription']  as String? ?? '',
       numeroEchantillon: json['numeroEchantillon']  as int?,
       absent:            json['absent']             as bool? ?? false,
       verrouille:        json['verrouille']         as bool? ?? false,

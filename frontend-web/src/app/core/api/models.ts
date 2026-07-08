@@ -464,6 +464,62 @@ export interface ReajustementRequest {
   motif: string;
 }
 
+/**
+ * Disposition of a student complaint in the responsable register (#136).
+ * EN_ATTENTE (filed, not yet decided) → ACCEPTEE (upheld) | REJETEE (rejected).
+ */
+export type ReclamationStatus = 'EN_ATTENTE' | 'ACCEPTEE' | 'REJETEE';
+
+/**
+ * A student complaint on an exam result (scoring ReclamationDTO — #136). Filed by
+ * a RESPONSABLE_MATIERE / SUPER_ADMIN on the student's behalf (students have no
+ * login). camelCase — this is a Java record DTO, NOT the snake_case Etudiant/
+ * Participation convention. `notationId`/`adjustmentId` are optional logical FKs;
+ * the score change itself is done through the separate réajustement endpoint, so
+ * this register only RECORDS the decision (crucially it also records REJETEE, which
+ * the réajustement audit trail alone cannot). Resolve fields (`reponse`,
+ * `resolvedByUserId`, `resolvedAt`) are null until the complaint is decided.
+ */
+export interface Reclamation {
+  id: number;
+  examenId: number;
+  participationId: number;
+  notationId: number | null;
+  objet: string;
+  statut: ReclamationStatus;
+  reponse: string | null;
+  adjustmentId: number | null;
+  createdByUserId: number | null;
+  createdAt: string; // "yyyy-MM-ddTHH:mm:ss" (LocalDateTime)
+  resolvedByUserId: number | null;
+  resolvedAt: string | null;
+}
+
+/**
+ * Body of POST /reclamations (scoring ReclamationRequest). objet is required
+ * (≤1000, the complaint reason); notationId is optional (the contested score may
+ * not be a specific notation, or the complaint is about the result in general).
+ */
+export interface ReclamationRequest {
+  examenId: number;
+  participationId: number;
+  notationId?: number | null;
+  objet: string;
+}
+
+/**
+ * Body of PATCH /reclamations/{id}/resoudre (scoring ReclamationResolveRequest).
+ * statut must be a terminal decision (ACCEPTEE | REJETEE — never EN_ATTENTE);
+ * reponse is the mandatory written justification (≤1000). Decide-ONCE: re-resolving
+ * a decided complaint → 400. adjustmentId optionally links the notation_adjustments
+ * row when an upheld complaint was corrected via the réajustement flow.
+ */
+export interface ReclamationResolveRequest {
+  statut: Extract<ReclamationStatus, 'ACCEPTEE' | 'REJETEE'>;
+  reponse: string;
+  adjustmentId?: number | null;
+}
+
 export interface MatiereResponse {
   id: number;
   code: string;

@@ -17,6 +17,9 @@ import {
   NotationSummary,
   ParticipationSummary,
   ReajustementRequest,
+  Reclamation,
+  ReclamationRequest,
+  ReclamationResolveRequest,
   PresenceResult,
   RepartitionResult,
   RotationAssignmentSummary,
@@ -219,6 +222,42 @@ export class ScoringApiService {
         `${this.baseUrl}/rotations/lots/${lotId}/generer`,
         null,
       )
+      .pipe(map((r) => r.data));
+  }
+
+  // ---- réclamations (student complaint register, #136) -------------------
+
+  /**
+   * Every réclamation filed on one exam (GET /reclamations/examen/{examenId} —
+   * RESPONSABLE_MATIERE + SUPER_ADMIN). Most-recent first; empty when none filed.
+   * Powers the register on the Résultats screen.
+   */
+  listReclamations(examenId: number): Observable<Reclamation[]> {
+    return this.http
+      .get<ApiResponse<Reclamation[]>>(`${this.baseUrl}/reclamations/examen/${examenId}`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * File a student complaint (POST /reclamations — RESP/ADMIN, returns 201 with
+   * statut EN_ATTENTE). The responsable files on the student's behalf (students
+   * have no login). Blank objet → 400; unknown participation → 404.
+   */
+  createReclamation(body: ReclamationRequest): Observable<Reclamation> {
+    return this.http
+      .post<ApiResponse<Reclamation>>(`${this.baseUrl}/reclamations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Decide a pending complaint (PATCH /reclamations/{id}/resoudre — RESP/ADMIN).
+   * statut is ACCEPTEE | REJETEE, reponse required. Decide-ONCE: re-resolving a
+   * decided complaint → 400. The score change stays the separate réajustement
+   * endpoint — this only records the decision. Returns the resolved réclamation.
+   */
+  resolveReclamation(id: number, body: ReclamationResolveRequest): Observable<Reclamation> {
+    return this.http
+      .patch<ApiResponse<Reclamation>>(`${this.baseUrl}/reclamations/${id}/resoudre`, body)
       .pipe(map((r) => r.data));
   }
 

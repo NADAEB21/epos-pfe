@@ -13,6 +13,7 @@ import {
   StationSummary,
 } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
+import { ReclamationsPanelComponent } from './reclamations-panel.component';
 
 /** A station column header — name + ordre + the grille's noteMax denominator. */
 interface StationCol {
@@ -104,7 +105,7 @@ const DEFAULT_NOTE_MAX = 20;
 @Component({
   selector: 'app-resultats',
   standalone: true,
-  imports: [DecimalPipe, DatePipe],
+  imports: [DecimalPipe, DatePipe, ReclamationsPanelComponent],
   template: `
     @if (loading()) {
       <div class="space-y-6 animate-pulse">
@@ -461,6 +462,10 @@ const DEFAULT_NOTE_MAX = 20;
         </table>
       </div>
       }
+
+      <!-- Student complaint register (#136) — same exam context as the scores it
+           contests; the score change stays the réajustement flow above. -->
+      <app-reclamations-panel [examenId]="examenIdNum()" />
     }
   `,
 })
@@ -471,6 +476,9 @@ export class ResultatsComponent {
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
+
+  /** The route id as a number, for child inputs (réclamations register). */
+  readonly examenIdNum = computed(() => Number(this.id()));
 
   readonly loading = signal(true);
   readonly error = signal(false);

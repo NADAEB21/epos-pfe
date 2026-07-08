@@ -456,7 +456,7 @@ class _SessionEnCoursCard extends StatelessWidget {
                 const SizedBox(width: 16),
                 _InfoChip(icon: Icons.group_outlined,        label: '${session.nbEtudiants} ét.'),
                 const SizedBox(width: 16),
-                _InfoChip(icon: Icons.location_on_outlined,  label: session.salle),
+                _InfoChip(icon: Icons.location_on_outlined,  label: session.salle ?? 'Salle N/A'),
               ],
             ),
             const SizedBox(height: 16),
@@ -552,7 +552,7 @@ class _SessionAVenirCard extends StatelessWidget {
                 Row(children: [
                   _InfoChip(icon: Icons.group_outlined,       label: '${session.nbEtudiants} ét.', small: true),
                   const SizedBox(width: 12),
-                  _InfoChip(icon: Icons.location_on_outlined, label: session.salle, small: true),
+                  _InfoChip(icon: Icons.location_on_outlined, label: session.salle ?? '-', small: true),
                 ]),
               ],
             ),

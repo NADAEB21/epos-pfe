@@ -428,7 +428,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     if (current.etudiantsValides.contains(event.etudiantId)) return;
     if (current.lotValide) return;
 
-    final item        = current.grille.items.firstWhere((i) => i.id == event.itemId);
+    final item        = _trouverItemDansArbre(current.grille.items, event.itemId);
     final valeurClamp = event.valeur.clamp(0.0, item.valeurMax);
 
     final updated = _updateNotation(
@@ -619,4 +619,24 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     }
     return super.close();
   }
+
+  // Dans GradingBloc — à ajouter avec les autres méthodes utilitaires privées
+
+/// #160 — Retrouve un item par son id, qu'il soit de premier niveau OU un
+/// sous-critère niché. grille.items ne contient QUE le premier niveau (voir
+/// ScoreUtils.feuilles()) : une simple recherche à plat rate systématiquement
+/// les sous-critères et lève une StateError silencieusement avalée par le
+/// bloc (la saisie semble fonctionner dans le champ mais n'est jamais
+/// persistée — c'est exactement le bug "le sous-critère numérique reste à 0").
+ItemEvaluation _trouverItemDansArbre(List<ItemEvaluation> items, int itemId) {
+  for (final item in items) {
+    if (item.id == itemId) return item;
+    if (item.hasSousCriteres) {
+      for (final enfant in item.sousCriteres) {
+        if (enfant.id == itemId) return enfant;
+      }
+    }
+  }
+  throw StateError('Item introuvable : $itemId (ni en premier niveau, ni en sous-critère)');
+}
 }

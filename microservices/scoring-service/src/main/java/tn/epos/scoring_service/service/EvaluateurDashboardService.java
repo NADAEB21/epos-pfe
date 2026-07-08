@@ -148,6 +148,13 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
+        Set<Long> feuillesValides = examServiceClient.getItemIdsForGrille(request.getGrilleId());
+        if (!feuillesValides.isEmpty() && !feuillesValides.contains(request.getItemId())) {
+            throw new BusinessException(
+                    "L'item " + request.getItemId() + " est un critère parent (il a des sous-critères) "
+                            + "— seuls ses sous-critères sont notables.");
+        }
+
         ExamenParticipation participation = resolverParticipation(request.getEtudiantId(), request.getStationId());
         RotationAssignment assignment = rotationAssignmentRepository.findByParticipationId(participation.getId())
                 .orElseGet(() -> createAssignment(participation, request.getStationId(), evaluateurId));

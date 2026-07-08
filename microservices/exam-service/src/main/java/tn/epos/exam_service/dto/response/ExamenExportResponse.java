@@ -42,5 +42,6 @@ public class ExamenExportResponse {
         private Double valeurAttendue;       // clé de réponse (#162)
         private String conditionsAttendues;  // clé de réponse (#162)
         private Integer ordre;
+        private List<ItemExportResponse> sousCriteres;
     }
-}
+}

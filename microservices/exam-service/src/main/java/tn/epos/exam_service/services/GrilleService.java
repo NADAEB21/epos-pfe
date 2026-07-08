@@ -7,6 +7,8 @@ import tn.epos.exam_service.dto.request.ItemRequest;
 import tn.epos.exam_service.dto.response.GrilleResponse;
 import tn.epos.exam_service.dto.response.ItemResponse;
 
+import java.util.List;
+
 public interface GrilleService {
     /** Créer et associer une grille à une station (avec items optionnels) */
     GrilleResponse creerPourStation(Long stationId, GrilleRequest request);
@@ -44,4 +46,12 @@ public interface GrilleService {
 
     /** Supprimer un item et réordonner les suivants */
     void supprimerItem(Long itemId);
+
+    /** #160 — ajoute un sous-critère (enfant) à un item existant. Un seul niveau de profondeur. */
+    ItemResponse ajouterSousCritere(Long itemParentId, ItemRequest request);
+
+    List<ItemResponse> listerSousCriteres(Long itemParentId);
+
+    /** Aplatit l'arbre : ne renvoie que les feuilles (celles réellement notables par l'évaluateur). */
+    List<ItemResponse> listerItemsFeuilles(Long grilleId);
 }

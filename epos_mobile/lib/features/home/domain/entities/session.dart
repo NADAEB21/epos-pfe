@@ -23,13 +23,13 @@ class Session extends Equatable {
   final int           id;           // lot.id — scoring-service
   final int?          stationId;    // station réelle — exam-service ← nouveau
   final String        stationNom;
-  final String        matiere;
-  final String        annee;
+  final String?       matiere;
+  final String?       annee;
   final SessionStatus statut;
   final String        heureDebut;
   final String?       heureFin;
   final int           nbEtudiants;
-  final String        salle;
+  final String?       salle;
   final int           lotActuel;
   final int           totalLots;
 

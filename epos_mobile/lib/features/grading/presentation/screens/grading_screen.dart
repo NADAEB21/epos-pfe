@@ -5,6 +5,10 @@
 // BF6.2 — Offline  : ConnectivityBanner enveloppe le contenu pour afficher
 //          la bannière hors-ligne / sync en cours.
 //          L'OfflineBloc est fourni par home_screen.dart (MultiBlocProvider).
+// #160  — Hiérarchie critère / sous-critères : un ItemEvaluation avec
+//          sousCriteres non-vide s'affiche comme 1 ligne d'en-tête (lecture
+//          seule, sous-total calculé) + N lignes sous-critères saisissables.
+//          Voir _GradingRow / _buildRows ci-dessous.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +17,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/offline/connectivity_banner.dart';
 import '../../../../core/offline/offline_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/score_utils.dart';
 import '../../domain/entities/item_evaluation.dart';
 import '../../domain/entities/notation.dart';
 import '../../../home/domain/entities/session.dart';
@@ -85,6 +90,41 @@ class _GC {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// MODÈLE DE LIGNES — hiérarchie critère / sous-critères (#160)
+//
+// Un ItemEvaluation qui a des sous-critères devient :
+//   • 1 ligne d'en-tête (regroupement, lecture seule, sous-total affiché)
+//   • N lignes sous-critères (indentées, saisissables comme un item normal)
+// Un ItemEvaluation sans sous-critères reste une ligne unique, inchangée.
+// ═══════════════════════════════════════════════════════════════════════════════
+class _GradingRow {
+  final ItemEvaluation displayItem;
+  final bool           isHeader;      // ligne de regroupement, sans saisie
+  final bool           isSousCritere; // ligne indentée sous un critère parent
+
+  const _GradingRow({
+    required this.displayItem,
+    this.isHeader      = false,
+    this.isSousCritere = false,
+  });
+}
+
+List<_GradingRow> _buildRows(List<ItemEvaluation> items) {
+  final rows = <_GradingRow>[];
+  for (final item in items) {
+    if (item.hasSousCriteres) {
+      rows.add(_GradingRow(displayItem: item, isHeader: true));
+      for (final enfant in item.sousCriteres) {
+        rows.add(_GradingRow(displayItem: enfant, isSousCritere: true));
+      }
+    } else {
+      rows.add(_GradingRow(displayItem: item));
+    }
+  }
+  return rows;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // GRADING SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 class GradingScreen extends StatelessWidget {
@@ -98,7 +138,7 @@ class GradingScreen extends StatelessWidget {
     return ConnectivityBanner(
       child: Scaffold(
         backgroundColor:
-            _GC(Theme.of(context).brightness == Brightness.dark).bg,
+        _GC(Theme.of(context).brightness == Brightness.dark).bg,
         body: BlocConsumer<GradingBloc, GradingState>(
           listener: (context, state) {
             if (state is GradingError) {
@@ -160,9 +200,9 @@ class _GradingViewState extends State<_GradingView> {
     _footerHScroll = ScrollController();
 
     _headerHScroll.addListener(
-        () => _syncFrom(_headerHScroll, [_bodyHScroll, _footerHScroll]));
+            () => _syncFrom(_headerHScroll, [_bodyHScroll, _footerHScroll]));
     _bodyHScroll.addListener(
-        () => _syncFrom(_bodyHScroll, [_headerHScroll, _footerHScroll]));
+            () => _syncFrom(_bodyHScroll, [_headerHScroll, _footerHScroll]));
   }
 
   @override
@@ -219,7 +259,7 @@ class _GradingBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gc        = _GC(Theme.of(context).brightness == Brightness.dark);
-    final items     = state.grille.items;
+    final rows      = _buildRows(state.grille.items);
     final etudiants = state.lot.etudiants;
 
     return SingleChildScrollView(
@@ -233,20 +273,21 @@ class _GradingBody extends StatelessWidget {
             physics:         const ClampingScrollPhysics(),
             child: IntrinsicWidth(
               child: Column(
-                children: items.asMap().entries.map((entry) {
+                children: rows.asMap().entries.map((entry) {
+                  final row = entry.value;
                   return IntrinsicHeight(
                     child: Row(
                       children: [
                         // Cellule fantôme : force la hauteur de la ligne
                         _CritereCell(
-                          item:      entry.value,
+                          row:       row,
                           gc:        gc,
                           invisible: true,
                           width:     layout.critereColWidth,
                           minHeight: layout.cellMinHeight,
                         ),
                         ...etudiants.map(
-                          (e) => Container(
+                              (e) => Container(
                             width: layout.studentColWidth,
                             decoration: BoxDecoration(
                               color: entry.key.isEven ? gc.rowEven : gc.rowOdd,
@@ -255,10 +296,19 @@ class _GradingBody extends StatelessWidget {
                                 bottom: BorderSide(color: gc.border, width: 0.8),
                               ),
                             ),
-                            child: _NotationCell(
+                            child: row.isHeader
+                            // #160 — ligne de regroupement : pas de saisie
+                            // directe, on affiche le sous-total calculé
+                            // (= somme des sous-critères déjà cochés).
+                                ? _CritereSousTotalCell(
+                              item:      row.displayItem,
+                              notations: state.notations[e.id] ?? const {},
+                              gc:        gc,
+                            )
+                                : _NotationCell(
                               etudiant:  e,
-                              item:      entry.value,
-                              notation:  state.notations[e.id]?[entry.value.id],
+                              item:      row.displayItem,
+                              notation:  state.notations[e.id]?[row.displayItem.id],
                               estValide: state.etudiantsValides.contains(e.id),
                             ),
                           ),
@@ -287,9 +337,9 @@ class _GradingBody extends StatelessWidget {
                 ],
               ),
               child: Column(
-                children: items.asMap().entries.map((entry) {
+                children: rows.asMap().entries.map((entry) {
                   return _CritereCell(
-                    item:      entry.value,
+                    row:       entry.value,
                     gc:        gc,
                     index:     entry.key,
                     width:     layout.critereColWidth,
@@ -306,15 +356,15 @@ class _GradingBody extends StatelessWidget {
 }
 
 class _CritereCell extends StatelessWidget {
-  final ItemEvaluation item;
-  final _GC            gc;
-  final int?           index;
-  final bool           invisible;
-  final double         width;
-  final double         minHeight;
+  final _GradingRow row;
+  final _GC         gc;
+  final int?        index;
+  final bool        invisible;
+  final double      width;
+  final double      minHeight;
 
   const _CritereCell({
-    required this.item,
+    required this.row,
     required this.gc,
     this.index,
     this.invisible = false,
@@ -324,13 +374,22 @@ class _CritereCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final item = row.displayItem;
     final bg = invisible
         ? Colors.transparent
         : (index! % 2 == 0 ? gc.rowEven : gc.rowOdd);
+
+    final String libelleAffiche = row.isHeader
+        ? '${item.libelle} :'
+        : row.isSousCritere
+        ? '•  ${item.libelle}'
+        : item.libelle;
+
     return Container(
       width:       width,
       constraints: BoxConstraints(minHeight: minHeight),
-      padding:     const EdgeInsets.all(10),
+      // Les sous-critères sont indentés pour matérialiser la hiérarchie.
+      padding: EdgeInsets.fromLTRB(row.isSousCritere ? 20 : 10, 10, 10, 10),
       decoration:  BoxDecoration(
         color:  bg,
         border: Border(bottom: BorderSide(color: gc.border, width: 0.5)),
@@ -341,23 +400,64 @@ class _CritereCell extends StatelessWidget {
         mainAxisSize:       MainAxisSize.min,
         children: [
           Text(
-            item.libelle,
+            libelleAffiche,
             style: TextStyle(
-              fontSize: 11,
-              color:    invisible ? Colors.transparent : gc.textPrim,
-              height:   1.3,
+              fontSize:   row.isSousCritere ? 10.5 : 11,
+              fontWeight: row.isHeader ? FontWeight.w700 : FontWeight.normal,
+              color:      invisible ? Colors.transparent : gc.textPrim,
+              height:     1.3,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${item.ponderation.toInt()} pts',
-            style: TextStyle(
-              fontSize:   10,
-              color:      invisible ? Colors.transparent : AppTheme.primary,
-              fontWeight: FontWeight.bold,
+          // La ligne d'en-tête n'a pas de pondération propre (elle égale la
+          // somme de ses sous-critères) : on n'affiche le badge que pour les
+          // lignes réellement notables (item simple ou sous-critère).
+          if (!row.isHeader) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${item.ponderation.toInt()} pts',
+              style: TextStyle(
+                fontSize:   10,
+                color:      invisible ? Colors.transparent : AppTheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// #160 — Sous-total en lecture seule affiché sur la ligne d'en-tête d'un
+/// critère à sous-critères : somme des sous-critères déjà cochés / pondération
+/// totale du critère. Calculé via ScoreUtils.scoreCritere (aucune saisie ici).
+class _CritereSousTotalCell extends StatelessWidget {
+  final ItemEvaluation      item;
+  final Map<int, Notation>  notations;
+  final _GC                 gc;
+
+  const _CritereSousTotalCell({
+    required this.item,
+    required this.notations,
+    required this.gc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sousTotal = ScoreUtils.scoreCritere(item: item, notations: notations);
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color:        gc.numFill,
+          borderRadius: BorderRadius.circular(8),
+          border:       Border.all(color: gc.numBorder),
+        ),
+        child: Text(
+          '${sousTotal.toStringAsFixed(sousTotal == sousTotal.truncateToDouble() ? 0 : 1)}'
+              '/${item.ponderation.toInt()}',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: gc.textPrim),
+        ),
       ),
     );
   }
@@ -584,6 +684,11 @@ class _GradingFooter extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CELLULE DE NOTATION
+//
+// Réutilisée telle quelle pour les items simples ET pour les sous-critères
+// (#160) : un sous-critère est un ItemEvaluation comme un autre, donc les
+// events GradingBinaryUpdated / GradingNumericUpdated fonctionnent sans
+// modification du bloc.
 // ═══════════════════════════════════════════════════════════════════════════════
 class _NotationCell extends StatelessWidget {
   final dynamic        etudiant;
@@ -602,23 +707,23 @@ class _NotationCell extends StatelessWidget {
   Widget build(BuildContext context) {
     if (item.type == TypeCritere.binaire) {
       final bool? fait =
-          notation == null ? null : notation!.valeur == 1.0;
+      notation == null ? null : notation!.valeur == 1.0;
       return Center(
         child: GestureDetector(
           onTap: estValide
               ? null
               : () {
-                  final bool? next = fait == null
-                      ? true
-                      : fait == true
-                          ? false
-                          : null;
-                  context.read<GradingBloc>().add(GradingBinaryUpdated(
-                    etudiantId: etudiant.id,
-                    itemId:     item.id,
-                    fait:       next,
-                  ));
-                },
+            final bool? next = fait == null
+                ? true
+                : fait == true
+                ? false
+                : null;
+            context.read<GradingBloc>().add(GradingBinaryUpdated(
+              etudiantId: etudiant.id,
+              itemId:     item.id,
+              fait:       next,
+            ));
+          },
           child: Container(
             width:  38,
             height: 38,
@@ -627,24 +732,24 @@ class _NotationCell extends StatelessWidget {
               color: fait == null
                   ? Colors.grey.withOpacity(0.1)
                   : fait
-                      ? Colors.green.withOpacity(0.2)
-                      : Colors.red.withOpacity(0.2),
+                  ? Colors.green.withOpacity(0.2)
+                  : Colors.red.withOpacity(0.2),
               border: Border.all(
                 color: fait == null
                     ? Colors.grey
                     : fait
-                        ? Colors.green
-                        : Colors.red,
+                    ? Colors.green
+                    : Colors.red,
                 width: 1.5,
               ),
             ),
             child: fait == null
                 ? null
                 : Icon(
-                    fait ? Icons.check : Icons.close,
-                    size:  20,
-                    color: fait ? Colors.green : Colors.red,
-                  ),
+              fait ? Icons.check : Icons.close,
+              size:  20,
+              color: fait ? Colors.green : Colors.red,
+            ),
           ),
         ),
       );
@@ -712,7 +817,7 @@ class _NumericCellState extends State<_NumericCell> {
           enabled:         !widget.estValide,
           textAlign:       TextAlign.center,
           keyboardType:
-              const TextInputType.numberWithOptions(decimal: true),
+          const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
             _DecimalFormatter(max: widget.item.valeurMax),
           ],
@@ -771,9 +876,9 @@ class _DecimalFormatter extends TextInputFormatter {
 
   @override
   TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
+      TextEditingValue oldValue,
+      TextEditingValue newValue,
+      ) {
     final normalized = newValue.text
         .replaceAll(',', '.')
         .replaceAll('\u060C', '.')
@@ -848,14 +953,14 @@ class _StickyStudentHeader extends StatelessWidget {
               child: Row(
                 children: etudiants
                     .map((e) => SizedBox(
-                          width:  layout.studentColWidth,
-                          height: layout.headerHeight,
-                          child:  _EtudiantHeader(
-                            etudiant:  e,
-                            estValide: state.etudiantsValides.contains(e.id),
-                            state:     state,
-                          ),
-                        ))
+                  width:  layout.studentColWidth,
+                  height: layout.headerHeight,
+                  child:  _EtudiantHeader(
+                    etudiant:  e,
+                    estValide: state.etudiantsValides.contains(e.id),
+                    state:     state,
+                  ),
+                ))
                     .toList(),
               ),
             ),

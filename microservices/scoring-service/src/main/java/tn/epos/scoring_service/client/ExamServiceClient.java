@@ -205,10 +205,7 @@ public class ExamServiceClient {
         String bearerToken = currentBearerToken();
         try {
             JsonNode root = webClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/api/grilles/{grilleId}/items")
-                            .queryParam("size", ITEMS_PAGE_SIZE)
-                            .build(grilleId))
+                    .uri("/api/grilles/{grilleId}/items/feuilles", grilleId)
                     .headers(h -> h.setBearerAuth(bearerToken))
                     .retrieve()
                     .bodyToMono(JsonNode.class)
@@ -216,8 +213,7 @@ public class ExamServiceClient {
             return extractItemInfos(root, grilleId);
         } catch (WebClientResponseException e) {
             log.error("exam-service HTTP {} pour grille {}", e.getStatusCode(), grilleId);
-            throw new BusinessException(
-                    "exam-service a renvoyé " + e.getStatusCode().value());
+            throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value());
         } catch (RuntimeException e) {
             log.error("exam-service injoignable pour grille {}", grilleId, e);
             throw new BusinessException("exam-service injoignable : " + e.getMessage());
@@ -322,12 +318,10 @@ public class ExamServiceClient {
             log.warn("Réponse null pour grille {}", grilleId);
             return infos;
         }
-        // Enveloppe : ApiResponse<PageResponse<ItemResponse>>
-        // → { success, data: { content: [{id, ponderation, type, …}] } }
-        JsonNode content = root.path("data").path("content");
+        // /items/feuilles renvoie ApiResponse<List<ItemResponse>> (pas de pagination)
+        JsonNode content = root.path("data");
         if (!content.isArray()) {
-            log.warn("Réponse inattendue de l'exam-service pour grille {} : data.content[] absent",
-                    grilleId);
+            log.warn("Réponse inattendue de l'exam-service pour grille {} : data[] absent", grilleId);
             return infos;
         }
         for (JsonNode item : content) {
@@ -337,8 +331,7 @@ public class ExamServiceClient {
             String type        = item.path("type").asText("BINAIRE");
             infos.put(id, new ItemInfo(id, ponderation, type));
         }
-        log.debug("Grille {} : {} item(s) chargé(s) depuis l'exam-service",
-                grilleId, infos.size());
+        log.debug("Grille {} : {} feuille(s) notable(s) chargée(s)", grilleId, infos.size());
         return infos;
     }
 

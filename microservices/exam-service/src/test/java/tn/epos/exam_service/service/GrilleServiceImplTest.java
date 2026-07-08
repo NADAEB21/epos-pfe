@@ -495,7 +495,7 @@ class GrilleServiceImplTest {
         void listerItems_devraitRetournerItems() {
             Page<ItemEvaluation> page = new PageImpl<>(List.of(itemBinaire));
             when(grilleRepository.findById(1L)).thenReturn(Optional.of(grille));
-            when(itemRepository.findByGrilleIdOrderByOrdreAsc(eq(1L), any(Pageable.class)))
+            when(itemRepository.findByGrilleIdAndParentIsNullOrderByOrdreAsc(eq(1L), any(Pageable.class)))
                     .thenReturn(page);
 
             Page<ItemResponse> result = grilleService.listerItems(1L, Pageable.unpaged());
@@ -539,6 +539,167 @@ class GrilleServiceImplTest {
 
             assertThatThrownBy(() -> grilleService.supprimer(1L))
                     .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    // ================================================================
+    // AJOUTER SOUS-CRITERE (#160)
+    // ================================================================
+
+    @Nested
+    @DisplayName("ajouterSousCritere()")
+    class AjouterSousCritere {
+
+        private ItemRequest sousCritereRequest;
+
+        @BeforeEach
+        void setUpSousCritere() {
+            sousCritereRequest = new ItemRequest();
+            sousCritereRequest.setLibelle("Sous-critère 1");
+            sousCritereRequest.setType(TypeItem.BINAIRE);
+            sousCritereRequest.setPonderation(1.0);
+        }
+
+        @Test
+        @DisplayName("Doit ajouter un sous-critère à un item parent valide")
+        void ajouterSousCritere_devraitReussir() {
+            itemBinaire.setPonderation(2.0);
+            sousCritereRequest.setPonderation(2.0); // somme enfants == pondération parent
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            when(itemRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ItemResponse result = grilleService.ajouterSousCritere(1L, sousCritereRequest);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getParentId()).isEqualTo(1L);
+            assertThat(itemBinaire.getChildren()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si le parent est déjà un sous-critère (profondeur unique)")
+        void ajouterSousCritere_parentEstDejaSousCritere_devraitEchouer() {
+            ItemEvaluation grandParent = ItemEvaluation.builder()
+                    .id(2L).libelle("Parent").type(TypeItem.BINAIRE).ponderation(5.0)
+                    .grille(grille).build();
+            itemBinaire.setParent(grandParent);
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+
+            assertThatThrownBy(() -> grilleService.ajouterSousCritere(1L, sousCritereRequest))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("un seul niveau");
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si la somme des pondérations dépasse celle du parent")
+        void ajouterSousCritere_ponderationDepasse_devraitEchouer() {
+            itemBinaire.setPonderation(2.0);
+            sousCritereRequest.setPonderation(3.0); // > 2.0
+
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+
+            assertThatThrownBy(() -> grilleService.ajouterSousCritere(1L, sousCritereRequest))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("dépasserait");
+        }
+
+        @Test
+        @DisplayName("Doit lever BusinessException si l'examen n'est pas modifiable")
+        void ajouterSousCritere_examenVerrouille_devraitEchouer() {
+            examenBrouillon.setStatut(StatutExamen.EN_COURS);
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+
+            assertThatThrownBy(() -> grilleService.ajouterSousCritere(1L, sousCritereRequest))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si le critère parent est introuvable")
+        void ajouterSousCritere_parentIntrouvable_devraitEchouer() {
+            when(itemRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> grilleService.ajouterSousCritere(99L, sousCritereRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // ================================================================
+    // LISTER SOUS-CRITERES (#160)
+    // ================================================================
+
+    @Nested
+    @DisplayName("listerSousCriteres()")
+    class ListerSousCriteres {
+
+        @Test
+        @DisplayName("Doit retourner les sous-critères triés par ordre")
+        void listerSousCriteres_devraitRetournerListe() {
+            ItemEvaluation enfant = ItemEvaluation.builder()
+                    .id(5L).libelle("Enfant").type(TypeItem.BINAIRE).ponderation(1.0)
+                    .ordre(1).parent(itemBinaire).grille(grille).build();
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            when(itemRepository.findByParentIdOrderByOrdreAsc(1L)).thenReturn(List.of(enfant));
+
+            List<ItemResponse> result = grilleService.listerSousCriteres(1L);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getLibelle()).isEqualTo("Enfant");
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si le parent est introuvable")
+        void listerSousCriteres_parentIntrouvable_devraitEchouer() {
+            when(itemRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> grilleService.listerSousCriteres(99L))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // ================================================================
+    // LISTER ITEMS FEUILLES (#160)
+    // ================================================================
+
+    @Nested
+    @DisplayName("listerItemsFeuilles()")
+    class ListerItemsFeuilles {
+
+        @Test
+        @DisplayName("Doit retourner uniquement les items sans sous-critères (aplatissement)")
+        void listerItemsFeuilles_devraitAplatirHierarchie() {
+            ItemEvaluation parent = ItemEvaluation.builder()
+                    .id(10L).libelle("Parent avec enfants").type(TypeItem.BINAIRE)
+                    .ponderation(4.0).ordre(1).grille(grille).build();
+            ItemEvaluation enfant1 = ItemEvaluation.builder()
+                    .id(11L).libelle("Enfant 1").type(TypeItem.BINAIRE)
+                    .ponderation(2.0).ordre(1).parent(parent).grille(grille).build();
+            ItemEvaluation enfant2 = ItemEvaluation.builder()
+                    .id(12L).libelle("Enfant 2").type(TypeItem.BINAIRE)
+                    .ponderation(2.0).ordre(2).parent(parent).grille(grille).build();
+            parent.getChildren().addAll(List.of(enfant1, enfant2));
+
+            ItemEvaluation feuilleSeule = ItemEvaluation.builder()
+                    .id(13L).libelle("Feuille seule").type(TypeItem.BINAIRE)
+                    .ponderation(1.0).ordre(2).grille(grille).build();
+
+            grille.getItems().addAll(List.of(parent, feuilleSeule));
+
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+
+            List<ItemResponse> result = grilleService.listerItemsFeuilles(1L);
+
+            assertThat(result).hasSize(3);
+            assertThat(result).extracting(ItemResponse::getLibelle)
+                    .containsExactlyInAnyOrder("Enfant 1", "Enfant 2", "Feuille seule");
+        }
+
+        @Test
+        @DisplayName("Doit lever ResourceNotFoundException si la grille est introuvable")
+        void listerItemsFeuilles_grilleIntrouvable_devraitEchouer() {
+            when(grilleRepository.findByIdWithItems(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> grilleService.listerItemsFeuilles(99L))
+                    .isInstanceOf(ResourceNotFoundException.class);
         }
     }
 
@@ -668,6 +829,43 @@ class GrilleServiceImplTest {
             assertThatThrownBy(() -> grilleService.supprimerItem(1L))
                     .isInstanceOf(AccessDeniedException.class);
             verify(grilleRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("ajouterSousCritere() rejects when caller is out of scope")
+        void ajouterSousCritere_outOfScope_devraitRefuser() {
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            ItemRequest req = new ItemRequest();
+            req.setLibelle("x"); req.setType(TypeItem.BINAIRE); req.setPonderation(1.0);
+
+            assertThatThrownBy(() -> grilleService.ajouterSousCritere(1L, req))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(itemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("listerSousCriteres() rejects when caller is out of scope")
+        void listerSousCriteres_outOfScope_devraitRefuser() {
+            when(itemRepository.findById(1L)).thenReturn(Optional.of(itemBinaire));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkReadAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.listerSousCriteres(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("listerItemsFeuilles() rejects when caller is out of scope")
+        void listerItemsFeuilles_outOfScope_devraitRefuser() {
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(grille));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkReadAccess(1L);
+
+            assertThatThrownBy(() -> grilleService.listerItemsFeuilles(1L))
+                    .isInstanceOf(AccessDeniedException.class);
         }
     }
 }

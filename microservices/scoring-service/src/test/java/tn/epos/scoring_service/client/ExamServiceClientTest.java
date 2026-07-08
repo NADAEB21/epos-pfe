@@ -37,12 +37,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @DisplayName("ExamServiceClient — tests unitaires")
 class ExamServiceClientTest {
-
     private static final String GRILLE_ITEMS_HAPPY_BODY =
-            "{\"success\":true,\"data\":{\"content\":[" +
+            "{\"success\":true,\"data\":[" +
                     "{\"id\":100,\"libelle\":\"x\",\"ponderation\":2.0,\"type\":\"BINAIRE\"}," +
                     "{\"id\":101,\"libelle\":\"y\",\"ponderation\":5.0,\"type\":\"NUMERIQUE\"}" +
-                    "]}}";
+                    "]}";
 
     @BeforeEach
     void primeJwtInContext() {
@@ -84,7 +83,6 @@ class ExamServiceClientTest {
     @Nested
     @DisplayName("getItemIdsForGrille() — happy path & cache")
     class HappyPath {
-
         @Test
         @DisplayName("Parse les item IDs et ajoute le header Authorization")
         void happyPath_parseItemIds() {
@@ -95,7 +93,7 @@ class ExamServiceClientTest {
 
             assertThat(ids).containsExactlyInAnyOrder(100L, 101L);
             assertThat(requests).hasSize(1);
-            assertThat(requests.get(0).url().toString()).contains("/api/grilles/11/items");
+            assertThat(requests.get(0).url().toString()).contains("/api/grilles/11/items/feuilles");
             assertThat(requests.get(0).headers().getFirst("Authorization"))
                     .isEqualTo("Bearer fake-test-token");
         }
@@ -117,7 +115,7 @@ class ExamServiceClientTest {
         @Test
         @DisplayName("Valeur par défaut ponderation=1.0 et type=BINAIRE si champs absents")
         void getItemInfos_defaultValues() {
-            String body = "{\"data\":{\"content\":[{\"id\":200}]}}";
+            String body = "{\"data\":[{\"id\":200}]}";
             ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
 
             Map<Long, ExamServiceClient.ItemInfo> infos = client.getItemInfosForGrille(50L);
@@ -156,13 +154,13 @@ class ExamServiceClientTest {
         @Test
         @DisplayName("Items avec id ≤ 0 ou absent sont ignorés")
         void itemsIdInvalides_filtres() {
-            String body = "{\"data\":{\"content\":[" +
+            String body = "{\"data\":[" +
                     "{\"id\":100}," +
                     "{\"libelle\":\"no-id\"}," +
                     "{\"id\":-5}," +
                     "{\"id\":0}," +
                     "{\"id\":200}" +
-                    "]}}";
+                    "]}";
             ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
 
             assertThat(client.getItemIdsForGrille(11L)).containsExactlyInAnyOrder(100L, 200L);

@@ -435,14 +435,28 @@ public class GrilleServiceImpl implements GrilleService {
         response.setStationId(grille.getStation().getId());
         response.setSommePonderations(grille.getSommePonderations());
         response.setPonderationValide(grille.isPonderationValide());
-        response.setNombreItems(grille.getItems().size());
+
+        // #160 — grille.getItems() est un @OneToMany(mappedBy = "grille") : Hibernate
+        // reconstruit cette collection depuis la SEULE colonne grille_id en base, qui
+        // est renseignée aussi bien sur les items de premier niveau que sur leurs
+        // sous-critères (NOT NULL → propagée récursivement, voir ItemEvaluation.
+        // addChild() / GrilleEvaluation.assignerGrilleRecursivement()). Après un
+        // rechargement depuis la base, cette collection contient donc TOUJOURS les
+        // sous-critères en plus de leurs parents, même si juste après une création en
+        // mémoire (POST, même transaction) elle semblait "propre". Il faut filtrer
+        // explicitement le premier niveau ici — comme c'est déjà fait dans
+        // GrilleEvaluation.getSommePonderations() et listerItemsFeuilles().
+        List<ItemEvaluation> itemsPremierNiveau = grille.getItems().stream()
+                .filter(i -> i.getParent() == null)
+                .collect(Collectors.toList());
+
+        response.setNombreItems(itemsPremierNiveau.size());
+        response.setItems(itemsPremierNiveau.stream()
+                .map(this::toItemResponse)
+                .collect(Collectors.toList()));
+
         response.setCreatedAt(grille.getCreatedAt());
         response.setUpdatedAt(grille.getUpdatedAt());
-
-        List<ItemResponse> items = grille.getItems().stream()
-                .map(this::toItemResponse)
-                .collect(Collectors.toList());
-        response.setItems(items);
 
         return response;
     }

@@ -6,6 +6,12 @@
 //   • Liste des critères avec score par item
 //   • Zone Remarque
 //   • Bouton "Verrouiller les notes" (= valider l'étudiant)
+// #160 — Hiérarchie critère / sous-critères : un ItemEvaluation avec
+//         sousCriteres non-vide s'affiche comme 1 ligne d'en-tête en lecture
+//         seule (sous-total agrégé) + N lignes sous-critères indentées, qui
+//         affichent chacune sa propre icône + score (comme un item normal).
+//         Écran purement informatif : aucune saisie ici, donc pas de
+//         GradingBloc.add() à ajouter — seul l'aplatissement change.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -27,6 +33,36 @@ class _DC {
   Color get textPrim  => d ? Colors.white             : AppTheme.textPrimary;
   Color get textSec   => d ? const Color(0xFFAABB99)  : AppTheme.textSecondary;
   Color get lockBg    => d ? const Color(0xFF1E2A14)  : AppTheme.surface;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODÈLE DE LIGNES — même principe que grading_screen.dart (#160)
+// ═══════════════════════════════════════════════════════════════════════════════
+class _DetailRow {
+  final ItemEvaluation displayItem;
+  final bool           isHeader;      // ligne de regroupement, lecture seule agrégée
+  final bool           isSousCritere; // ligne indentée sous un critère parent
+
+  const _DetailRow({
+    required this.displayItem,
+    this.isHeader      = false,
+    this.isSousCritere = false,
+  });
+}
+
+List<_DetailRow> _buildDetailRows(List<ItemEvaluation> items) {
+  final rows = <_DetailRow>[];
+  for (final item in items) {
+    if (item.hasSousCriteres) {
+      rows.add(_DetailRow(displayItem: item, isHeader: true));
+      for (final enfant in item.sousCriteres) {
+        rows.add(_DetailRow(displayItem: enfant, isSousCritere: true));
+      }
+    } else {
+      rows.add(_DetailRow(displayItem: item));
+    }
+  }
+  return rows;
 }
 
 class StudentDetailScreen extends StatefulWidget {
@@ -103,10 +139,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                       _SectionLabel('Critères'),
                       const SizedBox(height: 8),
                       _CriteresList(
-                        items:     items,
-                        notations: notations,
-                        estValide: estValide,
-                        absent:    _absent,
+                        items:      items,
+                        notations:  notations,
+                        estValide:  estValide,
+                        absent:     _absent,
                         etudiantId: etudiantId,
                       ),
 
@@ -133,7 +169,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                 absent:     _absent,
                 etudiantId: etudiantId,
                 stationId:  state.stationId,
-                remarqueController: _remarqueController, 
+                remarqueController: _remarqueController,
               ),
             ],
           ),
@@ -358,7 +394,7 @@ class _PresenceOption extends StatelessWidget {
                     ? color
                     : _DC(Theme.of(context).brightness == Brightness.dark).textSec,
                 fontWeight:
-                    selected ? FontWeight.w600 : FontWeight.w400,
+                selected ? FontWeight.w600 : FontWeight.w400,
                 fontSize: 14,
               ),
             ),
@@ -370,7 +406,7 @@ class _PresenceOption extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════
-// LISTE DES CRITÈRES
+// LISTE DES CRITÈRES (#160 — aplatit critère/sous-critères)
 // ════════════════════════════════════════════════
 class _CriteresList extends StatelessWidget {
   final List<ItemEvaluation>  items;
@@ -389,7 +425,9 @@ class _CriteresList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dc = _DC(Theme.of(context).brightness == Brightness.dark);
+    final dc   = _DC(Theme.of(context).brightness == Brightness.dark);
+    final rows = _buildDetailRows(items);
+
     return Container(
       decoration: BoxDecoration(
         color: dc.surface,
@@ -397,23 +435,23 @@ class _CriteresList extends StatelessWidget {
         border: Border.all(color: dc.border),
       ),
       child: Column(
-        children: items.asMap().entries.map((entry) {
-          final i    = entry.key;
-          final item = entry.value;
-          final nota = notations[item.id];
-          final isLast = i == items.length - 1;
+        children: rows.asMap().entries.map((entry) {
+          final i      = entry.key;
+          final row    = entry.value;
+          final isLast = i == rows.length - 1;
 
           return Column(
             children: [
               _CritereRow(
-                item:      item,
-                notation:  nota,
-                estValide: estValide,
-                absent:    absent,
+                row:        row,
+                notation:   row.isHeader ? null : notations[row.displayItem.id],
+                notations:  notations, // utile pour le sous-total agrégé d'une ligne d'en-tête
+                estValide:  estValide,
+                absent:     absent,
                 etudiantId: etudiantId,
               ),
               if (!isLast)
-                Divider(height: 1, color: _DC(Theme.of(context).brightness == Brightness.dark).border),
+                Divider(height: 1, color: dc.border),
             ],
           );
         }).toList(),
@@ -423,15 +461,17 @@ class _CriteresList extends StatelessWidget {
 }
 
 class _CritereRow extends StatelessWidget {
-  final ItemEvaluation item;
-  final Notation?      notation;
-  final bool           estValide;
-  final bool           absent;
-  final int            etudiantId;
+  final _DetailRow          row;
+  final Notation?           notation;
+  final Map<int, Notation>  notations;
+  final bool                estValide;
+  final bool                absent;
+  final int                 etudiantId;
 
   const _CritereRow({
-    required this.item,
+    required this.row,
     required this.notation,
+    required this.notations,
     required this.estValide,
     required this.absent,
     required this.etudiantId,
@@ -439,7 +479,74 @@ class _CritereRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Score de cet item
+    final item = row.displayItem;
+    final dc   = _DC(Theme.of(context).brightness == Brightness.dark);
+
+    // ── Ligne d'en-tête d'un critère à sous-critères : lecture seule,
+    //    score agrégé via ScoreUtils.scoreCritere (somme des sous-critères
+    //    notés), pas d'icône Fait/Non fait individuelle. ──────────────────
+    if (row.isHeader) {
+      final sousTotal = absent
+          ? 0.0
+          : ScoreUtils.scoreCritere(item: item, notations: notations);
+
+      return Container(
+        color: dc.surface.withValues(alpha: 0.6), // légère distinction visuelle
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.folder_open_outlined, color: dc.textSec, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '${item.libelle} :',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: dc.textPrim,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'x${item.ponderation.toInt()}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 44,
+              child: Text(
+                absent
+                    ? '—'
+                    : '${sousTotal.toStringAsFixed(sousTotal == sousTotal.truncateToDouble() ? 0 : 1)}'
+                    '/${item.ponderation.toInt()}',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: dc.textPrim,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── Ligne d'un item simple ou d'un sous-critère : comportement
+    //    identique à l'original, avec juste une indentation en plus pour
+    //    matérialiser la hiérarchie sous son critère parent. ────────────
     double itemScore = 0;
     if (notation != null && !absent) {
       if (item.type == TypeCritere.binaire) {
@@ -456,13 +563,13 @@ class _CritereRow extends StatelessWidget {
     final Color iconColor = absent
         ? AppTheme.criterionPending
         : fait == null
-            ? AppTheme.criterionPending
-            : fait
-                ? AppTheme.criterionDone
-                : AppTheme.criterionNotDone;
+        ? AppTheme.criterionPending
+        : fait
+        ? AppTheme.criterionDone
+        : AppTheme.criterionNotDone;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.fromLTRB(row.isSousCritere ? 32 : 16, 12, 16, 12),
       child: Row(
         children: [
           // Icône état
@@ -470,12 +577,12 @@ class _CritereRow extends StatelessWidget {
             absent
                 ? Icons.remove_circle_outline
                 : fait == null
-                    ? Icons.radio_button_unchecked
-                    : fait
-                        ? Icons.check_circle
-                        : Icons.cancel,
+                ? Icons.radio_button_unchecked
+                : fait
+                ? Icons.check_circle
+                : Icons.cancel,
             color: iconColor,
-            size: 22,
+            size: row.isSousCritere ? 18 : 22,
           ),
           const SizedBox(width: 12),
 
@@ -485,10 +592,10 @@ class _CritereRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.libelle,
+                  row.isSousCritere ? '•  ${item.libelle}' : item.libelle,
                   style: TextStyle(
-                    fontSize: 13,
-                    color: _DC(Theme.of(context).brightness == Brightness.dark).textPrim,
+                    fontSize: row.isSousCritere ? 12 : 13,
+                    color: dc.textPrim,
                     height: 1.3,
                   ),
                 ),
@@ -523,10 +630,10 @@ class _CritereRow extends StatelessWidget {
               absent
                   ? '—'
                   : notation == null
-                      ? '—'
-                      : item.type == TypeCritere.binaire
-                          ? '${itemScore.toInt()}/${item.ponderation.toInt()}'
-                          : '${itemScore.toStringAsFixed(1)}/${item.valeurMax.toInt()}',
+                  ? '—'
+                  : item.type == TypeCritere.binaire
+                  ? '${itemScore.toInt()}/${item.ponderation.toInt()}'
+                  : '${itemScore.toStringAsFixed(1)}/${item.valeurMax.toInt()}',
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 12,
@@ -534,8 +641,8 @@ class _CritereRow extends StatelessWidget {
                 color: absent
                     ? AppTheme.criterionPending
                     : notation == null
-                        ? AppTheme.criterionPending
-                        : _DC(Theme.of(context).brightness == Brightness.dark).textPrim,
+                    ? AppTheme.criterionPending
+                    : dc.textPrim,
               ),
             ),
           ),
@@ -637,7 +744,7 @@ class _LockButton extends StatelessWidget {
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor:
-              estValide ? AppTheme.criterionPending : AppTheme.primaryDark,
+          estValide ? AppTheme.criterionPending : AppTheme.primaryDark,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 14),
           shape: RoundedRectangleBorder(
@@ -660,8 +767,8 @@ class _LockButton extends StatelessWidget {
         title: Text(absent ? 'Marquer absent ?' : 'Verrouiller les notes ?'),
         content: Text(
           absent
-            ? 'L\'étudiant sera marqué absent avec un score de 0/20.'
-            : 'Une fois verrouillées, les notes ne pourront plus être '
+              ? 'L\'étudiant sera marqué absent avec un score de 0/20.'
+              : 'Une fois verrouillées, les notes ne pourront plus être '
               'modifiées sans déverrouillage par le responsable.',
         ),
         actions: [
@@ -686,7 +793,7 @@ class _LockButton extends StatelessWidget {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor:
-                  absent ? AppTheme.scoreRed : AppTheme.primaryDark,
+              absent ? AppTheme.scoreRed : AppTheme.primaryDark,
             ),
             child: Text(
               absent ? 'Confirmer l\'absence' : 'Verrouiller',

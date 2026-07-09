@@ -194,6 +194,7 @@ public class EvaluateurDashboardService {
         notationRepository.save(notation);
         participation.setEst_present(!request.isAbsent());
         participation.setNote(notation.getScore_final());
+        participation.setCommentaire(request.getCommentaire());
         participationRepository.save(participation);
         broadcastScore(notation, stationId);
     }

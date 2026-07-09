@@ -74,6 +74,14 @@ class _EposAppState extends State<EposApp> {
           _isInitialLoading = false;
         });
 
+        // Vide la pile du navigator racine jusqu'à la route initiale, pour que
+        // le changement de `home` (HomeScreen → LoginScreen déclenché par le
+        // setState ci-dessus) soit visible immédiatement, sans clic retour.
+        // Sans ça, un écran empilé par-dessus (ex: ProfileScreen, ouvert via
+        // Navigator.of(context, rootNavigator: true).push) reste affiché : le
+        // compte est bien déconnecté "en dessous", mais rien ne le montre.
+        _appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+
       }
       // AuthLoading / AuthInitial → pas de setState nécessaire :
       //   • Vérification initiale : _isInitialLoading est encore true →

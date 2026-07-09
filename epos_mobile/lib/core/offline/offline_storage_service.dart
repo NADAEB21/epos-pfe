@@ -12,6 +12,7 @@
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../features/grading/domain/entities/notation.dart';
 
@@ -157,6 +158,13 @@ class OfflineStorageService {
   /// Si (etudiantId, stationId, itemId) existe déjà → met à jour la valeur
   /// (upsert : la dernière saisie gagne, cohérent avec BF6.3).
   Future<void> upsertNotation(PendingNotation notation) async {
+    // sqflite n'est pas supporté nativement sur navigateur (nécessiterait
+    // sqflite_common_ffi_web). Sur Chrome, on désactive silencieusement la
+    // persistance locale : les notations passent par le chemin "en ligne" de
+    // GradingRepositoryImpl, donc rien n'est perdu tant qu'on est connecté.
+    // Le vrai mode hors-ligne doit être testé sur émulateur/appareil Android.
+    if (kIsWeb) return;
+
     final db = await _database;
 
     // Cherche une entrée existante pour cet item
@@ -188,6 +196,7 @@ class OfflineStorageService {
 
   /// Retourne toutes les notations en attente de synchronisation.
   Future<List<PendingNotation>> getPendingNotations() async {
+    if (kIsWeb) return [];
     final db   = await _database;
     final rows = await db.query(
       _tableNotations,
@@ -198,6 +207,7 @@ class OfflineStorageService {
 
   /// Nombre de notations en attente (pour le badge UI).
   Future<int> getPendingCount() async {
+    if (kIsWeb) return 0;
     final db     = await _database;
     final result = await db.rawQuery(
       'SELECT COUNT(*) as cnt FROM $_tableNotations',
@@ -209,6 +219,7 @@ class OfflineStorageService {
 
   /// Supprime les notations synchronisées avec succès.
   Future<void> deleteByIds(List<int> ids) async {
+    if (kIsWeb) return;
     if (ids.isEmpty) return;
     final db          = await _database;
     final placeholders = List.filled(ids.length, '?').join(',');
@@ -221,6 +232,7 @@ class OfflineStorageService {
 
   /// Incrémente le compteur de retry pour les notations en échec.
   Future<void> incrementRetry(List<int> ids) async {
+    if (kIsWeb) return;
     if (ids.isEmpty) return;
     final db           = await _database;
     final placeholders = List.filled(ids.length, '?').join(',');
@@ -232,6 +244,7 @@ class OfflineStorageService {
 
   /// Vide toutes les données locales (à utiliser avec précaution).
   Future<void> clearAll() async {
+    if (kIsWeb) return;
     final db = await _database;
     await db.delete(_tableNotations);
     await db.delete(_tableSyncLog);
@@ -243,6 +256,7 @@ class OfflineStorageService {
     required int  count,
     required bool success,
   }) async {
+    if (kIsWeb) return;
     final db = await _database;
     await db.insert(_tableSyncLog, {
       'synced_at_ms': DateTime.now().millisecondsSinceEpoch,
@@ -254,6 +268,7 @@ class OfflineStorageService {
   // ── Fermeture ────────────────────────────────────────────────────────────
 
   Future<void> close() async {
+    if (kIsWeb) return;
     await _db?.close();
     _db = null;
   }

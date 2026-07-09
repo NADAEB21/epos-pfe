@@ -495,7 +495,15 @@ class _CritereRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Icon(Icons.folder_open_outlined, color: dc.textSec, size: 20),
+            // Liseré de regroupement — remplace l'icône dossier.
+            Container(
+              width: 3,
+              height: 20,
+              decoration: BoxDecoration(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(

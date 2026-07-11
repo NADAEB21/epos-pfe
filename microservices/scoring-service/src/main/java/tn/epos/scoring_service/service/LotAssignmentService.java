@@ -5,8 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.dto.PresenceResult;
 import tn.epos.scoring_service.dto.RepartitionResult;
 import tn.epos.scoring_service.entities.ExamenParticipation;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -121,6 +124,72 @@ public class LotAssignmentService {
         log.info("Répartition examen {} : {} étudiants → {} lots de {} max (K={}, capacité={})",
                 examenId, n, nbLots, lotSize, k, capacite);
         return new RepartitionResult(nbLots, lotSize, n, details);
+    }
+
+    /**
+     * Manually moves ONE enrolled student from their current lot to
+     * {@code targetLotId} (#165), without the wipe-and-redo of {@link #repartir}.
+     * Lets the responsable fix a single misplacement (a latecomer's wave, a
+     * balancing tweak) instead of re-partitioning the whole roster.
+     *
+     * <p>Gated to CONFIGURE — the same pre-exam window répartition is allowed —
+     * because once the exam is launched the per-lot Latin-square circuit is built
+     * against lot membership, so a late move would desync the generated plan.
+     *
+     * <p>Re-points the participation's {@code lot_id} and recomputes
+     * {@code tailleLot} on BOTH the source and target lot from their live
+     * membership (tailleLot is the current member count, set that way by
+     * {@link #repartir}, not a fixed capacity).
+     *
+     * @throws ResourceNotFoundException (404) unknown participation or target lot
+     * @throws BusinessException (400) target lot is in another exam, or exam not CONFIGURE
+     */
+    @Transactional
+    public ParticipationDTO deplacerEtudiant(Long targetLotId, Long participationId) {
+        ExamenParticipation participation = participationRepository.findById(participationId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Participation non trouvée avec l'id : " + participationId));
+        Lot target = lotRepository.findById(targetLotId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Lot non trouvé avec l'id : " + targetLotId));
+
+        // Same-exam guard: a lot_id must never cross exams (the participation's
+        // examen_id is the source of truth — it is always set on enrolment).
+        if (!Objects.equals(target.getExamenId(), participation.getExamen_id())) {
+            throw new BusinessException(
+                    "Le lot cible appartient à un autre examen que celui de l'étudiant.");
+        }
+
+        ExamGenerationView exam = examServiceClient.getExamForGeneration(participation.getExamen_id());
+        if (!"CONFIGURE".equals(exam.statut())) {
+            throw new BusinessException(
+                    "Le déplacement d'un étudiant entre lots n'est possible qu'au statut CONFIGURE "
+                            + "(statut actuel : " + exam.statut() + ").");
+        }
+
+        Lot source = participation.getLot();
+        if (source != null && Objects.equals(source.getId(), targetLotId)) {
+            return ParticipationDTO.fromEntity(participation); // déjà dans ce lot — no-op
+        }
+
+        participation.setLot(target);
+        participationRepository.save(participation);
+
+        // tailleLot is a live count → recompute both ends from actual membership.
+        recomputeTailleLot(target);
+        if (source != null) {
+            recomputeTailleLot(source);
+        }
+
+        log.info("Déplacement participation {} vers lot {} (examen {})",
+                participationId, targetLotId, participation.getExamen_id());
+        return ParticipationDTO.fromEntity(participation);
+    }
+
+    /** Resets a lot's {@code tailleLot} to its current live membership count. */
+    private void recomputeTailleLot(Lot lot) {
+        lot.setTailleLot(participationRepository.findByLotId(lot.getId()).size());
+        lotRepository.save(lot);
     }
 
     /**

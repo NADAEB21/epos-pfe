@@ -13,9 +13,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
+import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.scoring_service.service.LotAssignmentService;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -39,6 +41,9 @@ class LotControllerTest {
 
     @MockBean
     private LotService lotService;
+
+    @MockBean
+    private LotAssignmentService lotAssignmentService;
 
     private ObjectMapper objectMapper;
     private Lot lot;
@@ -198,6 +203,28 @@ class LotControllerTest {
                     .andExpect(jsonPath("$.success").value(true));
 
             verify(lotService, times(1)).delete(1L);
+        }
+    }
+
+    // ─── PATCH /api/lots/{targetLotId}/etudiants/{participationId} (#165) ──────
+
+    @Nested
+    @DisplayName("PATCH /api/lots/{targetLotId}/etudiants/{participationId}")
+    class Deplacer {
+
+        @Test
+        @DisplayName("200 - Étudiant déplacé, renvoie la participation avec son nouveau lotId")
+        void deplacer_devraitRetourner200() throws Exception {
+            ParticipationDTO dto = new ParticipationDTO(3L, 10L, "E-3", null, null, 7L, 2L);
+            when(lotAssignmentService.deplacerEtudiant(2L, 3L)).thenReturn(dto);
+
+            mockMvc.perform(patch("/api/lots/2/etudiants/3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.id").value(3))
+                    .andExpect(jsonPath("$.data.lotId").value(2));
+
+            verify(lotAssignmentService, times(1)).deplacerEtudiant(2L, 3L);
         }
     }
 }

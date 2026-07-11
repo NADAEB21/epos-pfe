@@ -216,8 +216,39 @@ interface LotView {
                 @if (lotError()[lot.id]; as msg) {
                   <p role="alert" class="text-sm text-status-danger mt-2">{{ msg }}</p>
                 }
+              } @else if (isConfigure()) {
+                <!-- CONFIGURE: roster + per-student manual move to another lot (#165) -->
+                <ul class="rounded-lg border border-gray-100 divide-y divide-gray-50">
+                  @for (m of lot.members; track m.participationId) {
+                    <li class="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <span class="text-gray-800">
+                        {{ m.prenom }} {{ m.nom }}
+                        <span class="text-xs text-gray-400">{{ m.numeroInscription || '' }}</span>
+                      </span>
+                      @if (otherLots(lot.id).length > 0) {
+                        <select
+                          [disabled]="busy()"
+                          (change)="deplacer(m.participationId, lot.id, $event)"
+                          class="text-xs rounded-md border border-gray-300 px-2 py-1 text-gray-600 focus:ring-brand focus:border-brand disabled:opacity-50"
+                          aria-label="Déplacer l'étudiant vers un autre lot"
+                        >
+                          <option value="">Déplacer vers…</option>
+                          @for (o of otherLots(lot.id); track o.id) {
+                            <option [value]="o.id">Lot {{ o.numeroLot }}</option>
+                          }
+                        </select>
+                      }
+                    </li>
+                  }
+                  @if (lot.members.length === 0) {
+                    <li class="px-3 py-2 text-xs text-gray-400">Aucun étudiant dans ce lot.</li>
+                  }
+                </ul>
+                @if (lotError()[lot.id]; as msg) {
+                  <p role="alert" class="text-sm text-status-danger mt-2">{{ msg }}</p>
+                }
               } @else {
-                <!-- read-only roster of the wave -->
+                <!-- read-only roster of the wave (TERMINE) -->
                 <ul class="text-sm text-gray-600 space-y-0.5">
                   @for (m of lot.members; track m.participationId) {
                     <li>{{ m.prenom }} {{ m.nom }}
@@ -260,11 +291,16 @@ export class LotsComponent {
   readonly lotError = signal<Record<number, string>>({});
   readonly savingPresenceLot = signal<number | null>(null);
   readonly generatingLot = signal<number | null>(null);
+  readonly movingParticipation = signal<number | null>(null);
   readonly actionError = signal<string | null>(null);
   private readonly repartitionning = signal(false);
 
   readonly busy = computed(
-    () => this.repartitionning() || this.savingPresenceLot() != null || this.generatingLot() != null,
+    () =>
+      this.repartitionning() ||
+      this.savingPresenceLot() != null ||
+      this.generatingLot() != null ||
+      this.movingParticipation() != null,
   );
 
   readonly statut = computed(() => this.store.exam()?.statut ?? null);
@@ -377,6 +413,43 @@ export class LotsComponent {
       error: (err) => {
         this.repartitionning.set(false);
         this.actionError.set(this.message(err, 'Répartition impossible.'));
+      },
+    });
+  }
+
+  // ---- CONFIGURE: manual single-student lot move (#165) ------------------
+
+  /** The lots a student could be moved to: every lot of this exam except their own. */
+  otherLots(currentLotId: number): LotSummary[] {
+    return [...this.lots()]
+      .filter((l) => l.id !== currentLotId)
+      .sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0));
+  }
+
+  /**
+   * Move one student from {@code sourceLotId} into the lot picked in the select.
+   * Re-points the participation server-side (CONFIGURE-gated) then reloads so both
+   * rosters + tailleLot reflect the change. Errors surface under the source lot.
+   */
+  deplacer(participationId: number, sourceLotId: number, event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const targetLotId = Number(select.value);
+    if (this.busy() || !Number.isFinite(targetLotId) || targetLotId <= 0) {
+      select.value = '';
+      return;
+    }
+    this.movingParticipation.set(participationId);
+    this.clearLotError(sourceLotId);
+    this.scoring.deplacerEtudiant(targetLotId, participationId).subscribe({
+      next: () => {
+        this.movingParticipation.set(null);
+        this.genByLot.set({});
+        this.load(Number(this.id()));
+      },
+      error: (err) => {
+        this.movingParticipation.set(null);
+        select.value = '';
+        this.setLotError(sourceLotId, this.message(err, 'Déplacement impossible.'));
       },
     });
   }

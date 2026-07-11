@@ -195,6 +195,24 @@ export class ScoringApiService {
   }
 
   /**
+   * Manually move one enrolled student into a target lot (#165 — PATCH
+   * /lots/{targetLotId}/etudiants/{participationId}, RESPONSABLE_MATIERE + SUPER_ADMIN).
+   * The single-student alternative to re-répartir: re-points one participation's lot
+   * without rebuilding the whole partition, and recomputes both lots' sizes. Backend-
+   * gated to CONFIGURE (400 once the exam has launched, or if the target lot is in
+   * another exam; 404 unknown lot/participation). Returns the updated participation
+   * carrying its new lotId.
+   */
+  deplacerEtudiant(targetLotId: number, participationId: number): Observable<ParticipationSummary> {
+    return this.http
+      .patch<ApiResponse<ParticipationSummary>>(
+        `${this.baseUrl}/lots/${targetLotId}/etudiants/${participationId}`,
+        null,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * Phase 2 — mark a lot's presence on exam day (PATCH /lots/{id}/presence,
    * RESPONSABLE_MATIERE). Default is "the whole wave showed up"; pass the
    * participation ids that didn't. Flips the lot to EN_COURS, unlocking its

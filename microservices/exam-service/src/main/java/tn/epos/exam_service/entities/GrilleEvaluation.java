@@ -59,7 +59,18 @@ public class GrilleEvaluation {
 
     // methodes
     public boolean isPonderationValide() {
-        return Math.abs(getSommePonderations() - noteMax) < 0.001;
+        // 1) somme des items de premier niveau == noteMax
+        if (Math.abs(getSommePonderations() - noteMax) >= 0.001) {
+            return false;
+        }
+        // 2) #160 — chaque critère décomposé en sous-critères doit répartir la
+        //    TOTALITÉ de sa pondération : sinon les feuilles (seules notées côté
+        //    scoring) exposent moins de points que noteMax → note maximale
+        //    silencieusement inatteignable. Contrôle indicatif (comme le reste de
+        //    ce flag), surfacé dans l'éditeur de grille.
+        return items.stream()
+                .filter(i -> i.getParent() == null)
+                .allMatch(ItemEvaluation::isPonderationEnfantsValide);
     }
 
     public Double getSommePonderations() {

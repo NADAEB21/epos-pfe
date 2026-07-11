@@ -398,6 +398,121 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
                     }
                   }
                 }
+
+                <!-- ===== sub-criteria (#160) — one level deep, leaf-only grading ===== -->
+                @if (it.sousCriteres?.length) {
+                  <ul class="mt-2 ml-4 pl-3 border-l-2 border-gray-100 divide-y divide-gray-100">
+                    @for (sub of it.sousCriteres; track sub.id) {
+                      <li class="py-1.5">
+                        @if (editingItemId() === sub.id) {
+                          <ng-container
+                            [ngTemplateOutlet]="itemForm"
+                            [ngTemplateOutletContext]="{ mode: 'edit' }"
+                          ></ng-container>
+                        } @else {
+                          <div class="flex items-start justify-between gap-3 text-xs">
+                            <span class="text-gray-600 min-w-0">
+                              <span class="text-gray-400">↳</span>
+                              {{ sub.libelle }}
+                              @if (sub.conditionsAttendues) {
+                                <span class="block text-gray-400 mt-0.5">
+                                  <span class="text-gray-500">Attendu :</span> {{ sub.conditionsAttendues }}
+                                </span>
+                              }
+                            </span>
+                            <span class="flex items-center gap-2 shrink-0">
+                              <span class="text-gray-500 text-right">
+                                {{ typeItemLabel(sub.type) }}
+                                @if (sub.type === 'NUMERIQUE' && sub.valeurMax != null) {
+                                  · /{{ sub.valeurMax }}
+                                }
+                                · pond. {{ sub.ponderation ?? '—' }}
+                              </span>
+                              @if (editable()) {
+                                <button
+                                  type="button"
+                                  (click)="openItemEdit(sub)"
+                                  class="text-gray-500 hover:text-brand"
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  (click)="askDeleteItem(sub)"
+                                  class="text-gray-500 hover:text-status-danger"
+                                >
+                                  Supprimer
+                                </button>
+                              }
+                            </span>
+                          </div>
+                          @if (confirmDeleteItemId() === sub.id) {
+                            <div
+                              class="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 mt-2"
+                            >
+                              <p class="text-xs text-status-danger">Supprimer ce sous-critère ?</p>
+                              <div class="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  (click)="confirmDeleteItemId.set(null)"
+                                  [disabled]="deletingItemId() === sub.id"
+                                  class="px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs hover:bg-gray-50 disabled:opacity-40"
+                                >
+                                  Annuler
+                                </button>
+                                <button
+                                  type="button"
+                                  (click)="deleteItem(sub)"
+                                  [disabled]="deletingItemId() === sub.id"
+                                  class="px-2.5 py-1 rounded-lg bg-status-danger text-white text-xs hover:opacity-90 disabled:opacity-40"
+                                >
+                                  {{ deletingItemId() === sub.id ? '…' : 'Supprimer' }}
+                                </button>
+                              </div>
+                            </div>
+                            @if (itemDeleteError()) {
+                              <p class="text-xs text-status-danger mt-1">{{ itemDeleteError() }}</p>
+                            }
+                          }
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+
+                <!-- coverage hint + leaf-only note -->
+                @if (it.hasSousCriteres) {
+                  @if (!subComplete(it)) {
+                    <p class="mt-1 ml-4 text-xs text-status-warning">
+                      Sous-critères incomplets ({{ subSum(it) }}/{{ it.ponderation }} pts) — les
+                      points non répartis resteront inatteignables à la notation.
+                    </p>
+                  } @else {
+                    <p class="mt-1 ml-4 text-xs text-gray-400">
+                      Noté via ses {{ it.sousCriteres?.length }} sous-critère(s).
+                    </p>
+                  }
+                }
+
+                <!-- add a sub-criterion (top-level critères only; one level deep) -->
+                @if (editable() && editingItemId() !== it.id) {
+                  @if (addingSubForItemId() === it.id) {
+                    <div class="mt-2 ml-4 pl-3 border-l-2 border-gray-200">
+                      <ng-container
+                        [ngTemplateOutlet]="itemForm"
+                        [ngTemplateOutletContext]="{ mode: 'add' }"
+                      ></ng-container>
+                    </div>
+                  } @else {
+                    <button
+                      type="button"
+                      (click)="openSubAdd(it)"
+                      class="mt-1.5 ml-4 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand"
+                    >
+                      + Ajouter un sous-critère
+                    </button>
+                  }
+                }
               </li>
             }
           </ul>
@@ -788,6 +903,11 @@ export class GrilleEditorComponent {
   // item add / edit (one shared form)
   readonly addingItem = signal(false);
   readonly editingItemId = signal<number | null>(null);
+  /** #160 — when set, the shared item form is adding a SUB-criterion under this
+   *  parent item id (POST /items/{id}/sous-criteres) instead of a top-level one.
+   *  Mutually exclusive with addingItem / editingItemId (the open* helpers below
+   *  clear the others), so the single shared form only ever renders in one place. */
+  readonly addingSubForItemId = signal<number | null>(null);
   readonly savingItem = signal(false);
   readonly itemError = signal<string | null>(null);
   readonly itemFormGroup = this.fb.nonNullable.group({
@@ -1081,6 +1201,7 @@ export class GrilleEditorComponent {
 
   openItemAdd(): void {
     this.editingItemId.set(null);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
     this.itemFormGroup.reset({
       libelle: '',
@@ -1093,8 +1214,28 @@ export class GrilleEditorComponent {
     this.addingItem.set(true);
   }
 
+  /** #160 — open the shared form to add a sub-criterion under a top-level item.
+   *  Defaults the pondération to the parent's remaining (unallocated) points so a
+   *  full split is the path of least resistance. */
+  openSubAdd(parent: GrilleItem): void {
+    this.addingItem.set(false);
+    this.editingItemId.set(null);
+    this.itemError.set(null);
+    const remaining = Math.max(0.5, (parent.ponderation ?? 0) - this.subSum(parent));
+    this.itemFormGroup.reset({
+      libelle: '',
+      type: 'BINAIRE',
+      ponderation: remaining,
+      valeurMax: null,
+      categorie: '',
+      conditionsAttendues: '',
+    });
+    this.addingSubForItemId.set(parent.id);
+  }
+
   openItemEdit(it: GrilleItem): void {
     this.addingItem.set(false);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
     this.itemFormGroup.reset({
       libelle: it.libelle ?? '',
@@ -1110,6 +1251,7 @@ export class GrilleEditorComponent {
   cancelItem(): void {
     this.addingItem.set(false);
     this.editingItemId.set(null);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
   }
 
@@ -1130,14 +1272,18 @@ export class GrilleEditorComponent {
     this.savingItem.set(true);
     this.itemError.set(null);
     const editId = this.editingItemId();
+    const subParentId = this.addingSubForItemId();
     const req = editId
       ? this.examApi.updateGrilleItem(editId, body)
-      : this.examApi.createGrilleItem(g.id, body);
+      : subParentId != null
+        ? this.examApi.ajouterSousCritere(subParentId, body)
+        : this.examApi.createGrilleItem(g.id, body);
     req.subscribe({
       next: () => {
         this.savingItem.set(false);
         this.addingItem.set(false);
         this.editingItemId.set(null);
+        this.addingSubForItemId.set(null);
         this.refetchGrille();
       },
       error: (err: HttpErrorResponse) => {
@@ -1145,6 +1291,24 @@ export class GrilleEditorComponent {
         this.itemError.set(this.mutationMessage(err));
       },
     });
+  }
+
+  // ---- sub-criteria helpers (#160) ---------------------------------------
+
+  /** Σ pondération of a critère's sub-criteria (0 when it has none), display-rounded. */
+  subSum(it: GrilleItem): number {
+    const total = (it.sousCriteres ?? []).reduce((acc, c) => acc + (c.ponderation ?? 0), 0);
+    return Math.round(total * 100) / 100;
+  }
+
+  /** A decomposed critère is "complete" only when its children's pondération sums
+   *  exactly to its own — otherwise the unallocated points expose fewer notable
+   *  points than the parent is worth (scoring only grades leaves). Mirrors the
+   *  server ItemEvaluation.isPonderationEnfantsValide, now folded into the grille
+   *  ponderationValide flag. */
+  subComplete(it: GrilleItem): boolean {
+    if (!it.sousCriteres?.length) return true;
+    return Math.abs(this.subSum(it) - (it.ponderation ?? 0)) < 0.001;
   }
 
   askDeleteItem(it: GrilleItem): void {

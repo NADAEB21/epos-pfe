@@ -841,9 +841,11 @@ export class ResultatsComponent {
     const grille = this.grilleByStation.get(stationId);
     const valueByItem = new Map<number, NotationItemSummary>();
     for (const it of items) if (it.item_id != null) valueByItem.set(it.item_id, it);
-    const grilleItems: GrilleItem[] = (grille?.items ?? [])
-      .slice()
-      .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+    // #160 — grille.items are TOP-LEVEL only, with sub-criteria nested. Only
+    // LEAVES are ever notated (scoring rejects grading a parent), so flatten the
+    // hierarchy to leaves before joining the recorded per-critère values — else a
+    // decomposed critère would show an empty parent row and hide its scored leaves.
+    const grilleItems: GrilleItem[] = this.flattenLeaves(grille?.items ?? []);
     if (grilleItems.length === 0) {
       // Grille unavailable — surface the raw recorded values rather than nothing.
       return items.map((it) => ({
@@ -869,6 +871,22 @@ export class ResultatsComponent {
         conditionsAttendues: gi.conditionsAttendues ?? null,
       };
     });
+  }
+
+  /** Flatten a grille's item tree to its notable LEAVES (#160), sorted by ordre at
+   *  each level — mirrors the backend GrilleServiceImpl.aplatirFeuilles. A critère
+   *  with sub-criteria contributes its children; a plain critère contributes itself. */
+  private flattenLeaves(items: GrilleItem[]): GrilleItem[] {
+    const sorted = items.slice().sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+    const leaves: GrilleItem[] = [];
+    for (const it of sorted) {
+      if (it.sousCriteres?.length) {
+        leaves.push(...this.flattenLeaves(it.sousCriteres));
+      } else {
+        leaves.push(it);
+      }
+    }
+    return leaves;
   }
 
   private patchDeepDive(notationId: number, state: DeepDive): void {

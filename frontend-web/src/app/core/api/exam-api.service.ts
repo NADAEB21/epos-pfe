@@ -271,6 +271,26 @@ export class ExamApiService {
   }
 
   /**
+   * Add a sub-criterion under an existing critère (#160, POST
+   * /items/{itemId}/sous-criteres). One level deep only — the server rejects
+   * (400) adding a child to something that is already a child, and rejects (400)
+   * when the children's pondération sum would EXCEED the parent's. Returns the
+   * created sub-criterion; re-GET the grille afterwards for the recomputed tree.
+   */
+  ajouterSousCritere(itemId: number, body: ItemRequest): Observable<GrilleItem> {
+    return this.http
+      .post<ApiResponse<GrilleItem>>(`${this.itemsUrl}/${itemId}/sous-criteres`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /** List one critère's sub-criteria (GET /items/{itemId}/sous-criteres). */
+  listerSousCriteres(itemId: number): Observable<GrilleItem[]> {
+    return this.http
+      .get<ApiResponse<GrilleItem[]>>(`${this.itemsUrl}/${itemId}/sous-criteres`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
    * Replace a station's évaluateur list (PATCH). The gateway forwards a RAW
    * JSON array body (`[1,2,3]`, empty array clears) — not an object. Returns
    * the updated station, so callers can refresh local state from the response

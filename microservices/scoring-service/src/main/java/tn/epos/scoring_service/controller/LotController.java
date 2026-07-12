@@ -7,7 +7,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.LotDTO; // New Import
+import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.Lot;
+import tn.epos.scoring_service.service.LotAssignmentService;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -20,6 +22,9 @@ public class LotController {
 
     @Autowired
     private LotService lotService;
+
+    @Autowired
+    private LotAssignmentService lotAssignmentService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -72,5 +77,21 @@ public class LotController {
     public ResponseEntity<ApiResponse<Void>> deleteLot(@PathVariable Long id) {
         lotService.delete(id);
         return ResponseEntity.ok(ApiResponse.ok("Lot supprimé"));
+    }
+
+    /**
+     * Manually move one enrolled student into this lot (#165) — RESP/ADMIN,
+     * CONFIGURE-only. Reads as "put participation {participationId} into lot
+     * {targetLotId}", the single-student alternative to the wipe-and-redo
+     * {@code POST /examens/{id}/repartir}. Returns the updated participation
+     * (now carrying the new lotId). 404 unknown lot/participation; 400 when the
+     * target lot is in another exam or the exam is no longer CONFIGURE.
+     */
+    @PatchMapping("/{targetLotId}/etudiants/{participationId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<ParticipationDTO>> deplacerEtudiant(
+            @PathVariable Long targetLotId, @PathVariable Long participationId) {
+        ParticipationDTO dto = lotAssignmentService.deplacerEtudiant(targetLotId, participationId);
+        return ResponseEntity.ok(ApiResponse.ok("Étudiant déplacé", dto));
     }
 }

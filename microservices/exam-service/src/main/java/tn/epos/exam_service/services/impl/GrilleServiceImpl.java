@@ -22,6 +22,7 @@ import tn.epos.exam_service.services.GrilleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -81,6 +82,46 @@ public class GrilleServiceImpl implements GrilleService {
         return toResponse(sauvegardee);
     }
 
+    // #161 : Remplacement idempotent de la grille d'une station (create-or-replace).
+    // Mise à jour EN PLACE de la ligne existante — même raison que
+    // GrilleTemplateServiceImpl.appliquerSurStation : deux lignes ne peuvent
+    // coexister sur station_id (contrainte unique), et Hibernate ordonnerait
+    // l'INSERT avant le DELETE dans un même flush → 23505. Réutiliser la grille
+    // existante évite le conflit, préserve son id, et rend l'opération sûre sans
+    // aucun delete→create côté client.
+    @Override
+    public GrilleResponse remplacerPourStation(Long stationId, GrilleRequest request) {
+        Station station = stationRepository.findById(stationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Station", stationId));
+        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
+
+        if (!station.getExamen().isGrilleModifiable()) {
+            throw new BusinessException(
+                    "Impossible de remplacer la grille : l'examen est au statut "
+                            + station.getExamen().getStatut()
+            );
+        }
+
+        GrilleEvaluation grille = grilleRepository.findByStationIdWithItems(stationId)
+                .orElseGet(() -> GrilleEvaluation.builder().station(station).build());
+
+        grille.setNom(request.getNom());
+        grille.setNoteMax(request.getNoteMax());
+        grille.setDescription(request.getDescription());
+        grille.getItems().clear();   // orphanRemoval supprime les anciens critères
+
+        if (request.getItems() != null) {
+            for (ItemRequest itemReq : request.getItems()) {
+                grille.addItem(buildItem(itemReq));
+            }
+        }
+
+        GrilleEvaluation sauvegardee = grilleRepository.save(grille);
+        log.info("Grille de la station {} remplacée en place ('{}', {} items)",
+                stationId, request.getNom(), sauvegardee.getItems().size());
+        return toResponse(sauvegardee);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public GrilleResponse trouverParStation(Long stationId) {
@@ -88,7 +129,7 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Aucune grille trouvée pour la station " + stationId
                 ));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
@@ -97,7 +138,7 @@ public class GrilleServiceImpl implements GrilleService {
     public GrilleResponse trouverParId(Long id) {
         GrilleEvaluation grille = grilleRepository.findByIdWithItems(id)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, id));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
         return toResponse(grille);
     }
 
@@ -187,8 +228,8 @@ public class GrilleServiceImpl implements GrilleService {
     public Page<ItemResponse> listerItems(Long grilleId, Pageable pageable) {
         GrilleEvaluation grille = grilleRepository.findById(grilleId)
                 .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
-        matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
-        return itemRepository.findByGrilleIdOrderByOrdreAsc(grilleId, pageable)
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
+        return itemRepository.findByGrilleIdAndParentIsNullOrderByOrdreAsc(grilleId, pageable)
                 .map(this::toItemResponse);
     }
 
@@ -197,27 +238,33 @@ public class GrilleServiceImpl implements GrilleService {
         ItemEvaluation item = trouverItem(itemId);
         matiereAccessChecker.checkAccess(item.getGrille().getStation().getExamen().getMatiereId());
 
-        // Règle : interdire si examen non modifiable
         if (!item.getGrille().getStation().getExamen().isGrilleModifiable()) {
             throw new BusinessException(
                     "Impossible de modifier le critère : l'examen est au statut "
-                            + item.getGrille().getStation().getExamen().getStatut()
-            );
+                            + item.getGrille().getStation().getExamen().getStatut());
         }
 
         validerItem(request);
 
-        // Vérifier que la nouvelle pondération ne fait pas dépasser noteMax
-        double sommeSansCetItem = item.getGrille().getSommePonderations() - item.getPonderation();
-        double nouvelleSomme = sommeSansCetItem + request.getPonderation();
-        if (nouvelleSomme > item.getGrille().getNoteMax()) {
-            throw new BusinessException(
-                    String.format(
-                            "Modification impossible : la somme des pondérations (%.1f) "
-                                    + "dépasserait la note maximale (%.1f)",
-                            nouvelleSomme, item.getGrille().getNoteMax()
-                    )
-            );
+        if (item.getParent() != null) {
+            ItemEvaluation parent = item.getParent();
+            double sommeSansCetEnfant = parent.getSommePonderationsEnfants() - item.getPonderation();
+            double nouvelleSomme = sommeSansCetEnfant + request.getPonderation();
+            if (nouvelleSomme > parent.getPonderation()) {
+                throw new BusinessException(String.format(
+                        "Modification impossible : la somme des pondérations des sous-critères (%.2f) "
+                                + "dépasserait la pondération du critère parent (%.2f)",
+                        nouvelleSomme, parent.getPonderation()));
+            }
+        } else {
+            double sommeSansCetItem = item.getGrille().getSommePonderations() - item.getPonderation();
+            double nouvelleSomme = sommeSansCetItem + request.getPonderation();
+            if (nouvelleSomme > item.getGrille().getNoteMax()) {
+                throw new BusinessException(String.format(
+                        "Modification impossible : la somme des pondérations (%.1f) "
+                                + "dépasserait la note maximale (%.1f)",
+                        nouvelleSomme, item.getGrille().getNoteMax()));
+            }
         }
 
         item.setLibelle(request.getLibelle());
@@ -225,6 +272,8 @@ public class GrilleServiceImpl implements GrilleService {
         item.setPonderation(request.getPonderation());
         item.setValeurMax(request.getType() == TypeItem.NUMERIQUE ? request.getValeurMax() : null);
         item.setCategorie(request.getCategorie());
+        item.setValeurAttendue(request.getValeurAttendue());
+        item.setConditionsAttendues(request.getConditionsAttendues());
 
         return toItemResponse(itemRepository.save(item));
     }
@@ -232,19 +281,27 @@ public class GrilleServiceImpl implements GrilleService {
     @Override
     public void supprimerItem(Long itemId) {
         ItemEvaluation item = trouverItem(itemId);
+        ItemEvaluation parent = item.getParent();
         GrilleEvaluation grille = item.getGrille();
         matiereAccessChecker.checkAccess(grille.getStation().getExamen().getMatiereId());
 
         if (!grille.getStation().getExamen().isGrilleModifiable()) {
             throw new BusinessException(
                     "Impossible de supprimer le critère : l'examen est au statut "
-                            + grille.getStation().getExamen().getStatut()
-            );
+                            + grille.getStation().getExamen().getStatut());
         }
 
-        grille.removeItem(item); // gère la réordination automatiquement
-        grilleRepository.save(grille);
-        log.info("Item {} supprimé de la grille {}. Items réordonnés.", itemId, grille.getId());
+        if (parent != null) {
+            parent.getChildren().remove(item);
+            List<ItemEvaluation> enfants = parent.getChildren();
+            for (int i = 0; i < enfants.size(); i++) enfants.get(i).setOrdre(i + 1);
+            itemRepository.save(parent); // orphanRemoval supprime l'enfant retiré
+            log.info("Sous-critère {} supprimé du critère parent {}.", itemId, parent.getId());
+        } else {
+            grille.removeItem(item);
+            grilleRepository.save(grille);
+            log.info("Item {} supprimé. Items réordonnés.", itemId);
+        }
     }
 
 
@@ -259,9 +316,9 @@ public class GrilleServiceImpl implements GrilleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Item", itemId));
     }
 
-     // Valide les règles spécifiques aux items :
-     // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
-     // - BINAIRE   : valeurMax ignorée
+    // Valide les règles spécifiques aux items :
+    // - NUMERIQUE : valeurMax obligatoire, > 0, et ≤ pondération
+    // - BINAIRE   : valeurMax ignorée
 
     private void validerItem(ItemRequest request) {
         if (request.getType() == TypeItem.NUMERIQUE) {
@@ -291,7 +348,80 @@ public class GrilleServiceImpl implements GrilleService {
                 .ponderation(request.getPonderation())
                 .valeurMax(request.getType() == TypeItem.NUMERIQUE ? request.getValeurMax() : null)
                 .categorie(request.getCategorie())
+                .valeurAttendue(request.getValeurAttendue())
+                .conditionsAttendues(request.getConditionsAttendues())
                 .build();
+    }
+
+    // sub criteria
+    @Override
+    public ItemResponse ajouterSousCritere(Long itemParentId, ItemRequest request) {
+        ItemEvaluation parent = trouverItem(itemParentId);
+        matiereAccessChecker.checkAccess(parent.getGrille().getStation().getExamen().getMatiereId());
+
+        if (!parent.getGrille().getStation().getExamen().isGrilleModifiable()) {
+            throw new BusinessException(
+                    "Impossible d'ajouter un sous-critère : l'examen est au statut "
+                            + parent.getGrille().getStation().getExamen().getStatut());
+        }
+
+        // AC #160 : un seul niveau de profondeur — un sous-critère ne peut pas être parent.
+        if (parent.getParent() != null) {
+            throw new BusinessException(
+                    "Un sous-critère ne peut pas avoir lui-même des sous-critères "
+                            + "(un seul niveau de profondeur est supporté).");
+        }
+
+        validerItem(request);
+        ItemEvaluation enfant = buildItem(request);
+        parent.addChild(enfant);
+
+        double somme = parent.getSommePonderationsEnfants();
+        if (somme > parent.getPonderation()) {
+            throw new BusinessException(String.format(
+                    "Ajout impossible : la somme des pondérations des sous-critères (%.2f) "
+                            + "dépasserait la pondération du critère '%s' (%.2f)",
+                    somme, parent.getLibelle(), parent.getPonderation()));
+        }
+
+        itemRepository.save(enfant);
+        log.info("Sous-critère '{}' ajouté au critère {} (somme {}/{})",
+                request.getLibelle(), itemParentId, somme, parent.getPonderation());
+        return toItemResponse(enfant);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ItemResponse> listerSousCriteres(Long itemParentId) {
+        ItemEvaluation parent = trouverItem(itemParentId);
+        matiereAccessChecker.checkReadAccess(parent.getGrille().getStation().getExamen().getMatiereId());
+        return itemRepository.findByParentIdOrderByOrdreAsc(itemParentId).stream()
+                .map(this::toItemResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ItemResponse> listerItemsFeuilles(Long grilleId) {
+        GrilleEvaluation grille = grilleRepository.findByIdWithItems(grilleId)
+                .orElseThrow(() -> new ResourceNotFoundException(RESOURCE_NAME, grilleId));
+        matiereAccessChecker.checkReadAccess(grille.getStation().getExamen().getMatiereId());
+        List<ItemEvaluation> topLevel = grille.getItems().stream()
+                .filter(i -> i.getParent() == null)
+                .collect(Collectors.toList());
+        return aplatirFeuilles(topLevel);
+    }
+
+    private List<ItemResponse> aplatirFeuilles(List<ItemEvaluation> items) {
+        List<ItemResponse> feuilles = new ArrayList<>();
+        for (ItemEvaluation item : items) {
+            if (item.hasChildren()) {
+                feuilles.addAll(aplatirFeuilles(item.getChildren()));
+            } else {
+                feuilles.add(toItemResponse(item));
+            }
+        }
+        return feuilles;
     }
 
     // MAPPING ENTITY → DTO
@@ -305,14 +435,28 @@ public class GrilleServiceImpl implements GrilleService {
         response.setStationId(grille.getStation().getId());
         response.setSommePonderations(grille.getSommePonderations());
         response.setPonderationValide(grille.isPonderationValide());
-        response.setNombreItems(grille.getItems().size());
+
+        // #160 — grille.getItems() est un @OneToMany(mappedBy = "grille") : Hibernate
+        // reconstruit cette collection depuis la SEULE colonne grille_id en base, qui
+        // est renseignée aussi bien sur les items de premier niveau que sur leurs
+        // sous-critères (NOT NULL → propagée récursivement, voir ItemEvaluation.
+        // addChild() / GrilleEvaluation.assignerGrilleRecursivement()). Après un
+        // rechargement depuis la base, cette collection contient donc TOUJOURS les
+        // sous-critères en plus de leurs parents, même si juste après une création en
+        // mémoire (POST, même transaction) elle semblait "propre". Il faut filtrer
+        // explicitement le premier niveau ici — comme c'est déjà fait dans
+        // GrilleEvaluation.getSommePonderations() et listerItemsFeuilles().
+        List<ItemEvaluation> itemsPremierNiveau = grille.getItems().stream()
+                .filter(i -> i.getParent() == null)
+                .collect(Collectors.toList());
+
+        response.setNombreItems(itemsPremierNiveau.size());
+        response.setItems(itemsPremierNiveau.stream()
+                .map(this::toItemResponse)
+                .collect(Collectors.toList()));
+
         response.setCreatedAt(grille.getCreatedAt());
         response.setUpdatedAt(grille.getUpdatedAt());
-
-        List<ItemResponse> items = grille.getItems().stream()
-                .map(this::toItemResponse)
-                .collect(Collectors.toList());
-        response.setItems(items);
 
         return response;
     }
@@ -326,8 +470,15 @@ public class GrilleServiceImpl implements GrilleService {
         response.setValeurMax(item.getValeurMax());
         response.setOrdre(item.getOrdre());
         response.setCategorie(item.getCategorie());
+        response.setValeurAttendue(item.getValeurAttendue());
+        response.setConditionsAttendues(item.getConditionsAttendues());
         response.setGrilleId(item.getGrille().getId());
         response.setCreatedAt(item.getCreatedAt());
+        response.setParentId(item.getParent() != null ? item.getParent().getId() : null);
+        response.setHasSousCriteres(item.hasChildren());
+        response.setSousCriteres(item.getChildren().stream()
+                .map(this::toItemResponse)
+                .collect(Collectors.toList()));
         return response;
     }
 }

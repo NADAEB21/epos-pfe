@@ -7,6 +7,9 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import jakarta.validation.constraints.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(name = "items_evaluation")
 @Getter
@@ -54,11 +57,30 @@ public class ItemEvaluation {
     @Column(length = 100)
     private String categorie;
 
+    // Corrigé / clé de réponse (#162) — optionnels, non contraints par le type.
+    // valeurAttendue = la valeur numérique attendue (ex: dose correcte) ;
+    // conditionsAttendues = description libre des conditions à remplir.
+    @DecimalMin(value = "0.0")
+    @Column(name = "valeur_attendue")
+    private Double valeurAttendue;
+
+    @Size(max = 1000)
+    @Column(name = "conditions_attendues", length = 1000)
+    private String conditionsAttendues;
+
     // relations
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "grille_id", nullable = false)
     private GrilleEvaluation grille;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private ItemEvaluation parent;
+
+    @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("ordre ASC")
+    @Builder.Default
+    private List<ItemEvaluation> children = new ArrayList<>();
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
@@ -77,5 +99,25 @@ public class ItemEvaluation {
             return valeurMax != null && valeurMax > 0 && valeurMax <= ponderation;
         }
         return true; // BINAIRE toujours valide si pondération présente
+    }
+
+    public boolean hasChildren() {
+        return children != null && !children.isEmpty();
+    }
+
+    public void addChild(ItemEvaluation child) {
+        child.setOrdre(children.size() + 1);
+        children.add(child);
+        child.setParent(this);
+        child.setGrille(this.grille); // peut être null temporairement pendant la construction d'un arbre
+    }
+
+    public Double getSommePonderationsEnfants() {
+        return children.stream().mapToDouble(ItemEvaluation::getPonderation).sum();
+    }
+
+    public boolean isPonderationEnfantsValide() {
+        if (!hasChildren()) return true;
+        return Math.abs(getSommePonderationsEnfants() - ponderation) < 0.001;
     }
 }

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,7 +25,11 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import static org.mockito.ArgumentMatchers.eq;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -49,13 +54,21 @@ class ExamenServiceImplTest {
     private Examen examenBrouillon;
     private ExamenRequest examenRequest;
 
+    // Horloge fixe (UTC) pour des assertions déterministes sur pause/reprise.
+    private static final Instant FIXED_NOW = Instant.parse("2024-06-15T10:00:00Z");
+    private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
     @BeforeEach
     void setUp() {
-        // Injection du uploadDir via réflexion (champ @Value)
+        // Injection du uploadDir (@Value) + de l'horloge fixe (champ final) via réflexion.
         try {
-            var field = ExamenServiceImpl.class.getDeclaredField("uploadDir");
-            field.setAccessible(true);
-            field.set(examenService, "uploads/");
+            var uploadField = ExamenServiceImpl.class.getDeclaredField("uploadDir");
+            uploadField.setAccessible(true);
+            uploadField.set(examenService, "uploads/");
+
+            var clockField = ExamenServiceImpl.class.getDeclaredField("clock");
+            clockField.setAccessible(true);
+            clockField.set(examenService, FIXED_CLOCK);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -105,6 +118,24 @@ class ExamenServiceImplTest {
             examenService.creer(examenRequest);
 
             verify(examenRepository, times(1)).save(any(Examen.class));
+        }
+
+        @Test
+        @DisplayName("ADR-0012 : tempsBattementMin et avertissementLeadSec sont copiés vers l'entité")
+        void creer_devraitCopierBattementEtAvertissement() {
+            examenRequest.setTempsBattementMin(5);
+            examenRequest.setAvertissementLeadSec(90);
+            when(examenRepository.save(any(Examen.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            ArgumentCaptor<Examen> captor = ArgumentCaptor.forClass(Examen.class);
+            ExamenResponse result = examenService.creer(examenRequest);
+
+            verify(examenRepository).save(captor.capture());
+            assertThat(captor.getValue().getTempsBattementMin()).isEqualTo(5);
+            assertThat(captor.getValue().getAvertissementLeadSec()).isEqualTo(90);
+            // Et toResponse les re-surface (contrat exposé au front + scoring).
+            assertThat(result.getTempsBattementMin()).isEqualTo(5);
+            assertThat(result.getAvertissementLeadSec()).isEqualTo(90);
         }
     }
 
@@ -335,6 +366,68 @@ class ExamenServiceImplTest {
             assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.BROUILLON))
                     .isInstanceOf(BusinessException.class);
         }
+
+        @Test
+        @DisplayName("ADR-0010 : CONFIGURE → EN_COURS pose launched_at = horloge (instant de lancement)")
+        void changerStatut_versEnCours_doitPoserLaunchedAt() {
+            Examen configure = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.CONFIGURE)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(configure));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+            // Posé depuis l'horloge fixe injectée (déterministe).
+            assertThat(result.getLaunchedAt())
+                    .isEqualTo(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : les transitions hors EN_COURS ne posent pas launched_at")
+        void changerStatut_horsEnCours_neToucheePasLaunchedAt() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.CONFIGURE);
+
+            assertThat(result.getLaunchedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("EN_COURS → TERMINE réussit quand l'examen n'est pas en pause")
+        void changerStatut_versTermine_doitReussirSiPasEnPause() {
+            Examen enCours = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS).enPause(false)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(enCours));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.TERMINE);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.TERMINE);
+        }
+
+        @Test
+        @DisplayName("EN_COURS → TERMINE doit échouer si l'examen est en pause (reprendre d'abord)")
+        void changerStatut_versTermineEnPause_doitEchouer() {
+            Examen enPause = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS).enPause(true)
+                    .build();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(enPause));
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.TERMINE))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Reprenez");
+            verify(examenRepository, never()).save(any());
+        }
     }
 
     // SUPPRIMER
@@ -371,6 +464,92 @@ class ExamenServiceImplTest {
 
             assertThatThrownBy(() -> examenService.supprimer(99L))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // PAUSE / REPRISE (ADR-0009)
+
+    @Nested
+    @DisplayName("mettreEnPause() / reprendre()")
+    class PauseReprise {
+
+        private Examen examenEnCours() {
+            return Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS)
+                    .enPause(false).totalPauseSec(0)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen EN_COURS : enPause=true, pausedAt = horloge, statut inchangé")
+        void mettreEnPause_enCours_doitMettreEnPause() {
+            Examen exam = examenEnCours();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.mettreEnPause(1L);
+
+            assertThat(result.isEnPause()).isTrue();
+            // pausedAt vient de l'horloge fixe injectée (déterministe).
+            assertThat(result.getPausedAt())
+                    .isEqualTo(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
+            // Pause est orthogonale : le statut reste EN_COURS.
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen non EN_COURS doit lever BusinessException")
+        void mettreEnPause_nonEnCours_doitEchouer() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+
+            assertThatThrownBy(() -> examenService.mettreEnPause(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+        }
+
+        @Test
+        @DisplayName("Pause d'un examen déjà en pause doit lever BusinessException")
+        void mettreEnPause_dejaEnPause_doitEchouer() {
+            Examen exam = examenEnCours();
+            exam.setEnPause(true);
+            exam.setPausedAt(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+
+            assertThatThrownBy(() -> examenService.mettreEnPause(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("déjà");
+        }
+
+        @Test
+        @DisplayName("Reprise cumule la durée écoulée et efface pausedAt")
+        void reprendre_doitCumulerEtEffacer() {
+            Examen exam = examenEnCours();
+            exam.setEnPause(true);
+            // 5s avant l'instant fixe de l'horloge → durée de pause = 5s, exactement.
+            exam.setPausedAt(LocalDateTime.ofInstant(FIXED_NOW.minusSeconds(5), ZoneOffset.UTC));
+            exam.setTotalPauseSec(10);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.reprendre(1L);
+
+            assertThat(result.isEnPause()).isFalse();
+            assertThat(result.getPausedAt()).isNull();
+            // 10s cumulés + 5s de cette pause = 15 (déterministe).
+            assertThat(result.getTotalPauseSec()).isEqualTo(15);
+        }
+
+        @Test
+        @DisplayName("Reprise d'un examen non en pause doit lever BusinessException")
+        void reprendre_nonEnPause_doitEchouer() {
+            Examen exam = examenEnCours();
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(exam));
+
+            assertThatThrownBy(() -> examenService.reprendre(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("pas en pause");
         }
     }
 

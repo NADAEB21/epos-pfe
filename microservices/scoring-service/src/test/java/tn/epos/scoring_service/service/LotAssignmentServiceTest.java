@@ -10,8 +10,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.dto.PresenceResult;
 import tn.epos.scoring_service.dto.RepartitionResult;
 import tn.epos.scoring_service.entities.ExamenParticipation;
@@ -71,7 +73,7 @@ class LotAssignmentServiceTest {
             stations.add(new ExamGenerationView.StationView(10L + i, i + 1, List.of(1000L + i)));
         }
         return new ExamGenerationView(EXAM_ID, LocalDate.of(2026, 6, 20),
-                LocalTime.of(9, 0), 15, capacite, statut, stations);
+                LocalTime.of(9, 0), null, 15, 0, capacite, statut, stations);
     }
 
     private List<ExamenParticipation> enrolled(int count) {
@@ -90,20 +92,46 @@ class LotAssignmentServiceTest {
     class Repartition {
 
         @Test
-        @DisplayName("K=3, cap=4 → lotSize 12 ; 54 inscrits → 5 lots (4×12 + 1×6)")
+        @DisplayName("K=3, cap=4 → lotSize 12 ; 54 inscrits → 5 lots équilibrés (4×11 + 1×10)")
         void repartit_54en5lots() {
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
             when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(54));
 
             RepartitionResult r = service.repartir(EXAM_ID);
 
-            assertThat(r.lotSize()).isEqualTo(12);
+            // #164 : même nombre de lots (ceil(54/12)=5) mais tailles équilibrées
+            // (base 10 + 4 lots à +1) plutôt que 4×12 + 1×6.
+            assertThat(r.lotSize()).isEqualTo(12);   // capacité max par lot, inchangée
             assertThat(r.lots()).isEqualTo(5);
             assertThat(r.etudiantsRepartis()).isEqualTo(54);
             assertThat(r.details()).hasSize(5);
-            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 12);
-            assertThat(r.details().get(4).taille()).isEqualTo(6);
+            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 11);
+            assertThat(r.details().get(4).taille()).isEqualTo(10);
             assertThat(r.details().get(0).numeroLot()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("#164 équilibrage : K=3, cap=4, 15 inscrits → 2 lots 8/7 (jamais 12/3)")
+        void repartit_equilibre_15en2lots() {
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(15));
+
+            RepartitionResult r = service.repartir(EXAM_ID);
+
+            // nbLots = ceil(15/12) = 2. Glouton aurait donné 12 + 3 ; l'équilibrage
+            // donne 8 + 7 : les tailles ne diffèrent jamais de plus de 1.
+            assertThat(r.lots()).isEqualTo(2);
+            assertThat(r.etudiantsRepartis()).isEqualTo(15);
+            assertThat(r.details()).hasSize(2);
+            assertThat(r.details().get(0).taille()).isEqualTo(8);
+            assertThat(r.details().get(1).taille()).isEqualTo(7);
+            // aucun lot ne dépasse la capacité max (lotSize=12) et l'écart est ≤ 1
+            int max = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).max().orElseThrow();
+            int min = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).min().orElseThrow();
+            assertThat(max - min).isLessThanOrEqualTo(1);
+            assertThat(max).isLessThanOrEqualTo(12);
+            // somme des tailles = effectif total (aucun étudiant perdu ni dupliqué)
+            assertThat(r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).sum()).isEqualTo(15);
         }
 
         @Test
@@ -243,6 +271,126 @@ class LotAssignmentServiceTest {
             assertThatThrownBy(() -> service.markPresence(5L, null))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("aucun étudiant");
+        }
+    }
+
+    @Nested
+    @DisplayName("Déplacement manuel d'un étudiant entre lots (#165, CONFIGURE)")
+    class Deplacement {
+
+        private Lot lot(long id) {
+            Lot l = new Lot();
+            l.setId(id);
+            l.setExamenId(EXAM_ID);
+            l.setNumeroLot((int) id);
+            l.setStatut(LotStatus.EN_ATTENTE);
+            return l;
+        }
+
+        private ExamenParticipation participation(long id, Lot lot) {
+            ExamenParticipation p = new ExamenParticipation();
+            p.setId(id);
+            p.setExamen_id(EXAM_ID);
+            p.setLot(lot);
+            return p;
+        }
+
+        @Test
+        @DisplayName("Happy path : re-pointe le lot et recalcule tailleLot des deux lots")
+        void deplace_repointeEtRecalcule() {
+            Lot source = lot(10L);
+            Lot target = lot(20L);
+            ExamenParticipation p = participation(1L, source);
+
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(p));
+            when(lotRepository.findById(20L)).thenReturn(Optional.of(target));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+            // après le move : le lot cible compte 3 membres, la source 2
+            when(participationRepository.findByLotId(20L)).thenReturn(enrolled(3));
+            when(participationRepository.findByLotId(10L)).thenReturn(enrolled(2));
+
+            ParticipationDTO dto = service.deplacerEtudiant(20L, 1L);
+
+            assertThat(p.getLot()).isSameAs(target);
+            assertThat(dto.lotId()).isEqualTo(20L);
+            assertThat(target.getTailleLot()).isEqualTo(3);
+            assertThat(source.getTailleLot()).isEqualTo(2);
+            verify(participationRepository).save(p);
+        }
+
+        @Test
+        @DisplayName("Lot cible dans un autre examen → BusinessException, aucun déplacement")
+        void deplace_rejetteCrossExam() {
+            Lot source = lot(10L);
+            Lot target = lot(20L);
+            target.setExamenId(999L); // autre examen
+            ExamenParticipation p = participation(1L, source);
+
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(p));
+            when(lotRepository.findById(20L)).thenReturn(Optional.of(target));
+
+            assertThatThrownBy(() -> service.deplacerEtudiant(20L, 1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("autre examen");
+
+            assertThat(p.getLot()).isSameAs(source); // inchangé
+            verify(participationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Examen hors CONFIGURE → BusinessException, aucun déplacement")
+        void deplace_rejetteHorsConfigure() {
+            Lot source = lot(10L);
+            Lot target = lot(20L);
+            ExamenParticipation p = participation(1L, source);
+
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(p));
+            when(lotRepository.findById(20L)).thenReturn(Optional.of(target));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("EN_COURS", 3, 4));
+
+            assertThatThrownBy(() -> service.deplacerEtudiant(20L, 1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("CONFIGURE");
+
+            assertThat(p.getLot()).isSameAs(source);
+            verify(participationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Participation introuvable → ResourceNotFoundException (404)")
+        void deplace_participationIntrouvable() {
+            when(participationRepository.findById(1L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.deplacerEtudiant(20L, 1L))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Lot cible introuvable → ResourceNotFoundException (404)")
+        void deplace_lotCibleIntrouvable() {
+            ExamenParticipation p = participation(1L, lot(10L));
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(p));
+            when(lotRepository.findById(20L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.deplacerEtudiant(20L, 1L))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Déjà dans le lot cible → no-op (aucun save ni recalcul)")
+        void deplace_dejaDansLeLot() {
+            Lot target = lot(20L);
+            ExamenParticipation p = participation(1L, target); // déjà dans le lot 20
+
+            when(participationRepository.findById(1L)).thenReturn(Optional.of(p));
+            when(lotRepository.findById(20L)).thenReturn(Optional.of(target));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+
+            ParticipationDTO dto = service.deplacerEtudiant(20L, 1L);
+
+            assertThat(dto.lotId()).isEqualTo(20L);
+            verify(participationRepository, never()).save(any());
+            verify(participationRepository, never()).findByLotId(any());
         }
     }
 }

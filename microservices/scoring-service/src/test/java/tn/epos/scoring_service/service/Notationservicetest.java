@@ -10,6 +10,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
+import tn.epos.scoring_service.dto.ExamenResultDTO;
+import tn.epos.scoring_service.entities.Etudiant;
+import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
@@ -345,6 +348,91 @@ class NotationServiceTest {
             assertThatThrownBy(() -> notationService.verrouiller(99L))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
+        }
+    }
+
+    @Nested
+    @DisplayName("getResultatsByExamen() — agrégat par étudiant (#90)")
+    class Resultats {
+
+        // Notation rattachée à un étudiant via assignment -> participation -> etudiant.
+        private Notation scored(long etudiantId, String nom, String numEch,
+                                long participationId, long stationId, float score) {
+            Etudiant e = new Etudiant();
+            e.setId(etudiantId);
+            e.setNom(nom);
+            e.setPrenom("P" + etudiantId);
+            e.setNumero_inscription("INS-" + etudiantId);
+
+            ExamenParticipation p = new ExamenParticipation();
+            p.setId(participationId);
+            p.setExamen_id(16L);
+            p.setNum_echantillon(numEch);
+            p.setEtudiant(e);
+
+            RotationAssignment a = new RotationAssignment();
+            a.setParticipation(p);
+
+            Notation n = new Notation();
+            n.setStationId(stationId);
+            n.setGrilleId(stationId + 100);
+            n.setScore_final(score);
+            n.setVerouillee(true);
+            n.setAssignment(a);
+            return n;
+        }
+
+        @Test
+        @DisplayName("Regroupe par étudiant, somme le total, trie par total décroissant")
+        void getResultats_devraitAgregerEtTrier() {
+            // Étudiant 1 (participation 100) : deux stations -> total 30
+            Notation a1 = scored(1L, "Alpha", "E-01", 100L, 1L, 12f);
+            Notation a2 = scored(1L, "Alpha", "E-01", 100L, 2L, 18f);
+            // Étudiant 2 (participation 200) : deux stations -> total 25
+            Notation b1 = scored(2L, "Beta", "E-02", 200L, 1L, 10f);
+            Notation b2 = scored(2L, "Beta", "E-02", 200L, 2L, 15f);
+            when(repository.findByExamenIdWithGraph(16L))
+                    .thenReturn(List.of(b1, a1, b2, a2));
+
+            List<ExamenResultDTO> results = notationService.getResultatsByExamen(16L);
+
+            assertThat(results).hasSize(2);
+            // Trié par total décroissant : Alpha (30) avant Beta (25).
+            assertThat(results.get(0).nom()).isEqualTo("Alpha");
+            assertThat(results.get(0).totalScore()).isEqualTo(30.0);
+            assertThat(results.get(0).stationsNotees()).isEqualTo(2);
+            assertThat(results.get(0).numeroInscription()).isEqualTo("INS-1");
+            assertThat(results.get(0).numEchantillon()).isEqualTo("E-01");
+            // Les stations d'un étudiant sont triées par stationId.
+            assertThat(results.get(0).stations()).extracting("stationId")
+                    .containsExactly(1L, 2L);
+            assertThat(results.get(1).nom()).isEqualTo("Beta");
+            assertThat(results.get(1).totalScore()).isEqualTo(25.0);
+        }
+
+        @Test
+        @DisplayName("Examen sans notation -> liste vide")
+        void getResultats_sansNotation_devraitRetournerVide() {
+            when(repository.findByExamenIdWithGraph(99L)).thenReturn(List.of());
+
+            assertThat(notationService.getResultatsByExamen(99L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Ignore une notation orpheline (participation null)")
+        void getResultats_notationOrpheline_devraitIgnorer() {
+            Notation orphan = new Notation();
+            orphan.setStationId(1L);
+            orphan.setScore_final(10f);
+            orphan.setAssignment(new RotationAssignment()); // participation null
+            Notation valid = scored(1L, "Alpha", "E-01", 100L, 1L, 14f);
+            when(repository.findByExamenIdWithGraph(16L))
+                    .thenReturn(List.of(orphan, valid));
+
+            List<ExamenResultDTO> results = notationService.getResultatsByExamen(16L);
+
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).totalScore()).isEqualTo(14.0);
         }
     }
 

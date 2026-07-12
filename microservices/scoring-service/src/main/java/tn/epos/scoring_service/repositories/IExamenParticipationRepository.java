@@ -7,9 +7,16 @@ import org.springframework.stereotype.Repository;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface IExamenParticipationRepository extends JpaRepository<ExamenParticipation, Long> {
+    /**
+     * Récupère les participations d'un lot (= les étudiants du lot).
+     * Utilisé pour construire la liste des étudiants dans LotDetailResponse.
+     */
+     List<ExamenParticipation> findByLotId(Long lotId);
+
 
     // Explicit JPQL: the field is literally named "examen_id", so a derived
     // query (findByExamen_id) would read the underscore as a property-path
@@ -17,8 +24,64 @@ public interface IExamenParticipationRepository extends JpaRepository<ExamenPart
     @Query("SELECT p FROM ExamenParticipation p WHERE p.examen_id = :examenId")
     List<ExamenParticipation> findByExamenId(@Param("examenId") Long examenId);
 
-    // The lot association IS a real entity path (p.lot.id), unlike the flat
-    // examen_id column above, so a derived query resolves cleanly. Used by the
-    // two-phase lot workflow: per-lot presence marking and per-lot generation.
-    List<ExamenParticipation> findByLotId(Long lotId);
+
+    /**
+     * Retrouve la participation d'un étudiant pour un examen donné.
+     * NOTE : stationId est utilisé comme examen_id ici car dans le contexte
+     * du mock Flutter, l'id de la session = id de la station = id de l'examen.
+     * À ajuster selon le vrai mapping examen_id ↔ station_id de votre données.
+    */
+     Optional<ExamenParticipation> findByEtudiantIdAndLotExamenId(Long etudiantId, Long examenId);
+
+    /**
+     * Retrouve la participation d'un étudiant pour une station donnée.
+     *
+     * La navigation JPQL suit le chemin :
+     *   ExamenParticipation → lot → groups (StudentGroup) → rotations (Rotation) → stationId
+     *
+     * Utilisé par saisirNotation() et validerEtudiant() comme point d'entrée
+     * pour retrouver la chaîne : participation → assignment → notation → items.
+     *
+     * DISTINCT est nécessaire car un étudiant peut avoir plusieurs rotations
+     * (une par lot) mais une seule participation par station.
+     */
+    @Query("SELECT DISTINCT p FROM ExamenParticipation p " +
+            "JOIN p.lot l " +
+            "JOIN l.groups sg " +
+            "JOIN sg.rotations r " +
+            "WHERE p.etudiant.id = :etudiantId AND r.stationId = :stationId")
+    Optional<ExamenParticipation> findByEtudiantIdAndStationId(
+            @Param("etudiantId") Long etudiantId,
+            @Param("stationId") Long stationId);
+
+    // Pre-check for the bulk importer so an already-enrolled student is reported
+    // as ALREADY_ENROLLED instead of tripping the uq_participation_examen_etudiant
+    // unique constraint (examen_id, etudiant_id). examen_id is a flat column (no
+    // entity path) but etudiant.id IS a real association path.
+    @Query("SELECT COUNT(p) > 0 FROM ExamenParticipation p "
+            + "WHERE p.examen_id = :examenId AND p.etudiant.id = :etudiantId")
+    boolean existsByExamenAndEtudiant(@Param("examenId") Long examenId,
+                                      @Param("etudiantId") Long etudiantId);
+
+    /**
+     * Fallback de {@link #findByEtudiantIdAndStationId} : retrouve la participation
+     * d'un étudiant dans un examen directement, sans passer par la chaîne des rotations.
+     *
+     * <p>Utilisé par {@code saisirNotation()} quand les rotations ne sont pas encore
+     * générées pour le lot de l'étudiant (cas de test ou flux simplifié sans génération
+     * préalable). L'examenId est résolu depuis le lot de la participation.
+     */
+    @Query("SELECT p FROM ExamenParticipation p " +
+            "WHERE p.etudiant.id = :etudiantId " +
+            "AND p.lot.examenId = :examenId")
+    Optional<ExamenParticipation> findByEtudiantIdAndExamenId(
+            @Param("etudiantId") Long etudiantId,
+            @Param("examenId") Long examenId);
+
+    /**
+     * Retrouve toutes les participations d'un étudiant (tous examens confondus).
+     * Utilisé pour le fallback quand on ne connaît pas l'examenId.
+     */
+    @Query("SELECT p FROM ExamenParticipation p WHERE p.etudiant.id = :etudiantId")
+    List<ExamenParticipation> findByEtudiantId(@Param("etudiantId") Long etudiantId);
 }

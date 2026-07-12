@@ -26,6 +26,12 @@ public interface ExamenService {
     /** Changer le statut d'un examen (BROUILLON → CONFIGURE → EN_COURS...) */
     ExamenResponse changerStatut(Long id, StatutExamen nouveauStatut);
 
+    /** Mettre en pause un examen EN_COURS (ADR-0009 ; le statut reste EN_COURS) */
+    ExamenResponse mettreEnPause(Long id);
+
+    /** Reprendre un examen en pause (cumule la durée de pause écoulée) */
+    ExamenResponse reprendre(Long id);
+
     /** Supprimer un examen (uniquement si statut BROUILLON ou CONFIGURE) */
     void supprimer(Long id);
 

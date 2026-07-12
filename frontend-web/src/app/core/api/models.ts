@@ -34,6 +34,18 @@ export interface GrilleItem {
   valeurMax?: number | null;
   ordre?: number | null;
   categorie?: string | null;
+  /** Answer key (#162): free-text expected answer — a value, interval, tolerance,
+   *  organic compound, or observation. Optional, null when unset. (The backend
+   *  also carries a numeric `valeurAttendue` column, left dormant for a possible
+   *  future auto-grading feature; the responsable UI uses free text only.) */
+  conditionsAttendues?: string | null;
+  /** Sub-criteria (#160). Parent item id (null / absent for a top-level critère).
+   *  `GET /grilles/{id}/items` returns TOP-LEVEL items only, each with its own
+   *  `sousCriteres` nested (children filtered out of the flat list). Grading is
+   *  leaf-only: a parent with children is scored via its children, not directly. */
+  parentId?: number | null;
+  hasSousCriteres?: boolean;
+  sousCriteres?: GrilleItem[];
 }
 
 /** Grille with its items — only returned by the station detail endpoint. */
@@ -102,6 +114,9 @@ export interface GrilleRequest {
  * backend nulls it for BINAIRE regardless. `ordre` is server-assigned, never
  * sent. The server rejects an add/edit that pushes the pondération sum above
  * the grille's noteMax (BusinessException → 400).
+ *
+ * Answer key (#162): conditionsAttendues (≤1000) is an optional free-text corrigé
+ * the backend stores as-is for any type — a value, interval, compound, or phrase.
  */
 export interface ItemRequest {
   libelle: string;
@@ -109,6 +124,7 @@ export interface ItemRequest {
   ponderation: number;
   valeurMax?: number | null;
   categorie?: string;
+  conditionsAttendues?: string | null;
 }
 
 export interface ExamenResponse {
@@ -126,6 +142,17 @@ export interface ExamenResponse {
   createdAt: string | null;
   updatedAt: string | null;
   stations?: StationSummary[];
+  // Pause/reprise (ADR-0009). A paused exam stays EN_COURS — pause is orthogonal
+  // state, not a status. The Suivi screen computes "effective exam time" =
+  // (now − examStart) − totalPauseSec − (enPause ? now − pausedAt : 0), so the
+  // pre-computed back-to-back rotation schedule survives breaks / multi-day gaps.
+  enPause?: boolean;
+  pausedAt?: string | null; // "yyyy-MM-dd HH:mm:ss", null unless enPause
+  totalPauseSec?: number;
+  // Real launch instant (ADR-0010), "yyyy-MM-dd HH:mm:ss". Null until the exam is
+  // launched (CONFIGURE→EN_COURS) and for pre-ADR rows. The Suivi board anchors its
+  // clock on this when present, else on the PLANNED start (dateExamen + heureDebut).
+  launchedAt?: string | null;
 }
 
 /**
@@ -197,6 +224,40 @@ export interface CreateEtudiantRequest {
   nom: string;
   prenom: string;
   numero_inscription: string;
+}
+
+/**
+ * One row of a bulk import (POST /etudiants/import?examenId=X). The FE parses
+ * CSV/.xlsx (SheetJS) into these; field names mirror the backend
+ * ImportEtudiantRequest verbatim (snake_case numero_inscription).
+ */
+export interface ImportEtudiantRow {
+  nom: string;
+  prenom: string;
+  numero_inscription: string;
+}
+
+/** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
+export interface ImportRowResult {
+  ligne: number;
+  numero_inscription: string | null;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'CREATED' | 'ENROLLED' | 'ALREADY_ENROLLED' | 'ERROR';
+  message: string | null;
+}
+
+/**
+ * Summary of a bulk import (backend ImportResult). The four counters bucket every
+ * row by statut and sum to total.
+ */
+export interface ImportResult {
+  total: number;
+  created: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  errors: number;
+  rows: ImportRowResult[];
 }
 
 /**
@@ -282,6 +343,188 @@ export interface GenerationResult {
   etudiantsPresents: number;
   etudiantsAbsents: number;
   avertissement: string | null;
+}
+
+/**
+ * Live status of a single rotation. PERSISTED value is always EN_ATTENTE — the
+ * generator hard-sets it (RotationGenerationService) and nothing on the backend
+ * ever flips it (the mobile évaluateur app that would is unbuilt). So the Suivi
+ * screen IGNORES this field and computes the live state from the clock instead.
+ */
+export type RotationStatus = 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE';
+
+/**
+ * One slot of the OSCE circuit (scoring-service RotationDTO) — a student group
+ * visiting one station at one créneau. `debutCreneau` is the PLANNED wall-clock
+ * start (anchored at the exam's dateExamen + heureDebut), so the Suivi timeline
+ * derives each slot's window as [debutCreneau, debutCreneau + dureeStationMin).
+ * `statut` is persisted-only EN_ATTENTE — see RotationStatus; do not trust it for
+ * live state. Field names mirror the backend record verbatim (camelCase here, not
+ * the snake_case of the Etudiant/Participation DTOs).
+ */
+export interface RotationSummary {
+  id: number;
+  evaluateurId: number | null;
+  stationId: number | null;
+  ordrePassage: number | null;
+  debutCreneau: string; // "yyyy-MM-ddTHH:mm:ss" (LocalDateTime)
+  statut: RotationStatus;
+  studentGroupId: number | null;
+}
+
+/**
+ * One student's place in a rotation (scoring-service RotationAssignmentDTO).
+ * Joins a rotation to a participation; the Suivi drill-down resolves the student
+ * name via participationId → ParticipationSummary.etudiantId → EtudiantSummary.
+ */
+export interface RotationAssignmentSummary {
+  id: number;
+  presenceConfirmee: boolean | null;
+  tempsAdditionnel: number | null;
+  rotationId: number | null;
+  participationId: number | null;
+}
+
+/**
+ * One student's score at one station, inside an {@link ExamenResult} (scoring
+ * StationScoreDTO). camelCase — this endpoint follows the Rotation/Assignment DTO
+ * convention, NOT the snake_case of Etudiant/Participation. `stationId`/`grilleId`
+ * are the cross-service logical FKs; the screen resolves the station name + grille
+ * noteMax from exam-service for the column header and the `/max` denominator.
+ */
+export interface StationScore {
+  notationId: number;
+  stationId: number | null;
+  grilleId: number | null;
+  score: number | null;
+  verrouillee: boolean | null;
+}
+
+/**
+ * One student's aggregated result for a whole exam (scoring ExamenResultDTO,
+ * issue #90 — GET /notations/examen/{examenId}/results). Computed on the fly by
+ * joining Notation → RotationAssignment → ExamenParticipation → Etudiant; the
+ * backend returns rows sorted by totalScore desc, so the first row is rank 1.
+ * `totalScore` is the plain sum of the per-station `score`s (each out of its
+ * grille noteMax) — the screen derives the `/max` + the class average from the
+ * grille noteMax it fetches separately.
+ */
+export interface ExamenResult {
+  participationId: number;
+  etudiantId: number | null;
+  numeroInscription: string | null;
+  nom: string | null;
+  prenom: string | null;
+  numEchantillon: string | null;
+  totalScore: number;
+  stationsNotees: number;
+  stations: StationScore[];
+}
+
+/**
+ * One scored criterion of a notation (scoring NotationItemDTO — GET
+ * /notation-items/notation/{notationId}). The per-critère breakdown behind a
+ * station's total, written by the mobile évaluateur app. Field names are
+ * snake_case (`item_id`) per the scoring Etudiant/Notation-item convention,
+ * EXCEPT `notationId` which the record declares camelCase. `item_id` is the
+ * cross-service logical FK to the grille's GrilleItem.id (in exam_db), so the
+ * Résultats deep-dive resolves each critère's libelle + barème from the grille.
+ * `valeur` is 0/1 for BINAIRE critères (acquis), awarded points for NUMERIQUE.
+ * Empty list = no per-critère detail captured (global score only).
+ */
+export interface NotationItemSummary {
+  id: number;
+  item_id: number | null;
+  valeur: number | null;
+  commentaire: string | null;
+  notationId: number | null;
+}
+
+/**
+ * One audited réajustement of a locked notation (scoring NotationAdjustmentDTO —
+ * GET /notations/{id}/reajustements, ADR-0013 Part 2). The immutable trail of a
+ * responsable/admin correction on a student réclamation: who, when, old→new value
+ * (item-level) and old→new total score, plus the required motif. `itemId` is null
+ * for a total-level override. Most-recent first.
+ */
+export interface NotationAdjustmentSummary {
+  id: number;
+  notationId: number;
+  itemId: number | null;
+  ancienneValeur: number | null;
+  nouvelleValeur: number | null;
+  ancienScore: number | null;
+  nouveauScore: number | null;
+  motif: string;
+  adjustedByUserId: number;
+  adjustedAt: string;
+}
+
+/**
+ * Body of POST /notations/{id}/reajustement (ADR-0013 Part 2). `itemId` present →
+ * réajuste that critère then recomputes the total; absent → overrides the total
+ * directly. `motif` is required (the réclamation reason).
+ */
+export interface ReajustementRequest {
+  itemId?: number | null;
+  nouvelleValeur: number;
+  motif: string;
+}
+
+/**
+ * Disposition of a student complaint in the responsable register (#136).
+ * EN_ATTENTE (filed, not yet decided) → ACCEPTEE (upheld) | REJETEE (rejected).
+ */
+export type ReclamationStatus = 'EN_ATTENTE' | 'ACCEPTEE' | 'REJETEE';
+
+/**
+ * A student complaint on an exam result (scoring ReclamationDTO — #136). Filed by
+ * a RESPONSABLE_MATIERE / SUPER_ADMIN on the student's behalf (students have no
+ * login). camelCase — this is a Java record DTO, NOT the snake_case Etudiant/
+ * Participation convention. `notationId`/`adjustmentId` are optional logical FKs;
+ * the score change itself is done through the separate réajustement endpoint, so
+ * this register only RECORDS the decision (crucially it also records REJETEE, which
+ * the réajustement audit trail alone cannot). Resolve fields (`reponse`,
+ * `resolvedByUserId`, `resolvedAt`) are null until the complaint is decided.
+ */
+export interface Reclamation {
+  id: number;
+  examenId: number;
+  participationId: number;
+  notationId: number | null;
+  objet: string;
+  statut: ReclamationStatus;
+  reponse: string | null;
+  adjustmentId: number | null;
+  createdByUserId: number | null;
+  createdAt: string; // "yyyy-MM-ddTHH:mm:ss" (LocalDateTime)
+  resolvedByUserId: number | null;
+  resolvedAt: string | null;
+}
+
+/**
+ * Body of POST /reclamations (scoring ReclamationRequest). objet is required
+ * (≤1000, the complaint reason); notationId is optional (the contested score may
+ * not be a specific notation, or the complaint is about the result in general).
+ */
+export interface ReclamationRequest {
+  examenId: number;
+  participationId: number;
+  notationId?: number | null;
+  objet: string;
+}
+
+/**
+ * Body of PATCH /reclamations/{id}/resoudre (scoring ReclamationResolveRequest).
+ * statut must be a terminal decision (ACCEPTEE | REJETEE — never EN_ATTENTE);
+ * reponse is the mandatory written justification (≤1000). Decide-ONCE: re-resolving
+ * a decided complaint → 400. adjustmentId optionally links the notation_adjustments
+ * row when an upheld complaint was corrected via the réajustement flow.
+ */
+export interface ReclamationResolveRequest {
+  statut: Extract<ReclamationStatus, 'ACCEPTEE' | 'REJETEE'>;
+  reponse: string;
+  adjustmentId?: number | null;
 }
 
 export interface MatiereResponse {

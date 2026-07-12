@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthStore } from '../../core/auth/auth.store';
 import { ExamenResponse, StatutExamen } from '../../core/api/models';
+import { statutDisplayLabel } from '../../core/api/exam-status';
 import { AccueilData, HomeService } from './home.service';
 
 interface Cta {
@@ -62,7 +63,7 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
               <div class="flex items-center gap-3">
                 <h2 class="text-lg font-semibold text-gray-900">{{ exam.nom }}</h2>
                 <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-dark">
-                  {{ statutLabel(exam.statut) }}
+                  {{ displayStatut(exam) }}
                 </span>
               </div>
               <p class="text-sm text-gray-500 mt-1">
@@ -208,7 +209,7 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
                     class="flex items-center justify-between py-2 text-sm hover:text-brand"
                   >
                     <span class="text-gray-700">{{ e.nom }}</span>
-                    <span class="text-xs text-gray-400">{{ statutLabel(e.statut) }}</span>
+                    <span class="text-xs text-gray-400">{{ displayStatut(e) }}</span>
                   </a>
                 </li>
               }
@@ -266,6 +267,11 @@ export class AccueilComponent {
 
   statutLabel(s: StatutExamen): string {
     return STATUT_LABELS[s];
+  }
+
+  /** Date-aware status for an exam chip — CONFIGURE + future date → "À venir". */
+  displayStatut(e: ExamenResponse): string {
+    return statutDisplayLabel(e.statut, e.dateExamen);
   }
 
   matiereLabel(d: AccueilData, matiereId: number): string {

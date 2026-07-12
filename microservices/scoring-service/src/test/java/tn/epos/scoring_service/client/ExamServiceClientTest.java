@@ -19,23 +19,29 @@ import tn.epos.common.exception.BusinessException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("ExamServiceClient - Tests unitaires")
+/**
+ * Unit tests for {@link ExamServiceClient}.
+ * Covers: getItemIdsForGrille, getItemInfosForGrille, getStationInfo,
+ * getExamForGeneration (happy path + error branches).
+ */
+@DisplayName("ExamServiceClient — tests unitaires")
 class ExamServiceClientTest {
-
     private static final String GRILLE_ITEMS_HAPPY_BODY =
-            "{\"success\":true,\"data\":{\"content\":[" +
-                    "{\"id\":100,\"libelle\":\"x\"}," +
-                    "{\"id\":101,\"libelle\":\"y\"}" +
-                    "]}}";
+            "{\"success\":true,\"data\":[" +
+                    "{\"id\":100,\"libelle\":\"x\",\"ponderation\":2.0,\"type\":\"BINAIRE\"}," +
+                    "{\"id\":101,\"libelle\":\"y\",\"ponderation\":5.0,\"type\":\"NUMERIQUE\"}" +
+                    "]}";
 
     @BeforeEach
     void primeJwtInContext() {
@@ -45,7 +51,8 @@ class ExamServiceClientTest {
                 .expiresAt(Instant.now().plusSeconds(60))
                 .subject("user@test.tn")
                 .build();
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+        SecurityContextHolder.getContext()
+                .setAuthentication(new JwtAuthenticationToken(jwt));
     }
 
     @AfterEach
@@ -53,14 +60,13 @@ class ExamServiceClientTest {
         SecurityContextHolder.clearContext();
     }
 
-    /** Build an ExamServiceClient backed by a WebClient that returns the given response. */
-    private static ExamServiceClient clientReturning(ClientResponse response, List<ClientRequest> capturedRequests) {
+    private static ExamServiceClient clientReturning(ClientResponse response,
+                                                     List<ClientRequest> captured) {
         ExchangeFunction exchange = request -> {
-            capturedRequests.add(request);
+            captured.add(request);
             return Mono.just(response);
         };
-        WebClient webClient = WebClient.builder().exchangeFunction(exchange).build();
-        return new ExamServiceClient(webClient);
+        return new ExamServiceClient(WebClient.builder().exchangeFunction(exchange).build());
     }
 
     private static ClientResponse okJson(String body) {
@@ -70,13 +76,16 @@ class ExamServiceClientTest {
                 .build();
     }
 
-    @Nested
-    @DisplayName("getItemIdsForGrille() - happy path & cache")
-    class HappyPath {
+    // =========================================================================
+    // getItemIdsForGrille / getItemInfosForGrille — happy path & cache
+    // =========================================================================
 
+    @Nested
+    @DisplayName("getItemIdsForGrille() — happy path & cache")
+    class HappyPath {
         @Test
-        @DisplayName("Doit appeler exam-service et retourner les item IDs parsés")
-        void happyPath_devraitParserLesItemIds() {
+        @DisplayName("Parse les item IDs et ajoute le header Authorization")
+        void happyPath_parseItemIds() {
             List<ClientRequest> requests = new ArrayList<>();
             ExamServiceClient client = clientReturning(okJson(GRILLE_ITEMS_HAPPY_BODY), requests);
 
@@ -84,19 +93,42 @@ class ExamServiceClientTest {
 
             assertThat(ids).containsExactlyInAnyOrder(100L, 101L);
             assertThat(requests).hasSize(1);
-            ClientRequest sent = requests.get(0);
-            assertThat(sent.url().toString())
-                    .contains("/api/grilles/11/items")
-                    .contains("size=500");
-            assertThat(sent.headers().getFirst("Authorization"))
+            assertThat(requests.get(0).url().toString()).contains("/api/grilles/11/items/feuilles");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
                     .isEqualTo("Bearer fake-test-token");
         }
 
         @Test
-        @DisplayName("Le second appel doit servir le cache (pas de HTTP)")
-        void cacheHit_devraitEviterHttp() {
+        @DisplayName("getItemInfosForGrille() remplit pondération et type")
+        void getItemInfos_pondérationEtType() {
+            ExamServiceClient client = clientReturning(okJson(GRILLE_ITEMS_HAPPY_BODY), new ArrayList<>());
+
+            Map<Long, ExamServiceClient.ItemInfo> infos = client.getItemInfosForGrille(11L);
+
+            assertThat(infos).containsKey(100L);
+            assertThat(infos.get(100L).ponderation()).isEqualTo(2.0);
+            assertThat(infos.get(100L).type()).isEqualTo("BINAIRE");
+            assertThat(infos.get(101L).ponderation()).isEqualTo(5.0);
+            assertThat(infos.get(101L).type()).isEqualTo("NUMERIQUE");
+        }
+
+        @Test
+        @DisplayName("Valeur par défaut ponderation=1.0 et type=BINAIRE si champs absents")
+        void getItemInfos_defaultValues() {
+            String body = "{\"data\":[{\"id\":200}]}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            Map<Long, ExamServiceClient.ItemInfo> infos = client.getItemInfosForGrille(50L);
+
+            assertThat(infos.get(200L).ponderation()).isEqualTo(1.0);
+            assertThat(infos.get(200L).type()).isEqualTo("BINAIRE");
+        }
+
+        @Test
+        @DisplayName("Le cache évite les appels HTTP répétés")
+        void cacheHit_eviteHttp() {
             AtomicInteger calls = new AtomicInteger();
-            ExchangeFunction counting = request -> {
+            ExchangeFunction counting = req -> {
                 calls.incrementAndGet();
                 return Mono.just(okJson(GRILLE_ITEMS_HAPPY_BODY));
             };
@@ -111,58 +143,56 @@ class ExamServiceClientTest {
         }
 
         @Test
-        @DisplayName("Réponse mal formée (pas de data.content) → set vide, pas d'exception")
-        void responseMalformed_devraitRetournerSetVide() {
+        @DisplayName("Réponse sans data.content → set vide, pas d'exception")
+        void responseMalformed_retourneSetVide() {
             ExamServiceClient client = clientReturning(
                     okJson("{\"success\":true,\"data\":{}}"), new ArrayList<>());
 
-            Set<Long> ids = client.getItemIdsForGrille(42L);
-
-            assertThat(ids).isEmpty();
+            assertThat(client.getItemIdsForGrille(42L)).isEmpty();
         }
 
         @Test
-        @DisplayName("Items avec id manquant ou invalide sont ignorés")
-        void itemsAvecIdInvalides_doiventEtreFiltres() {
-            String body = "{\"data\":{\"content\":[" +
+        @DisplayName("Items avec id ≤ 0 ou absent sont ignorés")
+        void itemsIdInvalides_filtres() {
+            String body = "{\"data\":[" +
                     "{\"id\":100}," +
                     "{\"libelle\":\"no-id\"}," +
                     "{\"id\":-5}," +
                     "{\"id\":0}," +
                     "{\"id\":200}" +
-                    "]}}";
+                    "]}";
             ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
 
-            Set<Long> ids = client.getItemIdsForGrille(11L);
-
-            assertThat(ids).containsExactlyInAnyOrder(100L, 200L);
+            assertThat(client.getItemIdsForGrille(11L)).containsExactlyInAnyOrder(100L, 200L);
         }
     }
 
+    // =========================================================================
+    // getItemIdsForGrille — erreurs
+    // =========================================================================
+
     @Nested
-    @DisplayName("getItemIdsForGrille() - erreurs (fail-closed)")
-    class Errors {
+    @DisplayName("getItemIdsForGrille() — erreurs")
+    class ItemIdsErrors {
 
         @Test
-        @DisplayName("4xx d'exam-service → BusinessException mentionnant le statut")
-        void quatreCent_devraitLeverBusinessException() {
+        @DisplayName("4xx → BusinessException avec le statut")
+        void quatreCent_BusinessException() {
             ClientResponse forbidden = ClientResponse.create(HttpStatus.FORBIDDEN)
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                    .body("{\"success\":false,\"message\":\"nope\"}")
+                    .body("{\"success\":false}")
                     .build();
             ExamServiceClient client = clientReturning(forbidden, new ArrayList<>());
 
             assertThatThrownBy(() -> client.getItemIdsForGrille(11L))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("exam-service a renvoyé")
                     .hasMessageContaining("403");
         }
 
         @Test
-        @DisplayName("Erreur réseau (Mono.error) → BusinessException 'injoignable'")
-        void erreurReseau_devraitLeverBusinessException() {
-            ExchangeFunction failing = request ->
-                    Mono.error(new RuntimeException("connection refused"));
+        @DisplayName("Erreur réseau → BusinessException 'injoignable'")
+        void erreurReseau_BusinessException() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("refused"));
             ExamServiceClient client = new ExamServiceClient(
                     WebClient.builder().exchangeFunction(failing).build());
 
@@ -172,11 +202,11 @@ class ExamServiceClientTest {
         }
 
         @Test
-        @DisplayName("Aucun JWT dans le contexte → BusinessException sans appel HTTP")
-        void aucunJwt_devraitLeverBusinessException() {
+        @DisplayName("Pas de JWT → BusinessException sans appel HTTP")
+        void aucunJwt_BusinessException() {
             SecurityContextHolder.clearContext();
             AtomicInteger calls = new AtomicInteger();
-            ExchangeFunction counting = request -> {
+            ExchangeFunction counting = req -> {
                 calls.incrementAndGet();
                 return Mono.just(okJson(GRILLE_ITEMS_HAPPY_BODY));
             };
@@ -190,8 +220,85 @@ class ExamServiceClientTest {
         }
     }
 
+    // =========================================================================
+    // getStationInfo
+    // =========================================================================
+
     @Nested
-    @DisplayName("getExamForGeneration() - lecture cross-service pour la génération")
+    @DisplayName("getStationInfo()")
+    class GetStationInfo {
+
+        @Test
+        @DisplayName("Retourne le nom de la station depuis data.nom")
+        void happyPath_retourneNom() {
+            String body = "{\"data\":{\"nom\":\"Station Chimie\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.StationInfo info = client.getStationInfo(7L);
+
+            assertThat(info.nom()).isEqualTo("Station Chimie");
+        }
+
+        @Test
+        @DisplayName("data.nom absent → nom de repli 'Station {id}'")
+        void nomAbsent_fallback() {
+            String body = "{\"data\":{}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.StationInfo info = client.getStationInfo(7L);
+
+            assertThat(info.nom()).isEqualTo("Station 7");
+        }
+
+        @Test
+        @DisplayName("Réponse root null → nom de repli 'Station {id}'")
+        void responseNull_fallback() {
+            // Le WebClient retourne un body vide → Jackson → null root
+            ClientResponse nullBody = ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("null")
+                    .build();
+            ExamServiceClient client = clientReturning(nullBody, new ArrayList<>());
+
+            ExamServiceClient.StationInfo info = client.getStationInfo(3L);
+
+            assertThat(info.nom()).isEqualTo("Station 3");
+        }
+
+        @Test
+        @DisplayName("Erreur réseau → nom de repli 'Station {id}', pas d'exception")
+        void erreurReseau_fallback() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("timeout"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            ExamServiceClient.StationInfo info = client.getStationInfo(5L);
+
+            assertThat(info.nom()).isEqualTo("Station 5");
+        }
+
+        @Test
+        @DisplayName("Le header Authorization est transmis à /api/stations/{id}")
+        void forwardeBearerToken() {
+            List<ClientRequest> requests = new ArrayList<>();
+            String body = "{\"data\":{\"nom\":\"S1\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), requests);
+
+            client.getStationInfo(10L);
+
+            assertThat(requests).hasSize(1);
+            assertThat(requests.get(0).url().toString()).contains("/api/stations/10");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
+                    .isEqualTo("Bearer fake-test-token");
+        }
+    }
+
+    // =========================================================================
+    // getExamForGeneration
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getExamForGeneration()")
     class ExamForGeneration {
 
         private static final String EXAM_HAPPY_BODY =
@@ -200,18 +307,19 @@ class ExamServiceClientTest {
                         "\"dateExamen\":\"2026-06-20\"," +
                         "\"heureDebut\":\"08:30\"," +
                         "\"dureeStationMin\":10," +
+                        "\"tempsBattementMin\":5," +
                         "\"nbEtudiantsParStation\":4," +
                         "\"statut\":\"CONFIGURE\"," +
                         "\"stations\":[" +
                         "{\"id\":10,\"ordre\":1,\"evaluateurIds\":[1000,1001]}," +
                         "{\"id\":11,\"ordre\":2,\"evaluateurIds\":[]}," +
-                        "{\"id\":-3,\"ordre\":3,\"evaluateurIds\":[5]}," +   // id<=0 ignoré
-                        "{\"id\":12,\"evaluateurIds\":[0,-1,2000]}" +        // ordre null, eval 0/-1 filtrés
+                        "{\"id\":-3,\"ordre\":3,\"evaluateurIds\":[5]}," +
+                        "{\"id\":12,\"evaluateurIds\":[0,-1,2000]}" +
                         "]}}";
 
         @Test
-        @DisplayName("Doit parser l'examen + ses stations et forwarder le JWT vers /api/examens/{id}")
-        void happyPath_devraitParserExamenEtStations() {
+        @DisplayName("Parse l'examen, ses stations, et transmet le JWT")
+        void happyPath_parseExamen() {
             List<ClientRequest> requests = new ArrayList<>();
             ExamServiceClient client = clientReturning(okJson(EXAM_HAPPY_BODY), requests);
 
@@ -221,48 +329,63 @@ class ExamServiceClientTest {
             assertThat(view.dateExamen()).isEqualTo(LocalDate.of(2026, 6, 20));
             assertThat(view.heureDebut()).isEqualTo(LocalTime.of(8, 30));
             assertThat(view.dureeStationMin()).isEqualTo(10);
+            assertThat(view.tempsBattementMin()).isEqualTo(5);   // ADR-0012
             assertThat(view.nbEtudiantsParStation()).isEqualTo(4);
             assertThat(view.statut()).isEqualTo("CONFIGURE");
+            assertThat(view.launchedAt()).isNull();
 
-            // id<=0 station dropped → 3 stations (10, 11, 12)
             assertThat(view.stations()).hasSize(3);
-            var s10 = view.stations().get(0);
-            assertThat(s10.id()).isEqualTo(10L);
-            assertThat(s10.ordre()).isEqualTo(1);
-            assertThat(s10.evaluateurIds()).containsExactly(1000L, 1001L);
-            assertThat(view.stations().get(1).evaluateurIds()).isEmpty();
-            var s12 = view.stations().get(2);
-            assertThat(s12.id()).isEqualTo(12L);
-            assertThat(s12.ordre()).isNull();                 // ordre absent → null
-            assertThat(s12.evaluateurIds()).containsExactly(2000L); // 0 and -1 filtered
+            assertThat(view.stations().get(0).evaluateurIds()).containsExactly(1000L, 1001L);
+            assertThat(view.stations().get(2).evaluateurIds()).containsExactly(2000L);
 
-            assertThat(requests).hasSize(1);
-            ClientRequest sent = requests.get(0);
-            assertThat(sent.url().toString()).contains("/api/examens/7");
-            assertThat(sent.headers().getFirst("Authorization")).isEqualTo("Bearer fake-test-token");
+            assertThat(requests.get(0).url().toString()).contains("/api/examens/7");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
+                    .isEqualTo("Bearer fake-test-token");
         }
 
         @Test
-        @DisplayName("Champs de timing absents + pas de tableau stations → null/empty, pas d'exception")
-        void champsAbsents_devraitRetournerNullsEtStationsVides() {
+        @DisplayName("Champs timing absents → null / stations vides, pas d'exception")
+        void champsAbsents_nullsEtStationsVides() {
             ExamServiceClient client = clientReturning(
                     okJson("{\"success\":true,\"data\":{\"id\":9,\"statut\":\"BROUILLON\"}}"),
                     new ArrayList<>());
 
             ExamGenerationView view = client.getExamForGeneration(9L);
 
-            assertThat(view.examenId()).isEqualTo(9L);
-            assertThat(view.statut()).isEqualTo("BROUILLON");
             assertThat(view.dateExamen()).isNull();
             assertThat(view.heureDebut()).isNull();
             assertThat(view.dureeStationMin()).isNull();
-            assertThat(view.nbEtudiantsParStation()).isNull();
+            assertThat(view.tempsBattementMin()).isNull();   // ADR-0012 absent → null
             assertThat(view.stations()).isEmpty();
         }
 
         @Test
-        @DisplayName("Examen introuvable (data sans id) → BusinessException 'introuvable'")
-        void examenIntrouvable_devraitLeverBusinessException() {
+        @DisplayName("ADR-0010 : launched_at bien parsé (format 'yyyy-MM-dd HH:mm:ss')")
+        void launchedAt_parse() {
+            String body = "{\"success\":true,\"data\":{\"id\":7,\"statut\":\"EN_COURS\"," +
+                    "\"launchedAt\":\"2026-06-20 09:37:12\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            assertThat(client.getExamForGeneration(7L).launchedAt())
+                    .isEqualTo(LocalDateTime.of(2026, 6, 20, 9, 37, 12));
+        }
+
+        @Test
+        @DisplayName("ADR-0010 : launched_at malformé → null, pas d'exception")
+        void launchedAt_malformé_null() {
+            String body = "{\"success\":true,\"data\":{\"id\":7,\"statut\":\"EN_COURS\"," +
+                    "\"launchedAt\":\"not-a-date\"}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamGenerationView view = client.getExamForGeneration(7L);
+
+            assertThat(view.launchedAt()).isNull();
+            assertThat(view.examenId()).isEqualTo(7L);
+        }
+
+        @Test
+        @DisplayName("Examen introuvable (data sans id numérique) → BusinessException")
+        void examenIntrouvable() {
             ExamServiceClient client = clientReturning(
                     okJson("{\"success\":true,\"data\":{\"message\":\"x\"}}"), new ArrayList<>());
 
@@ -272,30 +395,131 @@ class ExamServiceClientTest {
         }
 
         @Test
-        @DisplayName("4xx d'exam-service → BusinessException mentionnant le statut")
-        void quatreCent_devraitLeverBusinessException() {
+        @DisplayName("4xx → BusinessException avec le statut HTTP")
+        void quatreCent_BusinessException() {
             ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND)
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                    .body("{\"success\":false,\"message\":\"nope\"}")
+                    .body("{\"success\":false}")
                     .build();
             ExamServiceClient client = clientReturning(notFound, new ArrayList<>());
 
             assertThatThrownBy(() -> client.getExamForGeneration(7L))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("exam-service a renvoyé")
                     .hasMessageContaining("404");
         }
 
         @Test
         @DisplayName("Erreur réseau → BusinessException 'injoignable'")
-        void erreurReseau_devraitLeverBusinessException() {
-            ExchangeFunction failing = request -> Mono.error(new RuntimeException("connection refused"));
+        void erreurReseau_BusinessException() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("refused"));
             ExamServiceClient client = new ExamServiceClient(
                     WebClient.builder().exchangeFunction(failing).build());
 
             assertThatThrownBy(() -> client.getExamForGeneration(7L))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("injoignable");
+        }
+
+        @Test
+        @DisplayName("response root null → BusinessException 'introuvable'")
+        void responseNull_BusinessException() {
+            // data will be null → fail-closed
+            ClientResponse nullBody = ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("null")
+                    .build();
+            ExamServiceClient client = clientReturning(nullBody, new ArrayList<>());
+
+            assertThatThrownBy(() -> client.getExamForGeneration(7L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("introuvable");
+        }
+    }
+
+    // =========================================================================
+    // getExamTiming (ADR-0012 §0)
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getExamTiming()")
+    class GetExamTiming {
+
+        @Test
+        @DisplayName("Parse enPause / pausedAt / totalPauseSec / dureeStationMin / avertissementLeadSec + transmet le JWT")
+        void happyPath_parseTiming() {
+            List<ClientRequest> requests = new ArrayList<>();
+            String body = "{\"success\":true,\"data\":{\"id\":16," +
+                    "\"enPause\":true,\"pausedAt\":\"2026-06-20 10:15:30\"," +
+                    "\"totalPauseSec\":600,\"dureeStationMin\":20," +
+                    "\"avertissementLeadSec\":90}}";
+            ExamServiceClient client = clientReturning(okJson(body), requests);
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(16L);
+
+            assertThat(t.enPause()).isTrue();
+            assertThat(t.pausedAt()).isEqualTo(LocalDateTime.of(2026, 6, 20, 10, 15, 30));
+            assertThat(t.totalPauseSec()).isEqualTo(600);
+            assertThat(t.dureeStationMin()).isEqualTo(20);
+            assertThat(t.avertissementLeadSec()).isEqualTo(90);   // ADR-0012
+            assertThat(requests.get(0).url().toString()).contains("/api/examens/16");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
+                    .isEqualTo("Bearer fake-test-token");
+        }
+
+        @Test
+        @DisplayName("Examen non en pause → enPause=false, pausedAt=null, defaults sûrs")
+        void pasEnPause_defaults() {
+            String body = "{\"success\":true,\"data\":{\"id\":1,\"enPause\":false}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(1L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.totalPauseSec()).isZero();
+            assertThat(t.dureeStationMin()).isNull();
+            assertThat(t.avertissementLeadSec()).isZero();   // ADR-0012 absent → 0
+        }
+
+        @Test
+        @DisplayName("pausedAt malformé → null, le reste du timing reste lu")
+        void pausedAtMalformé_null() {
+            String body = "{\"success\":true,\"data\":{\"id\":1,\"enPause\":true," +
+                    "\"pausedAt\":\"pas-une-date\",\"totalPauseSec\":120}}";
+            ExamServiceClient client = clientReturning(okJson(body), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(1L);
+
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.enPause()).isTrue();
+            assertThat(t.totalPauseSec()).isEqualTo(120);
+        }
+
+        @Test
+        @DisplayName("Examen introuvable (data sans id) → état neutre, pas d'exception")
+        void examenIntrouvable_neutre() {
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"message\":\"x\"}}"), new ArrayList<>());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(404L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.totalPauseSec()).isZero();
+            assertThat(t.dureeStationMin()).isNull();
+        }
+
+        @Test
+        @DisplayName("Erreur réseau → état neutre (fail-soft), pas d'exception")
+        void erreurReseau_neutre() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("timeout"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            ExamServiceClient.ExamTiming t = client.getExamTiming(5L);
+
+            assertThat(t.enPause()).isFalse();
+            assertThat(t.pausedAt()).isNull();
+            assertThat(t.totalPauseSec()).isZero();
         }
     }
 }

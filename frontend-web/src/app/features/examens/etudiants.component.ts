@@ -3,8 +3,15 @@ import { input } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
+import * as XLSX from 'xlsx';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { EtudiantSummary, LotSummary, ParticipationSummary } from '../../core/api/models';
+import {
+  EtudiantSummary,
+  ImportEtudiantRow,
+  ImportResult,
+  LotSummary,
+  ParticipationSummary,
+} from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** A participation joined to its student — one roster row. */
@@ -20,12 +27,45 @@ interface RosterRow {
   lotId: number | null;
 }
 
+/** One parsed row of an upload, with client-side validation, before POST. */
+interface ImportDraftRow {
+  ligne: number;
+  nom: string;
+  prenom: string;
+  numero_inscription: string;
+  valid: boolean;
+  issue: string | null;
+}
+
 type PresenceFilter = 'all' | 'present' | 'absent' | 'unmarked';
 
 /** Normalise a numéro d'inscription for duplicate comparison (trim + casefold). */
 function normNumero(v: string | null | undefined): string {
   return (v ?? '').trim().toLowerCase();
 }
+
+/** Normalise a column header for matching: strip accents, lowercase, drop non-alnum. */
+function normHeader(h: unknown): string {
+  return (h ?? '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** Accepted header spellings for the numéro d'inscription column. */
+const NUM_HEADERS = new Set([
+  'numeroinscription',
+  'numerodinscription',
+  'numero',
+  'num',
+  'ninscription',
+  'numinscription',
+  'matricule',
+  'inscription',
+  'cin',
+]);
 
 /**
  * Étudiants tab — the per-exam roster + authoring. A student isn't tied to an
@@ -95,6 +135,13 @@ function normNumero(v: string | null | undefined): string {
                 class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
               >
                 Ajouter un etudiant existant
+              </button>
+              <button
+                type="button"
+                (click)="openImport()"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Importer (CSV/Excel)
               </button>
             </div>
           }
@@ -221,6 +268,167 @@ function normNumero(v: string | null | undefined): string {
               </p>
             </div>
           }
+
+          <!-- Bulk import from CSV / Excel -->
+          @if (mode() === 'import') {
+            <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-gray-900">
+                  Importer des etudiants (CSV / Excel)
+                </div>
+                <button
+                  type="button"
+                  (click)="cancelImport()"
+                  class="text-xs text-gray-500 hover:text-gray-800"
+                >
+                  Fermer
+                </button>
+              </div>
+
+              @if (!importResult()) {
+                <div>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    (change)="onImportFile($event)"
+                    class="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-brand file:text-white hover:file:bg-brand-dark"
+                  />
+                  <p class="text-xs text-gray-400 mt-2">
+                    Colonnes attendues : <b>nom</b>, <b>prenom</b>, <b>numero_inscription</b>.
+                    Sans ligne d'entete, l'ordre suppose est : nom, prenom, numero.
+                  </p>
+                </div>
+                @if (importFileName()) {
+                  <p class="text-xs text-gray-500">Fichier : {{ importFileName() }}</p>
+                }
+              }
+
+              @if (importError()) {
+                <p role="alert" class="text-xs text-status-danger">{{ importError() }}</p>
+              }
+
+              <!-- preview before POST -->
+              @if (importPreview(); as preview) {
+                @if (preview.length === 0) {
+                  <p class="text-sm text-gray-500">Aucune ligne detectee dans le fichier.</p>
+                } @else {
+                  <div class="text-xs text-gray-600">
+                    {{ preview.length }} ligne(s) —
+                    <span class="text-status-success">{{ importValidCount() }} valide(s)</span>
+                    @if (importInvalidCount() > 0) {
+                      , <span class="text-status-danger">{{ importInvalidCount() }} ignoree(s)</span>
+                    }
+                  </div>
+                  <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-100">
+                    <table class="w-full text-sm">
+                      <thead>
+                        <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+                          <th class="px-3 py-2 w-8">#</th>
+                          <th class="px-3 py-2">Prenom</th>
+                          <th class="px-3 py-2">Nom</th>
+                          <th class="px-3 py-2">N&deg; inscription</th>
+                          <th class="px-3 py-2">Etat</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-50">
+                        @for (r of preview; track r.ligne) {
+                          <tr class="hover:bg-surface">
+                            <td class="px-3 py-1.5 text-gray-400">{{ r.ligne }}</td>
+                            <td class="px-3 py-1.5 text-gray-700">{{ r.prenom || '—' }}</td>
+                            <td class="px-3 py-1.5 text-gray-700">{{ r.nom || '—' }}</td>
+                            <td class="px-3 py-1.5 text-gray-600">{{ r.numero_inscription || '—' }}</td>
+                            <td class="px-3 py-1.5">
+                              @if (r.valid) {
+                                <span class="text-xs text-status-success">OK</span>
+                              } @else {
+                                <span class="text-xs text-status-danger">{{ r.issue }}</span>
+                              }
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      (click)="cancelImport()"
+                      class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      [disabled]="importing() || importValidCount() === 0"
+                      (click)="submitImport()"
+                      class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {{ importing() ? 'Import…' : 'Importer ' + importValidCount() + ' etudiant(s)' }}
+                    </button>
+                  </div>
+                }
+              }
+
+              <!-- per-row result after POST -->
+              @if (importResult(); as res) {
+                <div class="space-y-3">
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <span class="font-semibold text-gray-900">{{ res.total }} ligne(s)</span>
+                    <span class="text-status-success">{{ res.created }} cree(s)</span>
+                    <span class="text-status-success">{{ res.enrolled }} inscrit(s)</span>
+                    <span class="text-gray-500">{{ res.alreadyEnrolled }} deja inscrit(s)</span>
+                    @if (res.errors > 0) {
+                      <span class="text-status-danger">{{ res.errors }} erreur(s)</span>
+                    }
+                  </div>
+                  <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-100">
+                    <table class="w-full text-sm">
+                      <thead>
+                        <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+                          <th class="px-3 py-2 w-8">#</th>
+                          <th class="px-3 py-2">Etudiant</th>
+                          <th class="px-3 py-2">N&deg; inscription</th>
+                          <th class="px-3 py-2">Resultat</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-50">
+                        @for (r of res.rows; track r.ligne) {
+                          <tr class="hover:bg-surface">
+                            <td class="px-3 py-1.5 text-gray-400">{{ r.ligne }}</td>
+                            <td class="px-3 py-1.5 text-gray-700">
+                              {{ r.prenom || '' }} {{ r.nom || '' }}
+                            </td>
+                            <td class="px-3 py-1.5 text-gray-600">{{ r.numero_inscription || '—' }}</td>
+                            <td class="px-3 py-1.5">
+                              @if (r.statut === 'ERROR') {
+                                <span class="text-xs text-status-danger">{{ statutLabel(r.statut) }}</span>
+                              } @else if (r.statut === 'ALREADY_ENROLLED') {
+                                <span class="text-xs text-gray-500">{{ statutLabel(r.statut) }}</span>
+                              } @else {
+                                <span class="text-xs text-status-success">{{ statutLabel(r.statut) }}</span>
+                              }
+                              @if (r.message && r.statut === 'ERROR') {
+                                <span class="text-xs text-gray-400"> · {{ r.message }}</span>
+                              }
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="flex justify-end">
+                    <button
+                      type="button"
+                      (click)="cancelImport()"
+                      class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark"
+                    >
+                      Terminer
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
         </div>
       }
 
@@ -239,11 +447,13 @@ function normNumero(v: string | null | undefined): string {
         <!-- summary -->
         <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-sm">
           <span class="text-gray-900 font-semibold">{{ rows().length }} etudiant(s)</span>
-          @if (presentsCount() > 0) {
-            <span class="text-gray-500">{{ presentsCount() }} present(s)</span>
-          }
-          @if (absentsCount() > 0) {
-            <span class="text-gray-500">{{ absentsCount() }} absent(s)</span>
+          @if (showDayOf()) {
+            @if (presentsCount() > 0) {
+              <span class="text-gray-500">{{ presentsCount() }} present(s)</span>
+            }
+            @if (absentsCount() > 0) {
+              <span class="text-gray-500">{{ absentsCount() }} absent(s)</span>
+            }
           }
         </div>
 
@@ -256,16 +466,18 @@ function normNumero(v: string | null | undefined): string {
             placeholder="Rechercher (nom ou numero)…"
             class="flex-1 min-w-[12rem] rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           />
-          <select
-            [value]="presenceFilter()"
-            (change)="presenceFilter.set($any($event.target).value)"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
-          >
-            <option value="all">Presence : toutes</option>
-            <option value="present">Presents</option>
-            <option value="absent">Absents</option>
-            <option value="unmarked">Non marquee</option>
-          </select>
+          @if (showDayOf()) {
+            <select
+              [value]="presenceFilter()"
+              (change)="presenceFilter.set($any($event.target).value)"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="all">Presence : toutes</option>
+              <option value="present">Presents</option>
+              <option value="absent">Absents</option>
+              <option value="unmarked">Non marquee</option>
+            </select>
+          }
           <select
             [value]="lotFilter()"
             (change)="lotFilter.set($any($event.target).value)"
@@ -290,8 +502,10 @@ function normNumero(v: string | null | undefined): string {
                 <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; echantillon</th>
                 <th class="px-4 py-2.5 font-medium">Lot</th>
-                <th class="px-4 py-2.5 font-medium">Presence</th>
-                <th class="px-4 py-2.5 font-medium text-right">Note</th>
+                @if (showDayOf()) {
+                  <th class="px-4 py-2.5 font-medium">Presence</th>
+                  <th class="px-4 py-2.5 font-medium text-right">Note</th>
+                }
                 @if (editable()) {
                   <th class="px-4 py-2.5 font-medium text-right w-32"></th>
                 }
@@ -305,18 +519,20 @@ function normNumero(v: string | null | undefined): string {
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numeroInscription || '—' }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ r.numEchantillon || '—' }}</td>
                   <td class="px-4 py-2.5 text-gray-600">{{ lotLabel(r.lotId) }}</td>
-                  <td class="px-4 py-2.5">
-                    @if (r.present === true) {
-                      <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
-                    } @else if (r.present === false) {
-                      <span class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger">Absent</span>
-                    } @else {
-                      <span class="text-xs text-gray-400">—</span>
-                    }
-                  </td>
-                  <td class="px-4 py-2.5 text-right text-gray-700">
-                    {{ r.note != null ? r.note : '—' }}
-                  </td>
+                  @if (showDayOf()) {
+                    <td class="px-4 py-2.5">
+                      @if (r.present === true) {
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
+                      } @else if (r.present === false) {
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger">Absent</span>
+                      } @else {
+                        <span class="text-xs text-gray-400">—</span>
+                      }
+                    </td>
+                    <td class="px-4 py-2.5 text-right text-gray-700">
+                      {{ r.note != null ? r.note : '—' }}
+                    </td>
+                  }
                   @if (editable()) {
                     <td class="px-4 py-2.5 text-right">
                       @if (confirmRemoveId() === r.participationId) {
@@ -352,7 +568,7 @@ function normNumero(v: string | null | undefined): string {
                 </tr>
               } @empty {
                 <tr>
-                  <td [attr.colspan]="editable() ? 8 : 7" class="px-4 py-6 text-center text-sm text-gray-400">
+                  <td [attr.colspan]="colspan()" class="px-4 py-6 text-center text-sm text-gray-400">
                     Aucun etudiant ne correspond aux filtres.
                   </td>
                 </tr>
@@ -366,7 +582,11 @@ function normNumero(v: string | null | undefined): string {
         }
 
         <p class="text-xs text-gray-400 mt-3">
-          Presence, note et numero d'echantillon se remplissent le jour de l'examen — non editables ici.
+          @if (showDayOf()) {
+            Presence, note et numero d'echantillon se remplissent le jour de l'examen — non editables ici.
+          } @else {
+            La presence et les notes apparaitront ici une fois l'examen lance.
+          }
         </p>
       }
     }
@@ -438,11 +658,27 @@ export class EtudiantsComponent {
     return e ? e.statut === 'BROUILLON' || e.statut === 'CONFIGURE' : false;
   });
 
+  /**
+   * Présence + note are day-of facts (set via marquerPresence / mobile scoring
+   * once the exam runs). They are meaningless during authoring, so we only
+   * surface them from EN_COURS onward — otherwise "À venir" exams misleadingly
+   * advertise presence/notes that haven't happened yet.
+   */
+  readonly showDayOf = computed(() => {
+    const s = this.store.exam()?.statut;
+    return s === 'EN_COURS' || s === 'TERMINE' || s === 'ARCHIVE';
+  });
+
+  /** Visible column count, for the "no match" row's colspan. */
+  readonly colspan = computed(
+    () => 5 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 1 : 0),
+  );
+
   readonly presentsCount = computed(() => this.rows().filter((r) => r.present === true).length);
   readonly absentsCount = computed(() => this.rows().filter((r) => r.present === false).length);
 
   // ---- authoring UI state -------------------------------------------------
-  readonly mode = signal<'idle' | 'new' | 'existing'>('idle');
+  readonly mode = signal<'idle' | 'new' | 'existing' | 'import'>('idle');
   readonly submitting = signal(false);
   readonly enrollingId = signal<number | null>(null);
   readonly addError = signal<string | null>(null);
@@ -451,6 +687,22 @@ export class EtudiantsComponent {
   readonly confirmRemoveId = signal<number | null>(null);
   readonly removingId = signal<number | null>(null);
   readonly removeError = signal<string | null>(null);
+
+  // ---- bulk import (CSV / Excel) state ------------------------------------
+  readonly importFileName = signal<string>('');
+  /** Parsed + client-validated rows, shown for review before POST. */
+  readonly importPreview = signal<ImportDraftRow[] | null>(null);
+  /** Per-row outcome returned by the backend, shown after POST. */
+  readonly importResult = signal<ImportResult | null>(null);
+  readonly importing = signal(false);
+  readonly importError = signal<string | null>(null);
+
+  readonly importValidCount = computed(
+    () => this.importPreview()?.filter((r) => r.valid).length ?? 0,
+  );
+  readonly importInvalidCount = computed(
+    () => this.importPreview()?.filter((r) => !r.valid).length ?? 0,
+  );
 
   readonly newForm = this.fb.nonNullable.group({
     prenom: ['', [Validators.required, Validators.maxLength(100)]],
@@ -641,6 +893,166 @@ export class EtudiantsComponent {
           this.addError.set(this.httpMessage(err));
         },
       });
+  }
+
+  // ---- bulk import (CSV / Excel) ------------------------------------------
+
+  openImport(): void {
+    this.importError.set(null);
+    this.importPreview.set(null);
+    this.importResult.set(null);
+    this.importFileName.set('');
+    this.mode.set('import');
+  }
+
+  cancelImport(): void {
+    this.mode.set('idle');
+    this.importPreview.set(null);
+    this.importResult.set(null);
+    this.importError.set(null);
+    this.importFileName.set('');
+  }
+
+  /** Parse a selected CSV/.xlsx with SheetJS into a validated preview. */
+  onImportFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    this.importFileName.set(file.name);
+    this.importError.set(null);
+    this.importResult.set(null);
+    this.importPreview.set(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = new Uint8Array(reader.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        // header:1 → array-of-arrays so we control header detection ourselves;
+        // raw:false stringifies cells (numéros stay text, not floats).
+        const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+          header: 1,
+          raw: false,
+          defval: '',
+        });
+        this.importPreview.set(this.buildPreview(matrix));
+      } catch {
+        this.importError.set('Fichier illisible. Formats acceptes : CSV, XLSX, XLS.');
+      }
+      // Let the user re-pick the same file after a correction.
+      input.value = '';
+    };
+    reader.onerror = () => {
+      this.importError.set('Echec de lecture du fichier.');
+      input.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /**
+   * Map the raw sheet matrix to validated draft rows. If the first row carries a
+   * recognizable header (nom / prénom / a numéro spelling) we map by column name
+   * and skip it; otherwise we assume a header-less file in [nom, prénom, numéro]
+   * order and treat every row as data. A row is valid only with both a numéro and
+   * a nom (the backend rejects the rest with the same rule).
+   */
+  private buildPreview(matrix: unknown[][]): ImportDraftRow[] {
+    const clean = (matrix ?? []).filter((row) =>
+      Array.isArray(row) && row.some((c) => (c ?? '').toString().trim() !== ''),
+    );
+    if (clean.length === 0) return [];
+
+    const header = clean[0].map((h) => normHeader(h));
+    let iNom = header.indexOf('nom');
+    let iPrenom = header.indexOf('prenom');
+    let iNum = header.findIndex((h) => NUM_HEADERS.has(h));
+
+    let dataRows: unknown[][];
+    if (iNum >= 0 || iNom >= 0) {
+      dataRows = clean.slice(1); // recognizable header → drop it
+    } else {
+      iNom = 0;
+      iPrenom = 1;
+      iNum = 2; // no header → positional fallback
+      dataRows = clean;
+    }
+
+    const cell = (row: unknown[], i: number): string =>
+      i >= 0 ? (row[i] ?? '').toString().trim() : '';
+
+    return dataRows.map((row, idx) => {
+      const nom = cell(row, iNom);
+      const prenom = cell(row, iPrenom);
+      const numero = cell(row, iNum);
+      const valid = !!numero && !!nom;
+      let issue: string | null = null;
+      if (!valid) {
+        if (!numero && !nom) issue = 'Ligne vide / colonnes manquantes';
+        else if (!numero) issue = 'Numero manquant';
+        else issue = 'Nom manquant';
+      }
+      return { ligne: idx + 1, nom, prenom, numero_inscription: numero, valid, issue };
+    });
+  }
+
+  /** POST the parsed rows; show the per-row outcome and refresh the roster. */
+  submitImport(): void {
+    const preview = this.importPreview();
+    if (!preview || this.importing()) return;
+    const rows: ImportEtudiantRow[] = preview.map((r) => ({
+      nom: r.nom,
+      prenom: r.prenom,
+      numero_inscription: r.numero_inscription,
+    }));
+    if (rows.length === 0) {
+      this.importError.set('Aucune ligne a importer.');
+      return;
+    }
+    this.importing.set(true);
+    this.importError.set(null);
+    this.scoring.importEtudiants(Number(this.id()), rows).subscribe({
+      next: (result) => {
+        this.importing.set(false);
+        this.importResult.set(result);
+        this.importPreview.set(null);
+        // Pull the new enrolments into the roster without leaving the panel.
+        this.refreshRoster(Number(this.id()));
+      },
+      error: (err: HttpErrorResponse) => {
+        this.importing.set(false);
+        this.importError.set(this.httpMessage(err));
+      },
+    });
+  }
+
+  /** Re-fetch roster data in place (keeps the current mode/panel visible). */
+  private refreshRoster(examId: number): void {
+    forkJoin({
+      participations: this.scoring.listParticipations(examId),
+      etudiants: this.scoring.listEtudiants(),
+      lots: this.scoring.listLots(examId),
+    }).subscribe({
+      next: ({ participations, etudiants, lots }) => {
+        this.directory.set(etudiants);
+        this.lots.set(lots);
+        this.rows.set(this.buildRows(participations, etudiants));
+      },
+    });
+  }
+
+  /** French label for an import row's statut. */
+  statutLabel(statut: ImportResult['rows'][number]['statut']): string {
+    switch (statut) {
+      case 'CREATED':
+        return 'Cree + inscrit';
+      case 'ENROLLED':
+        return 'Inscrit';
+      case 'ALREADY_ENROLLED':
+        return 'Deja inscrit';
+      default:
+        return 'Erreur';
+    }
   }
 
   // ---- remove -------------------------------------------------------------

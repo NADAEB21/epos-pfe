@@ -19,7 +19,8 @@ import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.service.ExamenParticipationService;
-
+import tn.epos.scoring_service.repositories.IEtudiantRepository;
+import tn.epos.scoring_service.repositories.ILotRepository;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,6 +45,12 @@ class ExamenParticipationControllerTest {
 
     @MockBean
     private EtudiantService etudiantService;
+
+    @MockBean
+    private IEtudiantRepository etudiantRepository;
+
+    @MockBean
+    private ILotRepository lotRepository;
 
     private ObjectMapper objectMapper;
     private ExamenParticipation participation;

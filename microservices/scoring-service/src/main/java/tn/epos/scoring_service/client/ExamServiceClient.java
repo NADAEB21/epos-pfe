@@ -15,83 +15,208 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import tn.epos.common.exception.BusinessException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 
 /**
- * Cross-service read client for exam-service.
+ * Client cross-service vers exam-service.
  *
- * <p>Used by NotationItemService to enforce that a NotationItem's {@code item_id}
- * belongs to the parent Notation's grille (closes #84). The check defends against
- * the offline-sync edge case where a Flutter client gets reassigned mid-day,
- * overwrites the cached station/grille IDs, but still has queued items tagged
- * to the old grille.
- *
- * <p>Cache: items don't move between grilles once created — verified against
- * {@code GrilleServiceImpl.modifierItem} (no grilleId in ItemRequest) and
- * {@code Examen.isGrilleModifiable} freeze. So a permanent ConcurrentHashMap is
- * safe; no TTL needed. The cache may go stale only if items are added to a
- * grille after first lookup — minor UX bug if it happens, no data corruption.
+ * Fournit les informations de pondération des items d'une grille,
+ * nécessaires pour calculer le score final côté scoring-service
+ * avec la même formule que le client Flutter (ScoreUtils.calculerScore).
  */
 @Component
 public class ExamServiceClient {
 
     private static final Logger log = LoggerFactory.getLogger(ExamServiceClient.class);
-
-    // 500 is well above any realistic grille size (issue's data model allows ~20 items/grille).
     private static final int ITEMS_PAGE_SIZE = 500;
 
+    // ExamenResponse sérialise launched_at en "yyyy-MM-dd HH:mm:ss" (espace, pas
+    // le 'T' ISO) via @JsonFormat — il faut le même motif pour le relire.
+    private static final DateTimeFormatter LAUNCHED_AT_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /** SonarQube S1192 — littéral réutilisé pour le nom de repli d'une station inconnue. */
+    private static final String STATION_FALLBACK_PREFIX = "Station ";
+
+    /** SonarQube S1192 — nom du champ JSON lu dans extractExamView + getExamTiming. */
+    private static final String FIELD_DUREE_STATION_MIN = "dureeStationMin";
+
+    /** SonarQube S1192 — champ JSON du tampon inter-créneau (ADR-0012). */
+    private static final String FIELD_TEMPS_BATTEMENT_MIN = "tempsBattementMin";
+
+    /** SonarQube S1192 — champ JSON du délai d'avertissement (ADR-0012). */
+    private static final String FIELD_AVERTISSEMENT_LEAD_SEC = "avertissementLeadSec";
+
+    /**
+     * Informations d'un item d'évaluation issues de l'exam-service.
+     *
+     * @param id          identifiant de l'item dans exam_db
+     * @param ponderation poids en points (ex : 2 pour "Choix indicateur", 6 pour "Calcul masse")
+     * @param type        "BINAIRE" ou "NUMERIQUE"
+     */
+    public record ItemInfo(Long id, double ponderation, String type) {}
+
+    /**
+     * Informations sommaires d'une station (nom, etc.)
+     * utilisées par EvaluateurDashboardService pour enrichir les SessionResponse.
+     */
+    public record StationInfo(String nom) {}
+
+    /**
+     * Snapshot de l'état temporel d'un examen, lu par
+     * {@code EvaluateurDashboardService} pour calculer le <b>temps effectif</b>
+     * (ADR-0009/0010, ADR-0012 §0) : l'horloge live de l'évaluateur doit
+     * soustraire le temps de pause, sinon une session affichée pendant une pause
+     * compte vers le mauvais étudiant.
+     *
+     * @param enPause       l'examen est-il actuellement en pause
+     * @param pausedAt      début de la pause en cours (null si non en pause) —
+     *                      moment serveur estampillé, zone {@code app.timezone}
+     * @param totalPauseSec secondes de pause cumulées sur les intervalles terminés
+     * @param dureeStationMin durée nominale d'une station (config examen) —
+     *                      remplace la constante codée en dur côté dashboard
+     * @param avertissementLeadSec délai (secondes) avant le prochain passage
+     *                      auquel l'app évaluateur déclenche l'avertissement
+     *                      (ADR-0012) ; 0 = avertissements désactivés
+     */
+    public record ExamTiming(boolean enPause, LocalDateTime pausedAt,
+                             int totalPauseSec, Integer dureeStationMin,
+                             int avertissementLeadSec) {
+
+        /** État neutre (pas de pause, pas d'avertissement) — repli si exam-service est injoignable. */
+        public static ExamTiming neutral() {
+            return new ExamTiming(false, null, 0, null, 0);
+        }
+    }
+
     private final WebClient webClient;
-    private final ConcurrentHashMap<Long, Set<Long>> grilleItemsCache = new ConcurrentHashMap<>();
+
+    // Cache permanent : les pondérations ne changent pas une fois l'examen EN_COURS.
+    private final ConcurrentHashMap<Long, Map<Long, ItemInfo>> grilleItemsCache =
+            new ConcurrentHashMap<>();
 
     @Autowired
-    public ExamServiceClient(@Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
+    public ExamServiceClient(
+            @Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
         this(WebClient.builder().baseUrl(baseUrl).build());
     }
 
-    /** Package-private constructor for tests — inject a stubbed WebClient. */
+    /** Package-private pour les tests — inject un WebClient stubbé. */
     ExamServiceClient(WebClient webClient) {
         this.webClient = webClient;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // API publique
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Returns the set of item IDs that belong to {@code grilleId}, cached
-     * permanently after first fetch. Forwards the caller's JWT for authz.
-     *
-     * @throws BusinessException if exam-service is unreachable or returns an error
-     *                           (fail-closed — grading already broken if exam-service is down)
+     * Retourne la map itemId → ItemInfo pour la grille, mise en cache si succès.
+     * En cas d'indisponibilité de l'exam-service : retourne une map vide (non cachée)
+     * pour que recalculerScoreFinal puisse utiliser un fallback sans bloquer.
      */
-    public Set<Long> getItemIdsForGrille(Long grilleId) {
-        return grilleItemsCache.computeIfAbsent(grilleId, this::fetchItemIds);
+    public Map<Long, ItemInfo> getItemInfosForGrille(Long grilleId) {
+        Map<Long, ItemInfo> cached = grilleItemsCache.get(grilleId);
+        if (cached != null) return cached;
+
+        Map<Long, ItemInfo> infos = fetchItemInfos(grilleId);
+        if (!infos.isEmpty()) {
+            grilleItemsCache.put(grilleId, infos);
+        }
+        return infos;
     }
 
-    private Set<Long> fetchItemIds(Long grilleId) {
+    /** Compatibilité avec NotationItemService. */
+    public Set<Long> getItemIdsForGrille(Long grilleId) {
+        return getItemInfosForGrille(grilleId).keySet();
+    }
+
+    /**
+     * Récupère le nom d'une station depuis l'exam-service.
+     * Résultat non mis en cache (champ mutable si examen en brouillon).
+     */
+    public StationInfo getStationInfo(Long stationId) {
         String bearerToken = currentBearerToken();
         try {
             JsonNode root = webClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/api/grilles/{grilleId}/items")
-                            .queryParam("size", ITEMS_PAGE_SIZE)
-                            .build(grilleId))
+                    .uri("/api/stations/{id}", stationId)
                     .headers(h -> h.setBearerAuth(bearerToken))
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block();
+            String nom = (root != null)
+                    ? root.path("data").path("nom").asText(STATION_FALLBACK_PREFIX + stationId)
+                    : STATION_FALLBACK_PREFIX + stationId;
+            return new StationInfo(nom);
+        } catch (Exception e) {
+            log.warn("exam-service injoignable pour station {} : {}", stationId, e.getMessage());
+            return new StationInfo(STATION_FALLBACK_PREFIX + stationId);
+        }
+    }
 
-            return extractItemIds(root);
+    /**
+     * Lit l'état temporel (pause + durée station) d'un examen pour le calcul du
+     * temps effectif côté dashboard (ADR-0012 §0). <b>Fail-soft</b> : en cas
+     * d'indisponibilité de l'exam-service ou d'examen introuvable, retourne
+     * {@link ExamTiming#neutral()} (pas de pause) plutôt que d'échouer — le
+     * dashboard dégrade alors vers l'horloge murale brute, comme
+     * {@link #getStationInfo(Long)}. Non mis en cache : la pause est mutable.
+     */
+    public ExamTiming getExamTiming(Long examenId) {
+        String bearerToken = currentBearerToken();
+        try {
+            JsonNode root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            JsonNode data = root == null ? null : root.path("data");
+            if (data == null || data.isMissingNode() || data.isNull() || !data.path("id").isNumber()) {
+                log.warn("getExamTiming : examen {} introuvable — état neutre", examenId);
+                return ExamTiming.neutral();
+            }
+            boolean enPause = data.path("enPause").asBoolean(false);
+            LocalDateTime pausedAt = parseServerTimestamp(data.path("pausedAt"));
+            int totalPauseSec = data.path("totalPauseSec").isNumber()
+                    ? data.path("totalPauseSec").asInt() : 0;
+            Integer duree = data.path(FIELD_DUREE_STATION_MIN).isNumber()
+                    ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
+            int leadSec = data.path(FIELD_AVERTISSEMENT_LEAD_SEC).isNumber()
+                    ? data.path(FIELD_AVERTISSEMENT_LEAD_SEC).asInt() : 0;
+            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec);
+        } catch (Exception e) {
+            log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
+                    examenId, e.getMessage());
+            return ExamTiming.neutral();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Implémentation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private Map<Long, ItemInfo> fetchItemInfos(Long grilleId) {
+        String bearerToken = currentBearerToken();
+        try {
+            JsonNode root = webClient.get()
+                    .uri("/api/grilles/{grilleId}/items/feuilles", grilleId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            return extractItemInfos(root, grilleId);
         } catch (WebClientResponseException e) {
-            log.error("exam-service rejected items lookup for grille {} (status {}): {}",
-                    grilleId, e.getStatusCode(), e.getResponseBodyAsString());
-            throw new BusinessException(
-                    "Validation des items impossible : exam-service a renvoyé " + e.getStatusCode());
+            log.error("exam-service HTTP {} pour grille {}", e.getStatusCode(), grilleId);
+            throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value());
         } catch (RuntimeException e) {
-            log.error("exam-service unreachable for grille {} items lookup", grilleId, e);
-            throw new BusinessException(
-                    "Validation des items impossible : exam-service injoignable");
+            log.error("exam-service injoignable pour grille {}", grilleId, e);
+            throw new BusinessException("exam-service injoignable : " + e.getMessage());
         }
     }
 
@@ -152,28 +277,62 @@ public class ExamServiceClient {
                 data.path("id").asLong(),
                 data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
-                data.path("dureeStationMin").isNumber() ? data.path("dureeStationMin").asInt() : null,
+                parseLaunchedAt(data.path("launchedAt")),
+                data.path(FIELD_DUREE_STATION_MIN).isNumber() ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null,
+                data.path(FIELD_TEMPS_BATTEMENT_MIN).isNumber() ? data.path(FIELD_TEMPS_BATTEMENT_MIN).asInt() : null,
                 data.path("nbEtudiantsParStation").isNumber() ? data.path("nbEtudiantsParStation").asInt() : null,
                 data.path("statut").asText(null),
                 stations);
     }
 
-    private Set<Long> extractItemIds(JsonNode root) {
-        Set<Long> ids = new HashSet<>();
-        if (root == null) return ids;
+    /**
+     * Reads the optional {@code launched_at} (ADR-0010). Absent / null / legacy
+     * rows yield {@code null} → generation falls back to the planned start. A
+     * malformed value is logged and treated as absent rather than failing the
+     * whole generation.
+     */
+    private LocalDateTime parseLaunchedAt(JsonNode node) {
+        return parseServerTimestamp(node);
+    }
 
-        // Response envelope: ApiResponse<PageResponse<ItemResponse>> →
-        // {success, message, data: {content: [{id, ...}], ...}}
-        JsonNode content = root.path("data").path("content");
+    /**
+     * Reads a machine-stamped {@code "yyyy-MM-dd HH:mm:ss"} timestamp
+     * (launched_at, paused_at — same {@code @JsonFormat} on ExamenResponse).
+     * Absent / null / malformed → {@code null}, logged but never fatal.
+     */
+    private LocalDateTime parseServerTimestamp(JsonNode node) {
+        if (node == null || !node.isTextual()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(node.asText(), LAUNCHED_AT_FMT);
+        } catch (DateTimeParseException e) {
+            log.warn("timestamp serveur illisible ('{}') — ignoré", node.asText());
+            return null;
+        }
+    }
+
+    private Map<Long, ItemInfo> extractItemInfos(JsonNode root, Long grilleId) {
+        Map<Long, ItemInfo> infos = new HashMap<>();
+        if (root == null) {
+            log.warn("Réponse null pour grille {}", grilleId);
+            return infos;
+        }
+        // /items/feuilles renvoie ApiResponse<List<ItemResponse>> (pas de pagination)
+        JsonNode content = root.path("data");
         if (!content.isArray()) {
-            log.warn("Unexpected exam-service response shape: missing data.content[]");
-            return ids;
+            log.warn("Réponse inattendue de l'exam-service pour grille {} : data[] absent", grilleId);
+            return infos;
         }
         for (JsonNode item : content) {
             long id = item.path("id").asLong(-1);
-            if (id > 0) ids.add(id);
+            if (id <= 0) continue;
+            double ponderation = item.path("ponderation").asDouble(1.0);
+            String type        = item.path("type").asText("BINAIRE");
+            infos.put(id, new ItemInfo(id, ponderation, type));
         }
-        return ids;
+        log.debug("Grille {} : {} feuille(s) notable(s) chargée(s)", grilleId, infos.size());
+        return infos;
     }
 
     private String currentBearerToken() {
@@ -184,9 +343,7 @@ public class ExamServiceClient {
                 return jwt.getTokenValue();
             }
         }
-        // No JWT in context → can't call exam-service authoritatively. Fail-closed.
         throw new BusinessException(
-                "Validation des items impossible : aucun JWT dans le contexte d'appel");
+                "Calcul du score impossible : aucun JWT dans le contexte d'appel");
     }
-
 }

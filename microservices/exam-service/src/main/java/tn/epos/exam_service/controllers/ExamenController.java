@@ -93,6 +93,25 @@ public class ExamenController {
         );
     }
 
+    @PatchMapping("/{id}/pause")
+    @Operation(summary = "Mettre un examen en pause",
+            description = "ADR-0009 : pause orthogonale ; l'examen reste EN_COURS. "
+                    + "Couvre pauses, coupures repas et examens multi-jours.")
+    public ResponseEntity<ApiResponse<ExamenResponse>> mettreEnPause(@PathVariable Long id) {
+        return ResponseEntity.ok(
+                ApiResponse.ok("Examen mis en pause", examenService.mettreEnPause(id))
+        );
+    }
+
+    @PatchMapping("/{id}/reprendre")
+    @Operation(summary = "Reprendre un examen en pause",
+            description = "Cumule la durée de pause écoulée (temps effectif).")
+    public ResponseEntity<ApiResponse<ExamenResponse>> reprendre(@PathVariable Long id) {
+        return ResponseEntity.ok(
+                ApiResponse.ok("Examen repris", examenService.reprendre(id))
+        );
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "Supprimer un examen", description = "Uniquement si statut BROUILLON ou CONFIGURE")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {

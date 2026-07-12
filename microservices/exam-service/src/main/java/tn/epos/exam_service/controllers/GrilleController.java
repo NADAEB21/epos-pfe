@@ -20,14 +20,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Grilles & Critères", description = "Gestion des grilles d'évaluation et critères pondérés")
-@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
 public class GrilleController {
     private final GrilleService grilleService;
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PostMapping("/api/stations/{stationId}/grille")
     @Operation(summary = "Créer la grille d'une station",
             description = "Vous pouvez inclure les items directement dans la requête (création groupée)")
@@ -39,6 +42,22 @@ public class GrilleController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Grille créée avec succès", response));
+    }
+
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    @PutMapping("/api/stations/{stationId}/grille")
+    @Operation(summary = "Remplacer la grille d'une station (create-or-replace)",
+            description = "Pose la grille de la station de façon idempotente : la crée si absente, "
+                    + "la remplace intégralement (items compris) si présente. Évite le duo "
+                    + "supprimer→créer côté client. Renvoie 200.")
+    public ResponseEntity<ApiResponse<GrilleResponse>> remplacer(
+            @PathVariable Long stationId,
+            @Valid @RequestBody GrilleRequest request) {
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("Grille remplacée avec succès",
+                        grilleService.remplacerPourStation(stationId, request))
+        );
     }
 
     @GetMapping("/api/stations/{stationId}/grille")
@@ -53,6 +72,7 @@ public class GrilleController {
         return ResponseEntity.ok(ApiResponse.ok(grilleService.trouverParId(id)));
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PutMapping("/api/grilles/{id}")
     @Operation(summary = "Modifier une grille",
             description = "Modifie nom, noteMax et description. Pour les items, utilisez les endpoints /items")
@@ -65,6 +85,7 @@ public class GrilleController {
         );
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @DeleteMapping("/api/grilles/{id}")
     @Operation(summary = "Supprimer une grille et tous ses critères")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {
@@ -73,6 +94,7 @@ public class GrilleController {
     }
 
     // items
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PostMapping("/api/grilles/{grilleId}/items")
     @Operation(summary = "Ajouter un critère à une grille",
             description = "BINAIRE : Fait/Non fait. NUMERIQUE : valeur entre 0 et valeurMax. "
@@ -99,6 +121,7 @@ public class GrilleController {
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(items)));
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @PutMapping("/api/items/{id}")
     @Operation(summary = "Modifier un critère d'évaluation")
     public ResponseEntity<ApiResponse<ItemResponse>> modifierItem(
@@ -110,10 +133,39 @@ public class GrilleController {
         );
     }
 
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     @DeleteMapping("/api/items/{id}")
     @Operation(summary = "Supprimer un critère", description = "Les critères suivants sont réordonnés automatiquement")
     public ResponseEntity<ApiResponse<Void>> supprimerItem(@PathVariable Long id) {
         grilleService.supprimerItem(id);
         return ResponseEntity.ok(ApiResponse.ok("Critère supprimé avec succès", null));
+    }
+
+    // sub criteria
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    @PostMapping("/api/items/{itemId}/sous-criteres")
+    @Operation(summary = "Ajouter un sous-critère à un critère existant",
+            description = "Un seul niveau de profondeur (#160). La somme des pondérations "
+                    + "des sous-critères doit égaler la pondération du parent.")
+    public ResponseEntity<ApiResponse<ItemResponse>> ajouterSousCritere(
+            @PathVariable Long itemId,
+            @Valid @RequestBody ItemRequest request) {
+        ItemResponse response = grilleService.ajouterSousCritere(itemId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Sous-critère ajouté avec succès", response));
+    }
+
+    @GetMapping("/api/items/{itemId}/sous-criteres")
+    @Operation(summary = "Lister les sous-critères d'un critère")
+    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerSousCriteres(@PathVariable Long itemId) {
+        return ResponseEntity.ok(ApiResponse.ok(grilleService.listerSousCriteres(itemId)));
+    }
+
+    @GetMapping("/api/grilles/{grilleId}/items/feuilles")
+    @Operation(summary = "Lister les items notables (feuilles) d'une grille",
+            description = "Aplati la hiérarchie : ne renvoie que les critères sans sous-critères, "
+                    + "ceux que l'évaluateur note réellement (#160).")
+    public ResponseEntity<ApiResponse<List<ItemResponse>>> listerItemsFeuilles(@PathVariable Long grilleId) {
+        return ResponseEntity.ok(ApiResponse.ok(grilleService.listerItemsFeuilles(grilleId)));
     }
 }

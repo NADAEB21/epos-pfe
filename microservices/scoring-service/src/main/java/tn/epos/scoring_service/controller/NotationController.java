@@ -1,13 +1,18 @@
 package tn.epos.scoring_service.controller;
 
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.ExamenResultDTO;
+import tn.epos.scoring_service.dto.NotationAdjustmentDTO;
 import tn.epos.scoring_service.dto.NotationDTO; // New Import
+import tn.epos.scoring_service.dto.ReajustementRequest;
 import tn.epos.scoring_service.entities.Notation;
+import tn.epos.scoring_service.service.NotationReajustementService;
 import tn.epos.scoring_service.service.NotationService;
 
 import java.util.List;
@@ -20,6 +25,9 @@ public class NotationController {
 
     @Autowired
     private NotationService service;
+
+    @Autowired
+    private NotationReajustementService reajustementService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -66,6 +74,15 @@ public class NotationController {
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
+    // Résultats agrégés par étudiant pour un examen (issue #90). Monté sous le
+    // préfixe /notations (et non /examens/{id}/results) car la gateway route
+    // /api/v1/examens/** vers exam-service ; /api/v1/notations/** vient ici.
+    @GetMapping("/examen/{examenId}/results")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<List<ExamenResultDTO>>> getResultsByExamen(@PathVariable Long examenId) {
+        return ResponseEntity.ok(ApiResponse.ok(service.getResultatsByExamen(examenId)));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'EVALUATEUR', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<NotationDTO>> create(@RequestBody NotationDTO dto) {
@@ -105,5 +122,27 @@ public class NotationController {
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         service.delete(id);
         return ResponseEntity.ok(ApiResponse.ok("Notation supprimée"));
+    }
+
+    // Réajustement audité (ADR-0013 Part 2, #23/#135). Seul canal autorisé à
+    // modifier une notation VERROUILLÉE — réclamation étudiante. RESPONSABLE +
+    // ADMIN uniquement (PAS l'évaluateur : la supervision/réclamation relève du
+    // responsable). motif obligatoire (@Valid). La notation reste verrouillée ;
+    // chaque changement est tracé dans notation_adjustments.
+    @PostMapping("/{id}/reajustement")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<NotationDTO>> reajuster(
+            @PathVariable Long id, @Valid @RequestBody ReajustementRequest request) {
+        reajustementService.reajuster(id, request);
+        NotationDTO dto = service.findById(id).map(NotationDTO::fromEntity).orElse(null);
+        return ResponseEntity.ok(ApiResponse.ok("Réajustement enregistré", dto));
+    }
+
+    // Historique des réajustements d'une notation (panneau responsable).
+    @GetMapping("/{id}/reajustements")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<List<NotationAdjustmentDTO>>> historiqueReajustements(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(reajustementService.historique(id)));
     }
 }

@@ -31,6 +31,17 @@ public class ExamenRequest {
     @Max(value = 10)
     private Integer nbEtudiantsParStation = 4;
 
+    // Tampon de transition inter-créneau, minutes (ADR-0012). 0 = back-to-back.
+    @Min(value = 0, message = "Le temps de battement ne peut pas être négatif")
+    @Max(value = 60, message = "Le temps de battement ne peut pas dépasser 60 minutes")
+    private Integer tempsBattementMin = 0;
+
+    // Délai d'avertissement avant le prochain passage, secondes (ADR-0012).
+    // 0 = avertissements désactivés.
+    @Min(value = 0, message = "Le délai d'avertissement ne peut pas être négatif")
+    @Max(value = 600, message = "Le délai d'avertissement ne peut pas dépasser 600 secondes")
+    private Integer avertissementLeadSec = 0;
+
     @Size(max = 500)
     private String description;
 }

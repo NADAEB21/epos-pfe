@@ -1,6 +1,5 @@
 package tn.epos.exam_service.services.impl;
 
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +14,6 @@ import tn.epos.exam_service.dto.response.ItemResponse;
 import tn.epos.exam_service.entities.*;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.enums.TypeItem;
-import tn.epos.exam_service.enums.TypeStation;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.repositories.*;
@@ -55,17 +53,10 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                 .noteMax(grille.getNoteMax())
                 .build();
 
-        grille.getItems().forEach(item -> {
-            ItemTemplate it = ItemTemplate.builder()
-                    .libelle(item.getLibelle())
-                    .type(item.getType())
-                    .ponderation(item.getPonderation())
-                    .valeurMax(item.getValeurMax())
-                    .categorie(item.getCategorie())
-                    .ordre(item.getOrdre())
-                    .build();
-            template.addItem(it);
-        });
+        // #160 : grille.getItems() ne contient que les critères de premier niveau
+        // (voir GrilleEvaluation.addItem) ; buildItemTemplate() descend récursivement
+        // dans les sous-critères.
+        grille.getItems().forEach(item -> template.addItem(buildItemTemplate(item)));
 
         GrilleTemplate saved = templateRepository.save(template);
         log.info("Template '{}' créé depuis la grille {}", nomTemplate, grilleId);
@@ -93,6 +84,8 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                         .ponderation(ir.getPonderation())
                         .valeurMax(ir.getValeurMax())
                         .categorie(ir.getCategorie())
+                        .valeurAttendue(ir.getValeurAttendue())
+                        .conditionsAttendues(ir.getConditionsAttendues())
                         .ordre(i + 1)
                         .build();
                 template.addItem(it);
@@ -152,19 +145,9 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         grille.setNom(template.getNom());
         grille.setNoteMax(template.getNoteMax());
         grille.setDescription(template.getDescription());
-        grille.getItems().clear();   // orphanRemoval supprime les anciens critères
+        grille.getItems().clear();   // orphanRemoval supprime les anciens critères (cascade DB pour leurs enfants)
 
-        template.getItems().forEach(it -> {
-            ItemEvaluation item = ItemEvaluation.builder()
-                    .libelle(it.getLibelle())
-                    .type(it.getType())
-                    .ponderation(it.getPonderation())
-                    .valeurMax(it.getValeurMax())
-                    .categorie(it.getCategorie())
-                    .ordre(it.getOrdre())
-                    .build();
-            grille.addItem(item);
-        });
+        template.getItems().forEach(it -> grille.addItem(buildItemFromTemplate(it)));
 
         grilleRepository.save(grille);
         log.info("Template '{}' appliqué sur la station {}", template.getNom(), stationId);
@@ -187,36 +170,9 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         export.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());
         export.setDescription(examen.getDescription());
 
-        List<ExamenExportResponse.StationExportResponse> stationsExport =
-                examen.getStations().stream().map(station -> {
-                    ExamenExportResponse.StationExportResponse se =
-                            new ExamenExportResponse.StationExportResponse();
-                    se.setNom(station.getNom());
-                    se.setType(station.getType().name());
-                    se.setDescription(station.getDescription());
-                    se.setOrdre(station.getOrdre());
-
-                    grilleRepository.findByStationIdWithItems(station.getId()).ifPresent(grille -> {
-                        ExamenExportResponse.GrilleExportResponse ge =
-                                new ExamenExportResponse.GrilleExportResponse();
-                        ge.setNom(grille.getNom());
-                        ge.setNoteMax(grille.getNoteMax());
-                        ge.setDescription(grille.getDescription());
-                        ge.setItems(grille.getItems().stream().map(item -> {
-                            ExamenExportResponse.ItemExportResponse ie =
-                                    new ExamenExportResponse.ItemExportResponse();
-                            ie.setLibelle(item.getLibelle());
-                            ie.setType(item.getType().name());
-                            ie.setPonderation(item.getPonderation());
-                            ie.setValeurMax(item.getValeurMax());
-                            ie.setCategorie(item.getCategorie());
-                            ie.setOrdre(item.getOrdre());
-                            return ie;
-                        }).collect(Collectors.toList()));
-                        se.setGrille(ge);
-                    });
-                    return se;
-                }).collect(Collectors.toList());
+        List<ExamenExportResponse.StationExportResponse> stationsExport = examen.getStations().stream()
+                .map(this::buildStationExport)
+                .collect(Collectors.toList());
 
         export.setStations(stationsExport);
         return export;
@@ -237,46 +193,17 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                 .dateExamen(source.getDateExamen())
                 .dureeStationMin(source.getDureeStationMin())
                 .nbEtudiantsParStation(source.getNbEtudiantsParStation())
+                // ADR-0012 : la copie hérite aussi du tampon inter-créneau et du
+                // délai d'avertissement, sinon dupliquer un examen réinitialise
+                // silencieusement sa configuration de transition à 0.
+                .tempsBattementMin(source.getTempsBattementMin())
+                .avertissementLeadSec(source.getAvertissementLeadSec())
                 .description(source.getDescription())
                 .statut(StatutExamen.BROUILLON)
                 .build();
 
         Examen examenSauve = examenRepository.save(copie);
-
-        source.getStations().forEach(station -> {
-            Station nouvelleStation = Station.builder()
-                    .nom(station.getNom())
-                    .type(station.getType())
-                    .description(station.getDescription())
-                    .ordre(station.getOrdre())
-                    .examen(examenSauve)
-                    .build();
-
-            stationRepository.save(nouvelleStation);
-
-            grilleRepository.findByStationIdWithItems(station.getId()).ifPresent(grille -> {
-                GrilleEvaluation nouvelleGrille = GrilleEvaluation.builder()
-                        .nom(grille.getNom())
-                        .noteMax(grille.getNoteMax())
-                        .description(grille.getDescription())
-                        .station(nouvelleStation)
-                        .build();
-
-                grille.getItems().forEach(item -> {
-                    ItemEvaluation nouvelItem = ItemEvaluation.builder()
-                            .libelle(item.getLibelle())
-                            .type(item.getType())
-                            .ponderation(item.getPonderation())
-                            .valeurMax(item.getValeurMax())
-                            .categorie(item.getCategorie())
-                            .ordre(item.getOrdre())
-                            .build();
-                    nouvelleGrille.addItem(nouvelItem);
-                });
-
-                grilleRepository.save(nouvelleGrille);
-            });
-        });
+        source.getStations().forEach(station -> dupliquerStation(station, examenSauve));
 
         log.info("Examen {} dupliqué → nouvel examen {} ('{}')", examenId, examenSauve.getId(), nouveauNom);
         return examenSauve.getId();
@@ -314,24 +241,169 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         grille.getItems().clear();   // orphanRemoval supprime les anciens critères
 
         if (importedGrille.getItems() != null) {
-            importedGrille.getItems().forEach(ie -> {
-                ItemEvaluation item = ItemEvaluation.builder()
-                        .libelle(ie.getLibelle())
-                        .type(TypeItem.valueOf(ie.getType()))
-                        .ponderation(ie.getPonderation())
-                        .valeurMax(ie.getValeurMax())
-                        .categorie(ie.getCategorie())
-                        .ordre(ie.getOrdre())
-                        .build();
-                grille.addItem(item);
-            });
+            importedGrille.getItems().forEach(ie -> grille.addItem(buildItemFromExport(ie)));
         }
 
         grilleRepository.save(grille);
         log.info("Grille importée depuis JSON sur la station {}", stationId);
     }
 
-    // ── Mapping ───────────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════
+    // Helpers récursifs — arbre critère / sous-critères (#160)
+    //
+    // Une méthode Java ne peut être déclarée qu'au niveau de la classe, jamais
+    // à l'intérieur d'une autre méthode : ces helpers sont donc des méthodes
+    // privées de la classe, appelées par les méthodes publiques ci-dessus.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** Grille (entité) → Template (entité), récursif. */
+    private ItemTemplate buildItemTemplate(ItemEvaluation item) {
+        ItemTemplate it = ItemTemplate.builder()
+                .libelle(item.getLibelle())
+                .type(item.getType())
+                .ponderation(item.getPonderation())
+                .valeurMax(item.getValeurMax())
+                .categorie(item.getCategorie())
+                .valeurAttendue(item.getValeurAttendue())
+                .conditionsAttendues(item.getConditionsAttendues())
+                .ordre(item.getOrdre())
+                .build();
+        item.getChildren().forEach(enfant -> it.addChild(buildItemTemplate(enfant)));
+        return it;
+    }
+
+    /** Template (entité) → Grille (entité fraîche, sans id), récursif. */
+    private ItemEvaluation buildItemFromTemplate(ItemTemplate it) {
+        ItemEvaluation item = ItemEvaluation.builder()
+                .libelle(it.getLibelle())
+                .type(it.getType())
+                .ponderation(it.getPonderation())
+                .valeurMax(it.getValeurMax())
+                .categorie(it.getCategorie())
+                .valeurAttendue(it.getValeurAttendue())
+                .conditionsAttendues(it.getConditionsAttendues())
+                .ordre(it.getOrdre())
+                .build();
+        it.getChildren().forEach(enfant -> item.addChild(buildItemFromTemplate(enfant)));
+        return item;
+    }
+
+    /** Template (entité) → DTO exposé au client, récursif. */
+    private ItemResponse toItemTemplateResponse(ItemTemplate it) {
+        ItemResponse ir = new ItemResponse();
+        ir.setId(it.getId());
+        ir.setLibelle(it.getLibelle());
+        ir.setType(it.getType());
+        ir.setPonderation(it.getPonderation());
+        ir.setValeurMax(it.getValeurMax());
+        ir.setOrdre(it.getOrdre());
+        ir.setCategorie(it.getCategorie());
+        ir.setValeurAttendue(it.getValeurAttendue());
+        ir.setConditionsAttendues(it.getConditionsAttendues());
+        ir.setHasSousCriteres(!it.getChildren().isEmpty());
+        ir.setSousCriteres(it.getChildren().stream()
+                .map(this::toItemTemplateResponse)
+                .collect(Collectors.toList()));
+        return ir;
+    }
+
+    /** Station (entité, avec sa grille) → DTO d'export, récursif sur les items. */
+    private ExamenExportResponse.StationExportResponse buildStationExport(Station station) {
+        ExamenExportResponse.StationExportResponse se = new ExamenExportResponse.StationExportResponse();
+        se.setNom(station.getNom());
+        se.setType(station.getType().name());
+        se.setDescription(station.getDescription());
+        se.setOrdre(station.getOrdre());
+
+        grilleRepository.findByStationIdWithItems(station.getId()).ifPresent(grille -> {
+            ExamenExportResponse.GrilleExportResponse ge = new ExamenExportResponse.GrilleExportResponse();
+            ge.setNom(grille.getNom());
+            ge.setNoteMax(grille.getNoteMax());
+            ge.setDescription(grille.getDescription());
+            ge.setItems(grille.getItems().stream()
+                    .map(this::buildItemExport)
+                    .collect(Collectors.toList()));
+            se.setGrille(ge);
+        });
+        return se;
+    }
+
+    /** Item d'évaluation (entité) → DTO d'export, récursif. */
+    private ExamenExportResponse.ItemExportResponse buildItemExport(ItemEvaluation item) {
+        ExamenExportResponse.ItemExportResponse ie = new ExamenExportResponse.ItemExportResponse();
+        ie.setLibelle(item.getLibelle());
+        ie.setType(item.getType().name());
+        ie.setPonderation(item.getPonderation());
+        ie.setValeurMax(item.getValeurMax());
+        ie.setCategorie(item.getCategorie());
+        ie.setValeurAttendue(item.getValeurAttendue());
+        ie.setConditionsAttendues(item.getConditionsAttendues());
+        ie.setOrdre(item.getOrdre());
+        ie.setSousCriteres(item.getChildren().stream()
+                .map(this::buildItemExport)
+                .collect(Collectors.toList()));
+        return ie;
+    }
+
+    /** DTO d'export → Item d'évaluation (entité fraîche, sans id), récursif. */
+    private ItemEvaluation buildItemFromExport(ExamenExportResponse.ItemExportResponse ie) {
+        ItemEvaluation item = ItemEvaluation.builder()
+                .libelle(ie.getLibelle())
+                .type(TypeItem.valueOf(ie.getType()))
+                .ponderation(ie.getPonderation())
+                .valeurMax(ie.getValeurMax())
+                .categorie(ie.getCategorie())
+                .valeurAttendue(ie.getValeurAttendue())
+                .conditionsAttendues(ie.getConditionsAttendues())
+                .ordre(ie.getOrdre())
+                .build();
+        if (ie.getSousCriteres() != null) {
+            ie.getSousCriteres().forEach(enfant -> item.addChild(buildItemFromExport(enfant)));
+        }
+        return item;
+    }
+
+    /** Copie une station (avec sa grille et tout l'arbre de critères) vers un nouvel examen. */
+    private void dupliquerStation(Station station, Examen examenCible) {
+        Station nouvelleStation = Station.builder()
+                .nom(station.getNom())
+                .type(station.getType())
+                .description(station.getDescription())
+                .ordre(station.getOrdre())
+                .examen(examenCible)
+                .build();
+        stationRepository.save(nouvelleStation);
+
+        grilleRepository.findByStationIdWithItems(station.getId()).ifPresent(grille -> {
+            GrilleEvaluation nouvelleGrille = GrilleEvaluation.builder()
+                    .nom(grille.getNom())
+                    .noteMax(grille.getNoteMax())
+                    .description(grille.getDescription())
+                    .station(nouvelleStation)
+                    .build();
+
+            grille.getItems().forEach(item -> nouvelleGrille.addItem(copierItemRecursivement(item)));
+            grilleRepository.save(nouvelleGrille);
+        });
+    }
+
+    /** Copie profonde d'un item d'évaluation et de tous ses sous-critères, sans id. */
+    private ItemEvaluation copierItemRecursivement(ItemEvaluation source) {
+        ItemEvaluation copie = ItemEvaluation.builder()
+                .libelle(source.getLibelle())
+                .type(source.getType())
+                .ponderation(source.getPonderation())
+                .valeurMax(source.getValeurMax())
+                .categorie(source.getCategorie())
+                .valeurAttendue(source.getValeurAttendue())
+                .conditionsAttendues(source.getConditionsAttendues())
+                .ordre(source.getOrdre())
+                .build();
+        source.getChildren().forEach(enfant -> copie.addChild(copierItemRecursivement(enfant)));
+        return copie;
+    }
+
+    // ── Mapping template → DTO ────────────────────────────────────────────────
 
     private GrilleTemplateResponse toResponse(GrilleTemplate template) {
         GrilleTemplateResponse r = new GrilleTemplateResponse();
@@ -343,17 +415,9 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         r.setNombreItems(template.getItems().size());
         r.setSommePonderations(template.getItems().stream()
                 .mapToDouble(ItemTemplate::getPonderation).sum());
-        r.setItems(template.getItems().stream().map(it -> {
-            ItemResponse ir = new ItemResponse();
-            ir.setId(it.getId());
-            ir.setLibelle(it.getLibelle());
-            ir.setType(it.getType());
-            ir.setPonderation(it.getPonderation());
-            ir.setValeurMax(it.getValeurMax());
-            ir.setOrdre(it.getOrdre());
-            ir.setCategorie(it.getCategorie());
-            return ir;
-        }).collect(Collectors.toList()));
+        r.setItems(template.getItems().stream()
+                .map(this::toItemTemplateResponse)
+                .collect(Collectors.toList()));
         return r;
     }
 }

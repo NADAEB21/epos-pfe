@@ -25,6 +25,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +41,7 @@ import java.util.stream.Collectors;
 public class ExamenServiceImpl implements ExamenService {
     private final ExamenRepository examenRepository;
     private final MatiereAccessChecker matiereAccessChecker;
+    private final Clock clock;
 
     @Value("${epos.upload.dir}")
     private String uploadDir;
@@ -53,6 +58,8 @@ public class ExamenServiceImpl implements ExamenService {
                 .heureDebut(request.getHeureDebut())
                 .dureeStationMin(request.getDureeStationMin())
                 .nbEtudiantsParStation(request.getNbEtudiantsParStation())
+                .tempsBattementMin(request.getTempsBattementMin())
+                .avertissementLeadSec(request.getAvertissementLeadSec())
                 .description(request.getDescription())
                 .statut(StatutExamen.BROUILLON)
                 .build();
@@ -119,6 +126,8 @@ public class ExamenServiceImpl implements ExamenService {
         examen.setHeureDebut(request.getHeureDebut());
         examen.setDureeStationMin(request.getDureeStationMin());
         examen.setNbEtudiantsParStation(request.getNbEtudiantsParStation());
+        examen.setTempsBattementMin(request.getTempsBattementMin());
+        examen.setAvertissementLeadSec(request.getAvertissementLeadSec());
         examen.setDescription(request.getDescription());
 
         return toResponse(examenRepository.save(examen), false);
@@ -129,8 +138,72 @@ public class ExamenServiceImpl implements ExamenService {
         Examen examen = trouverEntite(id);
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
+
+        // Ne pas clôturer un examen figé en pause : le temps effectif est gelé, donc
+        // le "dépassement" (gate de fin côté Suivi) ne peut pas avancer. On force la
+        // reprise avant la fin pour un état terminal cohérent (enPause=false).
+        if (nouveauStatut == StatutExamen.TERMINE && Boolean.TRUE.equals(examen.getEnPause())) {
+            throw new BusinessException(
+                    "Reprenez l'examen avant de le terminer (il est actuellement en pause)."
+            );
+        }
+
         examen.setStatut(nouveauStatut);
+
+        // ADR-0010 : capter l'instant de lancement réel au passage → EN_COURS.
+        // Posé une seule fois ; jamais réécrit (la transition n'autorise CONFIGURE
+        // → EN_COURS qu'une fois, mais on garde le garde-fou explicite).
+        if (nouveauStatut == StatutExamen.EN_COURS && examen.getLaunchedAt() == null) {
+            examen.setLaunchedAt(LocalDateTime.now(clock));
+            log.info("Examen {} lancé à {} (launched_at)", id, examen.getLaunchedAt());
+        }
+
         log.info("Examen {} : statut changé {} → {}", id, examen.getStatut(), nouveauStatut);
+        return toResponse(examenRepository.save(examen), false);
+    }
+
+    @Override
+    public ExamenResponse mettreEnPause(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+
+        if (examen.getStatut() != StatutExamen.EN_COURS) {
+            throw new BusinessException(
+                    "Seul un examen EN_COURS peut être mis en pause. Statut actuel : " + examen.getStatut()
+            );
+        }
+        if (Boolean.TRUE.equals(examen.getEnPause())) {
+            throw new BusinessException("L'examen est déjà en pause.");
+        }
+
+        examen.setEnPause(true);
+        examen.setPausedAt(LocalDateTime.now(clock));
+        log.info("Examen {} mis en pause à {}", id, examen.getPausedAt());
+        return toResponse(examenRepository.save(examen), false);
+    }
+
+    @Override
+    public ExamenResponse reprendre(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+
+        if (!Boolean.TRUE.equals(examen.getEnPause())) {
+            throw new BusinessException("L'examen n'est pas en pause.");
+        }
+
+        // Cumule la durée de la pause qui s'achève (bornée à >= 0 par sécurité).
+        // Compute over Instants (time-zone-aware) so the duration is well-defined.
+        long elapsed = 0;
+        if (examen.getPausedAt() != null) {
+            Instant pausedInstant = examen.getPausedAt().atZone(clock.getZone()).toInstant();
+            elapsed = Math.max(0, Duration.between(pausedInstant, clock.instant()).getSeconds());
+        }
+        int total = (examen.getTotalPauseSec() != null ? examen.getTotalPauseSec() : 0) + (int) elapsed;
+
+        examen.setTotalPauseSec(total);
+        examen.setPausedAt(null);
+        examen.setEnPause(false);
+        log.info("Examen {} repris ; pause de {}s, cumul {}s", id, elapsed, total);
         return toResponse(examenRepository.save(examen), false);
     }
 
@@ -257,10 +330,16 @@ public class ExamenServiceImpl implements ExamenService {
         response.setHeureDebut(examen.getHeureDebut());
         response.setDureeStationMin(examen.getDureeStationMin());
         response.setNbEtudiantsParStation(examen.getNbEtudiantsParStation());
+        response.setTempsBattementMin(examen.getTempsBattementMin());
+        response.setAvertissementLeadSec(examen.getAvertissementLeadSec());
         response.setStatut(examen.getStatut());
         response.setDescription(examen.getDescription());
         response.setHasPdfSujet(examen.getPdfSujetPath() != null);
         response.setPdfSujetNom(examen.getPdfSujetNom());
+        response.setEnPause(Boolean.TRUE.equals(examen.getEnPause()));
+        response.setPausedAt(examen.getPausedAt());
+        response.setTotalPauseSec(examen.getTotalPauseSec());
+        response.setLaunchedAt(examen.getLaunchedAt());
         response.setCreatedAt(examen.getCreatedAt());
         response.setUpdatedAt(examen.getUpdatedAt());
 

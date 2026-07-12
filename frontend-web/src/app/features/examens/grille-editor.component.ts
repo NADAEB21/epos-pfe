@@ -104,6 +104,67 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
               </button>
             </div>
           </form>
+        } @else if (replacingGrille()) {
+          <!-- #161 : remplacer la grille en un seul geste (create-or-replace, PUT) -->
+          <form [formGroup]="replaceForm" (ngSubmit)="submitReplace()" novalidate class="space-y-3">
+            <div class="text-sm font-semibold text-gray-900">Remplacer par une nouvelle grille</div>
+            <p class="text-xs text-status-warning">
+              Les {{ g.nombreItems ?? g.items?.length ?? 0 }} critère(s) actuels seront supprimés et
+              remplacés par cette nouvelle grille (à repeupler ensuite).
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div class="sm:col-span-3">
+                <label class="block text-xs font-medium text-gray-700 mb-1">Nom de la grille</label>
+                <input
+                  type="text"
+                  formControlName="nom"
+                  maxlength="150"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Note max</label>
+                <input
+                  type="number"
+                  formControlName="noteMax"
+                  min="1"
+                  max="100"
+                  step="0.5"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">
+                Description <span class="text-gray-400">(optionnel)</span>
+              </label>
+              <textarea
+                formControlName="description"
+                rows="2"
+                maxlength="300"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+              ></textarea>
+            </div>
+            @if (replaceError()) {
+              <p role="alert" class="text-xs text-status-danger">{{ replaceError() }}</p>
+            }
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                (click)="cancelReplace()"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                [disabled]="replaceForm.invalid || replacingBusy()"
+                class="px-3 py-1.5 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {{ replacingBusy() ? 'Remplacement…' : 'Remplacer la grille' }}
+              </button>
+            </div>
+          </form>
         } @else {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -116,6 +177,13 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
               <div class="flex items-center gap-2 shrink-0">
                 <button type="button" (click)="openMeta()" class="text-xs text-gray-500 hover:text-brand">
                   Modifier
+                </button>
+                <button
+                  type="button"
+                  (click)="openReplace()"
+                  class="text-xs text-gray-500 hover:text-brand"
+                >
+                  Remplacer
                 </button>
                 <button
                   type="button"
@@ -269,6 +337,11 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
                       @if (it.categorie) {
                         <span class="ml-1 text-xs text-gray-400">{{ it.categorie }}</span>
                       }
+                      @if (it.conditionsAttendues) {
+                        <span class="block text-xs text-gray-400 mt-0.5">
+                          <span class="text-gray-500">Attendu :</span> {{ it.conditionsAttendues }}
+                        </span>
+                      }
                     </span>
                     <span class="flex items-center gap-2 shrink-0">
                       <span class="text-xs text-gray-500 text-right">
@@ -323,6 +396,121 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
                     @if (itemDeleteError()) {
                       <p class="text-xs text-status-danger mt-1">{{ itemDeleteError() }}</p>
                     }
+                  }
+                }
+
+                <!-- ===== sub-criteria (#160) — one level deep, leaf-only grading ===== -->
+                @if (it.sousCriteres?.length) {
+                  <ul class="mt-2 ml-4 pl-3 border-l-2 border-gray-100 divide-y divide-gray-100">
+                    @for (sub of it.sousCriteres; track sub.id) {
+                      <li class="py-1.5">
+                        @if (editingItemId() === sub.id) {
+                          <ng-container
+                            [ngTemplateOutlet]="itemForm"
+                            [ngTemplateOutletContext]="{ mode: 'edit' }"
+                          ></ng-container>
+                        } @else {
+                          <div class="flex items-start justify-between gap-3 text-xs">
+                            <span class="text-gray-600 min-w-0">
+                              <span class="text-gray-400">↳</span>
+                              {{ sub.libelle }}
+                              @if (sub.conditionsAttendues) {
+                                <span class="block text-gray-400 mt-0.5">
+                                  <span class="text-gray-500">Attendu :</span> {{ sub.conditionsAttendues }}
+                                </span>
+                              }
+                            </span>
+                            <span class="flex items-center gap-2 shrink-0">
+                              <span class="text-gray-500 text-right">
+                                {{ typeItemLabel(sub.type) }}
+                                @if (sub.type === 'NUMERIQUE' && sub.valeurMax != null) {
+                                  · /{{ sub.valeurMax }}
+                                }
+                                · pond. {{ sub.ponderation ?? '—' }}
+                              </span>
+                              @if (editable()) {
+                                <button
+                                  type="button"
+                                  (click)="openItemEdit(sub)"
+                                  class="text-gray-500 hover:text-brand"
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  (click)="askDeleteItem(sub)"
+                                  class="text-gray-500 hover:text-status-danger"
+                                >
+                                  Supprimer
+                                </button>
+                              }
+                            </span>
+                          </div>
+                          @if (confirmDeleteItemId() === sub.id) {
+                            <div
+                              class="flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 mt-2"
+                            >
+                              <p class="text-xs text-status-danger">Supprimer ce sous-critère ?</p>
+                              <div class="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  (click)="confirmDeleteItemId.set(null)"
+                                  [disabled]="deletingItemId() === sub.id"
+                                  class="px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs hover:bg-gray-50 disabled:opacity-40"
+                                >
+                                  Annuler
+                                </button>
+                                <button
+                                  type="button"
+                                  (click)="deleteItem(sub)"
+                                  [disabled]="deletingItemId() === sub.id"
+                                  class="px-2.5 py-1 rounded-lg bg-status-danger text-white text-xs hover:opacity-90 disabled:opacity-40"
+                                >
+                                  {{ deletingItemId() === sub.id ? '…' : 'Supprimer' }}
+                                </button>
+                              </div>
+                            </div>
+                            @if (itemDeleteError()) {
+                              <p class="text-xs text-status-danger mt-1">{{ itemDeleteError() }}</p>
+                            }
+                          }
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+
+                <!-- coverage hint + leaf-only note -->
+                @if (it.hasSousCriteres) {
+                  @if (!subComplete(it)) {
+                    <p class="mt-1 ml-4 text-xs text-status-warning">
+                      Sous-critères incomplets ({{ subSum(it) }}/{{ it.ponderation }} pts) — les
+                      points non répartis resteront inatteignables à la notation.
+                    </p>
+                  } @else {
+                    <p class="mt-1 ml-4 text-xs text-gray-400">
+                      Noté via ses {{ it.sousCriteres?.length }} sous-critère(s).
+                    </p>
+                  }
+                }
+
+                <!-- add a sub-criterion (top-level critères only; one level deep) -->
+                @if (editable() && editingItemId() !== it.id) {
+                  @if (addingSubForItemId() === it.id) {
+                    <div class="mt-2 ml-4 pl-3 border-l-2 border-gray-200">
+                      <ng-container
+                        [ngTemplateOutlet]="itemForm"
+                        [ngTemplateOutletContext]="{ mode: 'add' }"
+                      ></ng-container>
+                    </div>
+                  } @else {
+                    <button
+                      type="button"
+                      (click)="openSubAdd(it)"
+                      class="mt-1.5 ml-4 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand"
+                    >
+                      + Ajouter un sous-critère
+                    </button>
                   }
                 }
               </li>
@@ -510,6 +698,21 @@ const TYPE_ITEMS: TypeItem[] = ['BINAIRE', 'NUMERIQUE'];
             </div>
           }
         </div>
+        <!-- réponse attendue / corrigé (#162) — un seul champ libre : la réponse
+             n'est pas toujours un nombre exact (intervalle, composé organique,
+             tolérance, phrase). Comparé à la saisie lors des résultats. -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Réponse attendue <span class="font-normal text-gray-400">(corrigé — optionnel)</span>
+          </label>
+          <input
+            type="text"
+            formControlName="conditionsAttendues"
+            maxlength="1000"
+            [placeholder]="answerPlaceholder()"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+          />
+        </div>
         @if (valeurMaxExceedsPonderation()) {
           <p class="text-xs text-status-danger">
             La valeur max ne peut pas dépasser la pondération.
@@ -682,6 +885,16 @@ export class GrilleEditorComponent {
     description: ['', [Validators.maxLength(300)]],
   });
 
+  // replace grille from scratch (#161, single-gesture create-or-replace via PUT)
+  readonly replacingGrille = signal(false);
+  readonly replacingBusy = signal(false);
+  readonly replaceError = signal<string | null>(null);
+  readonly replaceForm = this.fb.nonNullable.group({
+    nom: ['', [Validators.required, Validators.maxLength(150)]],
+    noteMax: [20, [Validators.required, Validators.min(1), Validators.max(100)]],
+    description: ['', [Validators.maxLength(300)]],
+  });
+
   // delete grille
   readonly confirmDeleteGrille = signal(false);
   readonly deletingGrille = signal(false);
@@ -690,6 +903,11 @@ export class GrilleEditorComponent {
   // item add / edit (one shared form)
   readonly addingItem = signal(false);
   readonly editingItemId = signal<number | null>(null);
+  /** #160 — when set, the shared item form is adding a SUB-criterion under this
+   *  parent item id (POST /items/{id}/sous-criteres) instead of a top-level one.
+   *  Mutually exclusive with addingItem / editingItemId (the open* helpers below
+   *  clear the others), so the single shared form only ever renders in one place. */
+  readonly addingSubForItemId = signal<number | null>(null);
   readonly savingItem = signal(false);
   readonly itemError = signal<string | null>(null);
   readonly itemFormGroup = this.fb.nonNullable.group({
@@ -698,6 +916,8 @@ export class GrilleEditorComponent {
     ponderation: [1, [Validators.required, Validators.min(0.5), Validators.max(20)]],
     valeurMax: [null as number | null],
     categorie: ['', [Validators.maxLength(100)]],
+    // Réponse attendue / corrigé (#162) — champ libre optionnel, tous types.
+    conditionsAttendues: ['', [Validators.maxLength(1000)]],
   });
 
   // item delete
@@ -759,6 +979,14 @@ export class GrilleEditorComponent {
   /** Snapshot of the item form's value as a signal, to drive computed()s that
    *  must react to value changes (valueChanges → signal via a small effect). */
   private readonly itemFormSignal = signal(this.itemFormGroup.getRawValue());
+
+  /** Type-aware hint for the free-text answer key: a numeric criterion usually
+   *  expects a value/interval/tolerance, a binary one a compound or observation. */
+  readonly answerPlaceholder = computed(() =>
+    this.itemFormSignal().type === 'NUMERIQUE'
+      ? 'ex. 4,5–5,5 mg/L, ou 300 mg ± 5 %'
+      : 'ex. Paracétamol identifié, coloration violette observée',
+  );
 
   constructor() {
     // Load the grille lazily the first time the editor is mounted for a station
@@ -898,6 +1126,50 @@ export class GrilleEditorComponent {
       });
   }
 
+  // ---- replace grille from scratch (#161) ---------------------------------
+
+  openReplace(): void {
+    // Start blank — a "remplacer" means a fresh grille, not an edit of the old one.
+    this.editingMeta.set(false);
+    this.confirmDeleteGrille.set(false);
+    this.replaceForm.reset({ nom: '', noteMax: 20, description: '' });
+    this.replaceError.set(null);
+    this.replacingGrille.set(true);
+  }
+
+  cancelReplace(): void {
+    this.replacingGrille.set(false);
+    this.replaceError.set(null);
+  }
+
+  submitReplace(): void {
+    if (this.replaceForm.invalid || this.replacingBusy()) return;
+    const raw = this.replaceForm.getRawValue();
+    this.replacingBusy.set(true);
+    this.replaceError.set(null);
+    // One idempotent PUT: overwrites meta + purges old critères in place. No
+    // delete→create, so no unique station_id conflict is possible.
+    this.examApi
+      .replaceStationGrille(this.stationId(), {
+        nom: raw.nom.trim(),
+        noteMax: Number(raw.noteMax),
+        description: raw.description.trim() || undefined,
+      })
+      .subscribe({
+        next: (grille) => {
+          this.replacingBusy.set(false);
+          this.replacingGrille.set(false);
+          this.grille.set(grille);
+          // Still exists (replaced, not deleted) — keep the parent row in sync.
+          this.existenceChanged.emit(true);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.replacingBusy.set(false);
+          this.replaceError.set(this.mutationMessage(err));
+        },
+      });
+  }
+
   // ---- delete grille ------------------------------------------------------
 
   askDeleteGrille(): void {
@@ -929,6 +1201,7 @@ export class GrilleEditorComponent {
 
   openItemAdd(): void {
     this.editingItemId.set(null);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
     this.itemFormGroup.reset({
       libelle: '',
@@ -936,12 +1209,33 @@ export class GrilleEditorComponent {
       ponderation: 1,
       valeurMax: null,
       categorie: '',
+      conditionsAttendues: '',
     });
     this.addingItem.set(true);
   }
 
+  /** #160 — open the shared form to add a sub-criterion under a top-level item.
+   *  Defaults the pondération to the parent's remaining (unallocated) points so a
+   *  full split is the path of least resistance. */
+  openSubAdd(parent: GrilleItem): void {
+    this.addingItem.set(false);
+    this.editingItemId.set(null);
+    this.itemError.set(null);
+    const remaining = Math.max(0.5, (parent.ponderation ?? 0) - this.subSum(parent));
+    this.itemFormGroup.reset({
+      libelle: '',
+      type: 'BINAIRE',
+      ponderation: remaining,
+      valeurMax: null,
+      categorie: '',
+      conditionsAttendues: '',
+    });
+    this.addingSubForItemId.set(parent.id);
+  }
+
   openItemEdit(it: GrilleItem): void {
     this.addingItem.set(false);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
     this.itemFormGroup.reset({
       libelle: it.libelle ?? '',
@@ -949,6 +1243,7 @@ export class GrilleEditorComponent {
       ponderation: it.ponderation ?? 1,
       valeurMax: it.valeurMax ?? null,
       categorie: it.categorie ?? '',
+      conditionsAttendues: it.conditionsAttendues ?? '',
     });
     this.editingItemId.set(it.id);
   }
@@ -956,6 +1251,7 @@ export class GrilleEditorComponent {
   cancelItem(): void {
     this.addingItem.set(false);
     this.editingItemId.set(null);
+    this.addingSubForItemId.set(null);
     this.itemError.set(null);
   }
 
@@ -971,18 +1267,23 @@ export class GrilleEditorComponent {
       ponderation: Number(raw.ponderation),
       valeurMax: raw.type === 'NUMERIQUE' ? Number(raw.valeurMax) : null,
       categorie: raw.categorie.trim() || undefined,
+      conditionsAttendues: raw.conditionsAttendues.trim() || null,
     };
     this.savingItem.set(true);
     this.itemError.set(null);
     const editId = this.editingItemId();
+    const subParentId = this.addingSubForItemId();
     const req = editId
       ? this.examApi.updateGrilleItem(editId, body)
-      : this.examApi.createGrilleItem(g.id, body);
+      : subParentId != null
+        ? this.examApi.ajouterSousCritere(subParentId, body)
+        : this.examApi.createGrilleItem(g.id, body);
     req.subscribe({
       next: () => {
         this.savingItem.set(false);
         this.addingItem.set(false);
         this.editingItemId.set(null);
+        this.addingSubForItemId.set(null);
         this.refetchGrille();
       },
       error: (err: HttpErrorResponse) => {
@@ -990,6 +1291,24 @@ export class GrilleEditorComponent {
         this.itemError.set(this.mutationMessage(err));
       },
     });
+  }
+
+  // ---- sub-criteria helpers (#160) ---------------------------------------
+
+  /** Σ pondération of a critère's sub-criteria (0 when it has none), display-rounded. */
+  subSum(it: GrilleItem): number {
+    const total = (it.sousCriteres ?? []).reduce((acc, c) => acc + (c.ponderation ?? 0), 0);
+    return Math.round(total * 100) / 100;
+  }
+
+  /** A decomposed critère is "complete" only when its children's pondération sums
+   *  exactly to its own — otherwise the unallocated points expose fewer notable
+   *  points than the parent is worth (scoring only grades leaves). Mirrors the
+   *  server ItemEvaluation.isPonderationEnfantsValide, now folded into the grille
+   *  ponderationValide flag. */
+  subComplete(it: GrilleItem): boolean {
+    if (!it.sousCriteres?.length) return true;
+    return Math.abs(this.subSum(it) - (it.ponderation ?? 0)) < 0.001;
   }
 
   askDeleteItem(it: GrilleItem): void {

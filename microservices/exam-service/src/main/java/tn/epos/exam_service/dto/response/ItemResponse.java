@@ -5,6 +5,7 @@ import lombok.Data;
 import tn.epos.exam_service.enums.TypeItem;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class ItemResponse {
@@ -15,7 +16,12 @@ public class ItemResponse {
     private Double valeurMax;   // null si BINAIRE
     private Integer ordre;
     private String categorie;
+    private Double valeurAttendue;       // clé de réponse (#162)
+    private String conditionsAttendues;  // clé de réponse (#162)
     private Long grilleId;
+    private Long parentId;
+    private boolean hasSousCriteres;
+    private List<ItemResponse> sousCriteres;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;

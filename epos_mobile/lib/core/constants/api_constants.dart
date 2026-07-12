@@ -1,0 +1,92 @@
+// lib/core/constants/api_constants.dart
+// ================================================
+// Centralise toutes les URLs et endpoints de l'API.
+// ================================================
+
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
+
+class ApiConstants {
+  ApiConstants._();
+
+  /// URL de base de l'API REST (via gateway).
+  static String get baseUrl {
+    if (kDebugMode) {
+      if (kIsWeb) {
+        return 'http://localhost:8080/api/v1';
+      }
+      if (Platform.isAndroid) {
+        return 'http://10.0.2.2:8080/api/v1';
+      }
+    }
+    return const String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'http://localhost:8080/api/v1',
+    );
+  }
+
+  /// URL de base du scoring-service (connexion WebSocket directe).
+  ///
+  /// BF6.1 — La connexion WebSocket STOMP/SockJS est établie directement
+  /// avec le scoring-service et non via la gateway, car Spring Cloud Gateway
+  /// nécessite une configuration supplémentaire pour le proxy WebSocket.
+  ///
+  /// Port 8083 = port interne du scoring-service (défini dans docker-compose).
+  /// En production : utiliser une variable d'environnement WS_BASE_URL.
+  static String get wsBaseUrl {
+    if (kDebugMode) {
+      if (kIsWeb) {
+        // Flutter Web : même machine, port scoring direct
+        return 'http://localhost:8083';
+      }
+      if (Platform.isAndroid) {
+        // Émulateur Android : 10.0.2.2 = hôte, port scoring direct
+        return 'http://10.0.2.2:8083';
+      }
+    }
+    return const String.fromEnvironment(
+      'WS_BASE_URL',
+      defaultValue: 'http://localhost:8083',
+    );
+  }
+
+  // === Auth ===
+  static const String login   = '/auth/login';
+  static const String logout  = '/auth/logout';
+  static const String refresh = '/auth/refresh';
+  static const String me      = '/auth/me';
+
+  // === Dashboard évaluateur ===
+  static const String dashboard = '/evaluateur/dashboard';
+
+  // === Grille (exam-service via gateway) ===
+  static String stationGrille(int stationId) => '/stations/$stationId/grille';
+
+  // === Lot + étudiants (scoring-service via gateway) ===
+  static String lotDetail(int stationId, int lotNumero) =>
+      '/evaluateur/stations/$stationId/lots/$lotNumero';
+
+  // === Notation (scoring-service via gateway) ===
+  static const String saisirNotation = '/evaluateur/notations/saisir';
+
+  // === Validation ===
+  static String validerEtudiant(int etudiantId, int stationId) =>
+      '/evaluateur/etudiants/$etudiantId/stations/$stationId/valider';
+
+  static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
+
+  // === Timeouts ===
+  static const Duration connectTimeout = Duration(seconds: 20);
+  static const Duration receiveTimeout = Duration(seconds: 20);
+
+  // === WebSocket (BF6.1) ===
+  /// URL de connexion SockJS vers le scoring-service.
+  /// Format : http(s)://host:port/ws  (SockJS préfère http, pas ws)
+  static String get wsUrl => '$wsBaseUrl/ws';
+
+  /// Topic STOMP pour les mises à jour de score d'une station.
+  static String wsScore(int stationId) => '/topic/stations/$stationId/scores';
+
+  /// Topic STOMP pour les changements de statut d'un lot.
+  static String wsLotStatus(int lotId) => '/topic/lots/$lotId/status';
+}

@@ -58,10 +58,53 @@ public class Examen {
     @Builder.Default
     private Integer nbEtudiantsParStation = 4;
 
+    // Tampon de transition inter-créneau, en minutes (ADR-0012). 0 = aucun gap
+    // (back-to-back, comportement historique). Reformate le planning côté
+    // scoring : l'unité de créneau devient (dureeStationMin + tempsBattementMin).
+    @Min(value = 0, message = "Le temps de battement ne peut pas être négatif")
+    @Max(value = 60, message = "Le temps de battement ne peut pas dépasser 60 minutes")
+    @Column(name = "temps_battement_min", nullable = false)
+    @Builder.Default
+    private Integer tempsBattementMin = 0;
+
+    // Délai (secondes) avant le prochain passage auquel l'avertissement se
+    // déclenche sur l'appareil de l'évaluateur (ADR-0012). 0 = désactivé.
+    // Ne stocke aucun état de planning : gouverne seulement le préavis.
+    @Min(value = 0, message = "Le délai d'avertissement ne peut pas être négatif")
+    @Max(value = 600, message = "Le délai d'avertissement ne peut pas dépasser 600 secondes")
+    @Column(name = "avertissement_lead_sec", nullable = false)
+    @Builder.Default
+    private Integer avertissementLeadSec = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
     private StatutExamen statut = StatutExamen.BROUILLON;
+
+    // Pause/reprise (ADR-0009) — état orthogonal au statut : un examen en pause
+    // reste EN_COURS. Le temps de pause cumulé permet au Suivi de calculer un
+    // "temps effectif" (horloge murale moins le temps en pause), de sorte que le
+    // planning back-to-back pré-calculé (Rotation.debutCreneau) reste valide
+    // malgré les coupures (pauses, repas, examen multi-jours).
+    @Column(name = "en_pause", nullable = false)
+    @Builder.Default
+    private Boolean enPause = false;
+
+    // Début de la pause en cours ; null si l'examen n'est pas en pause.
+    @Column(name = "paused_at")
+    private LocalDateTime pausedAt;
+
+    // Secondes de pause cumulées sur tous les intervalles de pause terminés.
+    @Column(name = "total_pause_sec", nullable = false)
+    @Builder.Default
+    private Integer totalPauseSec = 0;
+
+    // Instant de lancement réel (ADR-0010) — posé UNE SEULE FOIS au passage
+    // → EN_COURS, jamais réécrit. Ancre effective du temps : la génération des
+    // rotations et l'horloge live s'y rattachent (fallback dateExamen+heureDebut
+    // tant qu'il est null : lignes pré-ADR ou examen pas encore lancé).
+    @Column(name = "launched_at")
+    private LocalDateTime launchedAt;
 
     // chemin vers le fichier PDF (stockage serveur)
     @Column(name = "pdf_sujet_path")

@@ -82,6 +82,10 @@ services:
     environment:
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # Comma-separated list of allowed CORS origins.
+      # Angular dashboard runs on :4200, Flutter Web on :4300.
+      # Add further origins here without touching application code.
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200,http://localhost:4300}
     depends_on:
       discovery-server:
         condition: service_healthy
@@ -137,6 +141,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # Zone applicative (ADR-0010). Le conteneur tourne UTC ; on épingle la zone
+      # de l'examen pour que launched_at/paused_at s'alignent sur l'horloge murale
+      # locale comparée au planning. Override : APP_TIMEZONE dans .env.
+      - APP_TIMEZONE=${APP_TIMEZONE:-Africa/Tunis}
+      - TZ=${APP_TIMEZONE:-Africa/Tunis}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -170,6 +179,10 @@ services:
       # Without this the WebClient falls back to localhost:8082 (the scoring
       # container itself) and every cross-service call fails "injoignable".
       - EXAM_SERVICE_BASE_URL=http://exam-service:8082
+      # Cohérence de zone (ADR-0010) : scoring ne stampe pas "now" dans la formule
+      # de temps effectif, mais on aligne la zone OS pour les logs et tout appel
+      # éventuel à now(). Le planning (debutCreneau) reste ancré sur launched_at.
+      - TZ=${APP_TIMEZONE:-Africa/Tunis}
     depends_on:
       postgres-db:
         condition: service_healthy

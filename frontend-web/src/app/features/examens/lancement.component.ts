@@ -4,6 +4,7 @@ import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { StationSummary, StatutExamen } from '../../core/api/models';
+import { isExamDay, isFutureDate } from '../../core/api/exam-status';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface PreflightCheck {
@@ -269,6 +270,23 @@ export class LancementComponent {
   /** Roster is a hard requirement only for the launch edge, not for finalising. */
   private readonly rosterBlocks = computed(() => this.statut() === 'CONFIGURE');
 
+  private readonly dateExamen = computed(() => this.store.exam()?.dateExamen ?? null);
+  /** Launching is only allowed on the exam's own day (jour J). */
+  private readonly isExamDay = computed(() => isExamDay(this.dateExamen()));
+  /** Hint shown on the date check when it's not the exam day yet (or it has passed). */
+  private readonly dateHint = computed<string | undefined>(() => {
+    const d = this.dateExamen();
+    if (!d || this.isExamDay()) return undefined;
+    return isFutureDate(d)
+      ? `Lancement possible le jour J (${this.frDate(d)})`
+      : 'Date dépassée — modifiez la date de l’examen pour le relancer';
+  });
+
+  private frDate(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    return d && m && y ? `${d}/${m}/${y}` : iso;
+  }
+
   readonly checks = computed<PreflightCheck[]>(() => {
     const n = this.stations().length;
     const hasStations = n > 0;
@@ -321,6 +339,17 @@ export class LancementComponent {
             : this.rosterBlocks()
               ? 'Repartissez les etudiants en lots (onglet Lots) — requis pour lancer'
               : 'A repartir avant le jour J',
+      },
+      {
+        // Day-of gate: a CONFIGURE exam can only be launched on its own date.
+        // Blocking for the launch edge only (greys "Lancer l'examen" until jour J);
+        // never blocks "Finaliser la configuration".
+        label: "Jour de l'examen",
+        ok: this.isExamDay(),
+        blocking: this.rosterBlocks(),
+        hint: this.isExamDay()
+          ? "C'est le jour J"
+          : this.dateHint() ?? 'A lancer le jour J',
       },
       {
         label: 'Sujet PDF importe',

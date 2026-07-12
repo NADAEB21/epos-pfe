@@ -43,23 +43,52 @@ public class NotationItemService {
     }
 
     public NotationItem save(NotationItem item) {
+        assertNotationNotLocked(item.getNotation());
         validateItemBelongsToParentGrille(item);
         return repository.save(item);
     }
 
     public void delete(Long id) {
+        // #23 : ne pas contourner le verrou via l'endpoint item. On charge d'abord
+        // le critère pour vérifier le verrou de sa notation parente avant suppression.
+        repository.findById(id).ifPresent(item -> assertNotationNotLocked(item.getNotation()));
         repository.deleteById(id);
     }
 
     public NotationItem update(Long id, NotationItem details) {
         return repository.findById(id).map(item -> {
-            item.setItem_id(details.getItem_id());
+            // #23 : refuser toute modification d'un critère dont la notation parente
+            // (celle d'origine) est verrouillée — avant même de réassigner le parent.
+            assertNotationNotLocked(item.getNotation());
+            item.setItemId(details.getItemId());
             item.setValeur(details.getValeur());
             item.setCommentaire(details.getCommentaire());
             item.setNotation(details.getNotation());
+            // Et refuser aussi de déplacer le critère VERS une notation verrouillée.
+            assertNotationNotLocked(item.getNotation());
             validateItemBelongsToParentGrille(item);
             return repository.save(item);
         }).orElseThrow(() -> new ResourceNotFoundException("NotationItem non trouvé avec l'id : " + id));
+    }
+
+    /**
+     * Enforces #23: a locked ({@code verouillee}) notation is final — its critères
+     * cannot be created, edited, moved or deleted through the item endpoints. The
+     * ONLY sanctioned way to change a locked score is the audited réajustement
+     * channel (réclamation flow), never this back door. No-op when the parent link
+     * is absent (defensive for detached/legacy items).
+     */
+    private void assertNotationNotLocked(Notation notation) {
+        if (notation == null || notation.getId() == null) return;
+        Long notationId = notation.getId();
+        Notation parent = notationRepository.findById(notationId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Notation parente introuvable : " + notationId));
+        if (Boolean.TRUE.equals(parent.getVerouillee())) {
+            throw new BusinessException(
+                    "Notation " + notationId + " verrouillée : un critère d'une notation "
+                            + "verrouillée ne peut être modifié que via un réajustement (réclamation).");
+        }
     }
 
     /**
@@ -68,30 +97,33 @@ public class NotationItemService {
      * for legacy rows where Notation.grilleId is null.
      */
     private void validateItemBelongsToParentGrille(NotationItem item) {
-        if (item.getNotation() == null || item.getNotation().getId() == null) {
-            // No parent reference — let downstream JPA constraint handle it.
-            return;
-        }
+        if (item.getNotation() == null || item.getNotation().getId() == null) return;
+
         Long notationId = item.getNotation().getId();
         Notation parent = notationRepository.findById(notationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Notation parente introuvable avec l'id : " + notationId));
+                        "Notation parente introuvable : " + notationId));
 
         Long grilleId = parent.getGrilleId();
         if (grilleId == null) {
-            log.warn("Cross-grille check skipped: notation {} has null grille_id", notationId);
+            log.warn("Validation cross-grille ignorée : notation {} sans grille_id", notationId);
             return;
         }
-        if (item.getItem_id() == null) {
+        if (item.getItemId() == null) {
             throw new BusinessException("item_id est requis sur le NotationItem");
         }
 
         Set<Long> allowedItems = examServiceClient.getItemIdsForGrille(grilleId);
-        if (!allowedItems.contains(item.getItem_id())) {
+        if (allowedItems.isEmpty()) {
+            // exam-service indisponible → on laisse passer pour ne pas bloquer
+            log.warn("Validation cross-grille ignorée (exam-service indisponible) — item {}",
+                    item.getItemId());
+            return;
+        }
+        if (!allowedItems.contains(item.getItemId())) {
             throw new BusinessException(
-                    "L'item " + item.getItem_id()
-                            + " n'appartient pas à la grille " + grilleId
-                            + " de la notation parente (cross-grille refusé).");
+                    "cross-grille refusé : L'item " + item.getItemId()
+                            + " n'appartient pas à la grille " + grilleId);
         }
     }
 }

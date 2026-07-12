@@ -591,6 +591,163 @@ class GrilleControllerTest {
         }
     }
 
+    // POST /api/items/{itemId}/sous-criteres
+
+    @Nested
+    @DisplayName("POST /api/items/{itemId}/sous-criteres")
+    class AjouterSousCritere {
+
+        @Test
+        @DisplayName("201 - Sous-critère ajouté avec succès")
+        void ajouter_devraitRetourner201() throws Exception {
+            ItemResponse sousCritereResponse = new ItemResponse();
+            sousCritereResponse.setId(3L);
+            sousCritereResponse.setLibelle("Sous-critère 1");
+            sousCritereResponse.setType(TypeItem.BINAIRE);
+            sousCritereResponse.setPonderation(1.0);
+            sousCritereResponse.setParentId(1L);
+
+            when(grilleService.ajouterSousCritere(eq(1L), any(ItemRequest.class)))
+                    .thenReturn(sousCritereResponse);
+
+            ItemRequest request = new ItemRequest();
+            request.setLibelle("Sous-critère 1");
+            request.setType(TypeItem.BINAIRE);
+            request.setPonderation(1.0);
+
+            mockMvc.perform(post("/api/items/1/sous-criteres")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.parentId").value(1))
+                    .andExpect(jsonPath("$.data.libelle").value("Sous-critère 1"));
+        }
+
+        @Test
+        @DisplayName("400 - Profondeur dépassée (le parent est déjà un sous-critère)")
+        void ajouter_profondeurDepassee_devraitRetourner400() throws Exception {
+            when(grilleService.ajouterSousCritere(eq(1L), any()))
+                    .thenThrow(new BusinessException("un seul niveau de profondeur est supporté"));
+
+            mockMvc.perform(post("/api/items/1/sous-criteres")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(itemBinaireRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false));
+        }
+
+        @Test
+        @DisplayName("400 - Pondération des sous-critères dépasse celle du parent")
+        void ajouter_ponderationDepasse_devraitRetourner400() throws Exception {
+            when(grilleService.ajouterSousCritere(eq(1L), any()))
+                    .thenThrow(new BusinessException("dépasserait la pondération du critère"));
+
+            mockMvc.perform(post("/api/items/1/sous-criteres")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(itemBinaireRequest)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("404 - Critère parent introuvable")
+        void ajouter_parentIntrouvable_devraitRetourner404() throws Exception {
+            when(grilleService.ajouterSousCritere(eq(99L), any()))
+                    .thenThrow(new ResourceNotFoundException("Item", 99L));
+
+            mockMvc.perform(post("/api/items/99/sous-criteres")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(itemBinaireRequest)))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    // GET /api/items/{itemId}/sous-criteres
+
+    @Nested
+    @DisplayName("GET /api/items/{itemId}/sous-criteres")
+    class ListerSousCriteres {
+
+        @Test
+        @DisplayName("200 - Liste des sous-critères retournée")
+        void lister_devraitRetourner200() throws Exception {
+            ItemResponse enfant = new ItemResponse();
+            enfant.setId(3L);
+            enfant.setLibelle("Sous-critère 1");
+            enfant.setType(TypeItem.BINAIRE);
+            enfant.setPonderation(1.0);
+            enfant.setParentId(1L);
+
+            when(grilleService.listerSousCriteres(1L)).thenReturn(List.of(enfant));
+
+            mockMvc.perform(get("/api/items/1/sous-criteres"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.data[0].parentId").value(1));
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide si aucun sous-critère")
+        void lister_vide_devraitRetourner200() throws Exception {
+            when(grilleService.listerSousCriteres(1L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/items/1/sous-criteres"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isEmpty());
+        }
+
+        @Test
+        @DisplayName("404 - Critère parent introuvable")
+        void lister_parentIntrouvable_devraitRetourner404() throws Exception {
+            when(grilleService.listerSousCriteres(99L))
+                    .thenThrow(new ResourceNotFoundException("Item", 99L));
+
+            mockMvc.perform(get("/api/items/99/sous-criteres"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    // GET /api/grilles/{grilleId}/items/feuilles
+
+    @Nested
+    @DisplayName("GET /api/grilles/{grilleId}/items/feuilles")
+    class ListerItemsFeuilles {
+
+        @Test
+        @DisplayName("200 - Liste des items feuilles retournée")
+        void lister_devraitRetourner200() throws Exception {
+            when(grilleService.listerItemsFeuilles(1L))
+                    .thenReturn(List.of(itemBinaireResponse, itemNumeriqueResponse));
+
+            mockMvc.perform(get("/api/grilles/1/items/feuilles"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.data.length()").value(2));
+        }
+
+        @Test
+        @DisplayName("200 - Liste vide si aucun item")
+        void lister_vide_devraitRetourner200() throws Exception {
+            when(grilleService.listerItemsFeuilles(1L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/grilles/1/items/feuilles"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isEmpty());
+        }
+
+        @Test
+        @DisplayName("404 - Grille introuvable")
+        void lister_grilleIntrouvable_devraitRetourner404() throws Exception {
+            when(grilleService.listerItemsFeuilles(99L))
+                    .thenThrow(new ResourceNotFoundException("Grille", 99L));
+
+            mockMvc.perform(get("/api/grilles/99/items/feuilles"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
     // DELETE /api/items/{id}
 
     @Nested
@@ -632,4 +789,4 @@ class GrilleControllerTest {
                     .andExpect(jsonPath("$.success").value(false));
         }
     }
-}
+}

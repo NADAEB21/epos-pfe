@@ -22,6 +22,10 @@ public interface ItemEvaluationRepository extends JpaRepository<ItemEvaluation, 
     // Items d'une grille filtrés par type (BINAIRE ou NUMERIQUE)
     List<ItemEvaluation> findByGrilleIdAndTypeOrderByOrdreAsc(Long grilleId, TypeItem type);
 
+    List<ItemEvaluation> findByGrilleIdAndParentIsNullOrderByOrdreAsc(Long grilleId);
+    Page<ItemEvaluation> findByGrilleIdAndParentIsNullOrderByOrdreAsc(Long grilleId, Pageable pageable);
+    List<ItemEvaluation> findByParentIdOrderByOrdreAsc(Long parentId);
+
     // Calcul de la somme des pondérations d'une grille (requête agrégée)
     @Query("SELECT COALESCE(SUM(i.ponderation), 0.0) FROM ItemEvaluation i WHERE i.grille.id = :grilleId")
     Double sumPonderationsByGrilleId(@Param("grilleId") Long grilleId);

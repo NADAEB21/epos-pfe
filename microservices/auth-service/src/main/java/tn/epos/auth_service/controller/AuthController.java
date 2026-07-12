@@ -5,17 +5,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import tn.epos.auth_service.config.JwtAuthenticationDetails;
+import tn.epos.auth_service.dto.*;
+import tn.epos.auth_service.service.UserService;
 import tn.epos.common.dto.ApiResponse;
-import tn.epos.auth_service.dto.LoginRequest;
-import tn.epos.auth_service.dto.LoginResponse;
-import tn.epos.auth_service.dto.PasswordResetConfirmDto;
-import tn.epos.auth_service.dto.PasswordResetRequestDto;
-import tn.epos.auth_service.dto.RefreshRequest;
 import tn.epos.auth_service.service.AuthService;
 
 @RestController
@@ -24,6 +18,7 @@ import tn.epos.auth_service.service.AuthService;
 public class AuthController {
 
     private final AuthService authService;
+    private final UserService userService;
 
     /**
      * POST /api/v1/auth/login
@@ -56,6 +51,35 @@ public class AuthController {
         Long userId = resolveUserId(authentication);
         authService.logout(userId, authentication.getName());
         return ResponseEntity.ok(ApiResponse.ok("Logged out successfully"));
+    }
+
+    /**
+     * GET /api/v1/auth/me
+     * Requires a valid JWT.
+     *
+     * Appelé par l'app Flutter immédiatement après le login pour récupérer
+     * les informations de l'utilisateur (nom, prénom, rôle).
+     *
+     * LoginResponse ne contient que les tokens — ce endpoint complète
+     * l'information manquante sans modifier la structure de LoginResponse.
+     *
+     * Réponse JSON :
+     * {
+     *   "success": true,
+     *   "data": {
+     *     "id": 3,
+     *     "email": "eval@epos.tn",
+     *     "nom": "Mzoughi",
+     *     "prenom": "Karim",
+     *     "role": "EVALUATEUR"
+     *   }
+     * }
+     */
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<MeResponse>> me(Authentication authentication) {
+        Long userId = resolveUserId(authentication);
+        MeResponse response = userService.getMeResponse(userId);
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     /**

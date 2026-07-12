@@ -84,6 +84,21 @@ export class ExamApiService {
   }
 
   /**
+   * Delete an exam (DELETE /examens/{id}). The backend gates this to
+   * BROUILLON/CONFIGURE only — it 400s (BusinessException) once EN_COURS,
+   * TERMINE or ARCHIVE, and 403s a matière out of the caller's scope. It
+   * cascades to the exam's stations + grilles (exam-service), but NOT to the
+   * roster/lots/notations in scoring-service (cross-DB logical FK, no cascade);
+   * those are only ever populated from CONFIGURE onward and are orphaned, not
+   * deleted. Returns void.
+   */
+  deleteExamen(id: number): Observable<void> {
+    return this.http
+      .delete<ApiResponse<void>>(`${this.baseUrl}/${id}`)
+      .pipe(map(() => void 0));
+  }
+
+  /**
    * Drive the exam lifecycle one legal edge at a time. The backend
    * (PATCH /examens/{id}/statut?statut=…) takes the target status as a QUERY
    * param, not a body, and only validates the state-machine edge is legal
@@ -96,6 +111,59 @@ export class ExamApiService {
     return this.http
       .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/statut`, null, { params })
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Pause a running exam (PATCH /examens/{id}/pause — ADR-0009). Pause is
+   * orthogonal state: the exam stays EN_COURS, it just stops the effective
+   * clock (covers breaks, meal stops, multi-day gaps). Backend 400s unless the
+   * exam is EN_COURS and not already paused. Returns the updated exam carrying
+   * enPause/pausedAt/totalPauseSec.
+   */
+  pauseExamen(id: number): Observable<ExamenResponse> {
+    return this.http
+      .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/pause`, null)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Resume a paused exam (PATCH /examens/{id}/reprendre). Accumulates the
+   * elapsed pause into totalPauseSec and clears pausedAt. Backend 400s unless
+   * the exam is currently paused. Returns the updated exam.
+   */
+  reprendreExamen(id: number): Observable<ExamenResponse> {
+    return this.http
+      .patch<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/reprendre`, null)
+      .pipe(map((r) => r.data));
+  }
+
+  // ---- sujet PDF ----------------------------------------------------------
+
+  /**
+   * Upload (or replace) the exam's sujet PDF (POST /examens/{id}/pdf). The
+   * backend takes a MULTIPART body with the file under the field name `fichier`
+   * (NOT JSON) — we build the FormData here and let the browser set the
+   * multipart Content-Type/boundary (never set it manually). Server-side: PDF
+   * content-type only, ~10 MB max, matière-scoped (403 out of scope). An
+   * existing PDF is overwritten. Returns the updated exam (hasPdfSujet=true,
+   * pdfSujetNom set).
+   */
+  uploadPdfSujet(id: number, fichier: File): Observable<ExamenResponse> {
+    const form = new FormData();
+    form.append('fichier', fichier);
+    return this.http
+      .post<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/pdf`, form)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Download the exam's sujet PDF (GET /examens/{id}/pdf). The endpoint is
+   * @PreAuthorize-guarded, so it can't be a plain <a href> — it needs the JWT
+   * the HttpClient interceptor attaches. We fetch it as a Blob; the caller turns
+   * it into an object URL to view/save. 404 if no PDF is attached.
+   */
+  downloadPdfSujet(id: number): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/${id}/pdf`, { responseType: 'blob' });
   }
 
   /**
@@ -137,6 +205,20 @@ export class ExamApiService {
   createStationGrille(stationId: number, body: GrilleRequest): Observable<GrilleDetail> {
     return this.http
       .post<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Replace a station's grille in one idempotent call (PUT /stations/{id}/grille,
+   * #161). Create-or-replace in place: creates the grille if the station has none,
+   * otherwise overwrites its meta and purges its items — no delete→create dance,
+   * so the unique station_id constraint can never conflict. Like create, this
+   * sends meta only (items are re-added one-by-one through the validated /items
+   * endpoint). Gated to BROUILLON/CONFIGURE + matière scope. Returns the grille.
+   */
+  replaceStationGrille(stationId: number, body: GrilleRequest): Observable<GrilleDetail> {
+    return this.http
+      .put<ApiResponse<GrilleDetail>>(`${this.stationsUrl}/${stationId}/grille`, body)
       .pipe(map((r) => r.data));
   }
 
@@ -186,6 +268,26 @@ export class ExamApiService {
     return this.http
       .delete<ApiResponse<void>>(`${this.itemsUrl}/${itemId}`)
       .pipe(map(() => void 0));
+  }
+
+  /**
+   * Add a sub-criterion under an existing critère (#160, POST
+   * /items/{itemId}/sous-criteres). One level deep only — the server rejects
+   * (400) adding a child to something that is already a child, and rejects (400)
+   * when the children's pondération sum would EXCEED the parent's. Returns the
+   * created sub-criterion; re-GET the grille afterwards for the recomputed tree.
+   */
+  ajouterSousCritere(itemId: number, body: ItemRequest): Observable<GrilleItem> {
+    return this.http
+      .post<ApiResponse<GrilleItem>>(`${this.itemsUrl}/${itemId}/sous-criteres`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /** List one critère's sub-criteria (GET /items/{itemId}/sous-criteres). */
+  listerSousCriteres(itemId: number): Observable<GrilleItem[]> {
+    return this.http
+      .get<ApiResponse<GrilleItem[]>>(`${this.itemsUrl}/${itemId}/sous-criteres`)
+      .pipe(map((r) => r.data ?? []));
   }
 
   /**

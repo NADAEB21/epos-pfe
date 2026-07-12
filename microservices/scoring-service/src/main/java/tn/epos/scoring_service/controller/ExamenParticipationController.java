@@ -7,9 +7,11 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
-import tn.epos.scoring_service.dto.ParticipationDTO; // New Import
+import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
+import tn.epos.scoring_service.repositories.IEtudiantRepository;
+import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.service.ExamenParticipationService;
 
 import java.util.List;
@@ -20,8 +22,9 @@ public class ExamenParticipationController {
 
     private static final String NOT_FOUND_MSG = "Participation non trouvée";
 
-    @Autowired
-    private ExamenParticipationService participationService;
+    @Autowired private ExamenParticipationService participationService;
+    @Autowired private IEtudiantRepository        etudiantRepository;
+    @Autowired private ILotRepository             lotRepository;
 
     @Autowired
     private EtudiantService etudiantService;
@@ -48,7 +51,7 @@ public class ExamenParticipationController {
                         .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
-@PostMapping
+    @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<ParticipationDTO>> create(@RequestBody ParticipationDTO dto) {
         ExamenParticipation entity = new ExamenParticipation();
@@ -64,20 +67,31 @@ public class ExamenParticipationController {
                     .orElseThrow(() -> new BusinessException(
                             "Étudiant introuvable: " + dto.etudiantId())));
         }
+
+
+        // Lier le lot
+        if (dto.lotId() != null) {
+            lotRepository.findById(dto.lotId())
+                    .ifPresent(entity::setLot);
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Participation enregistrée", ParticipationDTO.fromEntity(participationService.save(entity))));
+                .body(ApiResponse.ok("Participation enregistrée",
+                        ParticipationDTO.fromEntity(participationService.save(entity))));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<ParticipationDTO>> update(@PathVariable Long id, @RequestBody ParticipationDTO dto) {
+    public ResponseEntity<ApiResponse<ParticipationDTO>> update(
+            @PathVariable Long id, @RequestBody ParticipationDTO dto) {
         return participationService.getById(id)
                 .map(existing -> {
                     existing.setNote(dto.note());
                     existing.setEst_present(dto.est_present());
-                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour", ParticipationDTO.fromEntity(participationService.save(existing))));
+                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour",
+                            ParticipationDTO.fromEntity(participationService.save(existing))));
                 })
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(NOT_FOUND_MSG)));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(NOT_FOUND_MSG)));
     }
 
     // A participation is an exam enrolment, not a directory record: the same

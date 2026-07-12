@@ -20,6 +20,8 @@ import tn.epos.scoring_service.controller.ExamenParticipationController;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
 import tn.epos.scoring_service.service.ExamenParticipationService;
+import tn.epos.scoring_service.repositories.IEtudiantRepository;
+import tn.epos.scoring_service.repositories.ILotRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -51,6 +53,12 @@ class SecurityConfigAuthorizationTest {
 
     @MockBean
     private ExamenParticipationService participationService;
+
+    @MockBean
+    private IEtudiantRepository etudiantRepository;
+
+    @MockBean
+    private ILotRepository lotRepository;
 
     @BeforeEach
     void stubService() {

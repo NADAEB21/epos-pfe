@@ -2,7 +2,12 @@ package tn.epos.scoring_service.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
+import tn.epos.scoring_service.dto.ExamenResultDTO;
+import tn.epos.scoring_service.dto.StationScoreDTO;
+import tn.epos.scoring_service.entities.Etudiant;
+import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.common.exception.BusinessException;
@@ -10,7 +15,11 @@ import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -44,6 +53,61 @@ public class NotationService {
     // Récupérer par assignment
     public Optional<Notation> findByAssignment(Long assignmentId) {
         return repository.findByAssignmentId(assignmentId);
+    }
+
+    // Résultats agrégés par étudiant pour un examen (issue #90). On part des
+    // notations de l'examen (jointes jusqu'à l'étudiant), puis on regroupe par
+    // participation : une ligne = un étudiant, ses scores par station + le total.
+    // Lecture seule pour le responsable/admin — pas de filtre par évaluateur
+    // (la vue Résultats est au niveau examen, pas au périmètre d'un correcteur).
+    // @Transactional(readOnly) garde la session ouverte le temps de lire les
+    // associations déjà fetch-join (étudiant), donc aucune LazyInit hors session.
+    @Transactional(readOnly = true)
+    public List<ExamenResultDTO> getResultatsByExamen(Long examenId) {
+        List<Notation> notations = repository.findByExamenIdWithGraph(examenId);
+
+        // Regroupe par participation en préservant l'ordre de première apparition.
+        Map<Long, List<Notation>> parParticipation = new LinkedHashMap<>();
+        for (Notation n : notations) {
+            ExamenParticipation p = n.getAssignment().getParticipation();
+            if (p == null) continue; // notation orpheline — ignorée
+            parParticipation.computeIfAbsent(p.getId(), k -> new ArrayList<>()).add(n);
+        }
+
+        List<ExamenResultDTO> results = new ArrayList<>();
+        for (Map.Entry<Long, List<Notation>> entry : parParticipation.entrySet()) {
+            List<Notation> rows = entry.getValue();
+            ExamenParticipation p = rows.get(0).getAssignment().getParticipation();
+            Etudiant e = p.getEtudiant();
+
+            List<StationScoreDTO> stations = rows.stream()
+                    .map(StationScoreDTO::fromEntity)
+                    .sorted(Comparator.comparing(
+                            StationScoreDTO::stationId,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
+                    .toList();
+
+            double total = rows.stream()
+                    .map(Notation::getScore_final)
+                    .filter(s -> s != null)
+                    .mapToDouble(Float::doubleValue)
+                    .sum();
+
+            results.add(new ExamenResultDTO(
+                    p.getId(),
+                    e != null ? e.getId() : null,
+                    e != null ? e.getNumero_inscription() : null,
+                    e != null ? e.getNom() : null,
+                    e != null ? e.getPrenom() : null,
+                    p.getNum_echantillon(),
+                    total,
+                    stations.size(),
+                    stations));
+        }
+
+        // Tri par total décroissant — le classement se lit directement.
+        results.sort(Comparator.comparingDouble(ExamenResultDTO::totalScore).reversed());
+        return results;
     }
 
     // Récupérer les notations d'une station (cross-service) — filtrées (#91)

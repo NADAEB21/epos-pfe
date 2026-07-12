@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import tn.epos.scoring_service.entities.RotationAssignment;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface IRotationAssignmentRepository extends JpaRepository<RotationAssignment, Long> {
@@ -12,6 +13,8 @@ public interface IRotationAssignmentRepository extends JpaRepository<RotationAss
     // Lister tous les assignments d'une rotation spécifique
     List<RotationAssignment> findByRotationId(Long rotationId);
 
-    // Lister tous les assignments d'une participation spécifique
-    List<RotationAssignment> findByParticipationId(Long participationId);
+    /**
+     * Retrouve l'assignment d'une participation.
+     * Clé de voûte du flux notation : participation → assignment → notation.*/
+     Optional<RotationAssignment> findByParticipationId(Long participationId);
 }

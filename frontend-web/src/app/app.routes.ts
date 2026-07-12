@@ -40,14 +40,27 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/lots.component').then((m) => m.LotsComponent),
   },
+  {
+    path: 'convocations',
+    loadComponent: () =>
+      import('./features/examens/convocations.component').then((m) => m.ConvocationsComponent),
+  },
   { path: 'planning', ...stub('Planning') },
   {
     path: 'lancement',
     loadComponent: () =>
       import('./features/examens/lancement.component').then((m) => m.LancementComponent),
   },
-  { path: 'suivi', ...stub('Suivi en direct') },
-  { path: 'resultats', ...stub('Resultats') },
+  {
+    path: 'suivi',
+    loadComponent: () =>
+      import('./features/examens/suivi.component').then((m) => m.SuiviComponent),
+  },
+  {
+    path: 'resultats',
+    loadComponent: () =>
+      import('./features/examens/resultats.component').then((m) => m.ResultatsComponent),
+  },
   { path: 'analyses-ia', ...stub('Analyses IA') },
 ];
 

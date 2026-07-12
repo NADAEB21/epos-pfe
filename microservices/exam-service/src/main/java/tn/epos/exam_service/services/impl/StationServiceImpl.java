@@ -11,6 +11,7 @@ import tn.epos.exam_service.entities.Examen;
 import tn.epos.exam_service.entities.Station;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.exam_service.exception.ConflictException;
 import tn.epos.exam_service.repositories.ExamenRepository;
 import tn.epos.exam_service.repositories.StationRepository;
 import tn.epos.exam_service.services.StationService;
@@ -18,7 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +51,9 @@ public class StationServiceImpl implements StationService {
                     "Une station nommée '" + request.getNom() + "' existe déjà dans cet examen"
             );
         }
+
+        // #163 : un évaluateur ne peut tenir qu'une seule station par examen
+        verifierEvaluateurUnique(examenId, request.getEvaluateurIds(), null);
 
         // Calculer l'ordre automatiquement
         int ordre = (int) stationRepository.countByExamenId(examenId) + 1;
@@ -111,6 +117,9 @@ public class StationServiceImpl implements StationService {
             );
         }
 
+        // #163 : conflit d'évaluateur avec une AUTRE station du même examen
+        verifierEvaluateurUnique(station.getExamen().getId(), request.getEvaluateurIds(), station.getId());
+
         station.setNom(request.getNom());
         station.setType(request.getType());
         station.setDescription(request.getDescription());
@@ -132,6 +141,9 @@ public class StationServiceImpl implements StationService {
                             + station.getExamen().getStatut()
             );
         }
+
+        // #163 : conflit d'évaluateur avec une AUTRE station du même examen
+        verifierEvaluateurUnique(station.getExamen().getId(), evaluateurIds, stationId);
 
         station.setEvaluateurIds(evaluateurIds != null ? evaluateurIds : new ArrayList<>());
         log.info("Station {} : {} évaluateur(s) affecté(s)", stationId, station.getEvaluateurIds().size());
@@ -164,6 +176,35 @@ public class StationServiceImpl implements StationService {
 
 
     // MÉTHODES PRIVÉES
+
+    /**
+     * #163 : règle du superviseur — un évaluateur ne peut tenir qu'UNE seule
+     * station par examen. Vérifie qu'aucun des {@code evaluateurIds} demandés
+     * n'est déjà affecté à une AUTRE station du même examen ; lève un 409
+     * (ConflictException) nommant la station en conflit le cas échéant.
+     *
+     * @param stationCouranteId station en cours d'édition à exclure du contrôle
+     *                          (null lors d'un ajout — aucune station à exclure).
+     */
+    private void verifierEvaluateurUnique(Long examenId, List<Long> evaluateurIds, Long stationCouranteId) {
+        if (evaluateurIds == null || evaluateurIds.isEmpty()) {
+            return;
+        }
+        Set<Long> demandes = new HashSet<>(evaluateurIds);
+        for (Station autre : stationRepository.findByExamenIdOrderByOrdreAsc(examenId)) {
+            if (stationCouranteId != null && autre.getId().equals(stationCouranteId)) {
+                continue;
+            }
+            for (Long dejaAffecte : autre.getEvaluateurIds()) {
+                if (demandes.contains(dejaAffecte)) {
+                    throw new ConflictException(
+                            "L'évaluateur " + dejaAffecte + " est déjà affecté à la station '"
+                                    + autre.getNom() + "' de cet examen. "
+                                    + "Un évaluateur ne peut tenir qu'une seule station par examen.");
+                }
+            }
+        }
+    }
 
     private Station trouverEntite(Long id) {
         return stationRepository.findById(id)

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
+import tn.epos.auth_service.dto.ChangePasswordRequest;
 import tn.epos.auth_service.dto.LoginRequest;
 import tn.epos.auth_service.dto.LoginResponse;
 import tn.epos.auth_service.dto.PasswordResetConfirmDto;
@@ -149,6 +150,45 @@ public class AuthService {
     public void logout(Long userId, String email) {
         refreshTokenRepository.revokeAllByUserId(userId);
         auditService.log(userId, email, AuditAction.LOGOUT);
+    }
+
+    // -------------------------------------------------------------------------
+    // Changement de mot de passe (utilisateur déjà authentifié — écran Profil)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Change le mot de passe d'un utilisateur connecté après vérification de
+     * son mot de passe actuel. Contrairement à {@link #confirmPasswordReset},
+     * ce flux ne passe par aucun token email — l'utilisateur prouve son
+     * identité en fournissant son mot de passe courant.
+     *
+     * Révoque tous les refresh tokens actifs (comme confirmPasswordReset et
+     * comme le changement de mot de passe de tout système sérieux) : après un
+     * changement de mot de passe, toutes les sessions existantes doivent se
+     * reconnecter avec la nouvelle valeur.
+     *
+     * @throws UsernameNotFoundException si l'utilisateur n'existe plus
+     * @throws BadCredentialsException   si le mot de passe actuel est incorrect
+     */
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("Utilisateur introuvable"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            auditService.log(user.getId(), user.getEmail(),
+                    AuditAction.LOGIN_FAILURE, "Échec changement de mot de passe : mdp actuel incorrect", null);
+            throw new BadCredentialsException("Mot de passe actuel incorrect");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        // Force la reconnexion sur tous les appareils avec le nouveau mot de passe.
+        refreshTokenRepository.revokeAllByUserId(userId);
+
+        auditService.log(user.getId(), user.getEmail(),
+                AuditAction.PASSWORD_RESET_CONFIRMED, "Changement de mot de passe depuis le profil", null);
     }
 
     // -------------------------------------------------------------------------

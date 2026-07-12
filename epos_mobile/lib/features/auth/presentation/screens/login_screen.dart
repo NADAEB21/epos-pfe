@@ -6,6 +6,8 @@
 //      lus depuis ProfileBloc
 //   3. Navigation après logout gérée par app.dart (navigatorKey) —
 //      LoginScreen n'a plus besoin de naviguer lui-même
+// BF1.3 — Le lien "Mot de passe oublié ?" ouvre désormais ForgotPasswordScreen,
+//      qui réutilise l'AuthBloc déjà fourni par app.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,6 +16,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../profile/domain/entities/profile_settings.dart';
 import '../../../profile/presentation/bloc/profile_bloc.dart';
 import '../bloc/auth_bloc.dart';
+import 'forgot_password_screen.dart';
 
 // ════════════════════════════════════════════════
 // TRADUCTIONS LOGIN
@@ -105,6 +108,18 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// BF1.3 — Ouvre l'écran "mot de passe oublié" en réutilisant l'AuthBloc
+  /// courant (même pattern que la navigation vers HomeScreen/ProfileScreen).
+  void _onForgotPassword() {
+    final authBloc = context.read<AuthBloc>();
+    Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+      builder: (_) => BlocProvider.value(
+        value: authBloc,
+        child: const ForgotPasswordScreen(),
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     // Lit la langue depuis ProfileBloc (disponible au niveau racine)
@@ -184,6 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     onTogglePassword: () =>
                         setState(() => _passwordVisible = !_passwordVisible),
                     onSubmit: _onSubmit,
+                    onForgotPassword: _onForgotPassword,
                   ),
 
                   const SizedBox(height: 48),
@@ -294,6 +310,7 @@ class _LoginForm extends StatelessWidget {
   final bool                  isDark;
   final VoidCallback          onTogglePassword;
   final VoidCallback          onSubmit;
+  final VoidCallback          onForgotPassword;
 
   const _LoginForm({
     required this.formKey,
@@ -304,6 +321,7 @@ class _LoginForm extends StatelessWidget {
     required this.isDark,
     required this.onTogglePassword,
     required this.onSubmit,
+    required this.onForgotPassword,
   });
 
   @override
@@ -376,7 +394,7 @@ class _LoginForm extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: GestureDetector(
-              onTap: () {},
+              onTap: onForgotPassword,
               child: Text(
                 _L.forgotPassword(lang),
                 style: TextStyle(
@@ -414,19 +432,19 @@ class _LoginForm extends StatelessWidget {
                   ),
                   child: isLoading
                       ? const SizedBox(
-                          width: 22, height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
+                    width: 22, height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
                       : Text(
-                          _L.login(lang),
-                          style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600,
-                            fontFamily: 'Poppins', letterSpacing: 0.5,
-                          ),
-                        ),
+                    _L.login(lang),
+                    style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600,
+                      fontFamily: 'Poppins', letterSpacing: 0.5,
+                    ),
+                  ),
                 ),
               );
             },
@@ -469,9 +487,9 @@ class _EposTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fillColor =
-        isDark ? const Color(0xFF2C3322) : AppTheme.surface;
+    isDark ? const Color(0xFF2C3322) : AppTheme.surface;
     final borderNormal =
-        isDark ? const Color(0xFF3D4A30) : const Color(0xFFDDD8CC);
+    isDark ? const Color(0xFF3D4A30) : const Color(0xFFDDD8CC);
 
     return TextFormField(
       controller:       controller,
@@ -508,7 +526,7 @@ class _EposTextField extends StatelessWidget {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide:
-              const BorderSide(color: AppTheme.primary, width: 2),
+          const BorderSide(color: AppTheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -517,7 +535,7 @@ class _EposTextField extends StatelessWidget {
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide:
-              const BorderSide(color: AppTheme.scoreRed, width: 2),
+          const BorderSide(color: AppTheme.scoreRed, width: 2),
         ),
         errorStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 11),
       ),

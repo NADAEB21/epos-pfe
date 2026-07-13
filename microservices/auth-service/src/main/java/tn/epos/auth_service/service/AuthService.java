@@ -162,10 +162,9 @@ public class AuthService {
      * ce flux ne passe par aucun token email — l'utilisateur prouve son
      * identité en fournissant son mot de passe courant.
      *
-     * Révoque tous les refresh tokens actifs (comme confirmPasswordReset et
-     * comme le changement de mot de passe de tout système sérieux) : après un
-     * changement de mot de passe, toutes les sessions existantes doivent se
-     * reconnecter avec la nouvelle valeur.
+     * Révoque tous les refresh tokens actifs : après un changement de mot de
+     * passe, toutes les sessions existantes doivent se reconnecter avec la
+     * nouvelle valeur.
      *
      * @throws UsernameNotFoundException si l'utilisateur n'existe plus
      * @throws BadCredentialsException   si le mot de passe actuel est incorrect
@@ -214,7 +213,18 @@ public class AuthService {
                     .build();
             passwordResetTokenRepository.save(resetToken);
 
-            emailService.sendPasswordResetEmail(user.getEmail(), rawToken);
+            // Le token est déjà persisté à ce stade : un incident SMTP (réseau de
+            // la faculté qui bloque le port, credentials invalides, timeout…) ne
+            // doit ni faire échouer la requête (500 côté app pour l'utilisateur),
+            // ni annuler la création du token (elle est utile pour le diagnostic
+            // même si l'email n'est pas parti). On journalise l'échec au lieu de
+            // laisser l'exception remonter et faire rollback la transaction.
+            try {
+                emailService.sendPasswordResetEmail(user.getEmail(), rawToken);
+            } catch (Exception e) {
+                log.error("Échec de l'envoi de l'email de réinitialisation à {} : {}",
+                        user.getEmail(), e.getMessage(), e);
+            }
 
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.PASSWORD_RESET_REQUESTED, null, null);

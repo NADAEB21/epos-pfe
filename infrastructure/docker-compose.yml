@@ -113,6 +113,16 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # envoi réel des emails de réinitialisation de mot de passe ──
+      # MAIL_ENABLED=false (défaut) → StubEmailService, rien n'est envoyé.
+      # MAIL_ENABLED=true            → SpringMailEmailService, SMTP réel requis.
+      - MAIL_ENABLED=${MAIL_ENABLED:-false}
+      - MAIL_FROM=${MAIL_FROM:-noreply@epos.tn}
+      - MAIL_RESET_BASE_URL=${MAIL_RESET_BASE_URL:-http://localhost:4200/reset-password}
+      - MAIL_SMTP_HOST=${MAIL_SMTP_HOST:-smtp.gmail.com}
+      - MAIL_SMTP_PORT=${MAIL_SMTP_PORT:-587}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
     depends_on:
       postgres-db:
         condition: service_healthy

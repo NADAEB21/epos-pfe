@@ -69,7 +69,33 @@ public class UserController {
     }
 
     /**
+     * POST /api/v1/users/{id}/roles
+     * ADDS roles to a user, leaving their existing roles untouched. Idempotent —
+     * re-adding a role the user already holds is a no-op, not a duplicate row.
+     *
+     * This is the endpoint to use for the common case: a RESPONSABLE_MATIERE who
+     * must also evaluate ("cet examen, il l'évalue lui-même"). Creating a second
+     * account with the same email is impossible by design — one email is one
+     * person, and a person carries several roles.
+     */
+    @PostMapping("/{id}/roles")
+    @PreAuthorize("""
+            hasAuthority('ROLE_SUPER_ADMIN') or \
+            !authentication.authorities.?[authority.startsWith('ROLE_RESPONSABLE_MATIERE')].empty\
+            """)
+    public ResponseEntity<ApiResponse<Void>> addRoles(
+            @PathVariable Long id,
+            @Valid @RequestBody List<RoleAssignmentDto> roles,
+            Authentication authentication) {
+        userService.addRoles(id, roles, authentication);
+        return ResponseEntity.ok(ApiResponse.ok("Roles added"));
+    }
+
+    /**
      * PUT /api/v1/users/{id}/roles
+     * REPLACES the user's entire role list with the payload — any role not sent
+     * is revoked. Use POST /{id}/roles to add a role without that risk.
+     *
      * Any SUPER_ADMIN or RESPONSABLE_MATIERE may attempt; UserService enforces
      * the per-role delegation rules (who can assign what to whom).
      */

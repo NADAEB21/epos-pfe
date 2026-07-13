@@ -71,6 +71,21 @@ BEGIN
     END IF;
 END$$;
 
+-- A user legitimately holds several roles (a RESPONSABLE_MATIERE is often also an
+-- EVALUATEUR), but never the SAME role twice. Plain UNIQUE(user_id, role, matiere_id)
+-- would not do: Postgres treats NULLs as distinct, so it would happily allow two
+-- EVALUATEUR rows (matiere_id NULL) for one user. COALESCE collapses that hole.
+-- Purge any pre-existing duplicates first, keeping the oldest row of each group.
+DELETE FROM user_roles a
+      USING user_roles b
+      WHERE a.id > b.id
+        AND a.user_id = b.user_id
+        AND a.role    = b.role
+        AND COALESCE(a.matiere_id, -1) = COALESCE(b.matiere_id, -1);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_roles_user_role_matiere
+    ON user_roles (user_id, role, COALESCE(matiere_id, -1));
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id         BIGSERIAL    PRIMARY KEY,
     user_id    BIGINT       NOT NULL REFERENCES users(id),

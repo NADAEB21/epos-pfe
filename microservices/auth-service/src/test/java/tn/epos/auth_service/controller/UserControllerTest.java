@@ -6,6 +6,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
@@ -23,6 +24,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -115,6 +117,39 @@ class UserControllerTest {
                 .andExpect(status().isOk());
 
         verify(userService).getAllUsers(null);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /{id}/roles — additive role grant
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(authorities = "ROLE_RESPONSABLE_MATIERE:5")
+    void addRoles_responsable_returns200_andDelegatesToService() throws Exception {
+        mockMvc.perform(post("/api/v1/users/2/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"role\":\"EVALUATEUR\"}]"))
+                .andExpect(status().isOk());
+
+        verify(userService).addRoles(eq(2L), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_EVALUATEUR")
+    void addRoles_evaluateur_isDenied() throws Exception {
+        // An EVALUATEUR must not be able to grant himself anything.
+        mockMvc.perform(post("/api/v1/users/2/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("[{\"role\":\"SUPER_ADMIN\"}]"))
+                .andExpect(result -> {
+                    int s = result.getResponse().getStatus();
+                    if (s == 200) throw new AssertionError("EVALUATEUR should not get 200, got " + s);
+                });
+        verify(userService, org.mockito.Mockito.never()).addRoles(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

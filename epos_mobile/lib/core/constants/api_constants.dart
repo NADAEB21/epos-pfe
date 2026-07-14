@@ -56,6 +56,17 @@ class ApiConstants {
   static const String refresh = '/auth/refresh';
   static const String me      = '/auth/me';
 
+  // === Mot de passe (BF1.3) ===
+  /// Changement de mot de passe pour un utilisateur déjà connecté (écran Profil).
+  static const String changePassword = '/auth/change-password';
+
+  /// Demande de réinitialisation (utilisateur qui a oublié son mot de passe) —
+  /// envoie un email contenant un token à usage unique, valide 30 minutes.
+  static const String passwordResetRequest = '/auth/password-reset/request';
+
+  /// Confirmation de la réinitialisation : { token, newPassword }.
+  static const String passwordResetConfirm = '/auth/password-reset/confirm';
+
   // === Dashboard évaluateur ===
   static const String dashboard = '/evaluateur/dashboard';
 

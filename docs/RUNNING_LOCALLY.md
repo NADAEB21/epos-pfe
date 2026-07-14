@@ -71,6 +71,15 @@ PGADMIN_DEFAULT_PASSWORD=admin
 DB_USERNAME=admin
 DB_PASSWORD=pfe_password
 
+# ─── password reset ─────────────────────────────────────────────────────────
+MAIL_ENABLED=true
+MAIL_FROM=mon-adresse@gmail.com
+MAIL_RESET_BASE_URL=http://localhost:4300/reset-password
+MAIL_SMTP_HOST=smtp.gmail.com
+MAIL_SMTP_PORT=587
+MAIL_USERNAME=mon-adresse@gmail.com
+MAIL_APP_PASSWORD=abcd efgh ijkl mnop
+
 JWT_SECRET=change_me_to_a_random_secret_of_at_least_32_bytes
 ```
 

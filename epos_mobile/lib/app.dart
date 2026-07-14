@@ -13,9 +13,9 @@ import 'features/home/presentation/bloc/session_bloc.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/profile/domain/entities/profile_settings.dart';
 import 'features/profile/presentation/bloc/profile_bloc.dart';
-import 'core/offline/connectivity_service.dart'; 
-import 'core/offline/offline_bloc.dart';        
-import 'core/offline/sync_service.dart'; 
+import 'core/offline/connectivity_service.dart';
+import 'core/offline/offline_bloc.dart';
+import 'core/offline/sync_service.dart';
 
 class EposApp extends StatefulWidget {
   final AuthRepository    authRepository;
@@ -39,7 +39,7 @@ class _EposAppState extends State<EposApp> {
   late final AuthBloc    _authBloc;
   late final SessionBloc _sessionBloc;
   late final ProfileBloc _profileBloc;
-  late final OfflineBloc _offlineBloc; 
+  late final OfflineBloc _offlineBloc;
 
   bool _isAuthenticated  = false;
   // _isInitialLoading : true uniquement pendant la vérification du token au
@@ -53,9 +53,12 @@ class _EposAppState extends State<EposApp> {
   void initState() {
     super.initState();
     _authBloc    = AuthBloc(authRepository: widget.authRepository)
-        ..add(const AuthCheckRequested());
+      ..add(const AuthCheckRequested());
     _sessionBloc = SessionBloc(repository: widget.sessionRepository);
-    _profileBloc = ProfileBloc();
+    // BF1.3 / changement de mot de passe (écran Profil) — ProfileBloc a
+    // besoin de l'AuthRepository pour appeler le vrai endpoint
+    // PUT /auth/change-password au lieu de l'ancienne validation mock.
+    _profileBloc = ProfileBloc(authRepository: widget.authRepository);
     _offlineBloc = OfflineBloc();
 
     _authBloc.stream.listen((state) {
@@ -83,11 +86,13 @@ class _EposAppState extends State<EposApp> {
         _appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
 
       }
-      // AuthLoading / AuthInitial → pas de setState nécessaire :
+      // AuthLoading / AuthInitial / AuthPasswordReset* → pas de setState :
       //   • Vérification initiale : _isInitialLoading est encore true →
       //     SplashScreen déjà affiché, pas de rebuild utile.
-      //   • Tentative de login : _isInitialLoading est false →
-      //     LoginScreen reste monté avec son propre spinner dans le bouton.
+      //   • Tentative de login ou flux "mot de passe oublié" :
+      //     _isInitialLoading est déjà false → LoginScreen /
+      //     ForgotPasswordScreen restent montés avec leur propre
+      //     BlocConsumer/BlocListener local.
     });
   }
 
@@ -96,7 +101,7 @@ class _EposAppState extends State<EposApp> {
     _authBloc.close();
     _sessionBloc.close();
     _profileBloc.close();
-    _offlineBloc.close(); 
+    _offlineBloc.close();
     super.dispose();
   }
 
@@ -229,10 +234,10 @@ ThemeData buildDarkTheme() {
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? AppTheme.primaryLight : Colors.grey,
+            (s) => s.contains(WidgetState.selected) ? AppTheme.primaryLight : Colors.grey,
       ),
       trackColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected)
+            (s) => s.contains(WidgetState.selected)
             ? AppTheme.primaryLight.withValues(alpha: 0.4)
             : Colors.grey.withValues(alpha: 0.3),
       ),

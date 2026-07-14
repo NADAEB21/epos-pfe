@@ -55,7 +55,7 @@ class AuthRepositoryImpl implements AuthRepository {
           'Compte verrouillé après 3 tentatives. Réessayez dans 15 minutes.',
         );
       } else if (e.type == DioExceptionType.connectionTimeout ||
-                 e.type == DioExceptionType.receiveTimeout) {
+          e.type == DioExceptionType.receiveTimeout) {
         throw Exception(
           'Impossible de joindre le serveur. Vérifiez votre connexion.',
         );
@@ -92,5 +92,85 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       return null;
     }
+  }
+
+  // ── BF1.3 — Mot de passe oublié ─────────────────────────────────────────
+
+  @override
+  Future<void> requestPasswordReset({required String email}) async {
+    try {
+      await _apiClient.post(
+        ApiConstants.passwordResetRequest,
+        data: {'email': email},
+      );
+      // Le backend répond toujours 200 (que l'email existe ou non) pour ne
+      // jamais révéler si une adresse est enregistrée.
+    } on DioException catch (e) {
+      throw Exception(_extractErrorMessage(e) ??
+          "Impossible d'envoyer la demande. Vérifiez votre connexion.");
+    }
+  }
+
+  @override
+  Future<void> confirmPasswordReset({
+    required String token,
+    required String newPassword,
+  }) async {
+    try {
+      await _apiClient.post(
+        ApiConstants.passwordResetConfirm,
+        data: {
+          'token': token,
+          'newPassword': newPassword,
+        },
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 400) {
+        throw Exception(_extractErrorMessage(e) ??
+            'Code invalide ou expiré. Veuillez refaire une demande.');
+      }
+      throw Exception(_extractErrorMessage(e) ??
+          'Impossible de réinitialiser le mot de passe.');
+    }
+  }
+
+  // ── Changement de mot de passe (utilisateur connecté — écran Profil) ────
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await _apiClient.put(
+        ApiConstants.changePassword,
+        data: {
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        },
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw Exception('Mot de passe actuel incorrect.');
+      }
+      if (e.response?.statusCode == 400) {
+        throw Exception(_extractErrorMessage(e) ??
+            'Le nouveau mot de passe ne respecte pas les critères requis '
+                '(min. 8 caractères, 1 majuscule, 1 chiffre).');
+      }
+      throw Exception('Impossible de modifier le mot de passe : ${e.message}');
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /// Extrait le champ "message" de l'enveloppe ApiResponse d'erreur du
+  /// backend ({ "success": false, "message": "..." }), quand présent.
+  String? _extractErrorMessage(DioException e) {
+    final data = e.response?.data;
+    if (data is Map<String, dynamic> && data['message'] is String) {
+      return data['message'] as String;
+    }
+    return null;
   }
 }

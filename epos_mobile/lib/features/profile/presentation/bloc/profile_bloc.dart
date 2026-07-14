@@ -4,12 +4,15 @@
 //   • Langue (fr / en / ar)
 //   • Notifications (activées / désactivées)
 //   • Thème (clair / sombre)
-//   • Changement de mot de passe
+//   • Changement de mot de passe — BRANCHÉ SUR LE VRAI BACKEND
+//     (PUT /api/v1/auth/change-password), remplace l'ancienne vérification
+//     mock 'password123'. Voir AuthRepository.changePassword().
 //   • Déconnexion
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
+import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../domain/entities/profile_settings.dart';
 
 // ========================
@@ -94,7 +97,11 @@ class ProfilePasswordError extends ProfileState {
 // BLOC
 // ========================
 class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
-  ProfileBloc() : super(const ProfileLoaded(ProfileSettings())) {
+  final AuthRepository _authRepository;
+
+  ProfileBloc({required AuthRepository authRepository})
+      : _authRepository = authRepository,
+        super(const ProfileLoaded(ProfileSettings())) {
     on<ProfileLanguageChanged>(_onLanguageChanged);
     on<ProfileNotificationsToggled>(_onNotificationsToggled);
     on<ProfileThemeChanged>(_onThemeChanged);
@@ -103,58 +110,56 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
   }
 
   void _onLanguageChanged(
-    ProfileLanguageChanged event,
-    Emitter<ProfileState> emit,
-  ) {
+      ProfileLanguageChanged event,
+      Emitter<ProfileState> emit,
+      ) {
     emit(ProfileLoaded(state.settings.copyWith(language: event.language)));
   }
 
   void _onNotificationsToggled(
-    ProfileNotificationsToggled event,
-    Emitter<ProfileState> emit,
-  ) {
+      ProfileNotificationsToggled event,
+      Emitter<ProfileState> emit,
+      ) {
     emit(ProfileLoaded(
       state.settings.copyWith(notificationsEnabled: event.enabled),
     ));
   }
 
   void _onThemeChanged(
-    ProfileThemeChanged event,
-    Emitter<ProfileState> emit,
-  ) {
+      ProfileThemeChanged event,
+      Emitter<ProfileState> emit,
+      ) {
     emit(ProfileLoaded(state.settings.copyWith(themeMode: event.themeMode)));
   }
 
+  /// Appelle le vrai backend (PUT /auth/change-password) via AuthRepository.
+  /// Remplace l'ancienne validation mock ('password123' codé en dur) : le
+  /// mot de passe actuel est désormais vérifié côté serveur, et le nouveau
+  /// mot de passe doit respecter la politique (min. 8, 1 maj., 1 chiffre)
+  /// — sinon le backend renvoie une erreur 400 explicite.
   Future<void> _onPasswordChangeRequested(
-    ProfilePasswordChangeRequested event,
-    Emitter<ProfileState> emit,
-  ) async {
+      ProfilePasswordChangeRequested event,
+      Emitter<ProfileState> emit,
+      ) async {
     emit(ProfilePasswordChanging(state.settings));
-    // Simulation d'un appel backend (mock)
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    // Validation simple : mot de passe actuel == "password123" (mock)
-    if (event.currentPassword == 'password123') {
-      if (event.newPassword.length >= 8) {
-        emit(ProfilePasswordChanged(state.settings));
-      } else {
-        emit(ProfilePasswordError(
-          state.settings,
-          'Le mot de passe doit contenir au moins 8 caractères.',
-        ));
-      }
-    } else {
+    try {
+      await _authRepository.changePassword(
+        currentPassword: event.currentPassword,
+        newPassword:     event.newPassword,
+      );
+      emit(ProfilePasswordChanged(state.settings));
+    } catch (e) {
       emit(ProfilePasswordError(
         state.settings,
-        'Mot de passe actuel incorrect.',
+        e.toString().replaceFirst('Exception: ', ''),
       ));
     }
   }
 
   void _onPasswordChangeDismissed(
-    ProfilePasswordChangeDismissed event,
-    Emitter<ProfileState> emit,
-  ) {
+      ProfilePasswordChangeDismissed event,
+      Emitter<ProfileState> emit,
+      ) {
     emit(ProfileLoaded(state.settings));
   }
 }

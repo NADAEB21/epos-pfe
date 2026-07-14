@@ -78,8 +78,27 @@ public class EvaluateurDashboardService {
         Map<Long, ExamServiceClient.ExamTiming> timingByExamen = examenIds.stream()
                 .collect(Collectors.toMap(id -> id, examServiceClient::getExamTiming));
 
+        // On EXCLUT seulement quand le statut est CONNU et n'est pas EN_COURS.
+        //
+        // FAIL OPEN, volontairement : si le statut est inconnu (null — exam-service injoignable,
+        // 403, réponse malformée…), on GARDE l'examen. Un statut inconnu ne doit JAMAIS faire
+        // disparaître les sessions d'un évaluateur.
+        //
+        // Vécu : /api/examens/{id} était interdit à l'évaluateur (403) ; le repli renvoyait
+        // statut = null ; le filtre strict "equals EN_COURS" éliminait alors TOUS les examens et
+        // le dashboard évaluateur devenait VIDE le jour J — une panne bien pire que le bug qu'il
+        // corrigeait. Montrer un examen de trop est gênant ; n'en montrer aucun est fatal.
         List<Long> liveExamenIds = timingByExamen.entrySet().stream()
-                .filter(e -> "EN_COURS".equals(e.getValue().statut()))
+                .filter(e -> {
+                    String statut = e.getValue().statut();
+                    if (statut == null) {
+                        log.warn("Statut inconnu pour l'examen {} (exam-service injoignable ou refusé) "
+                                + "— examen CONSERVÉ dans le dashboard de l'évaluateur {} plutôt que masqué.",
+                                e.getKey(), evaluateurId);
+                        return true;
+                    }
+                    return "EN_COURS".equals(statut);
+                })
                 .map(Map.Entry::getKey)
                 .toList();
 

@@ -1111,4 +1111,75 @@ class EvaluateurDashboardServiceTest {
                     .hasMessageContaining("Lot introuvable");
         }
     }
+
+    /**
+     * Filtre par examen (#189) — et surtout le garde-fou qui a manqué.
+     *
+     * <p>Le filtre ne garde que les examens EN_COURS. Il s'appuie sur le statut renvoyé par
+     * exam-service — mais {@code /api/examens/{id}} était INTERDIT à l'évaluateur (403). Le
+     * repli renvoyait {@code statut = null}, le {@code equals("EN_COURS")} strict éliminait
+     * alors TOUS les examens, et le dashboard de l'évaluateur devenait VIDE le jour J.
+     *
+     * <p>Deux verrous désormais : l'appel passe par {@code /timing} (lisible par l'évaluateur),
+     * et un statut INCONNU ne masque plus jamais un examen (fail open). Montrer un examen de
+     * trop est gênant ; n'en montrer aucun est fatal.
+     */
+    @Nested
+    @DisplayName("#189/#190 — filtre par examen, sans jamais vider le dashboard")
+    class FiltreExamen {
+
+        private Rotation rotationLiee() {
+            Rotation r = rotationAt(LocalDateTime.now(TUNIS).plusHours(2));
+            lotFor(r, LotStatus.EN_COURS);
+            return r;
+        }
+
+        private void timing(String statut) {
+            when(examServiceClient.getExamTiming(anyLong()))
+                    .thenReturn(new ExamServiceClient.ExamTiming(false, null, 0, 15, 0, statut));
+        }
+
+        @Test
+        @DisplayName("Examen EN_COURS → ses sessions sont visibles")
+        void enCours_visible() {
+            Rotation r = rotationLiee();
+            timing("EN_COURS");
+            when(rotationRepository.findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(eq(EVAL_ID), anyList()))
+                    .thenReturn(List.of(r));
+
+            assertThat(service.buildDashboard(EVAL_ID).getSessions()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("Examen CONFIGURE (jamais lancé) → exclu")
+        void configure_exclu() {
+            timing("CONFIGURE");
+
+            assertThat(service.buildDashboard(EVAL_ID).getSessions()).isEmpty();
+            verify(rotationRepository, never())
+                    .findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(eq(EVAL_ID), anyList());
+        }
+
+        @Test
+        @DisplayName("Examen TERMINE (clôturé) → exclu")
+        void termine_exclu() {
+            timing("TERMINE");
+
+            assertThat(service.buildDashboard(EVAL_ID).getSessions()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("RÉGRESSION : statut INCONNU (exam-service 403/injoignable) → l'examen est CONSERVÉ, "
+                   + "le dashboard n'est JAMAIS vidé")
+        void statutInconnu_failOpen() {
+            Rotation r = rotationLiee();
+            timing(null); // exactement ce que renvoyait ExamTiming.neutral() sur un 403
+            when(rotationRepository.findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(eq(EVAL_ID), anyList()))
+                    .thenReturn(List.of(r));
+
+            assertThat(service.buildDashboard(EVAL_ID).getSessions())
+                    .as("un statut inconnu ne doit jamais faire disparaître les sessions de l'évaluateur")
+                    .isNotEmpty();
+        }
+    }
 }

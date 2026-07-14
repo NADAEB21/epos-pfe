@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -104,6 +105,33 @@ public class ExamenServiceImpl implements ExamenService {
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         return toResponse(examen, true); // true = inclure les stations
+    }
+
+    /**
+     * État d'exécution seul — lisible par l'ÉVALUATEUR (via {@code checkReadAccess}, comme
+     * la lecture de grille), contrairement à {@link #trouverParId(Long)} qui exige un droit
+     * d'écriture et renvoie 403 à un évaluateur.
+     *
+     * <p>C'est la cause racine de deux bugs : scoring appelait {@code GET /api/examens/{id}}
+     * avec le jeton de l'évaluateur, se prenait un 403, l'avalait dans un repli « neutre »
+     * (statut = null) — et le dashboard évaluateur se vidait entièrement.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ExamTimingResponse getTiming(Long id) {
+        Examen examen = examenRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
+        matiereAccessChecker.checkReadAccess(examen.getMatiereId());
+        return ExamTimingResponse.builder()
+                .id(examen.getId())
+                .statut(examen.getStatut())
+                .enPause(Boolean.TRUE.equals(examen.getEnPause()))
+                .pausedAt(examen.getPausedAt())
+                .totalPauseSec(examen.getTotalPauseSec())
+                .launchedAt(examen.getLaunchedAt())
+                .dureeStationMin(examen.getDureeStationMin())
+                .avertissementLeadSec(examen.getAvertissementLeadSec())
+                .build();
     }
 
     @Override

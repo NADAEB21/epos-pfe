@@ -41,6 +41,15 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
       */
      Optional<Rotation> findByEvaluateurIdAndStationId(Long evaluateurId, Long stationId);
 
+    /**
+     * Nombre de rotations déjà générées pour un lot (issue #188).
+     *
+     * <p>Le front doit savoir, AU CHARGEMENT, si un lot possède déjà un planning : sans
+     * cela il affiche « Générer » sur un lot déjà généré et la régénération — destructrice —
+     * part sans confirmation. L'état de session ne suffit pas : il est vide après un reload.
+     */
+    long countByStudentGroupLotId(Long lotId);
+
     // #189 — étape 1 : quels examens cet évaluateur a-t-il des rotations dedans ?
     // Requête légère (juste les IDs), qui sert à interroger exam-service AVANT de
     // charger les rotations complètes.

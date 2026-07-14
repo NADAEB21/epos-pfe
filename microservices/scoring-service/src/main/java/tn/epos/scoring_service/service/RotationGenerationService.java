@@ -11,6 +11,7 @@ import tn.epos.scoring_service.dto.GenerationResult;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
+import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 import tn.epos.scoring_service.repositories.IStudentGroupRepository;
@@ -56,6 +57,7 @@ public class RotationGenerationService {
     private final IStudentGroupRepository         studentGroupRepository;
     private final IRotationRepository             rotationRepository;
     private final IRotationAssignmentRepository   assignmentRepository;
+    private final INotationRepository             notationRepository;
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
@@ -100,7 +102,30 @@ public class RotationGenerationService {
                     "Aucun étudiant présent dans le lot " + lot.getNumeroLot() + ".");
         }
 
-        // Nettoyage avant génération
+        // ── GARDE-FOU ANTI-PERTE DE DONNÉES (issue #188) ──────────────────────────
+        // wipeLotGroups() supprime les StudentGroup du lot, et TOUTE la chaîne dessous
+        // part en CASCADE (JPA + FK PostgreSQL) : rotations → assignments → notations →
+        // notation_items / notation_adjustments. Régénérer un lot déjà noté effacerait
+        // donc les notes — y compris les notations VERROUILLÉES, que l'ADR-0013 déclare
+        // immuables, et leur piste d'audit. Mesuré sur le lot 13 : 56 des 57 notations
+        // (dont 56 verrouillées) et les 16 notation_items détruits par un seul appel.
+        //
+        // Le seul garde-fou existant (lot EN_COURS, plus haut) ne protège rien : le lot
+        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE qu'au validerLot
+        // de l'évaluateur. La régénération est donc armée exactement quand elle détruit
+        // le plus. On refuse dès qu'UNE notation existe (fail closed) : dès qu'un
+        // évaluateur a saisi quoi que ce soit, le planning n'est plus un état dérivé
+        // qu'on peut reconstruire en silence.
+        long notationsMenacees = notationRepository.countNotationsAtRiskForLot(lotId);
+        if (notationsMenacees > 0) {
+            throw new BusinessException(
+                    "Régénération impossible : " + notationsMenacees + " notation(s) ont déjà été "
+                            + "saisies pour le lot " + lot.getNumeroLot() + ". Régénérer les rotations "
+                            + "supprimerait définitivement ces notes (y compris les notes verrouillées) "
+                            + "ainsi que leur historique de réajustement. Aucune donnée n'a été modifiée.");
+        }
+
+        // Nettoyage avant génération — sûr : le lot n'a aucune notation (garde ci-dessus).
         wipeLotGroups(lotId);
 
         LocalTime start    = exam.heureDebut() != null ? exam.heureDebut() : DEFAULT_START;

@@ -185,19 +185,47 @@ interface LotView {
                     {{ savingPresenceLot() === lot.id ? 'Enregistrement…' : 'Enregistrer la présence' }}
                   </button>
 
-                  <button
-                    type="button"
-                    [disabled]="busy() || lot.statut === 'EN_ATTENTE'"
-                    (click)="genererLot(lot)"
-                    class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-status-success hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                    [title]="lot.statut === 'EN_ATTENTE' ? 'Enregistrez d’abord la présence' : ''"
-                  >
-                    {{ generatingLot() === lot.id
-                      ? 'Génération…'
-                      : genByLot()[lot.id]
-                        ? 'Régénérer les rotations'
-                        : 'Générer les rotations' }}
-                  </button>
+                  <!--
+                    #188 — REgeneration is destructive: it wipes the lot's groups and the
+                    whole cascade under them (rotations → passages → notes). The backend
+                    now refuses outright once any note exists, but a first generation is
+                    silent and a re-generation must still be confirmed, never one-click.
+                  -->
+                  @if (confirmingRegen() === lot.id) {
+                    <span class="text-sm font-medium text-gray-800">
+                      Régénérer le planning de ce lot&nbsp;?
+                    </span>
+                    <button
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="genererLot(lot)"
+                      class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-status-danger hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {{ generatingLot() === lot.id ? 'Génération…' : 'Oui, régénérer' }}
+                    </button>
+                    <button
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="cancelRegen()"
+                      class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      [disabled]="busy() || lot.statut === 'EN_ATTENTE'"
+                      (click)="onGenerateClick(lot)"
+                      class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-status-success hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                      [title]="lot.statut === 'EN_ATTENTE' ? 'Enregistrez d’abord la présence' : ''"
+                    >
+                      {{ generatingLot() === lot.id
+                        ? 'Génération…'
+                        : hasRotations(lot.id)
+                          ? 'Régénérer les rotations'
+                          : 'Générer les rotations' }}
+                    </button>
+                  }
 
                   @if (lot.statut === 'EN_ATTENTE') {
                     <span class="text-xs text-gray-400">Présence requise avant génération.</span>
@@ -291,6 +319,10 @@ export class LotsComponent {
   readonly lotError = signal<Record<number, string>>({});
   readonly savingPresenceLot = signal<number | null>(null);
   readonly generatingLot = signal<number | null>(null);
+  /** Lot id awaiting the "régénérer ?" confirmation (#188) — destructive, never one-click. */
+  readonly confirmingRegen = signal<number | null>(null);
+  /** lotId → rotations already generated, from the SERVER (survives a reload, unlike genByLot). */
+  readonly rotationCountByLot = signal<Record<number, number>>({});
   readonly movingParticipation = signal<number | null>(null);
   readonly actionError = signal<string | null>(null);
   private readonly repartitionning = signal(false);
@@ -376,6 +408,7 @@ export class LotsComponent {
         this.directory.set(etudiants);
         this.stationCount.set(stations.length);
         this.seedAbsentState(lots, participations);
+        this.loadRotationCounts(lots);
         this.loading.set(false);
       },
       error: () => {
@@ -383,6 +416,36 @@ export class LotsComponent {
         this.loading.set(false);
       },
     });
+  }
+
+  /**
+   * #188 — ask the SERVER which lots already have a rotation plan.
+   *
+   * Without this the screen only knew about generations performed in the current session
+   * ({@code genByLot}), which is wiped on every load. So after a reload an already-generated
+   * lot showed "Générer les rotations", and clicking it fired the DESTRUCTIVE regeneration
+   * with no confirmation at all. The confirm has to key off server truth, not session memory.
+   * Best-effort: a failed count leaves the lot marked as un-generated, and the backend guard
+   * still refuses to destroy notes — this is defence in depth, not the only defence.
+   */
+  private loadRotationCounts(lots: LotSummary[]): void {
+    if (lots.length === 0) {
+      this.rotationCountByLot.set({});
+      return;
+    }
+    forkJoin(lots.map((l) => this.scoring.countRotationsLot(l.id))).subscribe({
+      next: (counts) => {
+        const map: Record<number, number> = {};
+        lots.forEach((l, i) => (map[l.id] = counts[i] ?? 0));
+        this.rotationCountByLot.set(map);
+      },
+      error: () => this.rotationCountByLot.set({}),
+    });
+  }
+
+  /** True when the lot ALREADY has a plan — from the server, or from this session's generation. */
+  hasRotations(lotId: number): boolean {
+    return (this.rotationCountByLot()[lotId] ?? 0) > 0 || !!this.genByLot()[lotId];
   }
 
   /** Reflect any presence already recorded (est_present===false) in the toggles. */
@@ -497,6 +560,26 @@ export class LotsComponent {
     });
   }
 
+  /**
+   * #188 — a FIRST generation is safe (nothing to destroy), but a REgeneration wipes the
+   * lot's groups and everything cascading under them. Never let that be one click: ask
+   * first. The backend refuses outright if any note already exists — this is the second
+   * layer, not the only one.
+   */
+  onGenerateClick(lot: LotView): void {
+    if (this.busy() || lot.statut === 'EN_ATTENTE') return;
+    if (this.hasRotations(lot.id)) {
+      this.clearLotError(lot.id);
+      this.confirmingRegen.set(lot.id);
+      return;
+    }
+    this.genererLot(lot);
+  }
+
+  cancelRegen(): void {
+    this.confirmingRegen.set(null);
+  }
+
   genererLot(lot: LotView): void {
     if (this.busy() || lot.statut === 'EN_ATTENTE') return;
     this.generatingLot.set(lot.id);
@@ -504,10 +587,12 @@ export class LotsComponent {
     this.scoring.genererRotationsLot(lot.id).subscribe({
       next: (result) => {
         this.generatingLot.set(null);
+        this.confirmingRegen.set(null);
         this.genByLot.update((m) => ({ ...m, [lot.id]: result }));
       },
       error: (err) => {
         this.generatingLot.set(null);
+        this.confirmingRegen.set(null);
         this.setLotError(lot.id, this.message(err, 'Génération impossible.'));
       },
     });

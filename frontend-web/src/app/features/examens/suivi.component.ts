@@ -22,7 +22,7 @@ import {
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** One créneau slot at a station — a group's scheduled visit. */
-interface Slot {
+export interface Slot {
   rotationId: number;
   ordrePassage: number;
   debutMs: number; // absolute planned start (ms epoch, local)
@@ -40,8 +40,45 @@ interface Lane {
 
 type SlotState = 'done' | 'live' | 'upcoming';
 
+/**
+ * A station's state on the board. {@code sansRotations} is NOT a time-derived
+ * state — it means the station has no rotation plan at all, and it is resolved
+ * BEFORE any clock branch so an unknown station can never read as a finished one.
+ */
+export type LaneState = 'sansRotations' | 'live' | 'upcoming' | 'done';
+
 const DEFAULT_DUREE_MIN = 15;
 const DEFAULT_HEURE = '09:00';
+
+/**
+ * Resolve a station's board state — the #182 invariant, kept pure so it can be
+ * pinned by a unit test without a TestBed.
+ *
+ * The {@code sansRotations} branch comes FIRST and must stay first: a station with
+ * no rotation plan is UNKNOWN, not finished. The board previously fell through
+ * live → upcoming → "Terminée", so a station whose rotations were never generated
+ * rendered as already over — a phantom terminal state that cost a live exam
+ * simulation. 'done' must only ever be reachable from a real, non-empty slot set.
+ *
+ * @param slots the station's slots, sorted by debutMs (may be empty)
+ * @param effectiveNowMs ADR-0009 effective instant, or null before the clock resolves
+ * @param dureeMs a slot's duration in ms
+ */
+export function resolveLaneState(
+  slots: readonly Slot[],
+  effectiveNowMs: number | null,
+  dureeMs: number,
+): LaneState {
+  if (slots.length === 0) return 'sansRotations';
+  if (effectiveNowMs == null) return 'upcoming';
+  const live = slots.some(
+    (s) => effectiveNowMs >= s.debutMs && effectiveNowMs < s.debutMs + dureeMs,
+  );
+  if (live) return 'live';
+  const first = slots[0];
+  if (effectiveNowMs < first.debutMs) return 'upcoming';
+  return 'done';
+}
 
 /**
  * Suivi en direct — the live exam-day monitoring board (EN_COURS only).
@@ -67,6 +104,15 @@ const DEFAULT_HEURE = '09:00';
  * effective instant the pause began ({@code pausedAt − totalPauseSec}); Reprendre continues
  * exactly from there (the server folds the gap into {@code totalPauseSec}, so the running
  * formula picks up seamlessly).
+ *
+ * <p><b>"Terminée" is never a fallthrough (#182):</b> a station with NO rotations is
+ * {@code sansRotations} — unknown, not finished — and {@link #laneState} resolves that
+ * BEFORE any clock branch. The old template fell through live → upcoming → "Terminée",
+ * so a station whose rotations were never generated rendered as already over. That
+ * phantom terminal state cost a real exam simulation: the responsable read "Terminée"
+ * across the board and concluded it was too late, when in fact
+ * {@code RotationGenerationService} still permits generation while the exam is EN_COURS
+ * — nothing was lost. Do not reintroduce a default that reads as "done".
  *
  * <p><b>Timezone (ADR-0010, option A):</b> the backend Clock is pinned to the exam zone
  * (prod {@code Africa/Tunis}; dev aligned to the host via {@code APP_TIMEZONE}), so the
@@ -224,6 +270,39 @@ const DEFAULT_HEURE = '09:00';
         </div>
       </section>
 
+      <!--
+        Missing-rotations alarm. The exam is live but one or more stations have no
+        rotation plan — nothing will ever run there. This is recoverable (rotations
+        can still be generated while EN_COURS), so say so and link to the fix.
+      -->
+      @if (hasMissingRotations()) {
+        <section
+          role="alert"
+          class="rounded-xl bg-amber-50 border border-amber-300 shadow-card p-5 mb-6"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 class="font-semibold text-amber-900">
+                ⚠ {{ lanesSansRotations().length }} station(s) sans rotations
+              </h2>
+              <p class="text-sm text-amber-800 mt-1">
+                Aucun passage n'est planifié pour
+                <span class="font-medium">{{ lanesSansRotationsLabel() }}</span> — rien ne s'y
+                déroulera. Générez les rotations depuis
+                <span class="font-medium">Lots &amp; présence</span> (après la présence de chaque
+                lot). L'examen est en cours : c'est encore rattrapable.
+              </p>
+            </div>
+            <a
+              [routerLink]="['../lots']"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:opacity-90 transition-opacity shrink-0"
+            >
+              Générer les rotations
+            </a>
+          </div>
+        </section>
+      }
+
       <!-- Per-station lanes -->
       <div class="space-y-4">
         @for (lane of lanes(); track lane.stationId) {
@@ -240,23 +319,45 @@ const DEFAULT_HEURE = '09:00';
                 </p>
               </div>
 
-              <!-- "En ce moment" badge -->
-              @if (liveSlot(lane); as s) {
-                <div class="text-right">
-                  <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
-                  <div class="font-semibold text-status-success tabular-nums">
-                    Passage {{ s.ordrePassage }} · fin dans {{ countdown(slotEndMs(s)) }}
-                  </div>
-                </div>
-              } @else {
-                @if (beforeStart(lane); as next) {
+              <!--
+                Station badge. 'sansRotations' is resolved FIRST: a station with no
+                rotation plan is unknown, not finished — it must never fall through
+                to "Terminée" (that phantom terminal state cost us a live exam).
+              -->
+              @switch (laneState(lane)) {
+                @case ('sansRotations') {
                   <div class="text-right">
-                    <div class="text-xs text-gray-400 uppercase tracking-wide">À venir</div>
-                    <div class="font-medium text-gray-600 tabular-nums">
-                      Début dans {{ countdown(next.debutMs) }}
-                    </div>
+                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
+                    <div class="font-semibold text-amber-700">⚠ Aucune rotation générée</div>
+                    <a
+                      [routerLink]="['../lots']"
+                      class="text-xs text-brand hover:underline"
+                    >
+                      Générer les rotations
+                    </a>
                   </div>
-                } @else {
+                }
+                @case ('live') {
+                  @if (liveSlot(lane); as s) {
+                    <div class="text-right">
+                      <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
+                      <div class="font-semibold text-status-success tabular-nums">
+                        Passage {{ s.ordrePassage }} · fin dans {{ countdown(slotEndMs(s)) }}
+                      </div>
+                    </div>
+                  }
+                }
+                @case ('upcoming') {
+                  @if (beforeStart(lane); as next) {
+                    <div class="text-right">
+                      <div class="text-xs text-gray-400 uppercase tracking-wide">À venir</div>
+                      <div class="font-medium text-gray-600 tabular-nums">
+                        Début dans {{ countdown(next.debutMs) }}
+                      </div>
+                    </div>
+                  }
+                }
+                @default {
                   <div class="text-right">
                     <div class="text-xs text-gray-400 uppercase tracking-wide">Station</div>
                     <div class="font-medium text-gray-500">Terminée</div>
@@ -286,6 +387,13 @@ const DEFAULT_HEURE = '09:00';
               </div>
             }
 
+            @if (laneState(lane) === 'sansRotations') {
+              <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                Cette station n'a aucun passage planifié. Les rotations n'ont pas été générées pour
+                les lots de cet examen.
+              </div>
+            }
+
             <!-- Timeline strip -->
             <div class="flex gap-1">
               @for (s of lane.slots; track s.rotationId) {
@@ -299,14 +407,16 @@ const DEFAULT_HEURE = '09:00';
               }
             </div>
 
-            <!-- Expand: full schedule + students -->
-            <button
-              type="button"
-              (click)="toggle(lane.stationId)"
-              class="text-xs text-brand hover:underline mt-3"
-            >
-              {{ isOpen(lane.stationId) ? 'Masquer le détail' : 'Voir tous les passages' }}
-            </button>
+            <!-- Expand: full schedule + students (nothing to expand without a plan) -->
+            @if (lane.slots.length > 0) {
+              <button
+                type="button"
+                (click)="toggle(lane.stationId)"
+                class="text-xs text-brand hover:underline mt-3"
+              >
+                {{ isOpen(lane.stationId) ? 'Masquer le détail' : 'Voir tous les passages' }}
+              </button>
+            }
 
             @if (isOpen(lane.stationId)) {
               <ul class="mt-3 divide-y divide-gray-50 border border-gray-100 rounded-lg">
@@ -646,6 +756,33 @@ export class SuiviComponent {
         return 'à venir';
     }
   }
+
+  /**
+   * The station's board state. The {@code sansRotations} check comes FIRST and is
+   * the whole point of this method: a station with no rotation plan is UNKNOWN, not
+   * finished. Previously the template fell through live → upcoming → "Terminée", so
+   * a station with zero slots rendered as "Terminée" — a phantom terminal state that
+   * made a fully recoverable exam (rotations simply not generated yet) look like it
+   * was already over. Never resolve 'done' from an empty slot set.
+   */
+  laneState(lane: Lane): LaneState {
+    return resolveLaneState(lane.slots, this.effectiveNowMs(), this.dureeMs());
+  }
+
+  /** Stations with no rotation plan at all — the exam-day recovery signal. */
+  readonly lanesSansRotations = computed(() =>
+    this.lanes().filter((l) => l.slots.length === 0),
+  );
+
+  /** The exam is live but at least one station has no rotations — must be surfaced loudly. */
+  readonly hasMissingRotations = computed(() => this.lanesSansRotations().length > 0);
+
+  /** Names of the stations missing a rotation plan, for the alarm banner. */
+  readonly lanesSansRotationsLabel = computed(() =>
+    this.lanesSansRotations()
+      .map((l) => l.nom)
+      .join(', '),
+  );
 
   /** The slot currently live at this station, if any. */
   liveSlot(lane: Lane): Slot | null {

@@ -86,11 +86,11 @@ public class ExamServiceClient {
      */
     public record ExamTiming(boolean enPause, LocalDateTime pausedAt,
                              int totalPauseSec, Integer dureeStationMin,
-                             int avertissementLeadSec) {
+                             int avertissementLeadSec, String statut) {
 
         /** État neutre (pas de pause, pas d'avertissement) — repli si exam-service est injoignable. */
         public static ExamTiming neutral() {
-            return new ExamTiming(false, null, 0, null, 0);
+            return new ExamTiming(false, null, 0, null, 0, null);
         }
     }
 
@@ -189,7 +189,8 @@ public class ExamServiceClient {
                     ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
             int leadSec = data.path(FIELD_AVERTISSEMENT_LEAD_SEC).isNumber()
                     ? data.path(FIELD_AVERTISSEMENT_LEAD_SEC).asInt() : 0;
-            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec);
+            String statut = data.path("statut").isTextual() ? data.path("statut").asText() : null;
+            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec, statut);
         } catch (Exception e) {
             log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
                     examenId, e.getMessage());

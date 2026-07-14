@@ -7,9 +7,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
+import tn.epos.auth_service.dto.ChangePasswordRequest;
 import tn.epos.auth_service.dto.LoginRequest;
 import tn.epos.auth_service.dto.LoginResponse;
 import tn.epos.auth_service.dto.PasswordResetConfirmDto;
@@ -387,5 +389,97 @@ class AuthServiceTest {
                 .hasMessageContaining("expired");
 
         verify(userRepository, never()).save(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // changePassword — utilisateur connecté, écran Profil (PR #180)
+    // -------------------------------------------------------------------------
+    //
+    // Flux distinct de la réinitialisation par email : l'utilisateur connaît son
+    // mot de passe et le change volontairement. L'identité est prouvée par le mot
+    // de passe COURANT (pas par un token email), et l'userId vient du JWT — jamais
+    // du corps de la requête (sinon on pourrait changer le mot de passe d'autrui).
+    //
+    // Ce que ces tests verrouillent :
+    //   1. mot de passe actuel faux         → BadCredentialsException, RIEN n'est écrit
+    //   2. utilisateur inexistant           → UsernameNotFoundException
+    //   3. succès                           → nouveau hash encodé + persisté
+    //   4. succès                           → TOUS les refresh tokens révoqués
+    //                                         (une session volée ne survit pas au changement)
+    //   5. le mot de passe n'est JAMAIS stocké en clair
+
+    private ChangePasswordRequest changeReq(String current, String next) {
+        ChangePasswordRequest req = mock(ChangePasswordRequest.class);
+        lenient().when(req.getCurrentPassword()).thenReturn(current);
+        lenient().when(req.getNewPassword()).thenReturn(next);
+        return req;
+    }
+
+    @Test
+    void changePassword_motDePasseActuelIncorrect_devraitRefuserSansRienEcrire() {
+        User user = activeUser();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("mauvais", "hashed-pw")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword(1L, changeReq("mauvais", "NewPass@99")))
+                .isInstanceOf(BadCredentialsException.class);
+
+        // Aucune écriture, aucune révocation : un échec ne doit RIEN changer.
+        verify(userRepository, never()).save(any());
+        verify(refreshTokenRepository, never()).revokeAllByUserId(anyLong());
+        verify(passwordEncoder, never()).encode(anyString());
+    }
+
+    @Test
+    void changePassword_utilisateurInexistant_devraitLever() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.changePassword(99L, changeReq("Eval@1234", "NewPass@99")))
+                .isInstanceOf(UsernameNotFoundException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_succes_devraitEncoderEtPersisterLeNouveauHash() {
+        User user = activeUser();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Eval@1234", "hashed-pw")).thenReturn(true);
+        when(passwordEncoder.encode("NewPass@99")).thenReturn("nouveau-hash");
+
+        authService.changePassword(1L, changeReq("Eval@1234", "NewPass@99"));
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(saved.capture());
+        assertThat(saved.getValue().getPasswordHash()).isEqualTo("nouveau-hash");
+        // Le mot de passe en clair ne doit jamais atterrir en base.
+        assertThat(saved.getValue().getPasswordHash()).isNotEqualTo("NewPass@99");
+    }
+
+    @Test
+    void changePassword_succes_devraitRevoquerTousLesRefreshTokens() {
+        User user = activeUser();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Eval@1234", "hashed-pw")).thenReturn(true);
+        when(passwordEncoder.encode("NewPass@99")).thenReturn("nouveau-hash");
+
+        authService.changePassword(1L, changeReq("Eval@1234", "NewPass@99"));
+
+        // Le point de sécurité : après un changement de mot de passe, toutes les
+        // sessions existantes meurent — y compris celle d'un attaquant qui aurait
+        // volé un refresh token.
+        verify(refreshTokenRepository).revokeAllByUserId(1L);
+    }
+
+    @Test
+    void changePassword_succes_devraitEtreAudite() {
+        User user = activeUser();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Eval@1234", "hashed-pw")).thenReturn(true);
+        when(passwordEncoder.encode("NewPass@99")).thenReturn("nouveau-hash");
+
+        authService.changePassword(1L, changeReq("Eval@1234", "NewPass@99"));
+
+        verify(auditService).log(eq(1L), eq("user@test.com"), any(AuditAction.class), anyString(), isNull());
     }
 }

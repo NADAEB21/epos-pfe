@@ -18,7 +18,9 @@ import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.exam_service.config.MatiereAccessChecker;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.repositories.ExamenRepository;
+import org.springframework.security.access.AccessDeniedException;
 import tn.epos.exam_service.services.impl.ExamenServiceImpl;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -592,6 +594,83 @@ class ExamenServiceImplTest {
             when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
 
             assertThatThrownBy(() -> examenService.obtenirCheminPdf(1L))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    /**
+     * getTiming() — la lecture d'état ouverte à l'ÉVALUATEUR.
+     *
+     * <p>Raison d'être : {@code trouverParId()} passe par {@code checkAccess} (droit d'écriture)
+     * et renvoie donc 403 à un évaluateur. scoring-service appelait pourtant cet endpoint pour
+     * connaître le statut de l'examen : le 403 était avalé dans un repli « neutre »
+     * (statut = null) et le dashboard évaluateur se vidait ENTIÈREMENT le jour J.
+     *
+     * <p>Ce que ces tests verrouillent : getTiming() utilise {@code checkReadAccess} (qui
+     * autorise l'évaluateur, comme pour la lecture de grille), expose l'état d'exécution — et
+     * RIEN de plus — tout en refusant toujours un appelant hors périmètre.
+     */
+    @Nested
+    @DisplayName("getTiming() — état d'exécution lisible par l'évaluateur")
+    class GetTiming {
+
+        private Examen examenEnCoursPause() {
+            return Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS)
+                    .dureeStationMin(15)
+                    .avertissementLeadSec(60)
+                    .enPause(true)
+                    .totalPauseSec(120)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("Retourne le statut et l'état de pause de l'examen")
+        void getTiming_exposeLEtatDExecution() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenEnCoursPause()));
+
+            ExamTimingResponse timing = examenService.getTiming(1L);
+
+            assertThat(timing.getId()).isEqualTo(1L);
+            assertThat(timing.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+            assertThat(timing.isEnPause()).isTrue();
+            assertThat(timing.getTotalPauseSec()).isEqualTo(120);
+            assertThat(timing.getDureeStationMin()).isEqualTo(15);
+            assertThat(timing.getAvertissementLeadSec()).isEqualTo(60);
+        }
+
+        @Test
+        @DisplayName("Utilise checkReadAccess (qui autorise l'ÉVALUATEUR) et NON checkAccess")
+        void getTiming_utiliseLeControleDeLecture() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenEnCoursPause()));
+
+            examenService.getTiming(1L);
+
+            // Le cœur du correctif : un évaluateur doit passer. checkAccess() le refuserait
+            // (403) et scoring avalerait l'erreur → dashboard évaluateur vide.
+            verify(matiereAccessChecker).checkReadAccess(1L);
+            verify(matiereAccessChecker, never()).checkAccess(anyLong());
+        }
+
+        @Test
+        @DisplayName("Appelant hors périmètre → AccessDeniedException (la portée matière tient toujours)")
+        void getTiming_horsPerimetre_devraitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenEnCoursPause()));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkReadAccess(1L);
+
+            assertThatThrownBy(() -> examenService.getTiming(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("Examen inexistant → ResourceNotFoundException")
+        void getTiming_introuvable() {
+            when(examenRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> examenService.getTiming(99L))
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }

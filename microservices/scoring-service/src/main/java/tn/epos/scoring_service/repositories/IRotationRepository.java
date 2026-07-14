@@ -1,9 +1,12 @@
 package tn.epos.scoring_service.repositories;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import tn.epos.scoring_service.entities.Rotation;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,4 +40,26 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
       * Utilisé lors de la création automatique d'un RotationAssignment.
       */
      Optional<Rotation> findByEvaluateurIdAndStationId(Long evaluateurId, Long stationId);
+
+    /**
+     * Nombre de rotations déjà générées pour un lot (issue #188).
+     *
+     * <p>Le front doit savoir, AU CHARGEMENT, si un lot possède déjà un planning : sans
+     * cela il affiche « Générer » sur un lot déjà généré et la régénération — destructrice —
+     * part sans confirmation. L'état de session ne suffit pas : il est vide après un reload.
+     */
+    long countByStudentGroupLotId(Long lotId);
+
+    // #189 — étape 1 : quels examens cet évaluateur a-t-il des rotations dedans ?
+    // Requête légère (juste les IDs), qui sert à interroger exam-service AVANT de
+    // charger les rotations complètes.
+    @Query("SELECT DISTINCT r.studentGroup.lot.examenId FROM Rotation r " +
+            "WHERE r.evaluateurId = :evaluateurId " +
+            "AND r.studentGroup IS NOT NULL AND r.studentGroup.lot IS NOT NULL")
+    List<Long> findDistinctExamenIdsByEvaluateurId(@Param("evaluateurId") Long evaluateurId);
+
+    // #189 — étape 2 : filtre au niveau requête (pas en Java stream), pour rester
+    // bon marché quand le volume de rotations grandit.
+    List<Rotation> findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(
+            Long evaluateurId, Collection<Long> examenIds);
 }

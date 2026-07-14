@@ -13,6 +13,7 @@ import tn.epos.exam_service.dto.response.PageResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.services.ExamenService;
@@ -67,6 +68,24 @@ public class ExamenController {
     @Operation(summary = "Détail d'un examen", description = "Inclut la liste des stations")
     public ResponseEntity<ApiResponse<ExamenResponse>> trouverParId(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(examenService.trouverParId(id)));
+    }
+
+    /**
+     * État d'exécution seul (statut / pause / durée) — le SEUL endpoint examen ouvert à
+     * l'ÉVALUATEUR. Le {@code @PreAuthorize} au niveau méthode surcharge celui de la classe
+     * (SUPER_ADMIN | RESPONSABLE_MATIERE), qui renvoyait 403 à tout évaluateur.
+     *
+     * <p>Sans lui, scoring-service appelait {@code GET /api/examens/{id}} avec le jeton de
+     * l'évaluateur, recevait 403, l'avalait dans un repli « neutre » (statut = null), et le
+     * dashboard évaluateur se retrouvait VIDE le jour de l'examen. On expose l'état
+     * opérationnel, et rien d'autre : ni stations, ni sujet, ni étudiants.
+     */
+    @GetMapping("/{id}/timing")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
+    @Operation(summary = "État d'exécution d'un examen",
+               description = "Statut / pause / durée. Lisible par l'évaluateur (dashboard mobile).")
+    public ResponseEntity<ApiResponse<ExamTimingResponse>> timing(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(examenService.getTiming(id)));
     }
 
     @PutMapping("/{id}")

@@ -69,15 +69,49 @@ public class EvaluateurDashboardService {
     public EvaluateurDashboardResponse buildDashboard(Long evaluateurId) {
         log.debug("Building dashboard for evaluateur {}", evaluateurId);
 
-        List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
+        List<Long> examenIds = rotationRepository.findDistinctExamenIdsByEvaluateurId(evaluateurId);
+
+        // #189 — un examen CONFIGURE (jamais lancé) ou TERMINE (déjà clôturé) n'a
+        // pas de session "à faire" pour l'évaluateur aujourd'hui. On lit le statut
+        // de chaque examen concerné UNE fois, puis on ne charge les rotations que
+        // pour les examens réellement EN_COURS.
+        Map<Long, ExamServiceClient.ExamTiming> timingByExamen = examenIds.stream()
+                .collect(Collectors.toMap(id -> id, examServiceClient::getExamTiming));
+
+        // On EXCLUT seulement quand le statut est CONNU et n'est pas EN_COURS.
+        //
+        // FAIL OPEN, volontairement : si le statut est inconnu (null — exam-service injoignable,
+        // 403, réponse malformée…), on GARDE l'examen. Un statut inconnu ne doit JAMAIS faire
+        // disparaître les sessions d'un évaluateur.
+        //
+        // Vécu : /api/examens/{id} était interdit à l'évaluateur (403) ; le repli renvoyait
+        // statut = null ; le filtre strict "equals EN_COURS" éliminait alors TOUS les examens et
+        // le dashboard évaluateur devenait VIDE le jour J — une panne bien pire que le bug qu'il
+        // corrigeait. Montrer un examen de trop est gênant ; n'en montrer aucun est fatal.
+        List<Long> liveExamenIds = timingByExamen.entrySet().stream()
+                .filter(e -> {
+                    String statut = e.getValue().statut();
+                    if (statut == null) {
+                        log.warn("Statut inconnu pour l'examen {} (exam-service injoignable ou refusé) "
+                                + "— examen CONSERVÉ dans le dashboard de l'évaluateur {} plutôt que masqué.",
+                                e.getKey(), evaluateurId);
+                        return true;
+                    }
+                    return "EN_COURS".equals(statut);
+                })
+                .map(Map.Entry::getKey)
+                .toList();
+
+        List<Rotation> rotations = liveExamenIds.isEmpty()
+                ? List.of()
+                : rotationRepository.findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(evaluateurId, liveExamenIds);
+
         List<Lot> lots = resolverLotsDepuisRotations(rotations);
-
         LocalDateTime rawNow = LocalDateTime.now(clock);
-        Map<Long, ExamServiceClient.ExamTiming> timingByExam = fetchTimings(rotations);
 
-        List<SessionResponse>      sessions = buildSessions(rotations, lots, rawNow, timingByExam);
+        List<SessionResponse>      sessions = buildSessions(rotations, lots, rawNow, timingByExamen);
         StatsResponse              stats    = buildStats(sessions, lots);
-        List<PlanningCellResponse> planning = buildPlanning(rotations, rawNow, timingByExam);
+        List<PlanningCellResponse> planning = buildPlanning(rotations, rawNow, timingByExamen);
 
         return EvaluateurDashboardResponse.builder()
                 .serverNow(rawNow)
@@ -105,19 +139,34 @@ public class EvaluateurDashboardService {
     @Transactional(readOnly = true)
     public LotDetailResponse getLotDetail(Long stationId, Integer lotNumero, Long evaluateurId) {
         List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
-        Lot lot = rotations.stream()
-                .filter(r -> r.getStudentGroup() != null
+
+        // AVANT : filtrait seulement par lotNumero → ambigu si l'évaluateur a des
+        // rotations sur plusieurs examens (numeroLot n'est unique que par examen).
+        // MAINTENANT : on résout la Rotation exacte via stationId (paramètre reçu
+        // mais jamais utilisé avant) + lotNumero → plus d'ambiguïté inter-examens.
+        Rotation rotation = rotations.stream()
+                .filter(r -> stationId.equals(r.getStationId())
+                        && r.getStudentGroup() != null
                         && r.getStudentGroup().getLot() != null
                         && lotNumero.equals(r.getStudentGroup().getLot().getNumeroLot()))
-                .map(r -> r.getStudentGroup().getLot())
                 .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Rotation introuvable pour évaluateur=" + evaluateurId
+                                + ", station=" + stationId + ", lot=" + lotNumero));
 
+        Lot lot = rotation.getStudentGroup().getLot();
         int totalLots = lotRepository.countByExamenId(lot.getExamenId());
-        List<ExamenParticipation> participations = participationRepository.findByLotId(lot.getId());
 
-        List<LotDetailResponse.EtudiantLotResponse> etudiants = participations.stream()
-                .filter(p -> p.getEtudiant() != null)
+        // AVANT : participationRepository.findByLotId(lot.getId()) → retournait
+        // TOUS les étudiants du lot (les 4 groupes confondus, 16-20 étudiants).
+        // MAINTENANT : on ne prend que les participations liées à CETTE rotation
+        // précise (= le StudentGroup de cette station à ce créneau).
+        List<RotationAssignment> assignments =
+                rotationAssignmentRepository.findByRotationId(rotation.getId());
+
+        List<LotDetailResponse.EtudiantLotResponse> etudiants = assignments.stream()
+                .map(RotationAssignment::getParticipation)
+                .filter(p -> p != null && p.getEtudiant() != null)
                 .map(p -> LotDetailResponse.EtudiantLotResponse.builder()
                         .id(p.getEtudiant().getId())
                         .nom(p.getEtudiant().getNom())
@@ -129,8 +178,12 @@ public class EvaluateurDashboardService {
                 .collect(Collectors.toList());
 
         return LotDetailResponse.builder()
-                .id(lot.getId()).numero(lot.getNumeroLot()).total(totalLots)
-                .valide(lot.getStatut() == LotStatus.TERMINE).etudiants(etudiants).build();
+                .id(lot.getId())
+                .numero(lot.getNumeroLot())
+                .total(totalLots)
+                .valide(lot.getStatut() == LotStatus.TERMINE)
+                .etudiants(etudiants)
+                .build();
     }
 
     private List<LotDetailResponse.NotationItemResponse> loadNotationItems(Long participationId) {

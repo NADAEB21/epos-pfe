@@ -51,7 +51,14 @@ public class StationController {
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(stations)));
     }
 
+    /**
+     * Lecture seule — ouverte à l'ÉVALUATEUR (issue #190), comme l'est déjà la lecture de
+     * grille. Le {@code @PreAuthorize} méthode surcharge celui de la classe (SUPER_ADMIN |
+     * RESPONSABLE_MATIERE) ; la portée par matière reste appliquée dans le service via
+     * {@code checkReadAccess}. Sans cela, l'évaluateur voyait « Station 5 » au lieu du nom réel.
+     */
     @GetMapping("/api/stations/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
     @Operation(summary = "Détail d'une station", description = "Inclut les infos de la grille si elle existe")
     public ResponseEntity<ApiResponse<StationResponse>> trouverParId(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(stationService.trouverParId(id)));

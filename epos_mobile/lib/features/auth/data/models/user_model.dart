@@ -9,6 +9,7 @@ class UserModel extends User {
     required super.nom,
     required super.prenom,
     required super.role,
+    super.roles,
   });
 
   /// Parse la réponse JSON de GET /api/v1/auth/me.
@@ -17,13 +18,25 @@ class UserModel extends User {
   ///   "SUPER_ADMIN"         → UserRole.administrateur
   ///   "RESPONSABLE_MATIERE" → UserRole.responsable
   ///   "EVALUATEUR"          → UserRole.evaluateur
+  ///
+  /// Un compte peut cumuler plusieurs rôles (un responsable de matière évalue
+  /// souvent lui-même) : "roles" porte la liste complète, "role" n'est que le
+  /// plus privilégié. "roles" est absent des backends antérieurs — on retombe
+  /// alors sur le rôle unique.
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final rolesJson = json['roles'] as List<dynamic>?;
+
     return UserModel(
       id:     json['id'] as int,
       email:  json['email'] as String,
       nom:    json['nom'] as String,
       prenom: json['prenom'] as String,
       role:   _parseRole(json['role'] as String),
+      roles:  rolesJson == null
+          ? const []
+          : rolesJson
+              .map((r) => _parseRole((r as Map<String, dynamic>)['role'] as String))
+              .toList(),
     );
   }
 
@@ -33,6 +46,7 @@ class UserModel extends User {
     'nom':    nom,
     'prenom': prenom,
     'role':   role.name.toUpperCase(),
+    'roles':  roles.map((r) => {'role': r.name.toUpperCase()}).toList(),
   };
 
   /// Correction décalage B : mapping complet des valeurs de RoleType.java.

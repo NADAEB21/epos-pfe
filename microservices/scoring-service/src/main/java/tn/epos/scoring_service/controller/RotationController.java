@@ -22,6 +22,7 @@ public class RotationController {
 
     @Autowired private RotationService          rotationService;
     @Autowired private IStudentGroupRepository  studentGroupRepository;
+    @Autowired private IRotationRepository      rotationRepository;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -54,6 +55,19 @@ public class RotationController {
         List<RotationDTO> dtos = rotationService.findByStation(stationId).stream()
                 .map(RotationDTO::fromEntity).toList();
         return ResponseEntity.ok(ApiResponse.ok(dtos));
+    }
+
+    /**
+     * Combien de rotations existent déjà pour ce lot (issue #188).
+     *
+     * <p>Permet au front de savoir, dès le chargement, qu'un lot est DÉJÀ généré — donc que
+     * le bouton doit lire « Régénérer » et demander confirmation avant une action destructrice.
+     * L'état de session ne survit pas à un reload ; celui-ci vient du serveur.
+     */
+    @GetMapping("/lot/{lotId}/count")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<Long>> countByLot(@PathVariable Long lotId) {
+        return ResponseEntity.ok(ApiResponse.ok(rotationRepository.countByStudentGroupLotId(lotId)));
     }
 
     @PostMapping

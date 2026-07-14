@@ -39,6 +39,13 @@ export interface GrilleItem {
    *  also carries a numeric `valeurAttendue` column, left dormant for a possible
    *  future auto-grading feature; the responsable UI uses free text only.) */
   conditionsAttendues?: string | null;
+  /** Sub-criteria (#160). Parent item id (null / absent for a top-level critère).
+   *  `GET /grilles/{id}/items` returns TOP-LEVEL items only, each with its own
+   *  `sousCriteres` nested (children filtered out of the flat list). Grading is
+   *  leaf-only: a parent with children is scored via its children, not directly. */
+  parentId?: number | null;
+  hasSousCriteres?: boolean;
+  sousCriteres?: GrilleItem[];
 }
 
 /** Grille with its items — only returned by the station detail endpoint. */

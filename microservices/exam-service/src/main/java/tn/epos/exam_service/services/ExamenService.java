@@ -3,6 +3,7 @@ package tn.epos.exam_service.services;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,6 +20,16 @@ public interface ExamenService {
 
     /** Récupérer un examen par ID avec ses stations */
     ExamenResponse trouverParId(Long id);
+
+    /**
+     * État d'exécution d'un examen (statut / pause / durée), lisible aussi par un ÉVALUATEUR.
+     *
+     * <p>{@link #trouverParId(Long)} passe par {@code checkAccess} (écriture) et rejette donc
+     * un évaluateur en 403. Le dashboard évaluateur a pourtant besoin du statut de l'examen —
+     * d'où cette lecture dédiée, qui utilise {@code checkReadAccess} (le même contrôle que la
+     * lecture de grille, déjà autorisée à l'évaluateur).
+     */
+    ExamTimingResponse getTiming(Long id);
 
     /** Modifier un examen (uniquement si statut BROUILLON) */
     ExamenResponse modifier(Long id, ExamenRequest request);

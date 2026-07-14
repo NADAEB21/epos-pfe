@@ -482,12 +482,18 @@ class StationServiceImplTest {
             verify(stationRepository, never()).findByExamenIdOrderByOrdreAsc(anyLong(), any(Pageable.class));
         }
 
+        /**
+         * Lecture : la portée par matière reste appliquée — mais via {@code checkReadAccess},
+         * qui autorise en plus l'ÉVALUATEUR (#190 : il doit lire le nom de la station qu'il
+         * occupe, comme il lit déjà sa grille). Un RESPONSABLE hors périmètre est toujours
+         * refusé : c'est ce que ce test verrouille.
+         */
         @Test
         @DisplayName("trouverParId() rejects when caller is out of scope")
         void trouverParId_outOfScope_devraitRefuser() {
             when(stationRepository.findByIdWithGrille(1L)).thenReturn(Optional.of(station));
             doThrow(new AccessDeniedException("nope"))
-                    .when(matiereAccessChecker).checkAccess(1L);
+                    .when(matiereAccessChecker).checkReadAccess(1L);
 
             assertThatThrownBy(() -> stationService.trouverParId(1L))
                     .isInstanceOf(AccessDeniedException.class);

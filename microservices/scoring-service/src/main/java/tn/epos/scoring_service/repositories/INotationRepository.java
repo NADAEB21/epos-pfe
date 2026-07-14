@@ -32,4 +32,27 @@ public interface INotationRepository extends JpaRepository<Notation, Long> {
            "JOIN FETCH p.etudiant e " +
            "WHERE p.examen_id = :examenId")
     List<Notation> findByExamenIdWithGraph(@Param("examenId") Long examenId);
+
+    /**
+     * Compte les notations qu'une regénération du lot DÉTRUIRAIT (issue #188).
+     *
+     * <p>{@code RotationGenerationService.wipeLotGroups(lotId)} supprime les
+     * {@code StudentGroup} du lot, et toute la chaîne dessous est en CASCADE — en JPA
+     * comme au niveau FK PostgreSQL ({@code confdeltype='c'}) :
+     * <pre>
+     *   student_group ─c→ rotation ─c→ rotation_assignment ─c→ notations ─c→ notation_items
+     *                                                                 └─c→ notation_adjustments
+     * </pre>
+     * Une régénération efface donc les notes déjà saisies, y compris les notations
+     * VERROUILLÉES (que l'ADR-0013 déclare immuables) et leur piste d'audit.
+     *
+     * <p>On compte par les DEUX chemins qui relient une notation à un lot — celui de la
+     * cascade ({@code assignment → rotation → studentGroup → lot}) et le lien métier
+     * ({@code assignment → participation → lot}) — pour ne jamais sous-estimer ce qui
+     * serait perdu. En cas de doute : on refuse (fail closed).
+     */
+    @Query("SELECT COUNT(n) FROM Notation n " +
+           "WHERE n.assignment.rotation.studentGroup.lot.id = :lotId " +
+           "   OR n.assignment.participation.lot.id = :lotId")
+    long countNotationsAtRiskForLot(@Param("lotId") Long lotId);
 }

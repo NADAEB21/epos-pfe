@@ -37,4 +37,13 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
       * Utilisé lors de la création automatique d'un RotationAssignment.
       */
      Optional<Rotation> findByEvaluateurIdAndStationId(Long evaluateurId, Long stationId);
+
+    /**
+     * Nombre de rotations déjà générées pour un lot (issue #188).
+     *
+     * <p>Le front doit savoir, AU CHARGEMENT, si un lot possède déjà un planning : sans
+     * cela il affiche « Générer » sur un lot déjà généré et la régénération — destructrice —
+     * part sans confirmation. L'état de session ne suffit pas : il est vide après un reload.
+     */
+    long countByStudentGroupLotId(Long lotId);
 }

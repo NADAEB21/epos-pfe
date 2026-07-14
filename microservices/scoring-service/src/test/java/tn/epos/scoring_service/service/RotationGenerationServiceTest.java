@@ -20,6 +20,7 @@ import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
+import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 import tn.epos.scoring_service.repositories.IStudentGroupRepository;
@@ -51,6 +52,7 @@ class RotationGenerationServiceTest {
     @Mock private IStudentGroupRepository studentGroupRepository;
     @Mock private IRotationRepository rotationRepository;
     @Mock private IRotationAssignmentRepository assignmentRepository;
+    @Mock private INotationRepository notationRepository;
 
     @InjectMocks private RotationGenerationService service;
 
@@ -67,6 +69,10 @@ class RotationGenerationServiceTest {
 
         // No prior groups for this lot by default (re-run wipe tested separately).
         lenient().when(studentGroupRepository.findByLotId(LOT_ID)).thenReturn(List.of());
+
+        // #188 — by default the lot carries no notation, so regeneration is safe.
+        // The destructive case is pinned in the "garde-fou anti-perte" nest below.
+        lenient().when(notationRepository.countNotationsAtRiskForLot(LOT_ID)).thenReturn(0L);
 
         AtomicLong groupSeq = new AtomicLong(1);
         lenient().when(studentGroupRepository.save(any(StudentGroup.class))).thenAnswer(inv -> {
@@ -469,6 +475,81 @@ class RotationGenerationServiceTest {
             verify(studentGroupRepository).deleteAll(List.of(ancienGroupe));
             // The lot itself is never deleted on per-lot regeneration.
             verify(lotRepository, never()).deleteAll(any());
+        }
+    }
+
+    /**
+     * Issue #188 — régénérer un lot déjà noté DÉTRUISAIT les notes.
+     *
+     * <p>{@code wipeLotGroups} supprime les StudentGroup, et toute la chaîne dessous part
+     * en CASCADE (JPA + FK PostgreSQL) : rotations → assignments → notations →
+     * notation_items / notation_adjustments. Mesuré sur la vraie base (lot 13, en
+     * transaction annulée) : <b>56 des 57 notations — dont 56 VERROUILLÉES — et les 16
+     * notation_items détruits par un seul appel.</b> Le bouton « Régénérer les rotations »
+     * était armé pendant toute la fenêtre de notation (le lot reste EN_COURS jusqu'au
+     * validerLot de l'évaluateur).
+     *
+     * <p>Invariant : dès qu'UNE notation existe, la génération refuse et n'écrit RIEN.
+     */
+    @Nested
+    @DisplayName("#188 — garde-fou anti-perte : ne jamais détruire une notation existante")
+    class GardeFouAntiPerte {
+
+        @Test
+        @DisplayName("Lot déjà noté → BusinessException, et AUCUNE suppression n'est tentée")
+        void genere_refuseSiNotationsExistantes() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+            when(notationRepository.countNotationsAtRiskForLot(LOT_ID)).thenReturn(56L);
+
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("56")
+                    .hasMessageContaining("supprimerait");
+
+            // Le cœur de l'invariant : rien n'est effacé, rien n'est réécrit.
+            verify(studentGroupRepository, never()).deleteAll(any());
+            verify(studentGroupRepository, never()).save(any());
+            verify(rotationRepository, never()).save(any());
+            verify(assignmentRepository, never()).save(any());
+            assertThat(savedRotations).isEmpty();
+            assertThat(savedAssignments).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Une seule notation suffit à refuser (fail closed)")
+        void genere_refuseDesLaPremiereNotation() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+            when(notationRepository.countNotationsAtRiskForLot(LOT_ID)).thenReturn(1L);
+
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
+                    .isInstanceOf(BusinessException.class);
+
+            verify(studentGroupRepository, never()).deleteAll(any());
+        }
+
+        @Test
+        @DisplayName("Lot non noté → la régénération légitime reste possible (pas de régression)")
+        void genere_autoriseSiAucuneNotation() {
+            StudentGroup ancienGroupe = new StudentGroup();
+            ancienGroupe.setId(70L);
+
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 0));
+            when(studentGroupRepository.findByLotId(LOT_ID)).thenReturn(List.of(ancienGroupe));
+            when(notationRepository.countNotationsAtRiskForLot(LOT_ID)).thenReturn(0L);
+
+            GenerationResult result = service.generateForLot(LOT_ID);
+
+            assertThat(result.rotations()).isPositive();
+            verify(studentGroupRepository).deleteAll(List.of(ancienGroupe));
         }
     }
 }

@@ -234,6 +234,18 @@ export class ScoringApiService {
    * have a work list. Backend-gated to exam EN_COURS + lot presence marked;
    * re-runnable per lot. Returns the counts summary.
    */
+  /**
+   * How many rotations a lot ALREADY has (#188). The Lots screen needs this at load time:
+   * without it, a reloaded page shows "Générer" on an already-generated lot and the
+   * destructive regeneration fires with no confirmation. Session state does not survive a
+   * reload — this does.
+   */
+  countRotationsLot(lotId: number): Observable<number> {
+    return this.http
+      .get<ApiResponse<number>>(`${this.baseUrl}/rotations/lot/${lotId}/count`)
+      .pipe(map((r) => r.data));
+  }
+
   genererRotationsLot(lotId: number): Observable<GenerationResult> {
     return this.http
       .post<ApiResponse<GenerationResult>>(

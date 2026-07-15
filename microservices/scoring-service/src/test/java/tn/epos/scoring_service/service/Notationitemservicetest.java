@@ -324,6 +324,27 @@ class NotationItemServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans itemId/notation) ne doit PAS orpheliner le critère")
+        void update_putPartiel_preserveItemIdEtNotation() {
+            NotationItem details = new NotationItem();
+            details.setValeur(18.0f);
+            details.setCommentaire("Excellent");
+            // itemId / notation NON fournis (comme le contrôleur sur PUT)
+
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+            when(examServiceClient.getItemIdsForGrille(11L)).thenReturn(Set.of(100L));
+            when(repository.save(any(NotationItem.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            NotationItem result = notationItemService.update(1L, details);
+
+            assertThat(result.getValeur()).isEqualTo(18.0f);
+            assertThat(result.getItemId()).isEqualTo(100L);            // préservé
+            assertThat(result.getNotation()).isNotNull();              // préservé
+            assertThat(result.getNotation().getId()).isEqualTo(5L);
+        }
     }
 
     // ================================================================

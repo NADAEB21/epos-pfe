@@ -264,5 +264,26 @@ class RotationServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans evaluateurId/stationId/group) ne doit PAS null-ifier les FK")
+        void update_putPartiel_preserveLesFk() {
+            Rotation details = new Rotation();
+            details.setOrdrePassage(2);
+            details.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 10, 0));
+            details.setStatut(RotationStatus.EN_COURS);
+            // evaluateurId / stationId / studentGroup NON fournis
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
+            when(rotationRepository.save(any(Rotation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Rotation result = rotationService.update(1L, details);
+
+            assertThat(result.getOrdrePassage()).isEqualTo(2);
+            assertThat(result.getEvaluateurId()).isEqualTo(3L);         // préservé
+            assertThat(result.getStationId()).isEqualTo(7L);            // préservé
+            assertThat(result.getStudentGroup()).isNotNull();          // préservé
+            assertThat(result.getStudentGroup().getId()).isEqualTo(1L);
+        }
     }
 }

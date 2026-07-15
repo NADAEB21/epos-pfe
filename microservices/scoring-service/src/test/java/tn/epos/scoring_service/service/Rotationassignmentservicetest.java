@@ -238,6 +238,26 @@ class RotationAssignmentServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans rotation/participation) ne doit PAS null-ifier les liens")
+        void update_putPartiel_preserveLesLiens() {
+            RotationAssignment details = new RotationAssignment();
+            details.setPresenceConfirmee(true);
+            details.setTempsAdditionnel(5);
+            // rotation / participation NON fournis (comme le contrôleur sur PUT)
+
+            when(repository.findById(1L)).thenReturn(Optional.of(assignment));
+            when(repository.save(any(RotationAssignment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            RotationAssignment result = service.update(1L, details);
+
+            assertThat(result.getPresenceConfirmee()).isTrue();
+            assertThat(result.getRotation()).isNotNull();               // préservé
+            assertThat(result.getRotation().getId()).isEqualTo(1L);
+            assertThat(result.getParticipation()).isNotNull();          // préservé
+            assertThat(result.getParticipation().getId()).isEqualTo(1L);
+        }
     }
 
     @Nested

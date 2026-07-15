@@ -335,6 +335,48 @@ class ExamenControllerTest {
         }
     }
 
+    // POST /api/examens/{id}/reset
+
+    @Nested
+    @DisplayName("POST /api/examens/{id}/reset")
+    class Reinitialiser {
+
+        @Test
+        @DisplayName("200 - Examen réinitialisé vers CONFIGURE")
+        void reinitialiser_devraitRetourner200() throws Exception {
+            examenResponse.setStatut(StatutExamen.CONFIGURE);
+            when(examenService.reinitialiser(1L)).thenReturn(examenResponse);
+
+            mockMvc.perform(post("/api/examens/1/reset"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.statut").value("CONFIGURE"));
+
+            verify(examenService, times(1)).reinitialiser(1L);
+        }
+
+        @Test
+        @DisplayName("400 - Réinitialisation refusée hors EN_COURS")
+        void reinitialiser_horsEnCours_devraitRetourner400() throws Exception {
+            when(examenService.reinitialiser(1L))
+                    .thenThrow(new BusinessException("Seul un examen EN_COURS peut être réinitialisé."));
+
+            mockMvc.perform(post("/api/examens/1/reset"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false));
+        }
+
+        @Test
+        @DisplayName("404 - Examen introuvable")
+        void reinitialiser_introuvable_devraitRetourner404() throws Exception {
+            when(examenService.reinitialiser(99L))
+                    .thenThrow(new ResourceNotFoundException("Examen", 99L));
+
+            mockMvc.perform(post("/api/examens/99/reset"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
     // POST /api/examens/{id}/pdf
 
     @Nested

@@ -236,6 +236,34 @@ public class ExamenServiceImpl implements ExamenService {
     }
 
     @Override
+    public ExamenResponse reinitialiser(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+
+        // Réinitialiser = « dé-lancer » un examen qu'on vient de lancer par erreur : on
+        // ne l'autorise QUE depuis EN_COURS. Un examen TERMINE/ARCHIVE se ré-évalue par le
+        // canal réajustement (#135), pas par un retour arrière destructif — à ne pas confondre.
+        if (examen.getStatut() != StatutExamen.EN_COURS) {
+            throw new BusinessException(
+                    "Seul un examen EN_COURS peut être réinitialisé. Statut actuel : " + examen.getStatut());
+        }
+
+        // Retour à CONFIGURE. On efface l'instant de lancement (ADR-0010) et TOUT l'état
+        // de pause (ADR-0009) pour repartir d'un état propre au prochain lancement. Le
+        // planning généré (rotations/groupes) est purgé côté scoring-service par
+        // l'orchestration appelante, sous le garde-fou #188 : aucune note n'est jamais
+        // détruite (le reset est refusé dès qu'une notation existe).
+        examen.setStatut(StatutExamen.CONFIGURE);
+        examen.setLaunchedAt(null);
+        examen.setPausedAt(null);
+        examen.setTotalPauseSec(0);
+        examen.setEnPause(false);
+
+        log.info("Examen {} réinitialisé EN_COURS → CONFIGURE (launched_at + pause effacés)", id);
+        return toResponse(examenRepository.save(examen), false);
+    }
+
+    @Override
     public void supprimer(Long id) {
         Examen examen = trouverEntite(id);
         matiereAccessChecker.checkAccess(examen.getMatiereId());

@@ -674,4 +674,82 @@ class ExamenServiceImplTest {
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }
+
+    // RÉINITIALISER (#183 — « dé-lancer » EN_COURS → CONFIGURE)
+
+    @Nested
+    @DisplayName("reinitialiser() — retour EN_COURS → CONFIGURE")
+    class Reinitialiser {
+
+        private Examen examenLance() {
+            return Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.EN_COURS)
+                    .launchedAt(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC))
+                    .enPause(true)
+                    .pausedAt(LocalDateTime.ofInstant(FIXED_NOW, ZoneOffset.UTC))
+                    .totalPauseSec(120)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("Depuis EN_COURS : repasse CONFIGURE et efface launched_at + tout l'état de pause")
+        void reinitialiser_depuisEnCours_doitEffacerLancementEtPause() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenLance()));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.reinitialiser(1L);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.CONFIGURE);
+            assertThat(result.getLaunchedAt()).isNull();
+            assertThat(result.getPausedAt()).isNull();
+            assertThat(result.isEnPause()).isFalse();
+            assertThat(result.getTotalPauseSec()).isZero();
+        }
+
+        @Test
+        @DisplayName("Vérifie le périmètre matière avant d'écrire (checkAccess)")
+        void reinitialiser_doitVerifierLePerimetre() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenLance()));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            examenService.reinitialiser(1L);
+
+            verify(matiereAccessChecker).checkAccess(1L);
+        }
+
+        @Test
+        @DisplayName("Appelant hors périmètre → AccessDeniedException, aucune écriture")
+        void reinitialiser_horsPerimetre_doitRefuser() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenLance()));
+            doThrow(new AccessDeniedException("nope"))
+                    .when(matiereAccessChecker).checkAccess(1L);
+
+            assertThatThrownBy(() -> examenService.reinitialiser(1L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(examenRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Depuis un statut ≠ EN_COURS (CONFIGURE) → BusinessException, aucune écriture")
+        void reinitialiser_nonEnCours_doitEchouer() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+
+            assertThatThrownBy(() -> examenService.reinitialiser(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("EN_COURS");
+            verify(examenRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Examen introuvable → ResourceNotFoundException")
+        void reinitialiser_introuvable_doitLeverNotFound() {
+            when(examenRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> examenService.reinitialiser(99L))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
 }

@@ -131,6 +131,17 @@ public class ExamenController {
         );
     }
 
+    @PostMapping("/{id}/reset")
+    @Operation(summary = "Réinitialiser un examen lancé par erreur",
+            description = "#183 — « dé-lancer » : EN_COURS → CONFIGURE, efface launched_at et l'état "
+                    + "de pause. Le planning généré (rotations) est purgé séparément côté scoring-service, "
+                    + "refusé si une notation existe (#188). N'affecte ni les lots, ni le roster, ni la présence.")
+    public ResponseEntity<ApiResponse<ExamenResponse>> reinitialiser(@PathVariable Long id) {
+        return ResponseEntity.ok(
+                ApiResponse.ok("Examen réinitialisé", examenService.reinitialiser(id))
+        );
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "Supprimer un examen", description = "Uniquement si statut BROUILLON ou CONFIGURE")
     public ResponseEntity<ApiResponse<Void>> supprimer(@PathVariable Long id) {

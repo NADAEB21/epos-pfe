@@ -186,5 +186,24 @@ class LotServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans examenId/evaluateurId) ne doit PAS null-ifier les FK")
+        void update_putPartiel_preserveLesFk() {
+            Lot details = new Lot();
+            details.setNumeroLot(2);
+            details.setTailleLot(30);
+            details.setStatut(LotStatus.EN_COURS);
+            // examenId / evaluateurId NON fournis (comme le contrôleur sur PUT)
+
+            when(lotRepository.findById(1L)).thenReturn(Optional.of(lot));
+            when(lotRepository.save(any(Lot.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Lot result = lotService.update(1L, details);
+
+            assertThat(result.getNumeroLot()).isEqualTo(2);
+            assertThat(result.getExamenId()).isEqualTo(10L);     // préservé
+            assertThat(result.getEvaluateurId()).isEqualTo(5L);  // préservé
+        }
     }
 }

@@ -164,12 +164,20 @@ public class NotationService {
             }
             n.setScore_final(details.getScore_final());
             n.setIs_synced(details.getIs_synced());
-            n.setVerouillee(details.getVerouillee());
             n.setTemps_additionnel(details.getTemps_additionnel());
-            n.setStationId(details.getStationId());
-            n.setGrilleId(details.getGrilleId());
-            // Tu peux aussi mettre à jour l'affectation si nécessaire :
-            // n.setAssignment(details.getAssignment());
+            // #215 sémantique PATCH : le PUT ne peuple PAS stationId/grilleId
+            // (tous deux NOT NULL) — les copier à null lève une
+            // DataIntegrityViolationException (500). verouillee ne se pilote
+            // que via l'endpoint /verrouiller, jamais via ce PUT.
+            if (details.getStationId() != null) {
+                n.setStationId(details.getStationId());
+            }
+            if (details.getGrilleId() != null) {
+                n.setGrilleId(details.getGrilleId());
+            }
+            if (details.getVerouillee() != null) {
+                n.setVerouillee(details.getVerouillee());
+            }
             return repository.save(n);
         }).orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
     }

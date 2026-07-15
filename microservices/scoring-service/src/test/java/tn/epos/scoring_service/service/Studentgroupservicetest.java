@@ -202,5 +202,22 @@ class StudentGroupServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans lotId) ne doit PAS null-ifier le lot")
+        void update_putPartiel_preserveLeLot() {
+            StudentGroup details = new StudentGroup();
+            details.setNumeroGroupe(3);
+            // lot NON fourni (comme le contrôleur sur PUT sans lotId)
+
+            when(studentGroupRepository.findById(1L)).thenReturn(Optional.of(group));
+            when(studentGroupRepository.save(any(StudentGroup.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            StudentGroup result = studentGroupService.update(1L, details);
+
+            assertThat(result.getNumeroGroupe()).isEqualTo(3);
+            assertThat(result.getLot()).isNotNull();                    // préservé
+            assertThat(result.getLot().getId()).isEqualTo(1L);
+        }
     }
 }

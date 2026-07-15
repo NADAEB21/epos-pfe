@@ -40,8 +40,15 @@ public class LotService {
             lot.setNumeroLot(lotDetails.getNumeroLot());
             lot.setTailleLot(lotDetails.getTailleLot());
             lot.setStatut(lotDetails.getStatut());
-            lot.setEvaluateurId(lotDetails.getEvaluateurId());
-            lot.setExamenId(lotDetails.getExamenId());
+            // #215 sémantique PATCH : le PUT ne peuple PAS examenId/evaluateurId
+            // (le contrôleur ne les mappe pas) — les copier écraserait les FK à
+            // null et détacherait le lot de son examen/évaluateur.
+            if (lotDetails.getEvaluateurId() != null) {
+                lot.setEvaluateurId(lotDetails.getEvaluateurId());
+            }
+            if (lotDetails.getExamenId() != null) {
+                lot.setExamenId(lotDetails.getExamenId());
+            }
             return lotRepository.save(lot);
         }).orElseThrow(() -> new ResourceNotFoundException("Lot non trouvé avec l'id : " + id));
     }

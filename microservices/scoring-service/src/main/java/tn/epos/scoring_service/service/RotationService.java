@@ -66,9 +66,18 @@ public class RotationService {
             rotation.setOrdrePassage(details.getOrdrePassage());
             rotation.setDebutCreneau(details.getDebutCreneau());
             rotation.setStatut(details.getStatut());
-            rotation.setEvaluateurId(details.getEvaluateurId());
-            rotation.setStationId(details.getStationId());
-            rotation.setStudentGroup(details.getStudentGroup());
+            // #215 sémantique PATCH : ne pas écraser à null les identifiants
+            // structurels (évaluateur, station) ni le groupe — le PUT ne peuple
+            // studentGroup que si studentGroupId est fourni.
+            if (details.getEvaluateurId() != null) {
+                rotation.setEvaluateurId(details.getEvaluateurId());
+            }
+            if (details.getStationId() != null) {
+                rotation.setStationId(details.getStationId());
+            }
+            if (details.getStudentGroup() != null) {
+                rotation.setStudentGroup(details.getStudentGroup());
+            }
             return rotationRepository.save(rotation);
         }).orElseThrow(() -> new ResourceNotFoundException("Rotation non trouvée avec l'id : " + id));
     }

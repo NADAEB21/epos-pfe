@@ -310,6 +310,26 @@ class NotationServiceTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
         }
+
+        @Test
+        @DisplayName("#215 : un PUT partiel (sans stationId/grilleId) préserve les colonnes NOT NULL (pas de 500)")
+        void update_putPartiel_preserveStationEtGrille() {
+            Notation details = new Notation();
+            details.setScore_final(11.0f);
+            details.setIs_synced(true);
+            details.setTemps_additionnel(0);
+            // stationId / grilleId / verouillee NON fournis (comme le contrôleur sur PUT)
+
+            when(repository.findById(1L)).thenReturn(Optional.of(notation));
+            when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Notation result = notationService.update(1L, details);
+
+            assertThat(result.getScore_final()).isEqualTo(11.0f);
+            assertThat(result.getStationId()).isEqualTo(7L);           // préservé (NOT NULL)
+            assertThat(result.getGrilleId()).isEqualTo(11L);           // préservé (NOT NULL)
+            assertThat(result.getVerouillee()).isFalse();              // préservé
+        }
     }
 
     @Nested

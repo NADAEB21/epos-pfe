@@ -627,7 +627,6 @@ class EvaluateurDashboardServiceTest {
             when(lotRepository.countByExamenId(1L)).thenReturn(1);
             // when(participationRepository.findByLotId(5L)).thenReturn(List.of(p));
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
-            when(rotationAssignmentRepository.findByParticipationId(7L)).thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(20L)).thenReturn(Optional.of(n));
             lenient().when(notationItemRepository.findByNotationId(30L)).thenReturn(List.of());
 
@@ -702,7 +701,7 @@ class EvaluateurDashboardServiceTest {
             when(participationRepository.findByEtudiantIdAndStationId(2L, STATION_ID))
                     .thenReturn(Optional.empty());
             when(participationRepository.findByEtudiantId(2L)).thenReturn(List.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(150L)).thenReturn(Optional.of(ra));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(150L, STATION_ID)).thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(250L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(2L, 5L)).thenReturn(Optional.empty());
             when(notationItemRepository.findByNotationId(2L)).thenReturn(List.of());
@@ -722,7 +721,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
 
@@ -746,7 +745,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
@@ -770,7 +769,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 7L))
@@ -795,7 +794,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.empty());
             when(rotationRepository.findFirstByEvaluateurIdAndStationIdOrderByIdDesc(EVAL_ID, STATION_ID))
                     .thenReturn(Optional.of(rotation));
@@ -822,7 +821,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
@@ -847,7 +846,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
@@ -872,7 +871,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
@@ -894,7 +893,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(100L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
@@ -924,7 +923,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(1L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of(new NotationItem()));
@@ -949,7 +948,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(1L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
 
@@ -974,7 +973,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(1L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
 
@@ -1010,7 +1009,7 @@ class EvaluateurDashboardServiceTest {
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationId(1L))
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of());

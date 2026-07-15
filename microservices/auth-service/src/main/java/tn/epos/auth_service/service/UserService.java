@@ -160,12 +160,22 @@ public class UserService {
         validateDelegation(desired, authentication);
 
         List<UserRole> existing = userRoleRepository.findByUserId(userId);
+        // #216 : autoriser aussi la CIBLE — un appelant non SUPER_ADMIN ne peut
+        // pas modifier un compte SUPER_ADMIN (empêche la rétrogradation d'un
+        // super-admin via ce PUT à remplacement intégral).
+        validateTargetModifiable(existing, authentication);
+
         Set<String> desiredKeys = desired.stream().map(this::roleKey).collect(Collectors.toSet());
         Set<String> existingKeys = existing.stream().map(this::roleKey).collect(Collectors.toSet());
 
         List<UserRole> toRemove = existing.stream()
                 .filter(r -> !desiredKeys.contains(roleKey(r)))
                 .toList();
+        // #216 : un rôle RETIRÉ doit être un rôle que l'appelant aurait pu
+        // attribuer — sinon un responsable pourrait dépouiller un rôle hors de
+        // son périmètre (p. ex. le RESPONSABLE_MATIERE d'une autre matière).
+        validateDelegation(toRoleDtos(toRemove), authentication);
+
         List<UserRole> toAdd = buildUserRoles(user, desired.stream()
                 .filter(d -> !existingKeys.contains(roleKey(d)))
                 .toList());
@@ -189,7 +199,11 @@ public class UserService {
         List<RoleAssignmentDto> requested = dedupe(roleDtos);
         validateDelegation(requested, authentication);
 
-        Set<String> existingKeys = userRoleRepository.findByUserId(userId).stream()
+        List<UserRole> existing = userRoleRepository.findByUserId(userId);
+        // #216 : même garde côté cible que le PUT — un responsable ne peut pas
+        // ajouter de rôle sur un compte SUPER_ADMIN.
+        validateTargetModifiable(existing, authentication);
+        Set<String> existingKeys = existing.stream()
                 .map(this::roleKey)
                 .collect(Collectors.toSet());
 
@@ -244,11 +258,7 @@ public class UserService {
      */
     private void validateDelegation(List<RoleAssignmentDto> rolesBeingAssigned,
                                     Authentication authentication) {
-        boolean isSuperAdmin = authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch("ROLE_SUPER_ADMIN"::equals);
-
-        if (isSuperAdmin) {
+        if (isSuperAdmin(authentication)) {
             return; // unrestricted
         }
 
@@ -281,6 +291,43 @@ public class UserService {
                 }
             }
         }
+    }
+
+    /** True si l'appelant porte l'autorité globale SUPER_ADMIN. */
+    private boolean isSuperAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_SUPER_ADMIN"::equals);
+    }
+
+    /**
+     * #216 — autorisation de la CIBLE. Un appelant non SUPER_ADMIN (donc
+     * RESPONSABLE_MATIERE) ne peut pas modifier le jeu de rôles d'un compte
+     * SUPER_ADMIN. Sans cette garde, un responsable pouvait rétrograder ou
+     * neutraliser un super-admin via PUT|POST /users/{id}/roles : le contrôle de
+     * délégation n'inspectait que la charge utile, jamais les rôles de la cible.
+     */
+    private void validateTargetModifiable(List<UserRole> targetExistingRoles,
+                                          Authentication authentication) {
+        if (isSuperAdmin(authentication)) {
+            return; // un SUPER_ADMIN peut modifier n'importe quel compte
+        }
+        boolean targetIsSuperAdmin = targetExistingRoles.stream()
+                .anyMatch(r -> r.getRole() == RoleType.SUPER_ADMIN);
+        if (targetIsSuperAdmin) {
+            throw new UnauthorizedDelegationException(
+                    "RESPONSABLE_MATIERE cannot modify a SUPER_ADMIN account");
+        }
+    }
+
+    /** #216 — projette des UserRole existants en DTO pour re-valider la délégation. */
+    private List<RoleAssignmentDto> toRoleDtos(List<UserRole> roles) {
+        return roles.stream()
+                .map(r -> RoleAssignmentDto.builder()
+                        .role(r.getRole())
+                        .matiereId(r.getMatiereId())
+                        .build())
+                .toList();
     }
 
     /**

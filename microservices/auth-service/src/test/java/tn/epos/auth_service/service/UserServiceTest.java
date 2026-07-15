@@ -307,6 +307,72 @@ class UserServiceTest {
     }
 
     // =========================================================================
+    // #216 — target authorization: a RESPONSABLE_MATIERE must not be able to
+    // rewrite/strip roles on accounts outside their authority (esp. SUPER_ADMIN).
+    // =========================================================================
+
+    @Test
+    void assignRoles_responsable_cannotDemoteSuperAdmin_throws() {
+        // The filed PoC: responsable:3 PUTs [EVALUATEUR] on a SUPER_ADMIN's id,
+        // which would compute toRemove=[SUPER_ADMIN] and delete it.
+        User target = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.SUPER_ADMIN).build()));
+
+        assertThatThrownBy(() -> userService.assignRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("SUPER_ADMIN");
+
+        verify(userRoleRepository, never()).deleteAll(any());
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void assignRoles_responsable_cannotStripRoleOutsideScope_throws() {
+        // Target is RESPONSABLE_MATIERE:7 (another matière). Caller responsable:3
+        // PUTs [EVALUATEUR] -> toRemove=[RESPONSABLE:7], a role they could not assign.
+        User target = existingUser(2L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(2L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.RESPONSABLE_MATIERE).matiereId(7L).build()));
+
+        assertThatThrownBy(() -> userService.assignRoles(2L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("7");
+
+        verify(userRoleRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void assignRoles_responsable_canManageEvaluatorTargetInScope() {
+        // Legitimate flow must still work: responsable:3 promotes an evaluator in
+        // their own matière (adds RESPONSABLE_MATIERE:3, keeps EVALUATEUR).
+        User target = existingUser(5L);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(5L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.EVALUATEUR).build()));
+
+        userService.assignRoles(5L, List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build(),
+                RoleAssignmentDto.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3"));
+
+        verify(userRoleRepository, never()).deleteAll(any());
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).saveAll(captor.capture());
+        List<UserRole> saved = (List<UserRole>) captor.getValue();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getRole()).isEqualTo(RoleType.RESPONSABLE_MATIERE);
+        assertThat(saved.get(0).getMatiereId()).isEqualTo(3L);
+    }
+
+    // =========================================================================
     // addRoles() — POST semantics: additive, idempotent
     // =========================================================================
 
@@ -363,6 +429,24 @@ class UserServiceTest {
                 List.of(RoleAssignmentDto.builder().role(RoleType.SUPER_ADMIN).build()),
                 authWith("ROLE_RESPONSABLE_MATIERE:3")))
                 .isExactlyInstanceOf(UnauthorizedDelegationException.class);
+
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void addRoles_responsable_cannotAddRoleToSuperAdmin_throws() {
+        // #216 — the additive endpoint shares the target guard: a responsable
+        // cannot touch a SUPER_ADMIN account even to add a role.
+        User target = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.SUPER_ADMIN).build()));
+
+        assertThatThrownBy(() -> userService.addRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("SUPER_ADMIN");
 
         verify(userRoleRepository, never()).saveAll(any());
     }

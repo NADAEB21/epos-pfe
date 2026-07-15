@@ -13,6 +13,13 @@
 //   - Backoff exponentiel (1s → 2s → 4s → max 30s)
 //   - Désactivé hors-ligne (ConnectivityService)
 //   - Réactivé automatiquement au retour en ligne
+//
+// #197 — Le dashboard évaluateur (SessionBloc) a besoin de suivre l'état de
+// PLUSIEURS lots à la fois (toute la liste de sessions affichée), pas un seul
+// comme la grille de notation (GradingBloc, un seul lot ouvert à la fois).
+// Les abonnements "lot" sont donc désormais gérés dans une map, au même
+// principe que les abonnements "score" par station, et sont automatiquement
+// réétablis après une coupure réseau (voir _onConnect).
 
 import 'dart:async';
 import 'dart:convert';
@@ -77,8 +84,11 @@ class WebSocketService {
 
   // Souscriptions actives (stationId → StompUnsubscribe)
   final Map<int, StompUnsubscribe> _scoreSubscriptions = {};
-  int? _lotSubscriptionLotId;
-  StompUnsubscribe? _lotSubscription;
+
+  // #197 — Souscriptions actives (lotId → StompUnsubscribe). Plusieurs lots
+  // peuvent être suivis simultanément (ex: dashboard listant N sessions),
+  // contrairement à l'ancienne implémentation limitée à un seul lot.
+  final Map<int, StompUnsubscribe> _lotSubscriptions = {};
 
   // Streams publics
   final _scoreController    = StreamController<ScoreUpdate>.broadcast();
@@ -152,12 +162,14 @@ class WebSocketService {
     _connectedController.add(true);
     debugPrint('[WS] ✅ Connecté au broker STOMP');
 
-    // Ré-abonne aux topics actifs après reconnexion
+    // Ré-abonne aux topics actifs après reconnexion — #197 : la grille de
+    // notation ET le dashboard doivent retrouver leurs abonnements sans que
+    // l'utilisateur ait à rien faire (jamais de blocage de la saisie).
     for (final stationId in List.of(_scoreSubscriptions.keys)) {
       _subscribeToStation(stationId);
     }
-    if (_lotSubscriptionLotId != null) {
-      _subscribeToLot(_lotSubscriptionLotId!);
+    for (final lotId in List.of(_lotSubscriptions.keys)) {
+      _subscribeToLot(lotId);
     }
   }
 
@@ -192,7 +204,7 @@ class WebSocketService {
     _currentBackoff = next > _maxBackoff ? _maxBackoff : next;
   }
 
-  // ── Souscriptions ────────────────────────────────────────────────────────
+  // ── Souscriptions scores ─────────────────────────────────────────────────
 
   /// S'abonne aux scores d'une station (appelé par GradingBloc).
   void subscribeToStation(int stationId) {
@@ -226,18 +238,31 @@ class WebSocketService {
     }
   }
 
-  /// S'abonne aux changements de statut d'un lot.
+  /// Se désabonne d'une station (appelé quand l'évaluateur quitte la grille).
+  void unsubscribeFromStation(int stationId) {
+    final unsub = _scoreSubscriptions.remove(stationId);
+    unsub?.call();
+  }
+
+  // ── Souscriptions statut de lot (#197 — multi-lots) ─────────────────────
+
+  /// S'abonne aux changements de statut d'un lot. Idempotent : un lot déjà
+  /// suivi n'est pas ré-abonné.
   void subscribeToLot(int lotId) {
-    _lotSubscriptionLotId = lotId;
+    if (_lotSubscriptions.containsKey(lotId)) return;
     _subscribeToLot(lotId);
   }
 
   void _subscribeToLot(int lotId) {
-    if (_client?.connected != true) return;
-    _lotSubscription?.call(); // désabonnement précédent
+    if (_client?.connected != true) {
+      // Mémorise pour ré-abonnement après reconnexion (même stratégie que
+      // les scores) — jamais bloquant si le socket est momentanément coupé.
+      _lotSubscriptions[lotId] = ({Map<String, String>? unsubscribeHeaders}) {};
+      return;
+    }
 
-    final topic       = '/topic/lots/$lotId/status';
-    _lotSubscription = _client!.subscribe(
+    final topic = ApiConstants.wsLotStatus(lotId);
+    final unsubscribe = _client!.subscribe(
       destination: topic,
       callback:    (frame) {
         try {
@@ -249,13 +274,32 @@ class WebSocketService {
         }
       },
     );
+    _lotSubscriptions[lotId] = unsubscribe;
     debugPrint('[WS] Abonné à $topic');
   }
 
-  /// Se désabonne d'une station (appelé quand l'évaluateur quitte la grille).
-  void unsubscribeFromStation(int stationId) {
-    final unsub = _scoreSubscriptions.remove(stationId);
+  /// Se désabonne d'un lot spécifique.
+  void unsubscribeFromLot(int lotId) {
+    final unsub = _lotSubscriptions.remove(lotId);
     unsub?.call();
+  }
+
+  /// #197 — Réconcilie les abonnements "lot" avec la liste de sessions
+  /// actuellement affichée par le dashboard : désabonne les lots qui ne sont
+  /// plus visibles, abonne les nouveaux. Appelé à chaque chargement/rafraîchissement
+  /// de la liste de sessions (SessionBloc) pour que le live reste exact sans fuite
+  /// d'abonnements STOMP.
+  void syncLotSubscriptions(Iterable<int> lotIds) {
+    final desired = lotIds.toSet();
+
+    for (final lotId in _lotSubscriptions.keys.toList()) {
+      if (!desired.contains(lotId)) {
+        unsubscribeFromLot(lotId);
+      }
+    }
+    for (final lotId in desired) {
+      subscribeToLot(lotId);
+    }
   }
 
   // ── Déconnexion ──────────────────────────────────────────────────────────
@@ -267,6 +311,8 @@ class WebSocketService {
     _connectivitySub?.cancel();
     _disconnectClient();
     _accessToken = null;
+    _scoreSubscriptions.clear();
+    _lotSubscriptions.clear();
   }
 
   void _disconnectClient() {

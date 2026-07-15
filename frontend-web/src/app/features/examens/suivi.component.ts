@@ -15,6 +15,7 @@ import { DirectoryApiService } from '../../core/api/directory-api.service';
 import {
   EtudiantSummary,
   ParticipationSummary,
+  RotationStatus,
   RotationSummary,
   StationSummary,
   UserResponse,
@@ -27,6 +28,12 @@ export interface Slot {
   ordrePassage: number;
   debutMs: number; // absolute planned start (ms epoch, local)
   debutLabel: string; // HH:mm
+  /**
+   * The rotation's real completion signal. EN_ATTENTE until the évaluateur
+   * validates its lot, then TERMINE (scoring validerLot). #184 uses this to
+   * distinguish a truly-finished slot from one whose créneau merely elapsed.
+   */
+  statut: RotationStatus;
 }
 
 /** A station's whole timeline + its bound évaluateur. */
@@ -38,14 +45,24 @@ interface Lane {
   slots: Slot[]; // sorted by debutMs
 }
 
-type SlotState = 'done' | 'live' | 'upcoming';
+type SlotState = 'done' | 'live' | 'upcoming' | 'enRetard';
 
 /**
  * A station's state on the board. {@code sansRotations} is NOT a time-derived
  * state — it means the station has no rotation plan at all, and it is resolved
  * BEFORE any clock branch so an unknown station can never read as a finished one.
+ *
+ * {@code enRetard} (#184) is the "dépassement" state: the créneau clock has
+ * elapsed but the passages are not really validated. Time is indicative and
+ * never blocks grading, so an overrun must NOT read as {@code done} — the
+ * évaluateur may still be working.
  */
-export type LaneState = 'sansRotations' | 'live' | 'upcoming' | 'done';
+export type LaneState =
+  | 'sansRotations'
+  | 'live'
+  | 'upcoming'
+  | 'enRetard'
+  | 'done';
 
 const DEFAULT_DUREE_MIN = 15;
 const DEFAULT_HEURE = '09:00';
@@ -59,6 +76,13 @@ const DEFAULT_HEURE = '09:00';
  * live → upcoming → "Terminée", so a station whose rotations were never generated
  * rendered as already over — a phantom terminal state that cost a live exam
  * simulation. 'done' must only ever be reachable from a real, non-empty slot set.
+ *
+ * <p><b>Time is not completion (#184):</b> once the whole plan has elapsed with
+ * nothing live, the clock has merely overrun — it does NOT mean the passages were
+ * graded. Créneaux are indicative and never block writes, so this resolves to
+ * {@code done} ONLY when every slot is really validated ({@code statut === 'TERMINE'},
+ * set by the évaluateur's validerLot); otherwise it is {@code enRetard} — dépassement,
+ * still open, the évaluateur may still be working. An overrun must never read "Terminée".
  *
  * @param slots the station's slots, sorted by debutMs (may be empty)
  * @param effectiveNowMs ADR-0009 effective instant, or null before the clock resolves
@@ -77,7 +101,9 @@ export function resolveLaneState(
   if (live) return 'live';
   const first = slots[0];
   if (effectiveNowMs < first.debutMs) return 'upcoming';
-  return 'done';
+  // The whole plan has elapsed with nothing live. Real completion (every passage
+  // validated) → done; a bare clock overrun → enRetard (#184).
+  return slots.every((s) => s.statut === 'TERMINE') ? 'done' : 'enRetard';
 }
 
 /**
@@ -396,6 +422,19 @@ export function resolveLaneState(
                     </div>
                   }
                 }
+                <!--
+                  'enRetard' (#184) : le créneau est dépassé mais les passages ne
+                  sont pas encore validés. Le temps est indicatif et ne bloque
+                  jamais la notation, donc on affiche « Dépassement » en ambre —
+                  jamais le gris « Terminée » qui laisserait croire que c'est fini.
+                -->
+                @case ('enRetard') {
+                  <div class="text-right">
+                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
+                    <div class="font-semibold text-amber-700">⏱ Dépassement</div>
+                    <div class="text-xs text-amber-600">créneau écoulé — encore en cours</div>
+                  </div>
+                }
                 @default {
                   <div class="text-right">
                     <div class="text-xs text-gray-400 uppercase tracking-wide">Station</div>
@@ -440,6 +479,7 @@ export function resolveLaneState(
                   class="h-2 flex-1 rounded-full"
                   [class.bg-gray-200]="slotState(s) === 'upcoming'"
                   [class.bg-status-success]="slotState(s) === 'live'"
+                  [class.bg-status-warning]="slotState(s) === 'enRetard'"
                   [class.bg-brand]="slotState(s) === 'done'"
                   [title]="s.debutLabel + ' · passage ' + s.ordrePassage"
                 ></div>
@@ -472,6 +512,8 @@ export function resolveLaneState(
                         [class.text-gray-500]="slotState(s) === 'upcoming'"
                         [class.bg-status-success]="slotState(s) === 'live'"
                         [class.text-white]="slotState(s) === 'live'"
+                        [class.bg-amber-100]="slotState(s) === 'enRetard'"
+                        [class.text-amber-700]="slotState(s) === 'enRetard'"
                         [class.bg-brand-50]="slotState(s) === 'done'"
                         [class.text-brand-dark]="slotState(s) === 'done'"
                       >
@@ -755,6 +797,7 @@ export class SuiviComponent {
             ordrePassage: r.ordrePassage ?? 0,
             debutMs,
             debutLabel: this.hhmm(debutMs),
+            statut: r.statut,
           };
         })
         .filter((s) => !Number.isNaN(s.debutMs))
@@ -786,7 +829,9 @@ export class SuiviComponent {
     if (eff == null) return 'upcoming';
     if (eff < s.debutMs) return 'upcoming';
     if (eff < this.slotEndMs(s)) return 'live';
-    return 'done';
+    // Créneau elapsed: 'terminé' only if really validated, else 'dépassement'
+    // (still open — the évaluateur may still be grading). #184.
+    return s.statut === 'TERMINE' ? 'done' : 'enRetard';
   }
 
   slotStateLabel(s: Slot): string {
@@ -795,6 +840,8 @@ export class SuiviComponent {
         return 'en cours';
       case 'done':
         return 'terminé';
+      case 'enRetard':
+        return 'dépassement';
       default:
         return 'à venir';
     }

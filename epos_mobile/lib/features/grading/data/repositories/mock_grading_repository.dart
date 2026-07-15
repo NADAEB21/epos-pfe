@@ -206,6 +206,12 @@ class MockGradingRepository implements GradingRepository {
   }
 
   @override
+  Future<void> validerRotation(int rotationId) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    // Simule la validation d'une seule session (rotation)
+  }
+
+  @override
   Future<Etudiant> substituerEtudiant({
     required int lotId,
     required int etudiantAbsentId,

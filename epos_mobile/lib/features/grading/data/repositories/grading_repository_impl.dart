@@ -147,6 +147,16 @@ class GradingRepositoryImpl implements GradingRepository {
       throw _handleError(e, 'Impossible de valider le lot');
     }
   }
+  
+  // ── POST /evaluateur/rotations/{id}/valider ───────────────────────────────
+  @override
+  Future<void> validerRotation(int rotationId) async {
+    try {
+      await _apiClient.post(ApiConstants.validerRotation(rotationId));
+    } on DioException catch (e) {
+      throw _handleError(e, 'Impossible de valider la rotation');
+    }
+  }
 
   // ── Substitution ──────────────────────────────────────────────────────────
   @override

@@ -11,6 +11,9 @@ abstract class GradingRepository {
   /// Charge le lot actuel (étudiants + notations existantes)
   Future<Lot> getLot(int stationId, int lotNumero);
 
+  /// Valide uniquement la rotation (session) de l'évaluateur actuel
+  Future<void> validerRotation(int rotationId);
+
   /// Sauvegarde une notation (création ou mise à jour)
   Future<void> saveNotation(Notation notation);
 

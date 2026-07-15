@@ -5,18 +5,19 @@
 //          repository). Le bloc notifie l'OfflineBloc après chaque saisie
 //          pour maintenir le compteur de notations en attente à jour.
 //
-// #197 — Consommation live du WebSocket sur l'écran de notation :
-//   1) le lot courant est désormais aussi suivi (onLotStatusUpdate), pas
-//      seulement les scores d'une station ;
-//   2) un score poussé par le serveur ne doit JAMAIS écraser l'affichage
-//      d'une saisie locale pas encore synchronisée : tant qu'une sauvegarde
-//      est en vol pour un étudiant (offline ou juste envoyée), les mises à
-//      jour WebSocket le concernant sont ignorées (voir _pendingSaves /
-//      _onWsScoreReceived) ;
-//   3) une coupure réseau ne bloque jamais la saisie : WebSocketService gère
-//      seul le backoff/la reconnexion et réabonne automatiquement les topics
-//      actifs (voir websocket_service.dart), le bloc n'a rien à faire de plus
-//      qu'écouter les streams.
+// #196 (ADR-0012) — Avertissement inter-créneau + compte à rebours pause-aware :
+//   - `avertissementLeadSec` (issu de Session, lui-même issu du backend) est
+//     transporté dans l'état pour piloter PassageCountdownBadge /
+//     PassageWarningBanner (voir grading_screen.dart) ;
+//   - `enPause` gèle le compte à rebours (ADR-0009) : le Timer local ne
+//     décrémente plus tant que l'examen est en pause, et reprend exactement
+//     où il en était à la reprise — jamais de saut de temps ni de faux
+//     avertissement déclenché pendant une pause ;
+//   - `enPause` est mis à jour en direct via GradingPauseStateUpdated, que
+//     l'écran (grading_screen.dart) déclenche en observant le SessionBloc
+//     déjà injecté dans l'arbre de widgets (voir home_screen.dart) — pas de
+//     nouvel appel réseau, on réutilise les données déjà pollées/poussées
+//     pour le dashboard.
 
 import 'dart:async';
 
@@ -42,20 +43,30 @@ abstract class GradingEvent extends Equatable {
 }
 
 class GradingSessionStarted extends GradingEvent {
+  final int       rotationId;
   final int       stationId;
   final int       lotNumero;
   final int?      grilleId;
   final DateTime? debutCreneau;
 
+  /// #196 — Délai de préavis (s) avant fin de passage, et état de pause
+  /// initial, transmis depuis la Session choisie sur le dashboard.
+  final int  avertissementLeadSec;
+  final bool enPause;
+
   const GradingSessionStarted({
+    required this.rotationId,
     required this.stationId,
     required this.lotNumero,
     this.grilleId,
     this.debutCreneau,
+    this.avertissementLeadSec = 0,
+    this.enPause = false,
   });
 
   @override
-  List<Object?> get props => [stationId, lotNumero, grilleId, debutCreneau];
+  List<Object?> get props =>
+      [rotationId, stationId, lotNumero, grilleId, debutCreneau, avertissementLeadSec, enPause];
 }
 
 class GradingBinaryUpdated extends GradingEvent {
@@ -150,19 +161,14 @@ class GradingWsScoreReceived extends GradingEvent {
   List<Object?> get props => [etudiantId, stationId, score, verrouille];
 }
 
-/// #197 — Changement de statut du lot courant reçu depuis le serveur
-/// (ex : verrouillage confirmé depuis un autre appareil de l'évaluateur).
-class GradingWsLotStatusReceived extends GradingEvent {
-  final int    lotId;
-  final String statut;
-
-  const GradingWsLotStatusReceived({
-    required this.lotId,
-    required this.statut,
-  });
-
+/// #196 (ADR-0009) — L'état de pause de l'examen a changé (rapporté par
+/// l'écran de notation, qui observe le SessionBloc déjà chargé). Fige ou
+/// relâche le compte à rebours en conséquence.
+class GradingPauseStateUpdated extends GradingEvent {
+  final bool enPause;
+  const GradingPauseStateUpdated(this.enPause);
   @override
-  List<Object?> get props => [lotId, statut];
+  List<Object?> get props => [enPause];
 }
 
 // ════════════════════════════════════════════════
@@ -185,6 +191,7 @@ class GradingError extends GradingState {
 }
 
 class GradingLoaded extends GradingState {
+  final int                          rotationId;
   final int                          stationId;
   final int                          grilleId;
   final String                       stationNom;
@@ -202,7 +209,15 @@ class GradingLoaded extends GradingState {
   /// car le serveur applique les pondérations de la grille.
   final Map<int, double>             wsScores;
 
+  /// #196 (ADR-0012) — Délai de préavis (s) avant la fin du passage courant.
+  final int  avertissementLeadSec;
+
+  /// #196 (ADR-0009) — L'examen est actuellement en pause : le compte à
+  /// rebours affiché par l'UI doit être figé (voir _startTimer).
+  final bool enPause;
+
   const GradingLoaded({
+    required this.rotationId,
     required this.stationId,
     required this.grilleId,
     required this.stationNom,
@@ -215,6 +230,8 @@ class GradingLoaded extends GradingState {
     this.messageSucces,
     this.lotValide    = false,
     this.wsScores     = const {},
+    this.avertissementLeadSec = 0,
+    this.enPause = false,
   });
 
   // ── Calculs de score ──────────────────────────
@@ -242,6 +259,7 @@ class GradingLoaded extends GradingState {
       lot.etudiants.every((e) => etudiantsValides.contains(e.id));
 
   GradingLoaded copyWith({
+    int?                   rotationId,
     Map<int, Map<int, Notation>>? notations,
     Set<int>?              etudiantsValides,
     Duration?              tempsRestant,
@@ -250,8 +268,11 @@ class GradingLoaded extends GradingState {
     Lot?                   lot,
     bool?                  lotValide,
     Map<int, double>?      wsScores,
+    int?                   avertissementLeadSec,
+    bool?                  enPause,
   }) =>
       GradingLoaded(
+        rotationId:             rotationId       ?? this.rotationId,
         stationId:              stationId,
         grilleId:               grilleId,
         stationNom:             stationNom,
@@ -264,13 +285,16 @@ class GradingLoaded extends GradingState {
         messageSucces:          messageSucces,
         lotValide:              lotValide ?? this.lotValide,
         wsScores:               wsScores  ?? this.wsScores,
+        avertissementLeadSec:   avertissementLeadSec ?? this.avertissementLeadSec,
+        enPause:                enPause ?? this.enPause,
       );
 
   @override
   List<Object?> get props => [
-    stationId, grilleId, stationNom, grille, lot,
+    rotationId, stationId, grilleId, stationNom, grille, lot,
     notations, etudiantsValides, tempsRestant,
     lotEnCoursDeValidation, messageSucces, lotValide, wsScores,
+    avertissementLeadSec, enPause,
   ];
 }
 
@@ -284,18 +308,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   /// Injectée depuis GradingScreen via le constructeur.
   final OfflineBloc? offlineBloc;
 
-  Timer?                             _timer;
-  StreamSubscription<ScoreUpdate>?    _wsScoreSub; // BF6.1
-  StreamSubscription<LotStatusUpdate>? _wsLotSub;  // #197
-
-  /// #197 — Compte, par étudiant, le nombre de sauvegardes envoyées mais pas
-  /// encore confirmées (succès OU échec — l'important est "en vol"). Tant que
-  /// ce compteur est > 0 pour un étudiant, un score poussé par le WebSocket
-  /// pour ce même étudiant est ignoré : la saisie locale reste la source de
-  /// vérité affichée jusqu'à ce que sa sauvegarde ait abouti. Évite qu'une
-  /// notification WS "en retard" écrase visuellement une note qui vient
-  /// d'être tapée par l'évaluateur.
-  final Map<int, int> _pendingSaves = {};
+  Timer?                       _timer;
+  StreamSubscription<ScoreUpdate>? _wsSub; // BF6.1
 
   static const _durationStation = Duration(minutes: 15);
 
@@ -312,8 +326,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingLotSuivantDemande>(_onLotSuivant);
     on<GradingEtudiantSubstitue>(_onSubstituer);
     on<GradingTimerTick>        (_onTimerTick);
-    on<GradingWsScoreReceived>  (_onWsScoreReceived);   // BF6.1
-    on<GradingWsLotStatusReceived>(_onWsLotStatusReceived); // #197
+    on<GradingWsScoreReceived>  (_onWsScoreReceived); // BF6.1
+    on<GradingPauseStateUpdated>(_onPauseStateUpdated); // #196
   }
 
   // ── Chargement initial ────────────────────────────────────────────────────
@@ -357,6 +371,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final tempsRestant = _computeTempsRestant(event.debutCreneau);
 
       emit(GradingLoaded(
+        rotationId:       event.rotationId,
         stationId:        event.stationId,
         grilleId:         grilleId,
         stationNom:       'Station ${event.stationId}',
@@ -366,23 +381,25 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         etudiantsValides: etudiantsValides,
         tempsRestant:     tempsRestant,
         lotValide:        lot.valide,
+        avertissementLeadSec: event.avertissementLeadSec,
+        enPause:              event.enPause,
       ));
 
       _startTimer(tempsRestant);
 
-      // BF6.1 / #197 — Souscription WebSocket pour cette station ET ce lot.
-      _subscribeToWebSocket(event.stationId, lot.id);
+      // BF6.1 — Souscription WebSocket pour cette station
+      _subscribeToWebSocket(event.stationId);
     } catch (e) {
       emit(GradingError('Impossible de charger la session : $e'));
     }
   }
 
-  // ── BF6.1 / #197 — Souscriptions WebSocket ───────────────────────────────
-  void _subscribeToWebSocket(int stationId, int lotId) {
-    _wsScoreSub?.cancel();
+  // ── BF6.1 — Souscription WebSocket ───────────────────────────────────────
+  void _subscribeToWebSocket(int stationId) {
+    _wsSub?.cancel();
     WebSocketService.instance.subscribeToStation(stationId);
 
-    _wsScoreSub = WebSocketService.instance.onScoreUpdate.listen((update) {
+    _wsSub = WebSocketService.instance.onScoreUpdate.listen((update) {
       if (update.stationId == stationId) {
         add(GradingWsScoreReceived(
           etudiantId: update.etudiantId,
@@ -391,14 +408,6 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
           verrouille: update.verrouille,
         ));
       }
-    });
-
-    // #197 — Le statut du lot courant (ex : verrouillé depuis un autre
-    // appareil du même évaluateur) doit se refléter sans refresh manuel.
-    _wsLotSub?.cancel();
-    WebSocketService.instance.subscribeToLot(lotId);
-    _wsLotSub = WebSocketService.instance.onLotStatusUpdate.listen((update) {
-      add(GradingWsLotStatusReceived(lotId: update.lotId, statut: update.statut));
     });
   }
 
@@ -409,15 +418,6 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       ) {
     final current = state;
     if (current is! GradingLoaded) return;
-
-    // #197 — Garde-fou anti-écrasement : une sauvegarde locale est en vol
-    // pour cet étudiant (saisie pas encore confirmée / hors-ligne) → on
-    // ignore ce score serveur, potentiellement obsolète par rapport à ce que
-    // l'évaluateur vient de taper. Le prochain événement WS, une fois la
-    // sauvegarde locale confirmée, sera à nouveau pris en compte normalement.
-    if ((_pendingSaves[event.etudiantId] ?? 0) > 0) {
-      return;
-    }
 
     final updatedWsScores = Map<int, double>.from(current.wsScores)
       ..[event.etudiantId] = event.score;
@@ -432,21 +432,19 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     ));
   }
 
-  // ── #197 — Réception statut de lot WebSocket ─────────────────────────────
-  void _onWsLotStatusReceived(
-      GradingWsLotStatusReceived event,
+  // ── #196 (ADR-0009) — Pause / reprise ────────────────────────────────────
+  /// Met simplement à jour le flag `enPause` de l'état. Le Timer (voir
+  /// `_startTimer`) lit `state.enPause` à chaque tick et gèle la décrémentation
+  /// en conséquence — aucune resynchronisation de durée nécessaire ici : à la
+  /// reprise, le compte à rebours continue exactement là où il s'était arrêté.
+  void _onPauseStateUpdated(
+      GradingPauseStateUpdated event,
       Emitter<GradingState> emit,
       ) {
     final current = state;
     if (current is! GradingLoaded) return;
-    if (event.lotId != current.lot.id) return; // pas notre lot courant
-
-    if (event.statut == 'TERMINE' && !current.lotValide) {
-      emit(current.copyWith(
-        lotValide:     true,
-        messageSucces: 'Lot ${current.lot.numero} validé',
-      ));
-    }
+    if (current.enPause == event.enPause) return;
+    emit(current.copyWith(enPause: event.enPause));
   }
 
   // ── Mise à jour critère binaire ───────────────────────────────────────────
@@ -522,21 +520,9 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     ));
   }
 
-  /// BF6.2 / #197 — Sauvegarde la notation (online ou locale), notifie
-  /// l'OfflineBloc, et tient à jour le compteur de sauvegardes "en vol" par
-  /// étudiant pour protéger l'affichage contre un écrasement WebSocket
-  /// (voir _pendingSaves / _onWsScoreReceived).
+  /// BF6.2 — Sauvegarde la notation (online ou locale) puis notifie l'OfflineBloc.
   void _saveAndRefreshOffline(Notation notation) {
-    _pendingSaves[notation.etudiantId] =
-        (_pendingSaves[notation.etudiantId] ?? 0) + 1;
-
-    _repository.saveNotation(notation).whenComplete(() {
-      final remaining = (_pendingSaves[notation.etudiantId] ?? 1) - 1;
-      if (remaining <= 0) {
-        _pendingSaves.remove(notation.etudiantId);
-      } else {
-        _pendingSaves[notation.etudiantId] = remaining;
-      }
+    _repository.saveNotation(notation).then((_) {
       // Rafraîchit le compteur du badge dans l'OfflineBloc
       offlineBloc?.refreshPendingCount();
     });
@@ -579,11 +565,13 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
     emit(current.copyWith(lotEnCoursDeValidation: true));
     try {
-      await _repository.validerLot(current.lot.id);
+      // #FIX: On appelle validerRotation au lieu de validerLot
+      // pour ne pas tuer le travail des autres évaluateurs.
+      await _repository.validerRotation(current.rotationId); 
       emit(current.copyWith(
         lotEnCoursDeValidation: false,
         lotValide:              true,
-        messageSucces:          'Lot ${current.lot.numero} validé !',
+        messageSucces:          'Session validée !',
       ));
     } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));
@@ -605,6 +593,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     try {
       final lot = await _repository.getLot(current.stationId, prochainLot);
       emit(GradingLoaded(
+        rotationId:       current.rotationId, 
         stationId:        current.stationId,
         grilleId:         current.grilleId,
         stationNom:       current.stationNom,
@@ -614,10 +603,10 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         etudiantsValides: {},
         tempsRestant:     _durationStation,
         lotValide:        lot.valide,
+        avertissementLeadSec: current.avertissementLeadSec,
+        enPause:              current.enPause,
       ));
       _startTimer();
-      // #197 — nouveau lot → suivre son statut en temps réel lui aussi.
-      _subscribeToWebSocket(current.stationId, lot.id);
     } catch (e) {
       emit(GradingError('Impossible de charger le lot suivant : $e'));
     }
@@ -663,11 +652,19 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     emit(current.copyWith(tempsRestant: event.restant));
   }
 
+  /// #196 (ADR-0009) — Le compte à rebours se fige tant que `state.enPause`
+  /// est vrai : la variable locale `restant` n'est simplement pas décrémentée
+  /// à ce tick, donc à la reprise elle repart exactement d'où elle en était
+  /// (pas de rattrapage, pas de saut de temps).
   void _startTimer([Duration? initialDuration]) {
     _timer?.cancel();
     var restant = initialDuration ?? _durationStation;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      restant -= const Duration(seconds: 1);
+      final current = state;
+      final enPause = current is GradingLoaded && current.enPause;
+      if (!enPause) {
+        restant -= const Duration(seconds: 1);
+      }
       add(GradingTimerTick(restant));
     });
   }
@@ -698,13 +695,11 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   @override
   Future<void> close() {
     _timer?.cancel();
-    _wsScoreSub?.cancel();
-    _wsLotSub?.cancel();
+    _wsSub?.cancel();
     // Désabonnement WebSocket propre
     final current = state;
     if (current is GradingLoaded) {
       WebSocketService.instance.unsubscribeFromStation(current.stationId);
-      WebSocketService.instance.unsubscribeFromLot(current.lot.id);
     }
     return super.close();
   }

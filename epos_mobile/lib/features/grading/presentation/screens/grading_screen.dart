@@ -23,6 +23,8 @@ import '../../domain/entities/notation.dart';
 import '../../../home/domain/entities/session.dart';
 import '../bloc/grading_bloc.dart';
 import 'student_detail_screen.dart';
+import '../widgets/passage_countdown_badge.dart';
+import '../../../home/presentation/bloc/session_bloc.dart';
 
 // ── Dimensions adaptatives ────────────────────────────────────────────────────
 class _Layout {
@@ -128,40 +130,58 @@ List<_GradingRow> _buildRows(List<ItemEvaluation> items) {
 // GRADING SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 class GradingScreen extends StatelessWidget {
-  final Session session;
-  const GradingScreen({super.key, required this.session});
+     final Session session;
+     const GradingScreen({super.key, required this.session});
 
-  @override
-  Widget build(BuildContext context) {
-    // BF6.2 — ConnectivityBanner enveloppe tout le Scaffold.
-    // Elle lit l'OfflineBloc injecté par home_screen (MultiBlocProvider).
-    return ConnectivityBanner(
-      child: Scaffold(
-        backgroundColor:
-        _GC(Theme.of(context).brightness == Brightness.dark).bg,
-        body: BlocConsumer<GradingBloc, GradingState>(
-          listener: (context, state) {
-            if (state is GradingError) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content:         Text(state.message),
-                backgroundColor: AppTheme.scoreRed,
-                behavior:        SnackBarBehavior.floating,
-              ));
-            }
-          },
-          builder: (context, state) {
-            if (state is GradingLoaded) {
-              return _GradingView(state: state);
-            }
-            return const Center(
-              child: CircularProgressIndicator(color: AppTheme.primary),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
+     @override
+     Widget build(BuildContext context) {
+       return ConnectivityBanner(
+         child: Scaffold(
+           backgroundColor:
+           _GC(Theme.of(context).brightness == Brightness.dark).bg,
+           // #196 — Relaie enPause depuis SessionBloc (déjà chargé/rafraîchi
+           // par ailleurs, y compris via #197) vers GradingBloc, qui gèle son
+           // compte à rebours en conséquence (ADR-0009). Ne déclenche AUCUN
+           // appel réseau supplémentaire.
+           body: BlocListener<SessionBloc, SessionState>(
+             listenWhen: (prev, curr) {
+               if (curr is! SessionLoaded) return false;
+               final s = curr.sessions.where((s) => s.id == session.id);
+               return s.isNotEmpty;
+             },
+             listener: (context, sessionState) {
+               if (sessionState is! SessionLoaded) return;
+               final matching = sessionState.sessions
+                   .where((s) => s.id == session.id);
+               if (matching.isEmpty) return;
+               context
+                   .read<GradingBloc>()
+                   .add(GradingPauseStateUpdated(matching.first.enPause));
+             },
+             child: BlocConsumer<GradingBloc, GradingState>(
+               listener: (context, state) {
+                 if (state is GradingError) {
+                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                     content:         Text(state.message),
+                     backgroundColor: AppTheme.scoreRed,
+                     behavior:        SnackBarBehavior.floating,
+                   ));
+                 }
+               },
+               builder: (context, state) {
+                 if (state is GradingLoaded) {
+                   return _GradingView(state: state);
+                 }
+                 return const Center(
+                   child: CircularProgressIndicator(color: AppTheme.primary),
+                 );
+               },
+             ),
+           ),
+         ),
+       );
+     }
+   }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VUE PRINCIPALE
@@ -213,33 +233,61 @@ class _GradingViewState extends State<_GradingView> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final layout = _Layout.of(context, widget.state.lot.etudiants.length);
+   @override
+   Widget build(BuildContext context) {
+     final layout = _Layout.of(context, widget.state.lot.etudiants.length);
 
-    return Column(
-      children: [
-        _GradingAppBar(state: widget.state),
-        _StickyStudentHeader(
-          state:   widget.state,
-          hScroll: _headerHScroll,
-          layout:  layout,
-        ),
-        Expanded(
-          child: _GradingBody(
-            state:   widget.state,
-            hScroll: _bodyHScroll,
-            layout:  layout,
-          ),
-        ),
-        _GradingFooter(
-          state:   widget.state,
-          hScroll: _footerHScroll,
-          layout:  layout,
-        ),
-      ],
-    );
-  }
+     return BlocListener<GradingBloc, GradingState>(
+       // #196 — Retour haptique UNE SEULE FOIS au moment où l'avertissement
+       // s'active (jamais à chaque tick, ni pendant la pause) : l'évaluateur
+       // a "les mains prises" pendant la manipulation, le retour doit être
+       // perceptible sans devoir regarder l'écran.
+       listenWhen: (prev, curr) {
+         if (prev is! GradingLoaded || curr is! GradingLoaded) return false;
+         final avant = PassageCountdownStatus.compute(
+           tempsRestant: prev.tempsRestant,
+           avertissementLeadSec: prev.avertissementLeadSec,
+           enPause: prev.enPause,
+         ).avertissementActif;
+         final apres = PassageCountdownStatus.compute(
+           tempsRestant: curr.tempsRestant,
+           avertissementLeadSec: curr.avertissementLeadSec,
+           enPause: curr.enPause,
+         ).avertissementActif;
+         return !avant && apres;
+       },
+       listener: (context, state) {
+         HapticFeedback.heavyImpact();
+       },
+       child: Column(
+         children: [
+           _GradingAppBar(state: widget.state),
+           PassageWarningBanner(
+             tempsRestant: widget.state.tempsRestant,
+             avertissementLeadSec: widget.state.avertissementLeadSec,
+             enPause: widget.state.enPause,
+           ),
+           _StickyStudentHeader(
+             state:   widget.state,
+             hScroll: _headerHScroll,
+             layout:  layout,
+           ),
+           Expanded(
+             child: _GradingBody(
+               state:   widget.state,
+               hScroll: _bodyHScroll,
+               layout:  layout,
+             ),
+           ),
+           _GradingFooter(
+             state:   widget.state,
+             hScroll: _footerHScroll,
+             layout:  layout,
+           ),
+         ],
+       ),
+     );
+   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1086,7 +1134,11 @@ class _GradingAppBar extends StatelessWidget {
                 // BF6.1 — Indicateur de connexion WebSocket temps réel
                 _WsStatusBadge(),
                 const SizedBox(width: 8),
-                _TimerBadge(restant: state.tempsRestant),
+                PassageCountdownBadge(
+                   tempsRestant: state.tempsRestant,
+                   avertissementLeadSec: state.avertissementLeadSec,
+                   enPause: state.enPause,
+                 ),
               ],
             ),
           ),
@@ -1177,49 +1229,6 @@ class _PulsingDotState extends State<_PulsingDot>
             widget.pulse ? _anim.value : 1.0,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _TimerBadge extends StatelessWidget {
-  final Duration? restant;
-  const _TimerBadge({this.restant});
-
-  @override
-  Widget build(BuildContext context) {
-    if (restant == null) return const SizedBox.shrink();
-    final isDepasse = restant!.inSeconds <= 0;
-    final aff = restant!.abs();
-    final mm  = aff.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss  = aff.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final color = isDepasse ? AppTheme.scoreRed : Colors.white;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color:        color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(20),
-        border:       Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isDepasse ? Icons.timer_off : Icons.timer,
-            size:  14,
-            color: color,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            '${isDepasse ? "+" : ""}$mm:$ss',
-            style: TextStyle(
-              color:       color,
-              fontSize:    13,
-              fontWeight:  FontWeight.bold,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
       ),
     );
   }

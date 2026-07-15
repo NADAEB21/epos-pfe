@@ -16,6 +16,8 @@ class SessionModel extends Session {
     required super.lotActuel,
     required super.totalLots,
     super.heureFin,
+    super.avertissementLeadSec,
+    super.enPause,
   });
 
   /// Parse la réponse de GET /api/v1/evaluateur/dashboard → sessions[].
@@ -23,6 +25,11 @@ class SessionModel extends Session {
   /// Correction point 3 : json['stationId'] est parsé séparément de json['id'].
   ///   json['id']        → lot.id (scoring-service)
   ///   json['stationId'] → station réelle (exam-service), nullable
+  ///
+  /// #196 (ADR-0012) : json['avertissementLeadSec'] et json['enPause'] sont
+  /// déjà émis par SessionResponse (backend) mais n'étaient pas lus. Absents
+  /// → valeurs neutres (0 / false) pour rester rétrocompatible avec un
+  /// backend plus ancien ou avec les fixtures de test.
   factory SessionModel.fromJson(Map<String, dynamic> json) {
     return SessionModel(
       id:          json['id']          as int,
@@ -37,7 +44,17 @@ class SessionModel extends Session {
       salle:       json['salle']       as String?,
       lotActuel:   json['lotActuel']   as int,
       totalLots:   json['totalLots']   as int,
+      avertissementLeadSec: _toInt(json['avertissementLeadSec']),
+      enPause:              json['enPause'] as bool? ?? false,
     );
+  }
+
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
   }
 
   static SessionStatus _parseStatut(String statut) {

@@ -86,6 +86,9 @@ class ApiConstants {
 
   static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
 
+  static String validerRotation(int rotationId) =>
+      '/evaluateur/rotations/$rotationId/valider';
+
   // === Timeouts ===
   static const Duration connectTimeout = Duration(seconds: 20);
   static const Duration receiveTimeout = Duration(seconds: 20);

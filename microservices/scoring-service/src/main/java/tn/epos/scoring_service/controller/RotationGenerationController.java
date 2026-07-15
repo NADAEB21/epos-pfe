@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.GenerationResult;
+import tn.epos.scoring_service.dto.ResetRotationsResult;
 import tn.epos.scoring_service.service.RotationGenerationService;
 
 /**
@@ -37,5 +38,22 @@ public class RotationGenerationController {
         GenerationResult result = generationService.generateForLot(lotId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Rotations du lot générées avec succès", result));
+    }
+
+    /**
+     * Réinitialise le planning généré d'un examen — moitié « données » du reset #183.
+     * Purge les rotations/groupes de tous les lots (garde-fou #188 : refusé si une
+     * notation existe ; scope matière enforced cross-service). Le passage
+     * EN_COURS → CONFIGURE est fait ensuite par l'appelant via exam-service.
+     *
+     * <p>Reste sous {@code /api/rotations} (→ scoring-service au gateway), PAS sous
+     * {@code /api/examens} (→ exam-service).
+     */
+    @PostMapping("/examens/{examenId}/reset")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<ResetRotationsResult>> resetPourExamen(@PathVariable Long examenId) {
+        ResetRotationsResult result = generationService.resetRotationsForExam(examenId);
+        return ResponseEntity.ok(
+                ApiResponse.ok("Planning de l'examen réinitialisé", result));
     }
 }

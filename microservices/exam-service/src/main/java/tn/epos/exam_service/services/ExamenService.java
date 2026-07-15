@@ -43,6 +43,17 @@ public interface ExamenService {
     /** Reprendre un examen en pause (cumule la durée de pause écoulée) */
     ExamenResponse reprendre(Long id);
 
+    /**
+     * Réinitialiser un examen EN_COURS vers CONFIGURE (#183 — « dé-lancer »).
+     *
+     * <p>Récupération le jour de l'examen : on a lancé, rien ne s'est encore passé,
+     * on revient à un état configurable. Efface l'horodatage de lancement (ADR-0010)
+     * et tout l'état de pause (ADR-0009). Le nettoyage du planning généré
+     * (rotations / groupes) vit dans scoring-service et est orchestré séparément,
+     * sous le garde-fou #188 (refus si une notation existe).
+     */
+    ExamenResponse reinitialiser(Long id);
+
     /** Supprimer un examen (uniquement si statut BROUILLON ou CONFIGURE) */
     void supprimer(Long id);
 

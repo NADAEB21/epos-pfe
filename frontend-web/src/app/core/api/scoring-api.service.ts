@@ -255,6 +255,24 @@ export class ScoringApiService {
       .pipe(map((r) => r.data));
   }
 
+  /**
+   * Réinitialiser le planning généré d'un examen — moitié « données » du reset #183
+   * (POST /rotations/examens/{examenId}/reset, RESPONSABLE_MATIERE + SUPER_ADMIN).
+   * Purge les rotations/groupes de TOUS les lots (les lots/roster/présence sont
+   * conservés). Porte le garde-fou #188 : refusé (400) si UNE notation existe ;
+   * périmètre matière enforced cross-service (403). À appeler AVANT
+   * {@link ExamApiService.resetExamen} : si le planning ne peut pas être purgé (notes
+   * existantes), le statut ne doit pas changer. Renvoie le nombre de lots/groupes purgés.
+   */
+  resetRotationsExamen(examenId: number): Observable<{ lots: number; groupes: number }> {
+    return this.http
+      .post<ApiResponse<{ lots: number; groupes: number }>>(
+        `${this.baseUrl}/rotations/examens/${examenId}/reset`,
+        null,
+      )
+      .pipe(map((r) => r.data));
+  }
+
   // ---- réclamations (student complaint register, #136) -------------------
 
   /**

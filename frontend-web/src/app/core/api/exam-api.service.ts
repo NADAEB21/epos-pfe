@@ -137,6 +137,23 @@ export class ExamApiService {
       .pipe(map((r) => r.data));
   }
 
+  /**
+   * Réinitialiser (« dé-lancer ») un examen lancé par erreur (POST
+   * /examens/{id}/reset — #183, RESPONSABLE_MATIERE scopé + SUPER_ADMIN). Backend :
+   * EN_COURS → CONFIGURE, efface launched_at + l'état de pause. 400 hors EN_COURS,
+   * 403 hors périmètre matière. N'affecte NI les lots, NI le roster, NI la présence.
+   *
+   * IMPORTANT : ce n'est que la MOITIÉ « statut ». Le nettoyage du planning généré
+   * (rotations/groupes) vit dans scoring-service — {@link ScoringApiService.resetRotationsExamen}
+   * — et DOIT être appelé AVANT celui-ci, car c'est lui qui porte le garde-fou #188
+   * (refus si une notation existe). Voir l'orchestration dans suivi.component.
+   */
+  resetExamen(id: number): Observable<ExamenResponse> {
+    return this.http
+      .post<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}/reset`, null)
+      .pipe(map((r) => r.data));
+  }
+
   // ---- sujet PDF ----------------------------------------------------------
 
   /**

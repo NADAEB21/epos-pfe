@@ -248,6 +248,45 @@ export function resolveLaneState(
               >
                 {{ pausing() ? '…' : '⏸ Mettre en pause' }}
               </button>
+
+              <!--
+                Réinitialiser (« dé-lancer ») — récupération d'un lancement par erreur
+                (#183). Rare et destructif pour le PLANNING (jamais pour les notes) :
+                confirmation en deux temps qui dit exactement ce qui est supprimé. Le
+                backend refuse dès qu'une notation existe (garde #188) — le message
+                d'erreur le remonte alors tel quel.
+              -->
+              @if (confirmingReset()) {
+                <span class="text-sm font-medium text-gray-800">
+                  Le planning (rotations) sera supprimé et l'examen repassera en configuration.
+                  Lots, étudiants et présence sont conservés. Continuer&nbsp;?
+                </span>
+                <button
+                  type="button"
+                  [disabled]="resetting()"
+                  (click)="reset()"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {{ resetting() ? '…' : 'Oui, dé-lancer' }}
+                </button>
+                <button
+                  type="button"
+                  [disabled]="resetting()"
+                  (click)="cancelReset()"
+                  class="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  [disabled]="pausing() || terminating()"
+                  (click)="askReset()"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  ↺ Réinitialiser
+                </button>
+              }
             }
           </div>
         </div>
@@ -476,6 +515,10 @@ export class SuiviComponent {
   readonly terminating = signal(false);
   /** The two-step "Terminer" confirmation is showing. */
   readonly confirmingEnd = signal(false);
+  /** Resetting the exam (EN_COURS → CONFIGURE, #183) is in flight. */
+  readonly resetting = signal(false);
+  /** The two-step "Réinitialiser" confirmation is showing. */
+  readonly confirmingReset = signal(false);
 
   /** Ticks every second — drives every clock-derived state in the template. */
   private readonly now = signal(Date.now());
@@ -887,6 +930,62 @@ export class SuiviComponent {
       error: (err) => {
         this.terminating.set(false);
         this.actionError.set(this.message(err, "Impossible de terminer l'examen."));
+      },
+    });
+  }
+
+  // ---- réinitialiser (« dé-lancer », #183) --------------------------------
+
+  /** Open the two-step confirmation before resetting the exam. */
+  askReset(): void {
+    this.actionError.set(null);
+    this.confirmingReset.set(true);
+  }
+
+  cancelReset(): void {
+    this.confirmingReset.set(false);
+  }
+
+  /**
+   * Reset the exam (EN_COURS → CONFIGURE, #183 — « dé-lancer »). This spans TWO
+   * services and MUST be ordered scoring → exam:
+   *  1. scoring-service purges the generated plan (rotations/groupes) for every lot.
+   *     It carries the #188 guard — if ANY notation exists it refuses (400) and
+   *     wipes nothing, so the exam status is never touched on a graded exam.
+   *  2. only once the plan is safely gone does exam-service flip the status and clear
+   *     launched_at / pause.
+   * On the scoring refusal we surface its message (it names the notations at risk).
+   * Lots, roster and présence are kept. Exam lands in CONFIGURE → the live tab
+   * disappears, so we move to the Lancement screen to re-launch when ready.
+   */
+  reset(): void {
+    if (this.resetting()) return;
+    this.resetting.set(true);
+    this.actionError.set(null);
+    const examenId = Number(this.id());
+    this.scoring.resetRotationsExamen(examenId).subscribe({
+      next: () => {
+        this.examApi.resetExamen(examenId).subscribe({
+          next: (e) => {
+            this.store.exam.set(e);
+            this.resetting.set(false);
+            this.confirmingReset.set(false);
+            this.router.navigate(['/examens', examenId, 'lancement']);
+          },
+          error: (err) => {
+            this.resetting.set(false);
+            this.actionError.set(
+              this.message(
+                err,
+                'Le planning a été purgé mais le statut n’a pas pu être réinitialisé. Réessayez.',
+              ),
+            );
+          },
+        });
+      },
+      error: (err) => {
+        this.resetting.set(false);
+        this.actionError.set(this.message(err, 'Réinitialisation impossible.'));
       },
     });
   }

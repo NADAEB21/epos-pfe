@@ -1,4 +1,5 @@
 import { resolveLaneState, Slot } from './suivi.component';
+import { RotationStatus } from '../../core/api/models';
 
 /**
  * #182 — regression pin.
@@ -16,11 +17,16 @@ describe('resolveLaneState (#182)', () => {
   const DUREE = 15 * 60_000; // 15 min
   const T = (h: number, m = 0) => new Date(2026, 6, 13, h, m).getTime();
 
-  const slot = (debutMs: number, ordre = 1): Slot => ({
+  const slot = (
+    debutMs: number,
+    ordre = 1,
+    statut: RotationStatus = 'EN_ATTENTE',
+  ): Slot => ({
     rotationId: ordre,
     ordrePassage: ordre,
     debutMs,
     debutLabel: '',
+    statut,
   });
 
   describe('the invariant: empty is never done', () => {
@@ -53,16 +59,49 @@ describe('resolveLaneState (#182)', () => {
       expect(resolveLaneState(plan, T(9, 15), DUREE)).toBe('live');
     });
 
-    it('is done once the whole plan has elapsed', () => {
-      expect(resolveLaneState(plan, T(18), DUREE)).toBe('done');
-    });
-
-    it('is done in the gap after the last slot ends', () => {
-      expect(resolveLaneState(plan, T(9, 46), DUREE)).toBe('done');
-    });
-
     it('falls back to upcoming when the clock has not resolved', () => {
       expect(resolveLaneState(plan, null, DUREE)).toBe('upcoming');
+    });
+  });
+
+  /**
+   * #184 — the créneau is indicative, never a completion verdict.
+   *
+   * A station whose clock has elapsed but whose passages were never validated is
+   * NOT finished — the évaluateur may still be grading (time never blocks writes).
+   * It must resolve to 'enRetard' (dépassement), not 'done'. Only when every slot
+   * is really TERMINE (évaluateur's validerLot) does the station read 'done'.
+   */
+  describe('elapsed is not done unless validated (#184)', () => {
+    const T2 = (h: number, m = 0) => new Date(2026, 6, 13, h, m).getTime();
+    const done = (debutMs: number, ordre = 1) => slot(debutMs, ordre, 'TERMINE');
+
+    it('is enRetard once the plan elapsed but nothing is validated', () => {
+      const plan = [slot(T2(9), 1), slot(T2(9, 15), 2), slot(T2(9, 30), 3)];
+      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('enRetard');
+    });
+
+    it('is enRetard in the gap after the last slot ends (was the phantom "done")', () => {
+      const plan = [slot(T2(9), 1), slot(T2(9, 15), 2), slot(T2(9, 30), 3)];
+      expect(resolveLaneState(plan, T2(9, 46), DUREE)).toBe('enRetard');
+    });
+
+    it('is done only when every elapsed slot is really TERMINE', () => {
+      const plan = [done(T2(9), 1), done(T2(9, 15), 2), done(T2(9, 30), 3)];
+      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('done');
+    });
+
+    it('is enRetard when validation is only partial', () => {
+      const plan = [done(T2(9), 1), slot(T2(9, 15), 2), done(T2(9, 30), 3)];
+      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('enRetard');
+    });
+
+    it('still resolves live/upcoming before consulting completion', () => {
+      // A slot inside its window is live regardless of statut — the terminal
+      // completion branch is only reached once the whole plan has elapsed.
+      const plan = [slot(T2(9), 1, 'TERMINE'), slot(T2(9, 15), 2)];
+      expect(resolveLaneState(plan, T2(9, 20), DUREE)).toBe('live');
+      expect(resolveLaneState(plan, T2(8, 30), DUREE)).toBe('upcoming');
     });
   });
 });

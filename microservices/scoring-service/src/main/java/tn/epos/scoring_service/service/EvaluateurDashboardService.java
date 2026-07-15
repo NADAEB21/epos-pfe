@@ -164,17 +164,23 @@ public class EvaluateurDashboardService {
         List<RotationAssignment> assignments =
                 rotationAssignmentRepository.findByRotationId(rotation.getId());
 
+        // #203 : on garde l'assignment EN SCOPE et on résout le verrou / les items par
+        // son id — PAS par participationId (une participation a un assignment par
+        // station, donc un lookup global renverrait N lignes → 500). Ici chaque
+        // assignment est déjà LE passage (participation, station) de cette rotation.
         List<LotDetailResponse.EtudiantLotResponse> etudiants = assignments.stream()
-                .map(RotationAssignment::getParticipation)
-                .filter(p -> p != null && p.getEtudiant() != null)
-                .map(p -> LotDetailResponse.EtudiantLotResponse.builder()
-                        .id(p.getEtudiant().getId())
-                        .nom(p.getEtudiant().getNom())
-                        .prenom(p.getEtudiant().getPrenom())
-                        .absent(!Boolean.TRUE.equals(p.getEst_present()))
-                        .verrouille(isNotationVerrouillée(p.getId()))
-                        .notationItems(loadNotationItems(p.getId()))
-                        .build())
+                .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
+                .map(a -> {
+                    ExamenParticipation p = a.getParticipation();
+                    return LotDetailResponse.EtudiantLotResponse.builder()
+                            .id(p.getEtudiant().getId())
+                            .nom(p.getEtudiant().getNom())
+                            .prenom(p.getEtudiant().getPrenom())
+                            .absent(!Boolean.TRUE.equals(p.getEst_present()))
+                            .verrouille(isNotationVerrouillée(a.getId()))
+                            .notationItems(loadNotationItems(a.getId()))
+                            .build();
+                })
                 .collect(Collectors.toList());
 
         return LotDetailResponse.builder()
@@ -186,9 +192,8 @@ public class EvaluateurDashboardService {
                 .build();
     }
 
-    private List<LotDetailResponse.NotationItemResponse> loadNotationItems(Long participationId) {
-        return rotationAssignmentRepository.findByParticipationId(participationId)
-                .flatMap(a -> notationRepository.findByAssignmentId(a.getId()))
+    private List<LotDetailResponse.NotationItemResponse> loadNotationItems(Long assignmentId) {
+        return notationRepository.findByAssignmentId(assignmentId)
                 .map(n -> notationItemRepository.findByNotationId(n.getId()).stream()
                         .map(ni -> LotDetailResponse.NotationItemResponse.builder()
                                 .itemId(ni.getItemId()).valeur(ni.getValeur()).build())
@@ -209,7 +214,10 @@ public class EvaluateurDashboardService {
         }
 
         ExamenParticipation participation = resolverParticipation(request.getEtudiantId(), request.getStationId());
-        RotationAssignment assignment = rotationAssignmentRepository.findByParticipationId(participation.getId())
+        // #203 : lookup scopé (participation, station) — une participation a un
+        // assignment par station, donc un lookup par participation seule crasherait.
+        RotationAssignment assignment = rotationAssignmentRepository
+                .findByParticipationIdAndStationId(participation.getId(), request.getStationId())
                 .orElseGet(() -> createAssignment(participation, request.getStationId(), evaluateurId));
 
         Notation notation = notationRepository.findByAssignmentId(assignment.getId())
@@ -234,7 +242,9 @@ public class EvaluateurDashboardService {
 
     public void validerEtudiant(Long etudiantId, Long stationId, Long evaluateurId, ValiderEtudiantRequest request) {
         ExamenParticipation participation = resolverParticipation(etudiantId, stationId);
-        RotationAssignment assignment = rotationAssignmentRepository.findByParticipationId(participation.getId())
+        // #203 : lookup scopé (participation, station) — cf. saisirNotation.
+        RotationAssignment assignment = rotationAssignmentRepository
+                .findByParticipationIdAndStationId(participation.getId(), stationId)
                 .orElseGet(() -> createAssignment(participation, stationId, evaluateurId));
         Notation notation = notationRepository.findByAssignmentId(assignment.getId())
                 .orElseGet(() -> createNotation(assignment, stationId, request.getGrilleId()));
@@ -426,9 +436,8 @@ public class EvaluateurDashboardService {
         return notationRepository.save(n);
     }
 
-    private boolean isNotationVerrouillée(Long pId) {
-        return rotationAssignmentRepository.findByParticipationId(pId)
-                .flatMap(a -> notationRepository.findByAssignmentId(a.getId()))
+    private boolean isNotationVerrouillée(Long assignmentId) {
+        return notationRepository.findByAssignmentId(assignmentId)
                 .map(n -> Boolean.TRUE.equals(n.getVerouillee())).orElse(false);
     }
 }

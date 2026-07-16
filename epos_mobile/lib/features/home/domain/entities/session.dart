@@ -31,6 +31,8 @@ enum SessionStatus { enCours, aVenir, terminee }
 ///                           doit jamais se déclencher pendant une pause.
 class Session extends Equatable {
   final int           id;           // lot.id — scoring-service
+  final int? lotId;         // ← nouveau : pour le suivi WS du lot
+  final int  groupeNumero;  // ← nouveau : numéro du groupe (1..K)
   final int?          stationId;    // station réelle — exam-service ← nouveau
   final String        stationNom;
   final String?       matiere;
@@ -53,6 +55,8 @@ class Session extends Equatable {
 
   const Session({
     required this.id,
+    this.lotId,                // ← nouveau : pour le suivi WS du lot
+    this.groupeNumero = 0,     // ← nouveau : numéro du groupe (1..K)
     this.stationId,               // nullable pour compatibilité mock
     required this.stationNom,
     required this.matiere,
@@ -70,7 +74,7 @@ class Session extends Equatable {
 
   @override
   List<Object?> get props => [
-    id, stationId, stationNom, matiere, annee, statut,
+    id, lotId, groupeNumero, stationId, stationNom, matiere, annee, statut,
     heureDebut, nbEtudiants, salle, lotActuel, totalLots,
     avertissementLeadSec, enPause,
   ];

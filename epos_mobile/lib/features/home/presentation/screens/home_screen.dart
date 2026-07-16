@@ -43,7 +43,9 @@ void _naviguerVersNotation(
   // BF6.2 — OfflineBloc injecté dans GradingBloc pour rafraîchir le badge
   final offlineBloc = context.read<OfflineBloc>();
 
-  final int stationId = session.stationId ?? session.id;
+  // final int stationId = session.stationId ?? session.id;
+  final int stationId  = session.stationId ?? 0;
+  final int rotationId = session.id;
   final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
   final debutCreneau  = _parseHeureDebut(session.heureDebut);
 
@@ -51,7 +53,7 @@ void _naviguerVersNotation(
      repository:  gradingRepository,
      offlineBloc: offlineBloc,
    )..add(GradingSessionStarted(
-       rotationId:   session.id, 
+       rotationId:   rotationId,
        stationId:    stationId,
        lotNumero:    lotNumero,
        debutCreneau: debutCreneau,

@@ -5,6 +5,8 @@ import '../../domain/entities/session.dart';
 class SessionModel extends Session {
   const SessionModel({
     required super.id,
+    super.lotId,                // ← nouveau : pour le suivi WS du lot
+    super.groupeNumero,         // ← nouveau : numéro du groupe (1..K)
     super.stationId,              // nullable — absent des données mock
     required super.stationNom,
     super.matiere,
@@ -32,7 +34,9 @@ class SessionModel extends Session {
   /// backend plus ancien ou avec les fixtures de test.
   factory SessionModel.fromJson(Map<String, dynamic> json) {
     return SessionModel(
-      id:          json['id']          as int,
+      id:          json['id']          as int,   // = rotationId maintenant
+      lotId:       json['lotId']       as int?,   // ← nouveau, nullable
+      groupeNumero: _toInt(json['groupeNumero']),
       stationId:   json['stationId']   as int?,   // ← nouveau, nullable
       stationNom:  json['stationNom']  as String? ?? '',
       matiere:     json['matiere']     as String? ?? '',

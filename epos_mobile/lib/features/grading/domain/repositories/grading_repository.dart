@@ -8,11 +8,15 @@ abstract class GradingRepository {
   /// Charge la grille d'évaluation d'une station
   Future<Grille> getGrille(int stationId);
 
-  /// Charge le lot actuel (étudiants + notations existantes)
-  Future<Lot> getLot(int stationId, int lotNumero);
+  /// Charge le groupe COURANT (= la rotation en cours). rotationId identifie
+  /// sans ambiguïté (groupe × station × créneau).
+  Future<Lot> getGroupe(int rotationId);
+
+  /// Charge le PROCHAIN groupe planifié pour cet évaluateur (même station).
+  Future<Lot> getGroupeSuivant(int rotationId);
 
   /// Valide uniquement la rotation (session) de l'évaluateur actuel
-  Future<void> validerRotation(int rotationId);
+  /// Future<void> validerRotation(int rotationId);
 
   /// Sauvegarde une notation (création ou mise à jour)
   Future<void> saveNotation(Notation notation);
@@ -29,8 +33,9 @@ abstract class GradingRepository {
   String? commentaire,
   });
 
-  /// Valide tout le lot (passe au lot suivant)
-  Future<void> validerLot(int lotId);
+  /// Verrouille les notes du groupe courant, clôture la rotation. Si c'était
+  /// la dernière du lot, le lot est automatiquement clôturé côté serveur.
+  Future<void> validerGroupe(int rotationId);
 
   /// Substitue un étudiant absent
   Future<Etudiant> substituerEtudiant({

@@ -46,6 +46,8 @@ public class SessionResponse {
 
     private Long   id;
     private Long   stationId;
+    private Long lotId;        // pour le suivi WebSocket du lot et les stats
+    private int  groupeNumero; // numéro du groupe au sein du lot (1..K)
     private String stationNom;
     private String matiere;
     private String annee;

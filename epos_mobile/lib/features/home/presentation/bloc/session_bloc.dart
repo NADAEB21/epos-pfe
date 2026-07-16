@@ -123,7 +123,7 @@ class SessionBloc extends Bloc<SessionEvent, SessionState> {
     final current = state;
     if (current is! SessionLoaded) return;
 
-    final estPertinent = current.sessions.any((s) => s.id == update.lotId);
+    final estPertinent = current.sessions.any((s) => s.lotId == update.lotId);
     if (!estPertinent) return;
 
     _refreshDebounce?.cancel();
@@ -163,6 +163,10 @@ class SessionBloc extends Bloc<SessionEvent, SessionState> {
         stats:    results[1] as EvaluateurStats,
         planning: results[2] as List<PlanningCell>,
       ));
+
+      WebSocketService.instance.syncLotSubscriptions(
+        sessions.where((s) => s.lotId != null).map((s) => s.lotId!),
+      );
 
       // #197 — Aligne les abonnements WebSocket "lot" sur la liste de
       // sessions fraîchement chargée (ajoute les nouveaux, retire les

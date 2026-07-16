@@ -629,7 +629,7 @@ class _GradingFooter extends StatelessWidget {
                         ? null
                         : () => _confirmerValidation(context),
                     icon:  const Icon(Icons.check, size: 18),
-                    label: const Text('Valider lot'),
+                    label: const Text('Valider groupe'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side:    const BorderSide(color: Colors.white54),
@@ -647,7 +647,7 @@ class _GradingFooter extends StatelessWidget {
                         ? null
                         : () => _confirmerLotSuivant(context),
                     icon:  const Icon(Icons.arrow_forward, size: 18),
-                    label: const Text('Lot suivant'),
+                    label: const Text('Groupe suivant'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accent,
                       foregroundColor: Colors.white,
@@ -686,7 +686,7 @@ class _GradingFooter extends StatelessWidget {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
-                context.read<GradingBloc>().add(const GradingLotValide());
+                context.read<GradingBloc>().add(const GradingGroupeValide());
               },
               child: const Text('Confirmer'),
             ),
@@ -694,7 +694,7 @@ class _GradingFooter extends StatelessWidget {
         ),
       );
     } else {
-      context.read<GradingBloc>().add(const GradingLotValide());
+      context.read<GradingBloc>().add(const GradingGroupeValide());
     }
   }
 
@@ -703,7 +703,7 @@ class _GradingFooter extends StatelessWidget {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title:   const Text('Lot suivant ?'),
+          title:   const Text('Groupe suivant ?'),
           content: const Text(
             'Certains étudiants ne sont pas validés. Voulez-vous continuer ?',
           ),
@@ -717,7 +717,7 @@ class _GradingFooter extends StatelessWidget {
                 Navigator.pop(context);
                 context
                     .read<GradingBloc>()
-                    .add(const GradingLotSuivantDemande());
+                    .add(const GradingGroupeSuivantDemande());
               },
               child: const Text('Continuer'),
             ),
@@ -725,7 +725,7 @@ class _GradingFooter extends StatelessWidget {
         ),
       );
     } else {
-      context.read<GradingBloc>().add(const GradingLotSuivantDemande());
+      context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
     }
   }
 }

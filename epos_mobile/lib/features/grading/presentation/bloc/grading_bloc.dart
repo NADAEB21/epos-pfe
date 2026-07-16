@@ -114,12 +114,12 @@ class GradingEtudiantValide extends GradingEvent {
   List<Object?> get props => [etudiantId, absent, commentaire];
 }
 
-class GradingLotValide extends GradingEvent {
-  const GradingLotValide();
+class GradingGroupeValide extends GradingEvent {
+  const GradingGroupeValide();
 }
 
-class GradingLotSuivantDemande extends GradingEvent {
-  const GradingLotSuivantDemande();
+class GradingGroupeSuivantDemande extends GradingEvent {
+  const GradingGroupeSuivantDemande();
 }
 
 class GradingEtudiantSubstitue extends GradingEvent {
@@ -322,8 +322,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingBinaryUpdated>    (_onBinaryUpdated);
     on<GradingNumericUpdated>   (_onNumericUpdated);
     on<GradingEtudiantValide>   (_onEtudiantValide);
-    on<GradingLotValide>        (_onLotValide);
-    on<GradingLotSuivantDemande>(_onLotSuivant);
+    on<GradingGroupeValide>        (_onGroupeValide);
+    on<GradingGroupeSuivantDemande>(_onGroupeSuivant);
     on<GradingEtudiantSubstitue>(_onSubstituer);
     on<GradingTimerTick>        (_onTimerTick);
     on<GradingWsScoreReceived>  (_onWsScoreReceived); // BF6.1
@@ -339,7 +339,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     try {
       final results = await Future.wait([
         _repository.getGrille(event.stationId),
-        _repository.getLot(event.stationId, event.lotNumero),
+        _repository.getGroupe(event.rotationId),
       ]);
 
       final grille   = results[0] as Grille;
@@ -555,60 +555,41 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     );
   }
 
-  // ── Validation du lot ─────────────────────────────────────────────────────
-  Future<void> _onLotValide(
-      GradingLotValide event,
-      Emitter<GradingState> emit,
-      ) async {
+  // ── Validation du groupe ─────────────────────────────────────────────────────
+  Future<void> _onGroupeValide(GradingGroupeValide event, Emitter<GradingState> emit) async {
     final current = state;
     if (current is! GradingLoaded) return;
-
     emit(current.copyWith(lotEnCoursDeValidation: true));
     try {
-      // #FIX: On appelle validerRotation au lieu de validerLot
-      // pour ne pas tuer le travail des autres évaluateurs.
-      await _repository.validerRotation(current.rotationId); 
+      await _repository.validerGroupe(current.rotationId);   // ← FIX
       emit(current.copyWith(
-        lotEnCoursDeValidation: false,
-        lotValide:              true,
-        messageSucces:          'Session validée !',
+        lotEnCoursDeValidation: false, lotValide: true, messageSucces: 'Groupe validé !',
       ));
     } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));
     }
   }
 
-  // ── Lot suivant ───────────────────────────────────────────────────────────
-  Future<void> _onLotSuivant(
-      GradingLotSuivantDemande event,
+  // ── groupe suivant ───────────────────────────────────────────────────────────
+  Future<void> _onGroupeSuivant(
+      GradingGroupeSuivantDemande event,
       Emitter<GradingState> emit,
       ) async {
     final current = state;
     if (current is! GradingLoaded) return;
-
-    final prochainLot = current.lot.numero + 1;
-    if (prochainLot > current.lot.total) return;
-
     emit(GradingLoading());
     try {
-      final lot = await _repository.getLot(current.stationId, prochainLot);
+      final prochain = await _repository.getGroupeSuivant(current.rotationId);
       emit(GradingLoaded(
-        rotationId:       current.rotationId, 
-        stationId:        current.stationId,
-        grilleId:         current.grilleId,
-        stationNom:       current.stationNom,
-        grille:           current.grille,
-        lot:              lot,
-        notations:        {},
-        etudiantsValides: {},
-        tempsRestant:     _durationStation,
-        lotValide:        lot.valide,
-        avertissementLeadSec: current.avertissementLeadSec,
-        enPause:              current.enPause,
+        rotationId: prochain.id, stationId: current.stationId, grilleId: current.grilleId,
+        stationNom: current.stationNom, grille: current.grille, lot: prochain,
+        notations: {}, etudiantsValides: {}, tempsRestant: _durationStation,
+        lotValide: prochain.valide,
+        avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,
       ));
       _startTimer();
     } catch (e) {
-      emit(GradingError('Impossible de charger le lot suivant : $e'));
+    emit(GradingError('Aucun groupe suivant disponible : $e'));
     }
   }
 

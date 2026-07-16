@@ -64,15 +64,26 @@ public class EvaluateurDashboardController {
     // Retourne le lot courant avec la liste complète des étudiants.
     // Correspond à GradingRepository.getLot(stationId, lotNumero) Flutter.
     // ──────────────────────────────────────────────────────────────────────────
-    @GetMapping("/stations/{stationId}/lots/{lotNumero}")
-    public ResponseEntity<ApiResponse<LotDetailResponse>> getLot(
-            @PathVariable Long stationId,
-            @PathVariable Integer lotNumero,
-            @AuthenticationPrincipal Jwt jwt) {
+    @GetMapping("/rotations/{rotationId}/groupe")
+    public ResponseEntity<ApiResponse<LotDetailResponse>> getGroupeDetail(
+            @PathVariable Long rotationId, @AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getGroupeDetail(rotationId, extractUserId(jwt))));
+    }
 
-        Long evaluateurId = extractUserId(jwt);
-        LotDetailResponse response = dashboardService.getLotDetail(stationId, lotNumero, evaluateurId);
-        return ResponseEntity.ok(ApiResponse.ok(response));
+    @GetMapping("/rotations/{rotationId}/suivant")
+    public ResponseEntity<ApiResponse<LotDetailResponse>> getGroupeSuivant(
+            @PathVariable Long rotationId, @AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getGroupeSuivant(rotationId, extractUserId(jwt))));
+    }
+
+    // Remplace l'appel Flutter cassé vers /rotations/{lotId}/valider
+    @PostMapping("/rotations/{rotationId}/valider")
+    public ResponseEntity<ApiResponse<Void>> validerGroupe(
+            @PathVariable Long rotationId, @AuthenticationPrincipal Jwt jwt) {
+        dashboardService.validerGroupe(rotationId, extractUserId(jwt));
+        return ResponseEntity.ok(ApiResponse.ok("Groupe validé pour cette station"));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -120,6 +131,7 @@ public class EvaluateurDashboardController {
     // Correspond à GradingRepository.validerLot(lotId) Flutter.
     // ──────────────────────────────────────────────────────────────────────────
     @PostMapping("/lots/{lotId}/valider")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<Void>> validerLot(
             @PathVariable Long lotId,
             @AuthenticationPrincipal Jwt jwt) {

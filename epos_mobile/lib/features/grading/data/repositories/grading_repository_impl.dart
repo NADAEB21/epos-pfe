@@ -43,20 +43,27 @@ class GradingRepositoryImpl implements GradingRepository {
     }
   }
 
-  // ── GET /evaluateur/stations/{id}/lots/{num} ──────────────────────────────
   @override
-  Future<Lot> getLot(int stationId, int lotNumero) async {
-    try {
-      final response = await _apiClient.get(
-        ApiConstants.lotDetail(stationId, lotNumero),
-      );
-      final body = response.data as Map<String, dynamic>;
-      final data = body['data'] as Map<String, dynamic>;
-      return LotModel.fromJson(data);
-    } on DioException catch (e) {
-      throw _handleError(e, 'Impossible de charger le lot');
-    }
+  Future<Lot> getGroupe(int rotationId) async {
+  try {
+    final response = await _apiClient.get(ApiConstants.groupeDetail(rotationId));
+    final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+    return LotModel.fromJson(data);
+  } on DioException catch (e) {
+    throw _handleError(e, 'Impossible de charger le groupe');
   }
+}
+
+  @override
+  Future<Lot> getGroupeSuivant(int rotationId) async {
+  try {
+    final response = await _apiClient.get(ApiConstants.groupeSuivant(rotationId));
+    final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+    return LotModel.fromJson(data);
+  } on DioException catch (e) {
+    throw _handleError(e, 'Aucun groupe suivant');
+  }
+}
 
   // ── POST /evaluateur/notations/saisir — stratégie offline-first ───────────
   //
@@ -138,25 +145,14 @@ class GradingRepositoryImpl implements GradingRepository {
     }
   }
 
-  // ── POST /evaluateur/lots/{id}/valider ────────────────────────────────────
   @override
-  Future<void> validerLot(int lotId) async {
-    try {
-      await _apiClient.post(ApiConstants.validerLot(lotId));
-    } on DioException catch (e) {
-      throw _handleError(e, 'Impossible de valider le lot');
-    }
+  Future<void> validerGroupe(int rotationId) async {
+  try {
+    await _apiClient.post(ApiConstants.validerGroupe(rotationId));
+  } on DioException catch (e) {
+    throw _handleError(e, 'Impossible de valider le groupe');
   }
-  
-  // ── POST /evaluateur/rotations/{id}/valider ───────────────────────────────
-  @override
-  Future<void> validerRotation(int rotationId) async {
-    try {
-      await _apiClient.post(ApiConstants.validerRotation(rotationId));
-    } on DioException catch (e) {
-      throw _handleError(e, 'Impossible de valider la rotation');
-    }
-  }
+}
 
   // ── Substitution ──────────────────────────────────────────────────────────
   @override

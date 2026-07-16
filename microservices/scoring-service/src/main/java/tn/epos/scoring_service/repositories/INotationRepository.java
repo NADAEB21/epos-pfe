@@ -15,6 +15,13 @@ public interface INotationRepository extends JpaRepository<Notation, Long> {
     // Trouver la notation associée à une assignment spécifique
     Optional<Notation> findByAssignmentId(Long assignmentId);
 
+    // Toutes les notations d'UNE participation (= un étudiant dans un examen),
+    // une par station de son circuit OSCE. Sert à recalculer la note agrégée
+    // cross-station stockée dans ExamenParticipation.note (#212) — même sémantique
+    // que la somme des score_final de ExamenResultDTO.totalScore.
+    @Query("SELECT n FROM Notation n WHERE n.assignment.participation.id = :participationId")
+    List<Notation> findByParticipationId(@Param("participationId") Long participationId);
+
     // Trouver les notations d'une station donnée (cross-service)
     List<Notation> findByStationId(Long stationId);
 

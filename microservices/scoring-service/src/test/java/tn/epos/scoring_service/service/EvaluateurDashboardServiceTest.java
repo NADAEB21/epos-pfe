@@ -1020,8 +1020,10 @@ class EvaluateurDashboardServiceTest {
     // #FIX multi-station : la présence par station vit désormais sur
     // RotationAssignment.presenceConfirmee, plus sur ExamenParticipation
     // (une seule ligne par (étudiant, examen) ne peut pas porter 4 présences
-    // différentes, une par station). participation.note / est_present ne sont
-    // plus écrasés ici.
+    // différentes, une par station). participation.est_present n'est plus
+    // écrasé ici ; participation.note est recalculée comme la SOMME des
+    // score_final de toutes les stations notées (#212), jamais le score d'une
+    // seule station (l'ancien clobber).
     // =========================================================================
 
     @Nested
@@ -1075,6 +1077,33 @@ class EvaluateurDashboardServiceTest {
             assertThat(n.getVerouillee()).isTrue();
             assertThat(ra.getPresenceConfirmee()).isTrue();
             verify(rotationAssignmentRepository).save(ra);
+            verify(participationRepository).save(p);
+        }
+
+        @Test
+        @DisplayName("#212 note agrégée : participation.note = SOMME des score_final de toutes les stations notées")
+        void validerEtudiant_noteAgregeeCrossStation() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
+            Notation courante = new Notation(); courante.setId(10L); courante.setScore_final(7f);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(courante));
+            // Deux stations déjà notées pour CETTE participation : 7 (station courante) + 12.
+            Notation autreStation = new Notation(); autreStation.setId(11L); autreStation.setScore_final(12f);
+            when(notationRepository.findByParticipationId(1L))
+                    .thenReturn(List.of(courante, autreStation));
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            req.setAbsent(false);
+            req.setGrilleId(1L);
+            service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
+
+            // 7 + 12 = 19, PAS 7 (pas de clobber par la seule station courante).
+            assertThat(p.getNote()).isEqualTo(19f);
             verify(participationRepository).save(p);
         }
 
@@ -1301,7 +1330,9 @@ class EvaluateurDashboardServiceTest {
     }
 
     // =========================================================================
-    // validerLot — forçage manuel côté responsable (logique interne inchangée)
+    // validerLot — #211 : cascade NEUTRALISÉE. Recalcul d'oversight (admin) qui
+    // DÉRIVE lot.statut de l'état stocké des rotations, sans JAMAIS écrire de
+    // statut de rotation (ADR-0014 §4).
     // =========================================================================
 
     @Nested
@@ -1309,66 +1340,52 @@ class EvaluateurDashboardServiceTest {
     class ValiderLotLogic {
 
         @Test
-        @DisplayName("Cascade : lot ET rotations passent à TERMINE")
-        void validerLot_cascadeStatut() {
+        @DisplayName("Toutes rotations TERMINE (restantes=0) → lot TERMINE, aucune rotation écrite")
+        void validerLot_deriveTermine() {
             Lot lot = new Lot();
             lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-
-            StudentGroup sg = new StudentGroup();
-            Rotation r = new Rotation(); r.setStatut(RotationStatus.EN_ATTENTE);
-            sg.setRotations(List.of(r));
-            lot.setGroups(List.of(sg));
+            lot.setStatut(LotStatus.EN_COURS);
 
             when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
+                    .thenReturn(0L);
 
             service.validerLot(10L, EVAL_ID);
 
             assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
-            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
             verify(lotRepository).save(lot);
-            verify(rotationRepository).save(r);
+            // #211 : la neutralisation garantit qu'AUCUNE rotation n'est forcée.
+            verify(rotationRepository, never()).save(any(Rotation.class));
         }
 
         @Test
-        @DisplayName("Rotation déjà TERMINE : toujours sauvegardée (pas de garde spécifique)")
-        void validerLot_rotationDejaTermine() {
+        @DisplayName("Des rotations restent non terminées → lot EN_COURS, aucune rotation écrite")
+        void validerLot_deriveEnCours() {
             Lot lot = new Lot();
             lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-
-            StudentGroup sg = new StudentGroup();
-            Rotation r = new Rotation(); r.setStatut(RotationStatus.TERMINE);
-            sg.setRotations(List.of(r));
-            lot.setGroups(List.of(sg));
+            lot.setStatut(LotStatus.EN_COURS);
 
             when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
+                    .thenReturn(3L);
 
             service.validerLot(10L, EVAL_ID);
 
-            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            verify(rotationRepository).save(r);
+            assertThat(lot.getStatut()).isEqualTo(LotStatus.EN_COURS);
+            verify(lotRepository).save(lot);
+            verify(rotationRepository, never()).save(any(Rotation.class));
         }
 
         @Test
-        @DisplayName("Lot sans groupes : pas d'exception")
-        void validerLot_sansGroupes() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setGroups(null);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-
-            assertThatCode(() -> service.validerLot(10L, EVAL_ID)).doesNotThrowAnyException();
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
-        }
-
-        @Test
-        @DisplayName("Diffuse le nouveau statut du lot via WebSocket après validation")
+        @DisplayName("Diffuse le statut DÉRIVÉ du lot via WebSocket après validation")
         void validerLot_broadcastStatut() {
             Lot lot = new Lot();
             lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setGroups(null);
+            lot.setStatut(LotStatus.EN_COURS);
 
             when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
+                    .thenReturn(0L);
 
             service.validerLot(10L, EVAL_ID);
 

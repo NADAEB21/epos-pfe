@@ -283,23 +283,50 @@ public class EvaluateurDashboardService {
         rotationAssignmentRepository.save(assignment);
 
         participation.setCommentaire(request.getCommentaire());
+        // #212 — note AGRÉGÉE cross-station. ExamenParticipation n'a qu'UNE colonne
+        // note, mais un étudiant passe N stations (N Notation.score_final). Écrire
+        // ici le score d'UNE station y écrasait celui des autres (clobber #212, la
+        // raison pour laquelle setNote a été retiré). On y stocke donc la SOMME des
+        // score_final de toutes les stations DÉJÀ notées de cette participation —
+        // exactement la valeur que ExamenResultDTO.totalScore recompose à la volée,
+        // et la seule lecture de ParticipationDTO.note (onglet Étudiants côté web).
+        participation.setNote(sommeScoresParticipation(participation.getId()));
         participationRepository.save(participation);
 
         broadcastScore(notation, stationId);
     }
 
+    /**
+     * Somme des {@code score_final} de toutes les notations d'une participation
+     * (une par station de son circuit). Recalculée à chaque validation de station
+     * — le total grandit au fur et à mesure que les stations sont verrouillées.
+     * Aucune notation ⇒ {@code null} (pas encore noté ≠ zéro).
+     */
+    private Float sommeScoresParticipation(Long participationId) {
+        List<Notation> notations = notationRepository.findByParticipationId(participationId);
+        if (notations.isEmpty()) return null;
+        float total = 0f;
+        for (Notation n : notations) {
+            if (n.getScore_final() != null) total += n.getScore_final();
+        }
+        return total;
+    }
+
     public void validerLot(Long lotId, Long evaluateurId) {
         Lot lot = lotRepository.findById(lotId).orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
-        lot.setStatut(LotStatus.TERMINE);
-        lotRepository.save(lot);
 
-        if (lot.getGroups() != null) {
-            lot.getGroups().forEach(g -> g.getRotations().forEach(r -> {
-                r.setStatut(RotationStatus.TERMINE);
-                rotationRepository.save(r);
-            }));
-        }
-        broadcastLotStatus(lotId, "TERMINE");
+        // #211 — cascade NEUTRALISÉE. L'ancienne version forçait TOUTES les
+        // rotations du lot à TERMINE : un admin clôturant un lot terminait ainsi
+        // de force les stations d'autres évaluateurs encore en cours de notation
+        // (perte de données silencieuse). ADR-0014 §4 : le statut du lot se DÉRIVE
+        // de l'état réel des rotations — on ne l'IMPOSE jamais, et on n'écrit
+        // AUCUN statut de rotation ici. Ce point de terminaison "Valider lot"
+        // (réservé admin/responsable) n'est donc plus qu'un recalcul d'oversight.
+        long restantes = rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lotId, RotationStatus.TERMINE);
+        LotStatus derive = (restantes == 0) ? LotStatus.TERMINE : LotStatus.EN_COURS;
+        lot.setStatut(derive);
+        lotRepository.save(lot);
+        broadcastLotStatus(lotId, derive.name());
     }
 
     // =========================================================================

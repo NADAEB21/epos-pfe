@@ -3,6 +3,7 @@ package tn.epos.scoring_service.entities;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Entity
@@ -22,6 +23,11 @@ public class Lot {
 
     private Integer numeroLot;
     private Integer tailleLot;
+
+    // ADR-0014-A §5 / #147 — jour de passage du lot (multi-jour). NULL = le lot
+    // tourne le jour unique de l'examen (exam_db.dateExamen). Renseigné seulement
+    // quand le responsable étale une cohorte sur plusieurs jours. PLAN, pas PACE.
+    private LocalDate jour;
 
     @Enumerated(EnumType.STRING)
     private LotStatus statut;

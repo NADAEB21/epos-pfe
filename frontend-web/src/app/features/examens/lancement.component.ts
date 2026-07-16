@@ -4,7 +4,7 @@ import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { StationSummary, StatutExamen } from '../../core/api/models';
-import { isExamDay, isFutureDate } from '../../core/api/exam-status';
+import { isLaunchDay, isFutureDate } from '../../core/api/exam-status';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface PreflightCheck {
@@ -249,6 +249,7 @@ export class LancementComponent {
         this.stations.set(stations);
         this.rosterCount.set(participations.length);
         this.lotsCount.set(lots.length);
+        this.lotJours.set(lots.map((l) => l.jour)); // #147 — lot-days for the launch gate
         this.localLoading.set(false);
       },
       error: () => {
@@ -271,12 +272,15 @@ export class LancementComponent {
   private readonly rosterBlocks = computed(() => this.statut() === 'CONFIGURE');
 
   private readonly dateExamen = computed(() => this.store.exam()?.dateExamen ?? null);
-  /** Launching is only allowed on the exam's own day (jour J). */
-  private readonly isExamDay = computed(() => isExamDay(this.dateExamen()));
-  /** Hint shown on the date check when it's not the exam day yet (or it has passed). */
+  private readonly lotJours = signal<(string | null)[]>([]);
+  /** #147 — launch is allowed on ANY of the exam's lot-days (multi-day). For a
+   *  single-day exam (no lot carries a `jour`) this reduces to the exam's own
+   *  date (jour J). */
+  private readonly canLaunchDay = computed(() => isLaunchDay(this.dateExamen(), this.lotJours()));
+  /** Hint shown on the date check when today is not (yet) a launch day. */
   private readonly dateHint = computed<string | undefined>(() => {
     const d = this.dateExamen();
-    if (!d || this.isExamDay()) return undefined;
+    if (!d || this.canLaunchDay()) return undefined;
     return isFutureDate(d)
       ? `Lancement possible le jour J (${this.frDate(d)})`
       : 'Date dépassée — modifiez la date de l’examen pour le relancer';
@@ -341,14 +345,14 @@ export class LancementComponent {
               : 'A repartir avant le jour J',
       },
       {
-        // Day-of gate: a CONFIGURE exam can only be launched on its own date.
-        // Blocking for the launch edge only (greys "Lancer l'examen" until jour J);
-        // never blocks "Finaliser la configuration".
+        // Day-of gate: a CONFIGURE exam can only be launched on one of its
+        // lot-days (#147 multi-day; single-day = the exam's own date). Blocking
+        // for the launch edge only; never blocks "Finaliser la configuration".
         label: "Jour de l'examen",
-        ok: this.isExamDay(),
+        ok: this.canLaunchDay(),
         blocking: this.rosterBlocks(),
-        hint: this.isExamDay()
-          ? "C'est le jour J"
+        hint: this.canLaunchDay()
+          ? "C'est un jour d'examen"
           : this.dateHint() ?? 'A lancer le jour J',
       },
       {

@@ -35,6 +35,15 @@ public class GrilleTemplate {
 
     public void addItem(ItemTemplate item) {
         items.add(item);
+        // Propage template_id (NOT NULL) sur TOUT l'arbre, pas seulement l'item de
+        // premier niveau : les sous-critères construits via ItemTemplate.addChild
+        // héritaient template = null → violation 23502 à l'INSERT. Symétrique de
+        // GrilleEvaluation.assignerGrilleRecursivement().
+        assignerTemplateRecursivement(item);
+    }
+
+    private void assignerTemplateRecursivement(ItemTemplate item) {
         item.setTemplate(this);
+        item.getChildren().forEach(this::assignerTemplateRecursivement);
     }
 }

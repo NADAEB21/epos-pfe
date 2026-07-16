@@ -713,4 +713,111 @@ class GrilleTemplateServiceImplTest {
             verify(grilleRepository, never()).save(any());
         }
     }
+
+    // ================================================================
+    // Régression — grille/template décomposée en sous-critères (#160/#162).
+    // Bug live 2026-07-16 (Feten) : sauver une grille AVEC sous-critères comme
+    // template levait un 500 "null value in column template_id" (les enfants
+    // n'héritaient pas du template) ET, une fois ce blocage levé, dupliquait
+    // chaque sous-critère comme item de premier niveau (grille.getItems() inclut
+    // les enfants après reload, et buildItemTemplate() y redescend déjà).
+    // ================================================================
+
+    @Nested
+    @DisplayName("Hiérarchie sous-critères — régression #160")
+    class HierarchieSousCriteres {
+
+        /** Grille rechargée : sa collection plate contient parent + enfants. */
+        private GrilleEvaluation grilleAvecSousCriteres() {
+            ItemEvaluation parent = ItemEvaluation.builder()
+                    .id(10L).libelle("Critère parent").type(TypeItem.BINAIRE)
+                    .ponderation(4.0).ordre(1).build();
+            ItemEvaluation sous1 = ItemEvaluation.builder()
+                    .id(11L).libelle("Sous 1").type(TypeItem.BINAIRE)
+                    .ponderation(2.0).ordre(1).parent(parent).build();
+            ItemEvaluation sous2 = ItemEvaluation.builder()
+                    .id(12L).libelle("Sous 2").type(TypeItem.BINAIRE)
+                    .ponderation(2.0).ordre(2).parent(parent).build();
+            parent.getChildren().addAll(List.of(sous1, sous2));
+
+            GrilleEvaluation g = GrilleEvaluation.builder()
+                    .id(1L).nom("Grille décomposée").noteMax(4.0).station(station)
+                    // reload BDD : les 3 lignes (grille_id NOT NULL) sont dans la collection plate
+                    .items(new ArrayList<>(List.of(parent, sous1, sous2)))
+                    .build();
+            parent.setGrille(g); sous1.setGrille(g); sous2.setGrille(g);
+            return g;
+        }
+
+        @Test
+        @DisplayName("sauvegarderDepuisGrille : les sous-critères héritent du template (pas de template_id null)")
+        void sauvegarder_sousCriteres_heritentDuTemplate() {
+            GrilleEvaluation g = grilleAvecSousCriteres();
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(g));
+            when(templateRepository.existsByNom(any())).thenReturn(false);
+
+            ArgumentCaptor<GrilleTemplate> captor = ArgumentCaptor.forClass(GrilleTemplate.class);
+            when(templateRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            templateService.sauvegarderDepuisGrille(1L, "Template décomposé");
+
+            GrilleTemplate saved = captor.getValue();
+            // 1) le template lui-même est posé sur le parent ET récursivement sur les enfants
+            assertThat(saved.getItems()).hasSize(1);
+            ItemTemplate parent = saved.getItems().get(0);
+            assertThat(parent.getTemplate()).isSameAs(saved);
+            assertThat(parent.getChildren()).hasSize(2);
+            assertThat(parent.getChildren())
+                    .allSatisfy(child -> assertThat(child.getTemplate())
+                            .as("chaque sous-critère doit hériter du template (sinon 23502)")
+                            .isSameAs(saved));
+        }
+
+        @Test
+        @DisplayName("sauvegarderDepuisGrille : les sous-critères ne sont PAS dupliqués au premier niveau")
+        void sauvegarder_sousCriteres_pasDeDuplication() {
+            GrilleEvaluation g = grilleAvecSousCriteres();
+            when(grilleRepository.findByIdWithItems(1L)).thenReturn(Optional.of(g));
+            when(templateRepository.existsByNom(any())).thenReturn(false);
+
+            ArgumentCaptor<GrilleTemplate> captor = ArgumentCaptor.forClass(GrilleTemplate.class);
+            when(templateRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            GrilleTemplateResponse resp =
+                    templateService.sauvegarderDepuisGrille(1L, "Template décomposé");
+
+            // premier niveau = 1 seul item, PAS 3 (parent + 2 enfants dupliqués)
+            assertThat(captor.getValue().getItems()).hasSize(1);
+            assertThat(resp.getNombreItems()).isEqualTo(1);
+            assertThat(resp.getSommePonderations()).isEqualTo(4.0); // 4, pas 8
+        }
+
+        @Test
+        @DisplayName("toResponse (reload) : ne compte/somme/expose QUE le premier niveau")
+        void trouverParId_reload_filtreLePremierNiveau() {
+            ItemTemplate parent = ItemTemplate.builder()
+                    .id(20L).libelle("P").type(TypeItem.BINAIRE).ponderation(4.0).ordre(1).build();
+            ItemTemplate s1 = ItemTemplate.builder()
+                    .id(21L).libelle("S1").type(TypeItem.BINAIRE).ponderation(2.0).ordre(1).parent(parent).build();
+            ItemTemplate s2 = ItemTemplate.builder()
+                    .id(22L).libelle("S2").type(TypeItem.BINAIRE).ponderation(2.0).ordre(2).parent(parent).build();
+            parent.getChildren().addAll(List.of(s1, s2));
+
+            GrilleTemplate reloaded = GrilleTemplate.builder()
+                    .id(7L).nom("Template reload").noteMax(4.0)
+                    // reload : la collection plate contient parent + enfants (template_id sur les 3)
+                    .items(new ArrayList<>(List.of(parent, s1, s2)))
+                    .build();
+            parent.setTemplate(reloaded); s1.setTemplate(reloaded); s2.setTemplate(reloaded);
+
+            when(templateRepository.findByIdWithItems(7L)).thenReturn(Optional.of(reloaded));
+
+            GrilleTemplateResponse resp = templateService.trouverParId(7L);
+
+            assertThat(resp.getNombreItems()).isEqualTo(1);         // pas 3
+            assertThat(resp.getSommePonderations()).isEqualTo(4.0); // pas 8
+            assertThat(resp.getItems()).hasSize(1);
+            assertThat(resp.getItems().get(0).getSousCriteres()).hasSize(2);
+        }
+    }
 }

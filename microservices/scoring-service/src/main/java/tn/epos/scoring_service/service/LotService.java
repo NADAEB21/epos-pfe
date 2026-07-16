@@ -49,6 +49,12 @@ public class LotService {
             if (lotDetails.getExamenId() != null) {
                 lot.setExamenId(lotDetails.getExamenId());
             }
+            // #147 — jour multi-jour : même sémantique PATCH que les FK ci-dessus.
+            // On ne l'écrase que s'il est fourni ; un PUT qui ne le porte pas ne
+            // ré-attribue pas le lot au jour unique de l'examen par accident.
+            if (lotDetails.getJour() != null) {
+                lot.setJour(lotDetails.getJour());
+            }
             return lotRepository.save(lot);
         }).orElseThrow(() -> new ResourceNotFoundException("Lot non trouvé avec l'id : " + id));
     }

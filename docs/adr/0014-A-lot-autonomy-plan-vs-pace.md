@@ -1,4 +1,4 @@
-# ADR 0014-A: Lot autonomy — PLAN vs PACE, two-level advance, venue & multi-day as stored plan
+# ADR 0014-A: Lot autonomy — PLAN vs PACE, two-level advance, multi-day as stored plan
 
 - **Date:** 2026-07-16
 - **Status:** Accepted (addendum to ADR-0014; extends the constitution from passages up to lots).
@@ -95,13 +95,13 @@ of storing the responsable's real day/venue) **and** uses that fake schedule as 
    as a **faint informational hint** whose date comes from the lot's assigned day — it must never
    again drive **status** (ADR-0014 §3) or **visibility** (see the launch/planning gate below).
 
-4. **Venue = one field on `Examen` — OPTIONAL / deferred.** Add a single `lieu`/`salle` String (the
-   matière's TP / amphi / "différents centres"). **Not a managed entity, not per-station, no
-   allocation.** It exists only to close the `SessionResponse.salle` display gap that ships `null`
-   today (field present `SessionResponse.java:58`, never set in `buildSessions`,
-   `EvaluateurDashboardService.java:296-305`). **Supervisor correction (2026-07-16): venue is NOT
-   part of the convocation** (see §6), so this field is a nice-to-have display fix, not a
-   prerequisite for anything. Deferred until a display need actually demands it.
+4. **No venue field. Out of scope.** An earlier draft proposed a `lieu`/`salle` String on `Examen`.
+   **Supervisor decision (2026-07-16, via Nada): the convocation email carries the lot + the exam
+   date ONLY — never the venue** (see §6). With the convocation no longer needing it, venue has **no
+   consumer**, so it is **not introduced**. The `SessionResponse.salle` field that ships `null` today
+   (`SessionResponse.java:58`, never set in `buildSessions`) simply stays unused — a cosmetic null,
+   not a gap worth a schema change. If a genuine display need for venue ever appears, it is a new,
+   separate decision — not part of this ADR.
 
 5. **Multi-day = an optional `jour` (LocalDate) on `Lot`, defaulting to `Examen.dateExamen`.** A lot
    diverges from the exam date only when the responsable splits a cohort across days. The launch
@@ -113,8 +113,8 @@ of storing the responsable's real day/venue) **and** uses that fake schedule as 
 6. **Convocations/email is a separate child — email = LOT + exam DATE only.** Supervisor simplification
    (2026-07-16, via Nada): students are told **their lot number + the exam day**, nothing else — **not
    the venue/salle.** So the only data prerequisites are **`Etudiant.email`** (absent today,
-   `Etudiant.java:15-27`, `ImportEtudiantRequest.java:10-14`) and the lot's **`jour`** (§5). Venue (§4)
-   is **NOT** needed here. Wire the already-built but data-blocked web convocation screen
+   `Etudiant.java:15-27`, `ImportEtudiantRequest.java:10-14`) and the lot's **`jour`** (§5). **No venue
+   (§4).** Wire the already-built but data-blocked web convocation screen
    (`convocations.component.ts`) once email + day exist. "Emailed in advance" is the real FPHM
    convocation. **Not part of #207.** Tracked as **#227**.
 
@@ -126,10 +126,10 @@ of storing the responsable's real day/venue) **and** uses that fake schedule as 
 
 - **The work splits into three separable streams.** (a) **#207** — clock→progress + Groupe-suivant
   repair (backend, then #208 web / #209 mobile); unchanged in spirit, now known to be a functional
-  repair, not only hygiene. (b) **PLAN data** — venue on `Examen`, optional `jour` on `Lot`, and the
-  launch day-gate fix; this is the real, minimal content of #147 / ADR-0011 multi-day. (c) **A new
-  convocation child** — `Etudiant.email` + venue + day + the existing web screen. Only (a) and the
-  launch-gate part of (b) are mutually prerequisite; (c) is independent.
+  repair, not only hygiene. (b) **PLAN data** — optional `jour` on `Lot` + the launch day-gate fix;
+  this is the real, minimal content of #147 / ADR-0011 multi-day (no venue). (c) **A new convocation
+  child** — `Etudiant.email` + day + the existing web screen. Only (a) and the launch-gate part of (b)
+  are mutually prerequisite; (c) is independent.
 - **`Lot.statut` becomes a derived consequence, adding no new stored lot lifecycle fields** beyond
   the optional `jour`. "Break between lots" and "teacher wants a rest" need **no** pause entity —
   they are the natural result of never gating on time.
@@ -138,5 +138,3 @@ of storing the responsable's real day/venue) **and** uses that fake schedule as 
 - **Migration is staged and verified live per slice** (curl the scoring contract, Playwright the web
   board, `flutter run -d chrome` mobile) — same discipline as ADR-0014; one issue to a merged PR
   before the next.
-- **No room-management module is introduced.** The FPHM reality (venue = the matière's fixed TP)
-  keeps venue a single string, not a scheduling subsystem.

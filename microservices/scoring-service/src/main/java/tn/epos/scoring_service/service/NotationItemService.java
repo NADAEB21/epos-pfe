@@ -60,10 +60,17 @@ public class NotationItemService {
             // #23 : refuser toute modification d'un critère dont la notation parente
             // (celle d'origine) est verrouillée — avant même de réassigner le parent.
             assertNotationNotLocked(item.getNotation());
-            item.setItemId(details.getItemId());
             item.setValeur(details.getValeur());
             item.setCommentaire(details.getCommentaire());
-            item.setNotation(details.getNotation());
+            // #215 sémantique PATCH : le PUT ne peuple PAS itemId/notation — les
+            // copier à null orphelinerait le critère (exclu du recalcul du score).
+            // On ne réassigne le parent que si un nouveau est explicitement fourni.
+            if (details.getItemId() != null) {
+                item.setItemId(details.getItemId());
+            }
+            if (details.getNotation() != null) {
+                item.setNotation(details.getNotation());
+            }
             // Et refuser aussi de déplacer le critère VERS une notation verrouillée.
             assertNotationNotLocked(item.getNotation());
             validateItemBelongsToParentGrille(item);

@@ -88,8 +88,15 @@ public class RotationAssignmentService {
         return repository.findById(id).map(a -> {
             a.setPresenceConfirmee(details.getPresenceConfirmee());
             a.setTempsAdditionnel(details.getTempsAdditionnel());
-            a.setRotation(details.getRotation());
-            a.setParticipation(details.getParticipation());
+            // #215 sémantique PATCH : le PUT ne peuple PAS rotation/participation
+            // — les copier à null briserait la chaîne
+            // Notation -> Assignment -> Rotation.evaluateurId (note invisible au périmètre).
+            if (details.getRotation() != null) {
+                a.setRotation(details.getRotation());
+            }
+            if (details.getParticipation() != null) {
+                a.setParticipation(details.getParticipation());
+            }
             return repository.save(a);
         }).orElseThrow(() -> new ResourceNotFoundException("Assignment non trouvé avec l'id : " + id));
     }

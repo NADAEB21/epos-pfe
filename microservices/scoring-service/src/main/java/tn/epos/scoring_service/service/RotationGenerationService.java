@@ -8,9 +8,11 @@ import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.dto.GenerationResult;
+import tn.epos.scoring_service.dto.ResetRotationsResult;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
+import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 import tn.epos.scoring_service.repositories.IStudentGroupRepository;
@@ -56,6 +58,7 @@ public class RotationGenerationService {
     private final IStudentGroupRepository         studentGroupRepository;
     private final IRotationRepository             rotationRepository;
     private final IRotationAssignmentRepository   assignmentRepository;
+    private final INotationRepository             notationRepository;
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
@@ -100,7 +103,30 @@ public class RotationGenerationService {
                     "Aucun étudiant présent dans le lot " + lot.getNumeroLot() + ".");
         }
 
-        // Nettoyage avant génération
+        // ── GARDE-FOU ANTI-PERTE DE DONNÉES (issue #188) ──────────────────────────
+        // wipeLotGroups() supprime les StudentGroup du lot, et TOUTE la chaîne dessous
+        // part en CASCADE (JPA + FK PostgreSQL) : rotations → assignments → notations →
+        // notation_items / notation_adjustments. Régénérer un lot déjà noté effacerait
+        // donc les notes — y compris les notations VERROUILLÉES, que l'ADR-0013 déclare
+        // immuables, et leur piste d'audit. Mesuré sur le lot 13 : 56 des 57 notations
+        // (dont 56 verrouillées) et les 16 notation_items détruits par un seul appel.
+        //
+        // Le seul garde-fou existant (lot EN_COURS, plus haut) ne protège rien : le lot
+        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE qu'au validerLot
+        // de l'évaluateur. La régénération est donc armée exactement quand elle détruit
+        // le plus. On refuse dès qu'UNE notation existe (fail closed) : dès qu'un
+        // évaluateur a saisi quoi que ce soit, le planning n'est plus un état dérivé
+        // qu'on peut reconstruire en silence.
+        long notationsMenacees = notationRepository.countNotationsAtRiskForLot(lotId);
+        if (notationsMenacees > 0) {
+            throw new BusinessException(
+                    "Régénération impossible : " + notationsMenacees + " notation(s) ont déjà été "
+                            + "saisies pour le lot " + lot.getNumeroLot() + ". Régénérer les rotations "
+                            + "supprimerait définitivement ces notes (y compris les notes verrouillées) "
+                            + "ainsi que leur historique de réajustement. Aucune donnée n'a été modifiée.");
+        }
+
+        // Nettoyage avant génération — sûr : le lot n'a aucune notation (garde ci-dessus).
         wipeLotGroups(lotId);
 
         LocalTime start    = exam.heureDebut() != null ? exam.heureDebut() : DEFAULT_START;
@@ -196,8 +222,65 @@ public class RotationGenerationService {
                 : null;
     }
 
-    private void wipeLotGroups(Long lotId) {
+    private int wipeLotGroups(Long lotId) {
         List<StudentGroup> groups = studentGroupRepository.findByLotId(lotId);
         studentGroupRepository.deleteAll(groups);
+        return groups.size();
+    }
+
+    /**
+     * Réinitialise le planning généré d'un examen (#183 — « dé-lancer »). Purge
+     * les {@link StudentGroup} de TOUS les lots de l'examen — et, en cascade
+     * (JPA + FK PostgreSQL), leurs rotations et assignments. <b>Conserve</b> les
+     * lots, le roster et la présence : ce sont des faits réels déjà collectés,
+     * pas du planning dérivé.
+     *
+     * <p><b>Périmètre (scope matière)</b> : l'examen est lu via le client
+     * JWT-forwarded ({@link ExamServiceClient#getExamForGeneration}), qui échoue
+     * en 403 pour tout examen hors de la matière du responsable — le MÊME contrôle
+     * que la génération. Vérifié AVANT toute suppression : on ne purge jamais le
+     * planning d'une matière qu'on ne pilote pas.
+     *
+     * <p><b>Garde-fou anti-perte de note (#188, fail closed)</b> : on refuse dès
+     * qu'UNE notation existe sur le périmètre de l'examen, vérifié sur TOUS les
+     * lots AVANT de supprimer quoi que ce soit. Réinitialiser = « on a lancé, rien
+     * n'a été noté » ; la ré-évaluation d'un examen déjà noté passe par le canal
+     * réajustement (#135), à ne pas confondre. Une notation verrouillée (ADR-0013)
+     * n'est jamais détruite.
+     *
+     * <p>Le passage du statut EN_COURS → CONFIGURE vit dans exam-service et est
+     * orchestré séparément par l'appelant (le client cross-service ne va que dans
+     * le sens scoring → exam).
+     */
+    @Transactional
+    public ResetRotationsResult resetRotationsForExam(Long examenId) {
+        ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
+        if (!"EN_COURS".equals(exam.statut())) {
+            throw new BusinessException(
+                    "Seul un examen EN_COURS peut être réinitialisé (statut actuel : "
+                            + exam.statut() + ").");
+        }
+
+        List<Lot> lots = lotRepository.findByExamenId(examenId);
+
+        long notationsMenacees = lots.stream()
+                .mapToLong(l -> notationRepository.countNotationsAtRiskForLot(l.getId()))
+                .sum();
+        if (notationsMenacees > 0) {
+            throw new BusinessException(
+                    "Réinitialisation impossible : " + notationsMenacees + " notation(s) ont déjà "
+                            + "été saisies pour cet examen. Réinitialiser supprimerait définitivement "
+                            + "ces notes (y compris les notes verrouillées) ainsi que leur historique de "
+                            + "réajustement. Aucune donnée n'a été modifiée.");
+        }
+
+        int groupesSupprimes = 0;
+        for (Lot lot : lots) {
+            groupesSupprimes += wipeLotGroups(lot.getId());
+        }
+
+        log.info("Examen {} : planning réinitialisé — {} lot(s), {} groupe(s) supprimé(s)",
+                examenId, lots.size(), groupesSupprimes);
+        return new ResetRotationsResult(lots.size(), groupesSupprimes);
     }
 }

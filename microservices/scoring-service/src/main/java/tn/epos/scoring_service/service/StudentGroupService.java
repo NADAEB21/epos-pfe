@@ -44,7 +44,12 @@ public class StudentGroupService {
     public StudentGroup update(Long id, StudentGroup details) {
         return studentGroupRepository.findById(id).map(group -> {
             group.setNumeroGroupe(details.getNumeroGroupe());
-            group.setLot(details.getLot());
+            // #215 sémantique PATCH : le PUT ne peuple lot que si lotId est fourni
+            // — le copier à null orphelinerait le groupe (exclu de la génération
+            // des rotations).
+            if (details.getLot() != null) {
+                group.setLot(details.getLot());
+            }
             return studentGroupRepository.save(group);
         }).orElseThrow(() -> new ResourceNotFoundException("StudentGroup non trouvé avec l'id : " + id));
     }

@@ -234,10 +234,40 @@ export class ScoringApiService {
    * have a work list. Backend-gated to exam EN_COURS + lot presence marked;
    * re-runnable per lot. Returns the counts summary.
    */
+  /**
+   * How many rotations a lot ALREADY has (#188). The Lots screen needs this at load time:
+   * without it, a reloaded page shows "Générer" on an already-generated lot and the
+   * destructive regeneration fires with no confirmation. Session state does not survive a
+   * reload — this does.
+   */
+  countRotationsLot(lotId: number): Observable<number> {
+    return this.http
+      .get<ApiResponse<number>>(`${this.baseUrl}/rotations/lot/${lotId}/count`)
+      .pipe(map((r) => r.data));
+  }
+
   genererRotationsLot(lotId: number): Observable<GenerationResult> {
     return this.http
       .post<ApiResponse<GenerationResult>>(
         `${this.baseUrl}/rotations/lots/${lotId}/generer`,
+        null,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * Réinitialiser le planning généré d'un examen — moitié « données » du reset #183
+   * (POST /rotations/examens/{examenId}/reset, RESPONSABLE_MATIERE + SUPER_ADMIN).
+   * Purge les rotations/groupes de TOUS les lots (les lots/roster/présence sont
+   * conservés). Porte le garde-fou #188 : refusé (400) si UNE notation existe ;
+   * périmètre matière enforced cross-service (403). À appeler AVANT
+   * {@link ExamApiService.resetExamen} : si le planning ne peut pas être purgé (notes
+   * existantes), le statut ne doit pas changer. Renvoie le nombre de lots/groupes purgés.
+   */
+  resetRotationsExamen(examenId: number): Observable<{ lots: number; groupes: number }> {
+    return this.http
+      .post<ApiResponse<{ lots: number; groupes: number }>>(
+        `${this.baseUrl}/rotations/examens/${examenId}/reset`,
         null,
       )
       .pipe(map((r) => r.data));

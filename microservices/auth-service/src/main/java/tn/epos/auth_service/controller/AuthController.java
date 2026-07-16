@@ -54,6 +54,25 @@ public class AuthController {
     }
 
     /**
+     * PUT /api/v1/auth/change-password
+     * Requires a valid JWT. Verifies the current password before updating —
+     * distinct from the /password-reset/* flow, which is for a user who no
+     * longer knows their password. Revokes all refresh tokens on success: the
+     * caller (and any other device) must log back in with the new password.
+     *
+     * Requête :
+     * { "currentPassword": "...", "newPassword": "..." }
+     */
+    @PutMapping("/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request,
+            Authentication authentication) {
+        Long userId = resolveUserId(authentication);
+        authService.changePassword(userId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Mot de passe modifié avec succès"));
+    }
+
+    /**
      * GET /api/v1/auth/me
      * Requires a valid JWT.
      *

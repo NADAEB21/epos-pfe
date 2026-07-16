@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
@@ -106,6 +107,33 @@ public class ExamenServiceImpl implements ExamenService {
         return toResponse(examen, true); // true = inclure les stations
     }
 
+    /**
+     * État d'exécution seul — lisible par l'ÉVALUATEUR (via {@code checkReadAccess}, comme
+     * la lecture de grille), contrairement à {@link #trouverParId(Long)} qui exige un droit
+     * d'écriture et renvoie 403 à un évaluateur.
+     *
+     * <p>C'est la cause racine de deux bugs : scoring appelait {@code GET /api/examens/{id}}
+     * avec le jeton de l'évaluateur, se prenait un 403, l'avalait dans un repli « neutre »
+     * (statut = null) — et le dashboard évaluateur se vidait entièrement.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ExamTimingResponse getTiming(Long id) {
+        Examen examen = examenRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
+        matiereAccessChecker.checkReadAccess(examen.getMatiereId());
+        return ExamTimingResponse.builder()
+                .id(examen.getId())
+                .statut(examen.getStatut())
+                .enPause(Boolean.TRUE.equals(examen.getEnPause()))
+                .pausedAt(examen.getPausedAt())
+                .totalPauseSec(examen.getTotalPauseSec())
+                .launchedAt(examen.getLaunchedAt())
+                .dureeStationMin(examen.getDureeStationMin())
+                .avertissementLeadSec(examen.getAvertissementLeadSec())
+                .build();
+    }
+
     @Override
     public ExamenResponse modifier(Long id, ExamenRequest request) {
         Examen examen = trouverEntite(id);
@@ -204,6 +232,34 @@ public class ExamenServiceImpl implements ExamenService {
         examen.setPausedAt(null);
         examen.setEnPause(false);
         log.info("Examen {} repris ; pause de {}s, cumul {}s", id, elapsed, total);
+        return toResponse(examenRepository.save(examen), false);
+    }
+
+    @Override
+    public ExamenResponse reinitialiser(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+
+        // Réinitialiser = « dé-lancer » un examen qu'on vient de lancer par erreur : on
+        // ne l'autorise QUE depuis EN_COURS. Un examen TERMINE/ARCHIVE se ré-évalue par le
+        // canal réajustement (#135), pas par un retour arrière destructif — à ne pas confondre.
+        if (examen.getStatut() != StatutExamen.EN_COURS) {
+            throw new BusinessException(
+                    "Seul un examen EN_COURS peut être réinitialisé. Statut actuel : " + examen.getStatut());
+        }
+
+        // Retour à CONFIGURE. On efface l'instant de lancement (ADR-0010) et TOUT l'état
+        // de pause (ADR-0009) pour repartir d'un état propre au prochain lancement. Le
+        // planning généré (rotations/groupes) est purgé côté scoring-service par
+        // l'orchestration appelante, sous le garde-fou #188 : aucune note n'est jamais
+        // détruite (le reset est refusé dès qu'une notation existe).
+        examen.setStatut(StatutExamen.CONFIGURE);
+        examen.setLaunchedAt(null);
+        examen.setPausedAt(null);
+        examen.setTotalPauseSec(0);
+        examen.setEnPause(false);
+
+        log.info("Examen {} réinitialisé EN_COURS → CONFIGURE (launched_at + pause effacés)", id);
         return toResponse(examenRepository.save(examen), false);
     }
 

@@ -86,10 +86,19 @@ public class StationServiceImpl implements StationService {
 
     @Override
     @Transactional(readOnly = true)
+    /**
+     * Lecture du détail d'une station.
+     *
+     * <p>{@code checkReadAccess} (et non {@code checkAccess}) : un ÉVALUATEUR doit pouvoir lire
+     * la station qu'il occupe — c'est déjà le cas pour sa grille (voir {@code GrilleServiceImpl}).
+     * Avec l'ancien contrôle d'écriture, l'appel de scoring-service partait en 403, était avalé
+     * par le repli de {@code ExamServiceClient}, et l'évaluateur voyait « Station 5 » au lieu du
+     * vrai nom de la station (issue #190).
+     */
     public StationResponse trouverParId(Long id) {
         Station station = stationRepository.findByIdWithGrille(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Station", id));
-        matiereAccessChecker.checkAccess(station.getExamen().getMatiereId());
+        matiereAccessChecker.checkReadAccess(station.getExamen().getMatiereId());
         return toResponse(station, true);
     }
 

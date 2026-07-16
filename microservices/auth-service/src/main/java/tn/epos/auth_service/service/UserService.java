@@ -22,7 +22,10 @@ import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -31,6 +34,10 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private static final String RESPONSABLE_PREFIX = "ROLE_RESPONSABLE_MATIERE:";
+
+    /** Privilège décroissant — sert à choisir le rôle principal exposé par /auth/me. */
+    private static final List<RoleType> ROLE_PRECEDENCE = List.of(
+            RoleType.SUPER_ADMIN, RoleType.RESPONSABLE_MATIERE, RoleType.EVALUATEUR);
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
@@ -54,27 +61,43 @@ public class UserService {
 
     /**
      * Construit le MeResponse pour GET /api/v1/auth/me.
-     * Retourne le rôle principal de l'utilisateur (le premier rôle trouvé).
-     * Pour l'app mobile, l'utilisateur est toujours EVALUATEUR.
+     *
+     * <p>Un utilisateur peut cumuler des rôles (un RESPONSABLE_MATIERE est
+     * souvent aussi EVALUATEUR). La réponse porte donc la liste complète.
+     * Le champ {@code role} reste exposé pour compatibilité, mais il est choisi
+     * de façon déterministe par privilège décroissant — l'ancien code prenait
+     * {@code roles.get(0)}, dont l'ordre n'est pas garanti par la requête.
      */
     @Transactional(readOnly = true)
     public MeResponse getMeResponse(Long userId) {
         User user = findUserOrThrow(userId);
         List<UserRole> roles = userRoleRepository.findByUserId(userId);
 
-        // Rôle principal : prend le premier rôle de la liste.
-        // Pour les EVALUATEURS (app mobile), il n'y a qu'un seul rôle.
-        String roleName = roles.isEmpty()
-                ? "EVALUATEUR"
-                : roles.get(0).getRole().name();
-
         return MeResponse.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .nom(user.getNom())
                 .prenom(user.getPrenom())
-                .role(roleName)
+                .role(primaryRole(roles).name())
+                .roles(roles.stream()
+                        .map(r -> RoleAssignmentDto.builder()
+                                .role(r.getRole())
+                                .matiereId(r.getMatiereId())
+                                .build())
+                        .toList())
                 .build();
+    }
+
+    /**
+     * Rôle principal : le plus privilégié des rôles portés par l'utilisateur.
+     * Un utilisateur sans aucun rôle est traité comme EVALUATEUR (cas limite :
+     * compte créé sans rôle — il n'a de toute façon accès à rien).
+     */
+    private RoleType primaryRole(List<UserRole> roles) {
+        return roles.stream()
+                .map(UserRole::getRole)
+                .min(Comparator.comparingInt(ROLE_PRECEDENCE::indexOf))
+                .orElse(RoleType.EVALUATEUR);
     }
 
     // -------------------------------------------------------------------------
@@ -84,11 +107,18 @@ public class UserService {
     @Transactional
     public UserResponse createUser(UserCreateRequest request, Authentication authentication) {
         if (userRepository.existsByEmail(request.getEmail())) {
+            // Une adresse e-mail identifie UNE personne, pas UN rôle. Un
+            // responsable qui doit aussi évaluer ne se recrée pas : on lui ajoute
+            // le rôle EVALUATEUR sur son compte existant.
             throw new EmailAlreadyExistsException(
-                    "Email already in use: " + request.getEmail());
+                    "Email already in use: " + request.getEmail()
+                    + ". A user holds several roles on a single account — to also make "
+                    + "this person an EVALUATEUR, call POST /api/v1/users/{id}/roles "
+                    + "instead of creating a second account.");
         }
 
-        validateDelegation(request.getRoles(), authentication);
+        List<RoleAssignmentDto> requestedRoles = dedupe(request.getRoles());
+        validateDelegation(requestedRoles, authentication);
 
         User user = User.builder()
                 .email(request.getEmail())
@@ -100,7 +130,7 @@ public class UserService {
                 .build();
         user = userRepository.save(user);
 
-        List<UserRole> roles = buildUserRoles(user, request.getRoles());
+        List<UserRole> roles = buildUserRoles(user, requestedRoles);
         userRoleRepository.saveAll(roles);
 
         auditService.log(user.getId(), user.getEmail(), AuditAction.USER_CREATED,
@@ -113,26 +143,88 @@ public class UserService {
     // Role assignment
     // -------------------------------------------------------------------------
 
+    /**
+     * PUT /users/{id}/roles — remplace intégralement la liste des rôles.
+     *
+     * <p>Les rôles déjà présents et toujours demandés sont laissés en place plutôt
+     * que supprimés puis réinsérés : cela évite un DELETE + INSERT sur la même clé
+     * dans une seule transaction, que Hibernate peut réordonner (INSERT avant
+     * DELETE) et qui violerait l'index unique de {@code user_roles}.
+     */
     @Transactional
     public void assignRoles(Long userId, List<RoleAssignmentDto> newRoleDtos,
                             Authentication authentication) {
         User user = findUserOrThrow(userId);
 
-        validateDelegation(newRoleDtos, authentication);
+        List<RoleAssignmentDto> desired = dedupe(newRoleDtos);
+        validateDelegation(desired, authentication);
 
-        // Capture old roles for audit before deleting them
-        List<UserRole> oldRoles = userRoleRepository.findByUserId(userId);
-        String oldDesc = describeRoles(oldRoles);
+        List<UserRole> existing = userRoleRepository.findByUserId(userId);
+        // #216 : autoriser aussi la CIBLE — un appelant non SUPER_ADMIN ne peut
+        // pas modifier un compte SUPER_ADMIN (empêche la rétrogradation d'un
+        // super-admin via ce PUT à remplacement intégral).
+        validateTargetModifiable(existing, authentication);
 
-        userRoleRepository.deleteByUserId(userId);
+        Set<String> desiredKeys = desired.stream().map(this::roleKey).collect(Collectors.toSet());
+        Set<String> existingKeys = existing.stream().map(this::roleKey).collect(Collectors.toSet());
 
-        List<UserRole> newRoles = buildUserRoles(user, newRoleDtos);
-        userRoleRepository.saveAll(newRoles);
+        List<UserRole> toRemove = existing.stream()
+                .filter(r -> !desiredKeys.contains(roleKey(r)))
+                .toList();
+        // #216 : un rôle RETIRÉ doit être un rôle que l'appelant aurait pu
+        // attribuer — sinon un responsable pourrait dépouiller un rôle hors de
+        // son périmètre (p. ex. le RESPONSABLE_MATIERE d'une autre matière).
+        validateDelegation(toRoleDtos(toRemove), authentication);
 
-        auditService.log(user.getId(), user.getEmail(), AuditAction.ROLE_REVOKED,
-                "Removed: " + oldDesc, null);
-        auditService.log(user.getId(), user.getEmail(), AuditAction.ROLE_ASSIGNED,
-                "Assigned: " + describeRoles(newRoles), null);
+        List<UserRole> toAdd = buildUserRoles(user, desired.stream()
+                .filter(d -> !existingKeys.contains(roleKey(d)))
+                .toList());
+
+        applyRoleDelta(user, toRemove, toAdd);
+    }
+
+    /**
+     * POST /users/{id}/roles — ajoute des rôles sans toucher aux rôles existants.
+     *
+     * <p>Endpoint distinct du PUT parce que l'opération courante ("ce responsable
+     * évaluera aussi cet examen") ne doit pas pouvoir détruire silencieusement son
+     * rôle RESPONSABLE_MATIERE si l'appelant oublie de le renvoyer.
+     * Idempotent : réajouter un rôle déjà porté ne crée pas de doublon.
+     */
+    @Transactional
+    public void addRoles(Long userId, List<RoleAssignmentDto> roleDtos,
+                         Authentication authentication) {
+        User user = findUserOrThrow(userId);
+
+        List<RoleAssignmentDto> requested = dedupe(roleDtos);
+        validateDelegation(requested, authentication);
+
+        List<UserRole> existing = userRoleRepository.findByUserId(userId);
+        // #216 : même garde côté cible que le PUT — un responsable ne peut pas
+        // ajouter de rôle sur un compte SUPER_ADMIN.
+        validateTargetModifiable(existing, authentication);
+        Set<String> existingKeys = existing.stream()
+                .map(this::roleKey)
+                .collect(Collectors.toSet());
+
+        List<UserRole> toAdd = buildUserRoles(user, requested.stream()
+                .filter(d -> !existingKeys.contains(roleKey(d)))
+                .toList());
+
+        applyRoleDelta(user, List.of(), toAdd);
+    }
+
+    private void applyRoleDelta(User user, List<UserRole> toRemove, List<UserRole> toAdd) {
+        if (!toRemove.isEmpty()) {
+            userRoleRepository.deleteAll(toRemove);
+            auditService.log(user.getId(), user.getEmail(), AuditAction.ROLE_REVOKED,
+                    "Removed: " + describeRoles(toRemove), null);
+        }
+        if (!toAdd.isEmpty()) {
+            userRoleRepository.saveAll(toAdd);
+            auditService.log(user.getId(), user.getEmail(), AuditAction.ROLE_ASSIGNED,
+                    "Assigned: " + describeRoles(toAdd), null);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -166,11 +258,7 @@ public class UserService {
      */
     private void validateDelegation(List<RoleAssignmentDto> rolesBeingAssigned,
                                     Authentication authentication) {
-        boolean isSuperAdmin = authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch("ROLE_SUPER_ADMIN"::equals);
-
-        if (isSuperAdmin) {
+        if (isSuperAdmin(authentication)) {
             return; // unrestricted
         }
 
@@ -205,6 +293,43 @@ public class UserService {
         }
     }
 
+    /** True si l'appelant porte l'autorité globale SUPER_ADMIN. */
+    private boolean isSuperAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_SUPER_ADMIN"::equals);
+    }
+
+    /**
+     * #216 — autorisation de la CIBLE. Un appelant non SUPER_ADMIN (donc
+     * RESPONSABLE_MATIERE) ne peut pas modifier le jeu de rôles d'un compte
+     * SUPER_ADMIN. Sans cette garde, un responsable pouvait rétrograder ou
+     * neutraliser un super-admin via PUT|POST /users/{id}/roles : le contrôle de
+     * délégation n'inspectait que la charge utile, jamais les rôles de la cible.
+     */
+    private void validateTargetModifiable(List<UserRole> targetExistingRoles,
+                                          Authentication authentication) {
+        if (isSuperAdmin(authentication)) {
+            return; // un SUPER_ADMIN peut modifier n'importe quel compte
+        }
+        boolean targetIsSuperAdmin = targetExistingRoles.stream()
+                .anyMatch(r -> r.getRole() == RoleType.SUPER_ADMIN);
+        if (targetIsSuperAdmin) {
+            throw new UnauthorizedDelegationException(
+                    "RESPONSABLE_MATIERE cannot modify a SUPER_ADMIN account");
+        }
+    }
+
+    /** #216 — projette des UserRole existants en DTO pour re-valider la délégation. */
+    private List<RoleAssignmentDto> toRoleDtos(List<UserRole> roles) {
+        return roles.stream()
+                .map(r -> RoleAssignmentDto.builder()
+                        .role(r.getRole())
+                        .matiereId(r.getMatiereId())
+                        .build())
+                .toList();
+    }
+
     /**
      * Extracts all matiereId values from the acting user's scoped authorities.
      *
@@ -230,6 +355,32 @@ public class UserService {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(
                         "User not found: " + userId));
+    }
+
+    /**
+     * Identité d'un rôle : (type, matiereId). Deux lignes user_roles partageant
+     * cette clé pour un même user sont des doublons — cf. l'index unique
+     * ux_user_roles_user_role_matiere dans init.sql.
+     */
+    private String roleKey(RoleType role, Long matiereId) {
+        return role.name() + ":" + matiereId;
+    }
+
+    private String roleKey(UserRole role) {
+        return roleKey(role.getRole(), role.getMatiereId());
+    }
+
+    private String roleKey(RoleAssignmentDto dto) {
+        return roleKey(dto.getRole(), dto.getMatiereId());
+    }
+
+    /** Supprime les doublons de la charge utile, en conservant l'ordre d'appel. */
+    private List<RoleAssignmentDto> dedupe(List<RoleAssignmentDto> dtos) {
+        Map<String, RoleAssignmentDto> unique = new LinkedHashMap<>();
+        for (RoleAssignmentDto dto : dtos) {
+            unique.putIfAbsent(roleKey(dto), dto);
+        }
+        return List.copyOf(unique.values());
     }
 
     private List<UserRole> buildUserRoles(User user, List<RoleAssignmentDto> dtos) {

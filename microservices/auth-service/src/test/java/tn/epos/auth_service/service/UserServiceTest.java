@@ -211,8 +211,28 @@ class UserServiceTest {
         verify(userRepository, never()).save(any());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void createUser_dedupesRepeatedRoles() {
+        Authentication auth = authWith("ROLE_SUPER_ADMIN");
+        List<RoleAssignmentDto> roles = List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build(),
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+
+        when(userRepository.existsByEmail("dup@test.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(existingUser(12L));
+        when(passwordEncoder.encode("Password1")).thenReturn("hashed");
+        when(userRoleRepository.saveAll(any())).thenReturn(List.of());
+
+        userService.createUser(createRequest("dup@test.com", roles), auth);
+
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).saveAll(captor.capture());
+        assertThat((List<UserRole>) captor.getValue()).hasSize(1);
+    }
+
     // =========================================================================
-    // assignRoles()
+    // assignRoles() — PUT semantics: full replace
     // =========================================================================
 
     @Test
@@ -234,8 +254,12 @@ class UserServiceTest {
 
         userService.assignRoles(1L, newRoleDtos, auth);
 
-        // Old roles must be wiped first
-        verify(userRoleRepository).deleteByUserId(1L);
+        // The role that is no longer wanted is deleted — and ONLY that one.
+        ArgumentCaptor<List> removedCaptor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).deleteAll(removedCaptor.capture());
+        List<UserRole> removed = (List<UserRole>) removedCaptor.getValue();
+        assertThat(removed).hasSize(1);
+        assertThat(removed.get(0).getRole()).isEqualTo(RoleType.EVALUATEUR);
 
         // Verify the exact new roles that were persisted
         ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
@@ -248,6 +272,218 @@ class UserServiceTest {
         // Both REVOKED (old) and ASSIGNED (new) audit entries must be logged
         verify(auditService, times(2)).log(
                 eq(1L), eq("user1@test.com"), any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void assignRoles_keepsUnchangedRoleInPlace_neverDeletesAndReinsertsIt() {
+        // A RESPONSABLE_MATIERE:1 who is ALSO made EVALUATEUR. The responsable row
+        // must be left untouched: deleting and re-inserting the same (user, role,
+        // matiere) key inside one transaction is what trips the unique index when
+        // Hibernate orders the INSERT before the DELETE.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.RESPONSABLE_MATIERE).matiereId(1L).build()));
+
+        List<RoleAssignmentDto> desired = List.of(
+                RoleAssignmentDto.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(1L).build(),
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+
+        userService.assignRoles(1L, desired, authWith("ROLE_SUPER_ADMIN"));
+
+        // Nothing removed — the responsable role survives
+        verify(userRoleRepository, never()).deleteAll(any());
+        verify(userRoleRepository, never()).deleteByUserId(anyLong());
+
+        // Only the genuinely new EVALUATEUR row is inserted
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).saveAll(captor.capture());
+        List<UserRole> saved = (List<UserRole>) captor.getValue();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getRole()).isEqualTo(RoleType.EVALUATEUR);
+        assertThat(saved.get(0).getMatiereId()).isNull();
+    }
+
+    // =========================================================================
+    // #216 — target authorization: a RESPONSABLE_MATIERE must not be able to
+    // rewrite/strip roles on accounts outside their authority (esp. SUPER_ADMIN).
+    // =========================================================================
+
+    @Test
+    void assignRoles_responsable_cannotDemoteSuperAdmin_throws() {
+        // The filed PoC: responsable:3 PUTs [EVALUATEUR] on a SUPER_ADMIN's id,
+        // which would compute toRemove=[SUPER_ADMIN] and delete it.
+        User target = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.SUPER_ADMIN).build()));
+
+        assertThatThrownBy(() -> userService.assignRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("SUPER_ADMIN");
+
+        verify(userRoleRepository, never()).deleteAll(any());
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void assignRoles_responsable_cannotStripRoleOutsideScope_throws() {
+        // Target is RESPONSABLE_MATIERE:7 (another matière). Caller responsable:3
+        // PUTs [EVALUATEUR] -> toRemove=[RESPONSABLE:7], a role they could not assign.
+        User target = existingUser(2L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(2L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.RESPONSABLE_MATIERE).matiereId(7L).build()));
+
+        assertThatThrownBy(() -> userService.assignRoles(2L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("7");
+
+        verify(userRoleRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void assignRoles_responsable_canManageEvaluatorTargetInScope() {
+        // Legitimate flow must still work: responsable:3 promotes an evaluator in
+        // their own matière (adds RESPONSABLE_MATIERE:3, keeps EVALUATEUR).
+        User target = existingUser(5L);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(5L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.EVALUATEUR).build()));
+
+        userService.assignRoles(5L, List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build(),
+                RoleAssignmentDto.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3"));
+
+        verify(userRoleRepository, never()).deleteAll(any());
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).saveAll(captor.capture());
+        List<UserRole> saved = (List<UserRole>) captor.getValue();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getRole()).isEqualTo(RoleType.RESPONSABLE_MATIERE);
+        assertThat(saved.get(0).getMatiereId()).isEqualTo(3L);
+    }
+
+    // =========================================================================
+    // addRoles() — POST semantics: additive, idempotent
+    // =========================================================================
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void addRoles_addsEvaluateur_withoutRevokingResponsable() {
+        // The supervisor's scenario: a RESPONSABLE_MATIERE must also evaluate.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.RESPONSABLE_MATIERE).matiereId(1L).build()));
+
+        userService.addRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        // The existing responsable role is NEVER touched by an additive call
+        verify(userRoleRepository, never()).deleteAll(any());
+        verify(userRoleRepository, never()).deleteByUserId(anyLong());
+
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(userRoleRepository).saveAll(captor.capture());
+        List<UserRole> saved = (List<UserRole>) captor.getValue();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getRole()).isEqualTo(RoleType.EVALUATEUR);
+    }
+
+    @Test
+    void addRoles_isIdempotent_reAddingHeldRoleWritesNothing() {
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.EVALUATEUR).build()));
+
+        userService.addRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        // No duplicate row, no spurious audit entry
+        verify(userRoleRepository, never()).saveAll(any());
+        verify(userRoleRepository, never()).deleteAll(any());
+        verify(auditService, never()).log(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void addRoles_enforcesDelegation() {
+        // A RESPONSABLE_MATIERE:3 must not use the additive endpoint to escalate
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.addRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.SUPER_ADMIN).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class);
+
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void addRoles_responsable_cannotAddRoleToSuperAdmin_throws() {
+        // #216 — the additive endpoint shares the target guard: a responsable
+        // cannot touch a SUPER_ADMIN account even to add a role.
+        User target = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(target).role(RoleType.SUPER_ADMIN).build()));
+
+        assertThatThrownBy(() -> userService.addRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_RESPONSABLE_MATIERE:3")))
+                .isExactlyInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("SUPER_ADMIN");
+
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    // =========================================================================
+    // getMeResponse() — multi-role users
+    // =========================================================================
+
+    @Test
+    void getMeResponse_listsEveryRole_andPicksPrimaryDeterministically() {
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        // Deliberately EVALUATEUR-first: the old code returned roles.get(0), so the
+        // "primary" role flipped with the row order Postgres happened to return.
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.EVALUATEUR).build(),
+                UserRole.builder().user(user).role(RoleType.RESPONSABLE_MATIERE).matiereId(1L).build()));
+
+        var me = userService.getMeResponse(1L);
+
+        assertThat(me.getRole()).isEqualTo("RESPONSABLE_MATIERE");   // most privileged, not first
+        assertThat(me.getRoles()).hasSize(2);
+        assertThat(me.getRoles()).extracting(RoleAssignmentDto::getRole)
+                .containsExactlyInAnyOrder(RoleType.EVALUATEUR, RoleType.RESPONSABLE_MATIERE);
+    }
+
+    @Test
+    void getMeResponse_roleless_defaultsToEvaluateur() {
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+
+        var me = userService.getMeResponse(1L);
+
+        assertThat(me.getRole()).isEqualTo("EVALUATEUR");
+        assertThat(me.getRoles()).isEmpty();
     }
 
     // =========================================================================

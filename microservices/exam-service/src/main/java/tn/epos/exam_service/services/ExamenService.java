@@ -3,6 +3,7 @@ package tn.epos.exam_service.services;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.enums.StatutExamen;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,6 +21,16 @@ public interface ExamenService {
     /** Récupérer un examen par ID avec ses stations */
     ExamenResponse trouverParId(Long id);
 
+    /**
+     * État d'exécution d'un examen (statut / pause / durée), lisible aussi par un ÉVALUATEUR.
+     *
+     * <p>{@link #trouverParId(Long)} passe par {@code checkAccess} (écriture) et rejette donc
+     * un évaluateur en 403. Le dashboard évaluateur a pourtant besoin du statut de l'examen —
+     * d'où cette lecture dédiée, qui utilise {@code checkReadAccess} (le même contrôle que la
+     * lecture de grille, déjà autorisée à l'évaluateur).
+     */
+    ExamTimingResponse getTiming(Long id);
+
     /** Modifier un examen (uniquement si statut BROUILLON) */
     ExamenResponse modifier(Long id, ExamenRequest request);
 
@@ -31,6 +42,17 @@ public interface ExamenService {
 
     /** Reprendre un examen en pause (cumule la durée de pause écoulée) */
     ExamenResponse reprendre(Long id);
+
+    /**
+     * Réinitialiser un examen EN_COURS vers CONFIGURE (#183 — « dé-lancer »).
+     *
+     * <p>Récupération le jour de l'examen : on a lancé, rien ne s'est encore passé,
+     * on revient à un état configurable. Efface l'horodatage de lancement (ADR-0010)
+     * et tout l'état de pause (ADR-0009). Le nettoyage du planning généré
+     * (rotations / groupes) vit dans scoring-service et est orchestré séparément,
+     * sous le garde-fou #188 (refus si une notation existe).
+     */
+    ExamenResponse reinitialiser(Long id);
 
     /** Supprimer un examen (uniquement si statut BROUILLON ou CONFIGURE) */
     void supprimer(Long id);

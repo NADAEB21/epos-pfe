@@ -5,6 +5,12 @@
 //          connexion STOMP soit authentifiée.
 // BF6.2 — Offline  : arrêt propre du ConnectivityService au logout
 //          pour éviter les polls réseau inutiles.
+// BF1.3 — Mot de passe oublié : events/states dédiés (AuthPasswordReset*)
+//          consommés par ForgotPasswordScreen. Réutilise ce bloc plutôt
+//          que d'en créer un second, car AuthRepository est déjà injecté
+//          ici et ces états n'affectent pas la navigation racine (voir
+//          app.dart : le listener n'agit que sur Authenticated/
+//          Unauthenticated/Failure).
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
@@ -14,7 +20,7 @@ import '../../../../core/offline/offline_storage_service.dart';
 import '../../../../core/offline/websocket_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
-import 'package:flutter/foundation.dart'; 
+import 'package:flutter/foundation.dart';
 
 // ════════════════════════════════════════════════
 // EVENTS
@@ -47,6 +53,31 @@ class AuthLoginRequested extends AuthEvent {
 /// L'utilisateur clique sur "Se déconnecter"
 class AuthLogoutRequested extends AuthEvent {
   const AuthLogoutRequested();
+}
+
+/// BF1.3 — Étape 1 du "mot de passe oublié" : l'utilisateur soumet son email.
+class AuthPasswordResetRequested extends AuthEvent {
+  final String email;
+
+  const AuthPasswordResetRequested({required this.email});
+
+  @override
+  List<Object?> get props => [email];
+}
+
+/// BF1.3 — Étape 2 : l'utilisateur soumet le code/token reçu par email et
+/// son nouveau mot de passe.
+class AuthPasswordResetConfirmRequested extends AuthEvent {
+  final String token;
+  final String newPassword;
+
+  const AuthPasswordResetConfirmRequested({
+    required this.token,
+    required this.newPassword,
+  });
+
+  @override
+  List<Object?> get props => [token, newPassword];
 }
 
 // ════════════════════════════════════════════════
@@ -83,6 +114,19 @@ class AuthFailure extends AuthState {
   List<Object?> get props => [message];
 }
 
+/// BF1.3 — La demande de réinitialisation a été envoyée avec succès.
+class AuthPasswordResetEmailSent extends AuthState {
+  final String email;
+  const AuthPasswordResetEmailSent(this.email);
+  @override
+  List<Object?> get props => [email];
+}
+
+/// BF1.3 — Le mot de passe a été réinitialisé avec succès via le code reçu.
+class AuthPasswordResetSuccess extends AuthState {
+  const AuthPasswordResetSuccess();
+}
+
 // ════════════════════════════════════════════════
 // BLOC
 // ════════════════════════════════════════════════
@@ -103,13 +147,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthCheckRequested> (_onCheckRequested);
     on<AuthLoginRequested> (_onLoginRequested);
     on<AuthLogoutRequested>(_onLogoutRequested);
+    on<AuthPasswordResetRequested>       (_onPasswordResetRequested);
+    on<AuthPasswordResetConfirmRequested>(_onPasswordResetConfirmRequested);
   }
 
   // ── Vérification au démarrage ─────────────────────────────────────────────
   Future<void> _onCheckRequested(
-    AuthCheckRequested event,
-    Emitter<AuthState> emit,
-  ) async {
+      AuthCheckRequested event,
+      Emitter<AuthState> emit,
+      ) async {
     emit(AuthLoading());
     try {
       final isAuth = await _authRepository.isAuthenticated();
@@ -132,9 +178,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   // ── Login ─────────────────────────────────────────────────────────────────
   Future<void> _onLoginRequested(
-    AuthLoginRequested event,
-    Emitter<AuthState> emit,
-  ) async {
+      AuthLoginRequested event,
+      Emitter<AuthState> emit,
+      ) async {
     emit(AuthLoading());
     try {
       final user = await _authRepository.login(
@@ -154,9 +200,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   Future<void> _onLogoutRequested(
-    AuthLogoutRequested event,
-    Emitter<AuthState> emit,
-  ) async {
+      AuthLogoutRequested event,
+      Emitter<AuthState> emit,
+      ) async {
     emit(AuthLoading());
 
     // BF6.1 — Arrêt propre du WebSocket avant la révocation du token.
@@ -171,6 +217,37 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     await _authRepository.logout();
     emit(AuthUnauthenticated());
+  }
+
+  // ── BF1.3 — Mot de passe oublié : étape 1 (demande) ─────────────────────
+  Future<void> _onPasswordResetRequested(
+      AuthPasswordResetRequested event,
+      Emitter<AuthState> emit,
+      ) async {
+    emit(AuthLoading());
+    try {
+      await _authRepository.requestPasswordReset(email: event.email.trim());
+      emit(AuthPasswordResetEmailSent(event.email.trim()));
+    } catch (e) {
+      emit(AuthFailure(e.toString().replaceFirst('Exception: ', '')));
+    }
+  }
+
+  // ── BF1.3 — Mot de passe oublié : étape 2 (confirmation) ────────────────
+  Future<void> _onPasswordResetConfirmRequested(
+      AuthPasswordResetConfirmRequested event,
+      Emitter<AuthState> emit,
+      ) async {
+    emit(AuthLoading());
+    try {
+      await _authRepository.confirmPasswordReset(
+        token:       event.token.trim(),
+        newPassword: event.newPassword,
+      );
+      emit(const AuthPasswordResetSuccess());
+    } catch (e) {
+      emit(AuthFailure(e.toString().replaceFirst('Exception: ', '')));
+    }
   }
 
   // ── Helpers privés ────────────────────────────────────────────────────────

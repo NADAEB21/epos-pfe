@@ -18,7 +18,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate          # schema managed by Liquibase/Flyway in production;
-                                  # use 'update' locally when no migration tool is wired
+      # use 'update' locally when no migration tool is wired
     show-sql: false
     properties:
       hibernate:
@@ -34,6 +34,31 @@ spring:
         max-size: 8
         queue-capacity: 500
       thread-name-prefix: audit-
+
+  # ─── SMTP sortant (BF1.3) ─────────────────────────────────────────────────
+  # Actif seulement si app.mail.enabled=true (voir bloc "app" plus bas).
+  # Ce bloc est lu par Spring Boot pour auto-configurer le bean JavaMailSender
+  # que SpringMailEmailService utilise. Sans lui, activer app.mail.enabled ne
+  # suffit pas : JavaMailSender resterait absent du contexte.
+  #
+  # Test rapide de connectivité avant une démo (le port 587 est parfois bloqué
+  # par un pare-feu institutionnel) :
+  #   nc -vz smtp.gmail.com 587      (Linux/Mac)
+  #   Test-NetConnection smtp.gmail.com -Port 587   (PowerShell)
+  mail:
+    host: ${MAIL_SMTP_HOST:smtp.gmail.com}
+    port: ${MAIL_SMTP_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_APP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 # ─── JWT ──────────────────────────────────────────────────────────────────────
 jwt:
@@ -52,8 +77,9 @@ security:
 
 # ─── Outbound mail ────────────────────────────────────────────────────────────
 # When app.mail.enabled=false (default), StubEmailService is wired and nothing
-# is sent over SMTP. Enable in production and supply spring.mail.* + the
-# reset-base-url so password-reset links point at the live frontend.
+# is sent over SMTP. Enable in production (et pour les démos avec de vrais
+# utilisateurs) et supply spring.mail.* + reset-base-url ci-dessus pour que
+# les liens de réinitialisation pointent vers le frontend réel.
 app:
   mail:
     enabled: ${MAIL_ENABLED:false}

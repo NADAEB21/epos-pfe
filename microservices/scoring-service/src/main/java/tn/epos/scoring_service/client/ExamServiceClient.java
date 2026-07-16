@@ -86,11 +86,11 @@ public class ExamServiceClient {
      */
     public record ExamTiming(boolean enPause, LocalDateTime pausedAt,
                              int totalPauseSec, Integer dureeStationMin,
-                             int avertissementLeadSec) {
+                             int avertissementLeadSec, String statut) {
 
         /** État neutre (pas de pause, pas d'avertissement) — repli si exam-service est injoignable. */
         public static ExamTiming neutral() {
-            return new ExamTiming(false, null, 0, null, 0);
+            return new ExamTiming(false, null, 0, null, 0, null);
         }
     }
 
@@ -170,8 +170,15 @@ public class ExamServiceClient {
     public ExamTiming getExamTiming(Long examenId) {
         String bearerToken = currentBearerToken();
         try {
+            // /timing — vue minimale (statut / pause / durée) LISIBLE PAR L'ÉVALUATEUR.
+            //
+            // On appelait /api/examens/{id}, réservé à SUPER_ADMIN | RESPONSABLE_MATIERE :
+            // avec le jeton d'un évaluateur, c'était un 403 systématique, avalé plus bas dans
+            // ExamTiming.neutral() (statut = null). Le filtre "examens EN_COURS" du dashboard
+            // ne trouvait alors AUCUN examen et l'évaluateur se retrouvait avec un dashboard
+            // VIDE le jour de l'examen. Ne pas rebasculer cet appel sur /api/examens/{id}.
             JsonNode root = webClient.get()
-                    .uri("/api/examens/{id}", examenId)
+                    .uri("/api/examens/{id}/timing", examenId)
                     .headers(h -> h.setBearerAuth(bearerToken))
                     .retrieve()
                     .bodyToMono(JsonNode.class)
@@ -189,7 +196,8 @@ public class ExamServiceClient {
                     ? data.path(FIELD_DUREE_STATION_MIN).asInt() : null;
             int leadSec = data.path(FIELD_AVERTISSEMENT_LEAD_SEC).isNumber()
                     ? data.path(FIELD_AVERTISSEMENT_LEAD_SEC).asInt() : 0;
-            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec);
+            String statut = data.path("statut").isTextual() ? data.path("statut").asText() : null;
+            return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec, statut);
         } catch (Exception e) {
             log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
                     examenId, e.getMessage());

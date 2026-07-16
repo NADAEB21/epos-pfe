@@ -17,6 +17,12 @@ import java.nio.charset.StandardCharsets;
  *
  * Constructor injection (rather than @Value field injection) keeps the class
  * trivially testable with a mocked JavaMailSender, no Spring context needed.
+ *
+ * Le corps du mail affiche le token BRUT comme un « code » à copier-coller
+ * (en plus du lien classique). L'app Flutter n'ayant pas encore de
+ * deep-linking (voir CLAUDE.md / mémoire du projet), l'évaluateur doit
+ * pouvoir coller ce code directement dans l'écran "Mot de passe oublié" —
+ * un lien seul l'obligerait à aller l'extraire manuellement de l'URL.
  */
 @Slf4j
 @Component
@@ -48,14 +54,23 @@ public class SpringMailEmailService implements EmailService {
         msg.setText("""
                 Bonjour,
 
-                Pour réinitialiser votre mot de passe, cliquez sur le lien ci-dessous :
+                Vous avez demandé la réinitialisation de votre mot de passe EPOS.
+
+                Sur l'application mobile, saisissez ce code dans l'écran
+                "Mot de passe oublié" :
+
+                    %s
+
+                Ce code est valable 30 minutes et à usage unique.
+
+                Depuis un ordinateur, vous pouvez aussi utiliser ce lien :
                 %s
 
-                Ce lien expire dans 30 minutes. Si vous n'êtes pas à l'origine de cette demande,
-                ignorez cet e-mail.
+                Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail :
+                votre mot de passe actuel reste inchangé.
 
                 — EPOS
-                """.formatted(resetUrl));
+                """.formatted(rawResetToken, resetUrl));
 
         mailSender.send(msg);
         log.info("Password-reset email dispatched to {}", recipientEmail);

@@ -53,10 +53,13 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                 .noteMax(grille.getNoteMax())
                 .build();
 
-        // #160 : grille.getItems() ne contient que les critères de premier niveau
-        // (voir GrilleEvaluation.addItem) ; buildItemTemplate() descend récursivement
-        // dans les sous-critères.
-        grille.getItems().forEach(item -> template.addItem(buildItemTemplate(item)));
+        // #160 : APRÈS un reload BDD, grille.getItems() contient AUSSI les sous-critères
+        // (grille_id NOT NULL est propagé sur tout l'arbre — cf. GrilleServiceImpl.toResponse
+        // :439-448). buildItemTemplate() descend DÉJÀ récursivement dans les enfants : itérer
+        // sans filtrer le premier niveau dupliquerait chaque sous-critère comme item racine.
+        grille.getItems().stream()
+                .filter(item -> item.getParent() == null)
+                .forEach(item -> template.addItem(buildItemTemplate(item)));
 
         GrilleTemplate saved = templateRepository.save(template);
         log.info("Template '{}' créé depuis la grille {}", nomTemplate, grilleId);
@@ -147,7 +150,11 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         grille.setDescription(template.getDescription());
         grille.getItems().clear();   // orphanRemoval supprime les anciens critères (cascade DB pour leurs enfants)
 
-        template.getItems().forEach(it -> grille.addItem(buildItemFromTemplate(it)));
+        // template.getItems() inclut les sous-critères après reload (template_id propagé) —
+        // filtrer le premier niveau, buildItemFromTemplate recopie déjà les enfants.
+        template.getItems().stream()
+                .filter(it -> it.getParent() == null)
+                .forEach(it -> grille.addItem(buildItemFromTemplate(it)));
 
         grilleRepository.save(grille);
         log.info("Template '{}' appliqué sur la station {}", template.getNom(), stationId);
@@ -321,6 +328,7 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
             ge.setNoteMax(grille.getNoteMax());
             ge.setDescription(grille.getDescription());
             ge.setItems(grille.getItems().stream()
+                    .filter(i -> i.getParent() == null)   // buildItemExport recurse déjà dans les sous-critères
                     .map(this::buildItemExport)
                     .collect(Collectors.toList()));
             se.setGrille(ge);
@@ -382,7 +390,9 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
                     .station(nouvelleStation)
                     .build();
 
-            grille.getItems().forEach(item -> nouvelleGrille.addItem(copierItemRecursivement(item)));
+            grille.getItems().stream()
+                    .filter(item -> item.getParent() == null)   // copierItemRecursivement recopie déjà les enfants
+                    .forEach(item -> nouvelleGrille.addItem(copierItemRecursivement(item)));
             grilleRepository.save(nouvelleGrille);
         });
     }
@@ -412,10 +422,16 @@ public class GrilleTemplateServiceImpl implements GrilleTemplateService {
         r.setDescription(template.getDescription());
         r.setNoteMax(template.getNoteMax());
         r.setCreatedAt(template.getCreatedAt());
-        r.setNombreItems(template.getItems().size());
-        r.setSommePonderations(template.getItems().stream()
+        // Après reload, template.getItems() inclut les sous-critères (template_id propagé) —
+        // ne compter/sommer/exposer QUE le premier niveau (les enfants sont rendus imbriqués
+        // par toItemTemplateResponse). Sinon nombreItems et sommePonderations double-comptent.
+        List<ItemTemplate> itemsPremierNiveau = template.getItems().stream()
+                .filter(it -> it.getParent() == null)
+                .collect(Collectors.toList());
+        r.setNombreItems(itemsPremierNiveau.size());
+        r.setSommePonderations(itemsPremierNiveau.stream()
                 .mapToDouble(ItemTemplate::getPonderation).sum());
-        r.setItems(template.getItems().stream()
+        r.setItems(itemsPremierNiveau.stream()
                 .map(this::toItemTemplateResponse)
                 .collect(Collectors.toList()));
         return r;

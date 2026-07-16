@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
+import tn.epos.auth_service.dto.ChangePasswordRequest;
 import tn.epos.auth_service.dto.LoginRequest;
 import tn.epos.auth_service.dto.LoginResponse;
 import tn.epos.auth_service.dto.PasswordResetConfirmDto;
@@ -152,6 +153,44 @@ public class AuthService {
     }
 
     // -------------------------------------------------------------------------
+    // Changement de mot de passe (utilisateur déjà authentifié — écran Profil)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Change le mot de passe d'un utilisateur connecté après vérification de
+     * son mot de passe actuel. Contrairement à {@link #confirmPasswordReset},
+     * ce flux ne passe par aucun token email — l'utilisateur prouve son
+     * identité en fournissant son mot de passe courant.
+     *
+     * Révoque tous les refresh tokens actifs : après un changement de mot de
+     * passe, toutes les sessions existantes doivent se reconnecter avec la
+     * nouvelle valeur.
+     *
+     * @throws UsernameNotFoundException si l'utilisateur n'existe plus
+     * @throws BadCredentialsException   si le mot de passe actuel est incorrect
+     */
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("Utilisateur introuvable"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            auditService.log(user.getId(), user.getEmail(),
+                    AuditAction.LOGIN_FAILURE, "Échec changement de mot de passe : mdp actuel incorrect", null);
+            throw new BadCredentialsException("Mot de passe actuel incorrect");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        // Force la reconnexion sur tous les appareils avec le nouveau mot de passe.
+        refreshTokenRepository.revokeAllByUserId(userId);
+
+        auditService.log(user.getId(), user.getEmail(),
+                AuditAction.PASSWORD_RESET_CONFIRMED, "Changement de mot de passe depuis le profil", null);
+    }
+
+    // -------------------------------------------------------------------------
     // Password reset — request
     // -------------------------------------------------------------------------
 
@@ -174,7 +213,18 @@ public class AuthService {
                     .build();
             passwordResetTokenRepository.save(resetToken);
 
-            emailService.sendPasswordResetEmail(user.getEmail(), rawToken);
+            // Le token est déjà persisté à ce stade : un incident SMTP (réseau de
+            // la faculté qui bloque le port, credentials invalides, timeout…) ne
+            // doit ni faire échouer la requête (500 côté app pour l'utilisateur),
+            // ni annuler la création du token (elle est utile pour le diagnostic
+            // même si l'email n'est pas parti). On journalise l'échec au lieu de
+            // laisser l'exception remonter et faire rollback la transaction.
+            try {
+                emailService.sendPasswordResetEmail(user.getEmail(), rawToken);
+            } catch (Exception e) {
+                log.error("Échec de l'envoi de l'email de réinitialisation à {} : {}",
+                        user.getEmail(), e.getMessage(), e);
+            }
 
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.PASSWORD_RESET_REQUESTED, null, null);

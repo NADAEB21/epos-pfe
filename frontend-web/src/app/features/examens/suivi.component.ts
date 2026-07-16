@@ -15,6 +15,7 @@ import { DirectoryApiService } from '../../core/api/directory-api.service';
 import {
   EtudiantSummary,
   ParticipationSummary,
+  RotationStatus,
   RotationSummary,
   StationSummary,
   UserResponse,
@@ -22,11 +23,17 @@ import {
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** One créneau slot at a station — a group's scheduled visit. */
-interface Slot {
+export interface Slot {
   rotationId: number;
   ordrePassage: number;
   debutMs: number; // absolute planned start (ms epoch, local)
   debutLabel: string; // HH:mm
+  /**
+   * The rotation's real completion signal. EN_ATTENTE until the évaluateur
+   * validates its lot, then TERMINE (scoring validerLot). #184 uses this to
+   * distinguish a truly-finished slot from one whose créneau merely elapsed.
+   */
+  statut: RotationStatus;
 }
 
 /** A station's whole timeline + its bound évaluateur. */
@@ -38,10 +45,66 @@ interface Lane {
   slots: Slot[]; // sorted by debutMs
 }
 
-type SlotState = 'done' | 'live' | 'upcoming';
+type SlotState = 'done' | 'live' | 'upcoming' | 'enRetard';
+
+/**
+ * A station's state on the board. {@code sansRotations} is NOT a time-derived
+ * state — it means the station has no rotation plan at all, and it is resolved
+ * BEFORE any clock branch so an unknown station can never read as a finished one.
+ *
+ * {@code enRetard} (#184) is the "dépassement" state: the créneau clock has
+ * elapsed but the passages are not really validated. Time is indicative and
+ * never blocks grading, so an overrun must NOT read as {@code done} — the
+ * évaluateur may still be working.
+ */
+export type LaneState =
+  | 'sansRotations'
+  | 'live'
+  | 'upcoming'
+  | 'enRetard'
+  | 'done';
 
 const DEFAULT_DUREE_MIN = 15;
 const DEFAULT_HEURE = '09:00';
+
+/**
+ * Resolve a station's board state — the #182 invariant, kept pure so it can be
+ * pinned by a unit test without a TestBed.
+ *
+ * The {@code sansRotations} branch comes FIRST and must stay first: a station with
+ * no rotation plan is UNKNOWN, not finished. The board previously fell through
+ * live → upcoming → "Terminée", so a station whose rotations were never generated
+ * rendered as already over — a phantom terminal state that cost a live exam
+ * simulation. 'done' must only ever be reachable from a real, non-empty slot set.
+ *
+ * <p><b>Time is not completion (#184):</b> once the whole plan has elapsed with
+ * nothing live, the clock has merely overrun — it does NOT mean the passages were
+ * graded. Créneaux are indicative and never block writes, so this resolves to
+ * {@code done} ONLY when every slot is really validated ({@code statut === 'TERMINE'},
+ * set by the évaluateur's validerLot); otherwise it is {@code enRetard} — dépassement,
+ * still open, the évaluateur may still be working. An overrun must never read "Terminée".
+ *
+ * @param slots the station's slots, sorted by debutMs (may be empty)
+ * @param effectiveNowMs ADR-0009 effective instant, or null before the clock resolves
+ * @param dureeMs a slot's duration in ms
+ */
+export function resolveLaneState(
+  slots: readonly Slot[],
+  effectiveNowMs: number | null,
+  dureeMs: number,
+): LaneState {
+  if (slots.length === 0) return 'sansRotations';
+  if (effectiveNowMs == null) return 'upcoming';
+  const live = slots.some(
+    (s) => effectiveNowMs >= s.debutMs && effectiveNowMs < s.debutMs + dureeMs,
+  );
+  if (live) return 'live';
+  const first = slots[0];
+  if (effectiveNowMs < first.debutMs) return 'upcoming';
+  // The whole plan has elapsed with nothing live. Real completion (every passage
+  // validated) → done; a bare clock overrun → enRetard (#184).
+  return slots.every((s) => s.statut === 'TERMINE') ? 'done' : 'enRetard';
+}
 
 /**
  * Suivi en direct — the live exam-day monitoring board (EN_COURS only).
@@ -67,6 +130,15 @@ const DEFAULT_HEURE = '09:00';
  * effective instant the pause began ({@code pausedAt − totalPauseSec}); Reprendre continues
  * exactly from there (the server folds the gap into {@code totalPauseSec}, so the running
  * formula picks up seamlessly).
+ *
+ * <p><b>"Terminée" is never a fallthrough (#182):</b> a station with NO rotations is
+ * {@code sansRotations} — unknown, not finished — and {@link #laneState} resolves that
+ * BEFORE any clock branch. The old template fell through live → upcoming → "Terminée",
+ * so a station whose rotations were never generated rendered as already over. That
+ * phantom terminal state cost a real exam simulation: the responsable read "Terminée"
+ * across the board and concluded it was too late, when in fact
+ * {@code RotationGenerationService} still permits generation while the exam is EN_COURS
+ * — nothing was lost. Do not reintroduce a default that reads as "done".
  *
  * <p><b>Timezone (ADR-0010, option A):</b> the backend Clock is pinned to the exam zone
  * (prod {@code Africa/Tunis}; dev aligned to the host via {@code APP_TIMEZONE}), so the
@@ -202,6 +274,45 @@ const DEFAULT_HEURE = '09:00';
               >
                 {{ pausing() ? '…' : '⏸ Mettre en pause' }}
               </button>
+
+              <!--
+                Réinitialiser (« dé-lancer ») — récupération d'un lancement par erreur
+                (#183). Rare et destructif pour le PLANNING (jamais pour les notes) :
+                confirmation en deux temps qui dit exactement ce qui est supprimé. Le
+                backend refuse dès qu'une notation existe (garde #188) — le message
+                d'erreur le remonte alors tel quel.
+              -->
+              @if (confirmingReset()) {
+                <span class="text-sm font-medium text-gray-800">
+                  Le planning (rotations) sera supprimé et l'examen repassera en configuration.
+                  Lots, étudiants et présence sont conservés. Continuer&nbsp;?
+                </span>
+                <button
+                  type="button"
+                  [disabled]="resetting()"
+                  (click)="reset()"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {{ resetting() ? '…' : 'Oui, dé-lancer' }}
+                </button>
+                <button
+                  type="button"
+                  [disabled]="resetting()"
+                  (click)="cancelReset()"
+                  class="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  [disabled]="pausing() || terminating()"
+                  (click)="askReset()"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  ↺ Réinitialiser
+                </button>
+              }
             }
           </div>
         </div>
@@ -224,6 +335,39 @@ const DEFAULT_HEURE = '09:00';
         </div>
       </section>
 
+      <!--
+        Missing-rotations alarm. The exam is live but one or more stations have no
+        rotation plan — nothing will ever run there. This is recoverable (rotations
+        can still be generated while EN_COURS), so say so and link to the fix.
+      -->
+      @if (hasMissingRotations()) {
+        <section
+          role="alert"
+          class="rounded-xl bg-amber-50 border border-amber-300 shadow-card p-5 mb-6"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 class="font-semibold text-amber-900">
+                ⚠ {{ lanesSansRotations().length }} station(s) sans rotations
+              </h2>
+              <p class="text-sm text-amber-800 mt-1">
+                Aucun passage n'est planifié pour
+                <span class="font-medium">{{ lanesSansRotationsLabel() }}</span> — rien ne s'y
+                déroulera. Générez les rotations depuis
+                <span class="font-medium">Lots &amp; présence</span> (après la présence de chaque
+                lot). L'examen est en cours : c'est encore rattrapable.
+              </p>
+            </div>
+            <a
+              [routerLink]="['../lots']"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:opacity-90 transition-opacity shrink-0"
+            >
+              Générer les rotations
+            </a>
+          </div>
+        </section>
+      }
+
       <!-- Per-station lanes -->
       <div class="space-y-4">
         @for (lane of lanes(); track lane.stationId) {
@@ -240,23 +384,58 @@ const DEFAULT_HEURE = '09:00';
                 </p>
               </div>
 
-              <!-- "En ce moment" badge -->
-              @if (liveSlot(lane); as s) {
-                <div class="text-right">
-                  <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
-                  <div class="font-semibold text-status-success tabular-nums">
-                    Passage {{ s.ordrePassage }} · fin dans {{ countdown(slotEndMs(s)) }}
-                  </div>
-                </div>
-              } @else {
-                @if (beforeStart(lane); as next) {
+              <!--
+                Station badge. 'sansRotations' is resolved FIRST: a station with no
+                rotation plan is unknown, not finished — it must never fall through
+                to "Terminée" (that phantom terminal state cost us a live exam).
+              -->
+              @switch (laneState(lane)) {
+                @case ('sansRotations') {
                   <div class="text-right">
-                    <div class="text-xs text-gray-400 uppercase tracking-wide">À venir</div>
-                    <div class="font-medium text-gray-600 tabular-nums">
-                      Début dans {{ countdown(next.debutMs) }}
-                    </div>
+                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
+                    <div class="font-semibold text-amber-700">⚠ Aucune rotation générée</div>
+                    <a
+                      [routerLink]="['../lots']"
+                      class="text-xs text-brand hover:underline"
+                    >
+                      Générer les rotations
+                    </a>
                   </div>
-                } @else {
+                }
+                @case ('live') {
+                  @if (liveSlot(lane); as s) {
+                    <div class="text-right">
+                      <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
+                      <div class="font-semibold text-status-success tabular-nums">
+                        Passage {{ s.ordrePassage }} · fin dans {{ countdown(slotEndMs(s)) }}
+                      </div>
+                    </div>
+                  }
+                }
+                @case ('upcoming') {
+                  @if (beforeStart(lane); as next) {
+                    <div class="text-right">
+                      <div class="text-xs text-gray-400 uppercase tracking-wide">À venir</div>
+                      <div class="font-medium text-gray-600 tabular-nums">
+                        Début dans {{ countdown(next.debutMs) }}
+                      </div>
+                    </div>
+                  }
+                }
+                <!--
+                  'enRetard' (#184) : le créneau est dépassé mais les passages ne
+                  sont pas encore validés. Le temps est indicatif et ne bloque
+                  jamais la notation, donc on affiche « Dépassement » en ambre —
+                  jamais le gris « Terminée » qui laisserait croire que c'est fini.
+                -->
+                @case ('enRetard') {
+                  <div class="text-right">
+                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
+                    <div class="font-semibold text-amber-700">⏱ Dépassement</div>
+                    <div class="text-xs text-amber-600">créneau écoulé — encore en cours</div>
+                  </div>
+                }
+                @default {
                   <div class="text-right">
                     <div class="text-xs text-gray-400 uppercase tracking-wide">Station</div>
                     <div class="font-medium text-gray-500">Terminée</div>
@@ -286,6 +465,13 @@ const DEFAULT_HEURE = '09:00';
               </div>
             }
 
+            @if (laneState(lane) === 'sansRotations') {
+              <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                Cette station n'a aucun passage planifié. Les rotations n'ont pas été générées pour
+                les lots de cet examen.
+              </div>
+            }
+
             <!-- Timeline strip -->
             <div class="flex gap-1">
               @for (s of lane.slots; track s.rotationId) {
@@ -293,20 +479,23 @@ const DEFAULT_HEURE = '09:00';
                   class="h-2 flex-1 rounded-full"
                   [class.bg-gray-200]="slotState(s) === 'upcoming'"
                   [class.bg-status-success]="slotState(s) === 'live'"
+                  [class.bg-status-warning]="slotState(s) === 'enRetard'"
                   [class.bg-brand]="slotState(s) === 'done'"
                   [title]="s.debutLabel + ' · passage ' + s.ordrePassage"
                 ></div>
               }
             </div>
 
-            <!-- Expand: full schedule + students -->
-            <button
-              type="button"
-              (click)="toggle(lane.stationId)"
-              class="text-xs text-brand hover:underline mt-3"
-            >
-              {{ isOpen(lane.stationId) ? 'Masquer le détail' : 'Voir tous les passages' }}
-            </button>
+            <!-- Expand: full schedule + students (nothing to expand without a plan) -->
+            @if (lane.slots.length > 0) {
+              <button
+                type="button"
+                (click)="toggle(lane.stationId)"
+                class="text-xs text-brand hover:underline mt-3"
+              >
+                {{ isOpen(lane.stationId) ? 'Masquer le détail' : 'Voir tous les passages' }}
+              </button>
+            }
 
             @if (isOpen(lane.stationId)) {
               <ul class="mt-3 divide-y divide-gray-50 border border-gray-100 rounded-lg">
@@ -323,6 +512,8 @@ const DEFAULT_HEURE = '09:00';
                         [class.text-gray-500]="slotState(s) === 'upcoming'"
                         [class.bg-status-success]="slotState(s) === 'live'"
                         [class.text-white]="slotState(s) === 'live'"
+                        [class.bg-amber-100]="slotState(s) === 'enRetard'"
+                        [class.text-amber-700]="slotState(s) === 'enRetard'"
                         [class.bg-brand-50]="slotState(s) === 'done'"
                         [class.text-brand-dark]="slotState(s) === 'done'"
                       >
@@ -366,6 +557,10 @@ export class SuiviComponent {
   readonly terminating = signal(false);
   /** The two-step "Terminer" confirmation is showing. */
   readonly confirmingEnd = signal(false);
+  /** Resetting the exam (EN_COURS → CONFIGURE, #183) is in flight. */
+  readonly resetting = signal(false);
+  /** The two-step "Réinitialiser" confirmation is showing. */
+  readonly confirmingReset = signal(false);
 
   /** Ticks every second — drives every clock-derived state in the template. */
   private readonly now = signal(Date.now());
@@ -602,6 +797,7 @@ export class SuiviComponent {
             ordrePassage: r.ordrePassage ?? 0,
             debutMs,
             debutLabel: this.hhmm(debutMs),
+            statut: r.statut,
           };
         })
         .filter((s) => !Number.isNaN(s.debutMs))
@@ -633,7 +829,9 @@ export class SuiviComponent {
     if (eff == null) return 'upcoming';
     if (eff < s.debutMs) return 'upcoming';
     if (eff < this.slotEndMs(s)) return 'live';
-    return 'done';
+    // Créneau elapsed: 'terminé' only if really validated, else 'dépassement'
+    // (still open — the évaluateur may still be grading). #184.
+    return s.statut === 'TERMINE' ? 'done' : 'enRetard';
   }
 
   slotStateLabel(s: Slot): string {
@@ -642,10 +840,39 @@ export class SuiviComponent {
         return 'en cours';
       case 'done':
         return 'terminé';
+      case 'enRetard':
+        return 'dépassement';
       default:
         return 'à venir';
     }
   }
+
+  /**
+   * The station's board state. The {@code sansRotations} check comes FIRST and is
+   * the whole point of this method: a station with no rotation plan is UNKNOWN, not
+   * finished. Previously the template fell through live → upcoming → "Terminée", so
+   * a station with zero slots rendered as "Terminée" — a phantom terminal state that
+   * made a fully recoverable exam (rotations simply not generated yet) look like it
+   * was already over. Never resolve 'done' from an empty slot set.
+   */
+  laneState(lane: Lane): LaneState {
+    return resolveLaneState(lane.slots, this.effectiveNowMs(), this.dureeMs());
+  }
+
+  /** Stations with no rotation plan at all — the exam-day recovery signal. */
+  readonly lanesSansRotations = computed(() =>
+    this.lanes().filter((l) => l.slots.length === 0),
+  );
+
+  /** The exam is live but at least one station has no rotations — must be surfaced loudly. */
+  readonly hasMissingRotations = computed(() => this.lanesSansRotations().length > 0);
+
+  /** Names of the stations missing a rotation plan, for the alarm banner. */
+  readonly lanesSansRotationsLabel = computed(() =>
+    this.lanesSansRotations()
+      .map((l) => l.nom)
+      .join(', '),
+  );
 
   /** The slot currently live at this station, if any. */
   liveSlot(lane: Lane): Slot | null {
@@ -750,6 +977,62 @@ export class SuiviComponent {
       error: (err) => {
         this.terminating.set(false);
         this.actionError.set(this.message(err, "Impossible de terminer l'examen."));
+      },
+    });
+  }
+
+  // ---- réinitialiser (« dé-lancer », #183) --------------------------------
+
+  /** Open the two-step confirmation before resetting the exam. */
+  askReset(): void {
+    this.actionError.set(null);
+    this.confirmingReset.set(true);
+  }
+
+  cancelReset(): void {
+    this.confirmingReset.set(false);
+  }
+
+  /**
+   * Reset the exam (EN_COURS → CONFIGURE, #183 — « dé-lancer »). This spans TWO
+   * services and MUST be ordered scoring → exam:
+   *  1. scoring-service purges the generated plan (rotations/groupes) for every lot.
+   *     It carries the #188 guard — if ANY notation exists it refuses (400) and
+   *     wipes nothing, so the exam status is never touched on a graded exam.
+   *  2. only once the plan is safely gone does exam-service flip the status and clear
+   *     launched_at / pause.
+   * On the scoring refusal we surface its message (it names the notations at risk).
+   * Lots, roster and présence are kept. Exam lands in CONFIGURE → the live tab
+   * disappears, so we move to the Lancement screen to re-launch when ready.
+   */
+  reset(): void {
+    if (this.resetting()) return;
+    this.resetting.set(true);
+    this.actionError.set(null);
+    const examenId = Number(this.id());
+    this.scoring.resetRotationsExamen(examenId).subscribe({
+      next: () => {
+        this.examApi.resetExamen(examenId).subscribe({
+          next: (e) => {
+            this.store.exam.set(e);
+            this.resetting.set(false);
+            this.confirmingReset.set(false);
+            this.router.navigate(['/examens', examenId, 'lancement']);
+          },
+          error: (err) => {
+            this.resetting.set(false);
+            this.actionError.set(
+              this.message(
+                err,
+                'Le planning a été purgé mais le statut n’a pas pu être réinitialisé. Réessayez.',
+              ),
+            );
+          },
+        });
+      },
+      error: (err) => {
+        this.resetting.set(false);
+        this.actionError.set(this.message(err, 'Réinitialisation impossible.'));
       },
     });
   }

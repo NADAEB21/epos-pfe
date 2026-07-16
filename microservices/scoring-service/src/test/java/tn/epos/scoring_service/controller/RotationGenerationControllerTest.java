@@ -10,6 +10,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.dto.GenerationResult;
+import tn.epos.scoring_service.dto.ResetRotationsResult;
 import tn.epos.scoring_service.service.RotationGenerationService;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -43,5 +44,18 @@ class RotationGenerationControllerTest {
                 .andExpect(jsonPath("$.data.rotations").value(9))
                 .andExpect(jsonPath("$.data.assignments").value(18))
                 .andExpect(jsonPath("$.data.etudiantsAbsents").value(1));
+    }
+
+    @Test
+    @DisplayName("200 - réinitialise le planning de l'examen et renvoie lots/groupes purgés (#183)")
+    void reset_devraitRetourner200AvecResume() throws Exception {
+        when(generationService.resetRotationsForExam(eq(100L)))
+                .thenReturn(new ResetRotationsResult(2, 3));
+
+        mockMvc.perform(post("/api/rotations/examens/{examenId}/reset", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.lots").value(2))
+                .andExpect(jsonPath("$.data.groupes").value(3));
     }
 }

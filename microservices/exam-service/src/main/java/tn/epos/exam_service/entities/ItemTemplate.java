@@ -55,5 +55,8 @@ public class ItemTemplate {
     public void addChild(ItemTemplate child) {
         children.add(child);
         child.setParent(this);
+        child.setTemplate(this.template); // peut être null pendant la construction ;
+        // GrilleTemplate.addItem() ré-assigne récursivement une fois l'arbre rattaché.
+        // Symétrique de ItemEvaluation.addChild().
     }
 }

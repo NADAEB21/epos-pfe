@@ -9,6 +9,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
@@ -77,8 +78,7 @@ class EvaluateurDashboardControllerTest {
             when(dashboardService.buildDashboard(EVAL_ID)).thenReturn(resp);
 
             mockMvc.perform(get("/api/evaluateur/dashboard")
-                            //.with(jwt().claim("userId", EVAL_ID)))
-                    .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.sessions[0].id").value(1))
@@ -104,38 +104,86 @@ class EvaluateurDashboardControllerTest {
         }
     }
 
+    // =========================================================================
+    // GET /api/evaluateur/rotations/{rotationId}/groupe
+    //
+    // Remplace GET /stations/{stationId}/lots/{lotNumero} : (stationId, lotNumero)
+    // était ambigu — un évaluateur reçoit PLUSIEURS rotations pour un même lot
+    // (une par groupe qui passe à sa station). rotationId identifie sans
+    // ambiguïté le groupe courant.
+    // =========================================================================
     @Nested
-    @DisplayName("GET /api/evaluateur/stations/{id}/lots/{n}")
-    class GetLotDetail {
+    @DisplayName("GET /api/evaluateur/rotations/{rotationId}/groupe")
+    class GetGroupeDetail {
         @Test
-        @DisplayName("200 - Retourne le détail d'un lot pour l'évaluateur")
-        void getLot_devraitRetourner200() throws Exception {
-            LotDetailResponse resp = LotDetailResponse.builder().id(10L).numero(1).build();
+        @DisplayName("200 - Retourne le détail du groupe courant pour l'évaluateur")
+        void getGroupeDetail_devraitRetourner200() throws Exception {
+            LotDetailResponse resp = LotDetailResponse.builder().id(1L).numero(2).total(4).build();
 
-            when(dashboardService.getLotDetail(anyLong(), anyInt(), eq(EVAL_ID))).thenReturn(resp);
+            when(dashboardService.getGroupeDetail(1L, EVAL_ID)).thenReturn(resp);
 
-            mockMvc.perform(get("/api/evaluateur/stations/1/lots/1")
-                    .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+            mockMvc.perform(get("/api/evaluateur/rotations/1/groupe")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.id").value(10));
+                    .andExpect(jsonPath("$.data.id").value(1))
+                    .andExpect(jsonPath("$.data.numero").value(2))
+                    .andExpect(jsonPath("$.data.total").value(4));
         }
-    }
-
-    @Nested
-    @DisplayName("Tests de propagation d'erreurs Service")
-    class ServiceExceptionTests {
 
         @Test
-        @DisplayName("404 - Si le lot n'existe pas dans le service")
-        void getLot_introuvable_devraitRetourner404() throws Exception {
-            // Simulation d'une exception dans le service
-            when(dashboardService.getLotDetail(anyLong(), anyInt(), anyLong()))
-                    .thenThrow(new tn.epos.common.exception.ResourceNotFoundException("Lot non trouvé"));
+        @DisplayName("404 - Si la rotation n'existe pas")
+        void getGroupeDetail_introuvable_devraitRetourner404() throws Exception {
+            when(dashboardService.getGroupeDetail(anyLong(), anyLong()))
+                    .thenThrow(new tn.epos.common.exception.ResourceNotFoundException("Rotation introuvable"));
 
-            mockMvc.perform(get("/api/evaluateur/stations/1/lots/99")
+            mockMvc.perform(get("/api/evaluateur/rotations/99/groupe")
                             .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.success").value(false));
+        }
+
+        @Test
+        @DisplayName("403 - Si la rotation n'appartient pas à l'évaluateur appelant")
+        void getGroupeDetail_horsPerimetre_devraitRetourner403() throws Exception {
+            when(dashboardService.getGroupeDetail(anyLong(), anyLong()))
+                    .thenThrow(new AccessDeniedException("Cette rotation n'est pas assignée à cet évaluateur."));
+
+            mockMvc.perform(get("/api/evaluateur/rotations/1/groupe")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    // =========================================================================
+    // GET /api/evaluateur/rotations/{rotationId}/suivant
+    // =========================================================================
+    @Nested
+    @DisplayName("GET /api/evaluateur/rotations/{rotationId}/suivant")
+    class GetGroupeSuivant {
+        @Test
+        @DisplayName("200 - Retourne le prochain groupe planifié pour l'évaluateur")
+        void getGroupeSuivant_devraitRetourner200() throws Exception {
+            LotDetailResponse resp = LotDetailResponse.builder().id(2L).numero(3).total(4).build();
+
+            when(dashboardService.getGroupeSuivant(1L, EVAL_ID)).thenReturn(resp);
+
+            mockMvc.perform(get("/api/evaluateur/rotations/1/suivant")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.id").value(2))
+                    .andExpect(jsonPath("$.data.numero").value(3));
+        }
+
+        @Test
+        @DisplayName("404 - Si aucun groupe suivant n'est planifié (dernière rotation)")
+        void getGroupeSuivant_aucunSuivant_devraitRetourner404() throws Exception {
+            when(dashboardService.getGroupeSuivant(anyLong(), anyLong()))
+                    .thenThrow(new tn.epos.common.exception.ResourceNotFoundException(
+                            "Aucun groupe suivant : c'était la dernière rotation planifiée pour cet évaluateur."));
+
+            mockMvc.perform(get("/api/evaluateur/rotations/1/suivant")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isNotFound());
         }
     }
 
@@ -180,14 +228,62 @@ class EvaluateurDashboardControllerTest {
         }
     }
 
+    // =========================================================================
+    // POST /api/evaluateur/rotations/{rotationId}/valider
+    //
+    // Remplace l'appel Flutter cassé vers /rotations/{lotId}/valider (404) :
+    // c'est désormais un endpoint réel qui clôture la ROTATION courante
+    // (le groupe courant à cette station), pas le lot entier.
+    // =========================================================================
+    @Nested
+    @DisplayName("POST /api/evaluateur/rotations/{rotationId}/valider")
+    class ValiderGroupe {
+        @Test
+        @DisplayName("200 - Valide le groupe courant pour cette station")
+        void validerGroupe_devraitRetourner200() throws Exception {
+            mockMvc.perform(post("/api/evaluateur/rotations/1/valider")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("Groupe validé pour cette station"));
+
+            verify(dashboardService).validerGroupe(1L, EVAL_ID);
+        }
+
+        @Test
+        @DisplayName("400 - Si le groupe est déjà validé pour cette station")
+        void validerGroupe_dejaValide_devraitRetourner400() throws Exception {
+            doThrow(new tn.epos.common.exception.BusinessException(
+                    "Ce groupe est déjà validé pour cette station."))
+                    .when(dashboardService).validerGroupe(anyLong(), anyLong());
+
+            mockMvc.perform(post("/api/evaluateur/rotations/1/valider")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("403 - Si la rotation n'appartient pas à l'évaluateur appelant")
+        void validerGroupe_horsPerimetre_devraitRetourner403() throws Exception {
+            doThrow(new AccessDeniedException("Cette rotation n'est pas assignée à cet évaluateur."))
+                    .when(dashboardService).validerGroupe(anyLong(), anyLong());
+
+            mockMvc.perform(post("/api/evaluateur/rotations/1/valider")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    // Forçage manuel côté responsable/admin — logique interne inchangée,
+    // toujours accessible via /lots/{lotId}/valider (restreint désormais à
+    // SUPER_ADMIN / RESPONSABLE_MATIERE au niveau du @PreAuthorize méthode).
     @Nested
     @DisplayName("POST /api/evaluateur/lots/{id}/valider")
     class ValiderLot {
         @Test
-        @DisplayName("200 - Valide le lot complet")
+        @DisplayName("200 - Valide le lot complet (forçage manuel responsable)")
         void validerLot_devraitRetourner200() throws Exception {
             mockMvc.perform(post("/api/evaluateur/lots/10/valider")
-                    .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.message").value("Lot 10 validé"));
 

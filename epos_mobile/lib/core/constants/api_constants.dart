@@ -74,8 +74,11 @@ class ApiConstants {
   static String stationGrille(int stationId) => '/stations/$stationId/grille';
 
   // === Lot + étudiants (scoring-service via gateway) ===
-  static String lotDetail(int stationId, int lotNumero) =>
-      '/evaluateur/stations/$stationId/lots/$lotNumero';
+  // static String lotDetail(int stationId, int lotNumero) => '/evaluateur/stations/$stationId/lots/$lotNumero';
+
+  // Remplace lotDetail(stationId, lotNumero)
+ static String groupeDetail(int rotationId) => '/evaluateur/rotations/$rotationId/groupe';
+ static String groupeSuivant(int rotationId) => '/evaluateur/rotations/$rotationId/suivant';
 
   // === Notation (scoring-service via gateway) ===
   static const String saisirNotation = '/evaluateur/notations/saisir';
@@ -84,7 +87,12 @@ class ApiConstants {
   static String validerEtudiant(int etudiantId, int stationId) =>
       '/evaluateur/etudiants/$etudiantId/stations/$stationId/valider';
 
-  static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
+  // static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
+  // Remplace validerLot(lotId) et validerRotation(rotationId)
+  static String validerGroupe(int rotationId) => '/evaluateur/rotations/$rotationId/valider';
+
+  static String validerRotation(int rotationId) =>
+      '/evaluateur/rotations/$rotationId/valider';
 
   // === Timeouts ===
   static const Duration connectTimeout = Duration(seconds: 20);

@@ -19,8 +19,20 @@ enum SessionStatus { enCours, aVenir, terminee }
 ///
 /// Sans cette distinction, GradingBloc passait lot.id à getGrille()
 /// ce qui retournait un 404 car les IDs de lots ≠ IDs de stations.
+///
+/// #196 (ADR-0012) — avertissementLeadSec / enPause : le backend
+/// (EvaluateurDashboardService → SessionResponse) envoie déjà ces deux champs
+/// depuis longtemps mais le client ne les lisait pas. Ils alimentent le
+/// compte à rebours / avertissement de fin de passage côté écran de notation :
+///   avertissementLeadSec → délai (s) avant la fin du passage auquel
+///                           l'avertissement doit se déclencher (0 = désactivé)
+///   enPause               → l'examen est actuellement en pause : le compte
+///                           à rebours doit se figer et l'avertissement ne
+///                           doit jamais se déclencher pendant une pause.
 class Session extends Equatable {
   final int           id;           // lot.id — scoring-service
+  final int? lotId;         // ← nouveau : pour le suivi WS du lot
+  final int  groupeNumero;  // ← nouveau : numéro du groupe (1..K)
   final int?          stationId;    // station réelle — exam-service ← nouveau
   final String        stationNom;
   final String?       matiere;
@@ -33,8 +45,18 @@ class Session extends Equatable {
   final int           lotActuel;
   final int           totalLots;
 
+  /// #196 — Délai de préavis (secondes) avant la fin du passage courant.
+  /// 0 = avertissements désactivés (comportement par défaut, rétrocompatible).
+  final int           avertissementLeadSec;
+
+  /// #196 — L'examen est actuellement en pause (ADR-0009) : le compte à
+  /// rebours affiché doit se figer tant que ce flag est vrai.
+  final bool          enPause;
+
   const Session({
     required this.id,
+    this.lotId,                // ← nouveau : pour le suivi WS du lot
+    this.groupeNumero = 0,     // ← nouveau : numéro du groupe (1..K)
     this.stationId,               // nullable pour compatibilité mock
     required this.stationNom,
     required this.matiere,
@@ -46,12 +68,15 @@ class Session extends Equatable {
     required this.lotActuel,
     required this.totalLots,
     this.heureFin,
+    this.avertissementLeadSec = 0,
+    this.enPause = false,
   });
 
   @override
   List<Object?> get props => [
-    id, stationId, stationNom, matiere, annee, statut,
+    id, lotId, groupeNumero, stationId, stationNom, matiere, annee, statut,
     heureDebut, nbEtudiants, salle, lotActuel, totalLots,
+    avertissementLeadSec, enPause,
   ];
 }
 

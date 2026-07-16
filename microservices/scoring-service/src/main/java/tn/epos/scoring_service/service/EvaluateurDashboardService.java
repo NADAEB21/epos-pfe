@@ -3,6 +3,7 @@ package tn.epos.scoring_service.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
@@ -41,6 +42,7 @@ public class EvaluateurDashboardService {
     private final INotationRepository            notationRepository;
     private final INotationItemRepository        notationItemRepository;
     private final IExamenParticipationRepository participationRepository;
+    private final IStudentGroupRepository        studentGroupRepository;
     private final ExamServiceClient              examServiceClient;
 
     /** Horloge injectable ADR-0010. */
@@ -136,38 +138,52 @@ public class EvaluateurDashboardService {
     // 2. DÉTAIL D'UN LOT
     // =========================================================================
 
+    // =========================================================================
+ // 2bis. DÉTAIL D'UN GROUPE — scopé par rotationId (remplace l'ancien
+// (stationId, lotNumero) ambigu : un évaluateur reçoit PLUSIEURS rotations
+// pour UN SEUL lot (une par groupe qui passe à sa station), donc
+// (stationId, lotNumero) ne désignait pas un groupe précis → findFirst()
+// renvoyait toujours le même, bloquant la notation dès le 2e groupe.
+// =========================================================================
+
     @Transactional(readOnly = true)
-    public LotDetailResponse getLotDetail(Long stationId, Integer lotNumero, Long evaluateurId) {
-        List<Rotation> rotations = rotationRepository.findByEvaluateurId(evaluateurId);
+    public LotDetailResponse getGroupeDetail(Long rotationId, Long evaluateurId) {
+        Rotation rotation = rotationRepository.findById(rotationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
+        verifierProprietaire(rotation, evaluateurId);
+        return toGroupeDetailResponse(rotation);
+    }
 
-        // AVANT : filtrait seulement par lotNumero → ambigu si l'évaluateur a des
-        // rotations sur plusieurs examens (numeroLot n'est unique que par examen).
-        // MAINTENANT : on résout la Rotation exacte via stationId (paramètre reçu
-        // mais jamais utilisé avant) + lotNumero → plus d'ambiguïté inter-examens.
-        Rotation rotation = rotations.stream()
-                .filter(r -> stationId.equals(r.getStationId())
-                        && r.getStudentGroup() != null
-                        && r.getStudentGroup().getLot() != null
-                        && lotNumero.equals(r.getStudentGroup().getLot().getNumeroLot()))
-                .findFirst()
+    @Transactional(readOnly = true)
+    public LotDetailResponse getGroupeSuivant(Long rotationId, Long evaluateurId) {
+        Rotation courante = rotationRepository.findById(rotationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
+        verifierProprietaire(courante, evaluateurId);
+        Rotation suivante = rotationRepository
+                .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
+                        evaluateurId, courante.getDebutCreneau())
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Rotation introuvable pour évaluateur=" + evaluateurId
-                                + ", station=" + stationId + ", lot=" + lotNumero));
+                        "Aucun groupe suivant : c'était la dernière rotation planifiée pour cet évaluateur."));
+        return toGroupeDetailResponse(suivante);
+    }
 
-        Lot lot = rotation.getStudentGroup().getLot();
-        int totalLots = lotRepository.countByExamenId(lot.getExamenId());
+    private void verifierProprietaire(Rotation rotation, Long evaluateurId) {
+        if (!evaluateurId.equals(rotation.getEvaluateurId())) {
+            throw new AccessDeniedException("Cette rotation n'est pas assignée à cet évaluateur.");
+        }
+    }
 
-        // AVANT : participationRepository.findByLotId(lot.getId()) → retournait
-        // TOUS les étudiants du lot (les 4 groupes confondus, 16-20 étudiants).
-        // MAINTENANT : on ne prend que les participations liées à CETTE rotation
-        // précise (= le StudentGroup de cette station à ce créneau).
+    private LotDetailResponse toGroupeDetailResponse(Rotation rotation) {
+        Lot lot = (rotation.getStudentGroup() != null) ? rotation.getStudentGroup().getLot() : null;
+        if (lot == null) {
+            throw new ResourceNotFoundException("Rotation " + rotation.getId() + " sans groupe/lot associé.");
+        }
+        int totalGroupes = studentGroupRepository.findByLotId(lot.getId()).size();
+        int numeroGroupe = rotation.getStudentGroup().getNumeroGroupe();
+
         List<RotationAssignment> assignments =
                 rotationAssignmentRepository.findByRotationId(rotation.getId());
 
-        // #203 : on garde l'assignment EN SCOPE et on résout le verrou / les items par
-        // son id — PAS par participationId (une participation a un assignment par
-        // station, donc un lookup global renverrait N lignes → 500). Ici chaque
-        // assignment est déjà LE passage (participation, station) de cette rotation.
         List<LotDetailResponse.EtudiantLotResponse> etudiants = assignments.stream()
                 .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
                 .map(a -> {
@@ -176,7 +192,8 @@ public class EvaluateurDashboardService {
                             .id(p.getEtudiant().getId())
                             .nom(p.getEtudiant().getNom())
                             .prenom(p.getEtudiant().getPrenom())
-                            .absent(!Boolean.TRUE.equals(p.getEst_present()))
+                            // #FIX : présence par ROTATION (assignment), plus par participation
+                            .absent(!Boolean.TRUE.equals(a.getPresenceConfirmee()))
                             .verrouille(isNotationVerrouillée(a.getId()))
                             .notationItems(loadNotationItems(a.getId()))
                             .build();
@@ -184,10 +201,10 @@ public class EvaluateurDashboardService {
                 .collect(Collectors.toList());
 
         return LotDetailResponse.builder()
-                .id(lot.getId())
-                .numero(lot.getNumeroLot())
-                .total(totalLots)
-                .valide(lot.getStatut() == LotStatus.TERMINE)
+                .id(rotation.getId())                // id = rotation (pas lot)
+                .numero(numeroGroupe)                // numéro du GROUPE (1..K), pas du lot
+                .total(totalGroupes)                 // nombre total de groupes du lot
+                .valide(rotation.getStatut() == RotationStatus.TERMINE)
                 .etudiants(etudiants)
                 .build();
     }
@@ -242,7 +259,6 @@ public class EvaluateurDashboardService {
 
     public void validerEtudiant(Long etudiantId, Long stationId, Long evaluateurId, ValiderEtudiantRequest request) {
         ExamenParticipation participation = resolverParticipation(etudiantId, stationId);
-        // #203 : lookup scopé (participation, station) — cf. saisirNotation.
         RotationAssignment assignment = rotationAssignmentRepository
                 .findByParticipationIdAndStationId(participation.getId(), stationId)
                 .orElseGet(() -> createAssignment(participation, stationId, evaluateurId));
@@ -255,25 +271,105 @@ public class EvaluateurDashboardService {
         }
         notation.setVerouillee(true);
         notationRepository.save(notation);
-        participation.setEst_present(!request.isAbsent());
-        participation.setNote(notation.getScore_final());
+
+        // #FIX multi-station : l'absence saisie ici concerne CETTE station
+        // (cette rotation), pas l'examen entier. ExamenParticipation n'a qu'une
+        // seule ligne par (étudiant, examen) — un seul flag est_present ne peut
+        // pas représenter 4 présences différentes (une par station). La bonne
+        // place est RotationAssignment.presenceConfirmee. Participation.est_present
+        // reste piloté uniquement par LotAssignmentService.markPresence (l'appel
+        // de présence du lot le jour J) : question différente ("venu à l'examen ?").
+        assignment.setPresenceConfirmee(!request.isAbsent());
+        rotationAssignmentRepository.save(assignment);
+
         participation.setCommentaire(request.getCommentaire());
+        // #212 — note AGRÉGÉE cross-station. ExamenParticipation n'a qu'UNE colonne
+        // note, mais un étudiant passe N stations (N Notation.score_final). Écrire
+        // ici le score d'UNE station y écrasait celui des autres (clobber #212, la
+        // raison pour laquelle setNote a été retiré). On y stocke donc la SOMME des
+        // score_final de toutes les stations DÉJÀ notées de cette participation —
+        // exactement la valeur que ExamenResultDTO.totalScore recompose à la volée,
+        // et la seule lecture de ParticipationDTO.note (onglet Étudiants côté web).
+        participation.setNote(sommeScoresParticipation(participation.getId()));
         participationRepository.save(participation);
+
         broadcastScore(notation, stationId);
+    }
+
+    /**
+     * Somme des {@code score_final} de toutes les notations d'une participation
+     * (une par station de son circuit). Recalculée à chaque validation de station
+     * — le total grandit au fur et à mesure que les stations sont verrouillées.
+     * Aucune notation ⇒ {@code null} (pas encore noté ≠ zéro).
+     */
+    private Float sommeScoresParticipation(Long participationId) {
+        List<Notation> notations = notationRepository.findByParticipationId(participationId);
+        if (notations.isEmpty()) return null;
+        float total = 0f;
+        for (Notation n : notations) {
+            if (n.getScore_final() != null) total += n.getScore_final();
+        }
+        return total;
     }
 
     public void validerLot(Long lotId, Long evaluateurId) {
         Lot lot = lotRepository.findById(lotId).orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
-        lot.setStatut(LotStatus.TERMINE);
-        lotRepository.save(lot);
 
-        if (lot.getGroups() != null) {
-            lot.getGroups().forEach(g -> g.getRotations().forEach(r -> {
-                r.setStatut(RotationStatus.TERMINE);
-                rotationRepository.save(r);
-            }));
+        // #211 — cascade NEUTRALISÉE. L'ancienne version forçait TOUTES les
+        // rotations du lot à TERMINE : un admin clôturant un lot terminait ainsi
+        // de force les stations d'autres évaluateurs encore en cours de notation
+        // (perte de données silencieuse). ADR-0014 §4 : le statut du lot se DÉRIVE
+        // de l'état réel des rotations — on ne l'IMPOSE jamais, et on n'écrit
+        // AUCUN statut de rotation ici. Ce point de terminaison "Valider lot"
+        // (réservé admin/responsable) n'est donc plus qu'un recalcul d'oversight.
+        long restantes = rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lotId, RotationStatus.TERMINE);
+        LotStatus derive = (restantes == 0) ? LotStatus.TERMINE : LotStatus.EN_COURS;
+        lot.setStatut(derive);
+        lotRepository.save(lot);
+        broadcastLotStatus(lotId, derive.name());
+    }
+
+    // =========================================================================
+// VALIDER GROUPE — remplace "Valider lot" côté évaluateur.
+// Verrouille toutes les notations du groupe COURANT (cette rotation), marque
+// la rotation TERMINE, puis vérifie si c'était la DERNIÈRE rotation du lot
+// (tous groupes × toutes stations) : si oui, clôture automatiquement le lot.
+// =========================================================================
+    public void validerGroupe(Long rotationId, Long evaluateurId) {
+        Rotation rotation = rotationRepository.findById(rotationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
+        verifierProprietaire(rotation, evaluateurId);
+
+        if (rotation.getStatut() == RotationStatus.TERMINE) {
+            throw new BusinessException("Ce groupe est déjà validé pour cette station.");
         }
-        broadcastLotStatus(lotId, "TERMINE");
+
+        // Filet de sécurité : verrouille toute notation pas encore verrouillée
+        // (normalement déjà fait étudiant par étudiant via /valider).
+        List<RotationAssignment> assignments = rotationAssignmentRepository.findByRotationId(rotationId);
+        for (RotationAssignment a : assignments) {
+            notationRepository.findByAssignmentId(a.getId()).ifPresent(n -> {
+                if (!Boolean.TRUE.equals(n.getVerouillee())) {
+                    n.setVerouillee(true);
+                    notationRepository.save(n);
+                }
+            });
+        }
+
+        rotation.setStatut(RotationStatus.TERMINE);
+        rotationRepository.save(rotation);
+
+        Lot lot = rotation.getStudentGroup() != null ? rotation.getStudentGroup().getLot() : null;
+        if (lot == null) return;
+
+        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard : groupe suivant dispo
+
+        if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lot.getId(), RotationStatus.TERMINE) == 0) {
+            lot.setStatut(LotStatus.TERMINE);
+            lotRepository.save(lot);
+            broadcastLotStatus(lot.getId(), "TERMINE");
+            log.info("Lot {} : toutes les rotations sont TERMINE — lot clôturé automatiquement.", lot.getId());
+        }
     }
 
     // =========================================================================
@@ -294,7 +390,10 @@ public class EvaluateurDashboardService {
                     Lot lotLie = resolverLotDepuisRotation(rotation, lotsParId);
 
                     return SessionResponse.builder()
-                            .id(lotLie != null ? lotLie.getId() : rotation.getId())
+                            .id(rotation.getId())                 // ← FIX : id de rotation (groupe courant)
+                            .lotId(lotLie != null ? lotLie.getId() : null)   // ← nouveau champ, pour le WS
+                            .groupeNumero(rotation.getStudentGroup() != null
+                                    ? rotation.getStudentGroup().getNumeroGroupe() : 0)
                             .stationId(rotation.getStationId())
                             .stationNom(examServiceClient.getStationInfo(rotation.getStationId()).nom())
                             .statut(statut)

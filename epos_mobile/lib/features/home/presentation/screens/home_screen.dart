@@ -43,19 +43,26 @@ void _naviguerVersNotation(
   // BF6.2 — OfflineBloc injecté dans GradingBloc pour rafraîchir le badge
   final offlineBloc = context.read<OfflineBloc>();
 
-  final int stationId = session.stationId ?? session.id;
+  // final int stationId = session.stationId ?? session.id;
+  final int stationId  = session.stationId ?? 0;
+  final int rotationId = session.id;
   final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
   final debutCreneau  = _parseHeureDebut(session.heureDebut);
 
-  // BF6 — offlineBloc passé au GradingBloc pour notifier après chaque saisie
   final gradingBloc = GradingBloc(
-    repository:  gradingRepository,
-    offlineBloc: offlineBloc,
-  )..add(GradingSessionStarted(
-      stationId:    stationId,
-      lotNumero:    lotNumero,
-      debutCreneau: debutCreneau,
-    ));
+     repository:  gradingRepository,
+     offlineBloc: offlineBloc,
+   )..add(GradingSessionStarted(
+       rotationId:   rotationId,
+       stationId:    stationId,
+       lotNumero:    lotNumero,
+       debutCreneau: debutCreneau,
+       // #196 (ADR-0012 / ADR-0009) — la session porte déjà ces deux
+       // valeurs depuis le dashboard ; on les transmet à GradingBloc pour
+       // piloter le compte à rebours / avertissement de fin de passage.
+       avertissementLeadSec: session.avertissementLeadSec,
+       enPause:              session.enPause,
+     ));
 
   Navigator.of(context, rootNavigator: true)
     .push(MaterialPageRoute(

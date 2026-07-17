@@ -56,6 +56,8 @@ void _naviguerVersNotation(
        rotationId:   rotationId,
        stationId:    stationId,
        lotNumero:    lotNumero,
+       stationNom:   session.stationNom,
+       dureeMinutes: session.dureeStationMin,
        debutCreneau: debutCreneau,
        // #196 (ADR-0012 / ADR-0009) — la session porte déjà ces deux
        // valeurs depuis le dashboard ; on les transmet à GradingBloc pour

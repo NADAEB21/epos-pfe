@@ -45,6 +45,7 @@ class SessionModel extends Session {
       heureDebut:  json['heureDebut']  as String,
       heureFin:    json['heureFin']    as String?,
       nbEtudiants: json['nbEtudiants'] as int,
+      dureeStationMin: _toInt(json['dureeStationMin']) > 0 ? _toInt(json['dureeStationMin']) : 15,
       salle:       json['salle']       as String?,
       lotActuel:   json['lotActuel']   as int,
       totalLots:   json['totalLots']   as int,

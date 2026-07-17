@@ -44,6 +44,7 @@ class Session extends Equatable {
   final String?       salle;
   final int           lotActuel;
   final int           totalLots;
+  final int dureeStationMin;
 
   /// #196 — Délai de préavis (secondes) avant la fin du passage courant.
   /// 0 = avertissements désactivés (comportement par défaut, rétrocompatible).
@@ -70,13 +71,14 @@ class Session extends Equatable {
     this.heureFin,
     this.avertissementLeadSec = 0,
     this.enPause = false,
+    this.dureeStationMin = 15,
   });
 
   @override
   List<Object?> get props => [
     id, lotId, groupeNumero, stationId, stationNom, matiere, annee, statut,
     heureDebut, nbEtudiants, salle, lotActuel, totalLots,
-    avertissementLeadSec, enPause,
+    avertissementLeadSec, enPause, dureeStationMin,
   ];
 }
 

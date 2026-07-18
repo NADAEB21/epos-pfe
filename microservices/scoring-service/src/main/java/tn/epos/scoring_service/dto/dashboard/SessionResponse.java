@@ -58,6 +58,8 @@ public class SessionResponse {
     private String salle;
     private int    lotActuel;
     private int    totalLots;
+    // ajouter le champ
+    private int dureeStationMin;
 
     // ── ADR-0012 : compte à rebours + avertissement de transition ────────────
     // Instant absolu (date+heure) du début prévu du passage, réconcilié une

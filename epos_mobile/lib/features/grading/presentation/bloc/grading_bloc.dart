@@ -48,25 +48,31 @@ class GradingSessionStarted extends GradingEvent {
   final int       lotNumero;
   final int?      grilleId;
   final DateTime? debutCreneau;
+  final String stationNom;
+  final int  dureeMinutes;
 
   /// #196 — Délai de préavis (s) avant fin de passage, et état de pause
   /// initial, transmis depuis la Session choisie sur le dashboard.
   final int  avertissementLeadSec;
   final bool enPause;
+  final Duration clockOffset; 
 
   const GradingSessionStarted({
     required this.rotationId,
     required this.stationId,
     required this.lotNumero,
+    required this.stationNom,
     this.grilleId,
     this.debutCreneau,
     this.avertissementLeadSec = 0,
     this.enPause = false,
+    this.dureeMinutes = 15,
+    this.clockOffset = Duration.zero,
   });
 
   @override
   List<Object?> get props =>
-      [rotationId, stationId, lotNumero, grilleId, debutCreneau, avertissementLeadSec, enPause];
+      [rotationId, stationId, lotNumero, grilleId, debutCreneau, stationNom, avertissementLeadSec, enPause, dureeMinutes, clockOffset];
 }
 
 class GradingBinaryUpdated extends GradingEvent {
@@ -311,7 +317,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   Timer?                       _timer;
   StreamSubscription<ScoreUpdate>? _wsSub; // BF6.1
 
-  static const _durationStation = Duration(minutes: 15);
+  Duration _dureeStation = const Duration(minutes: 15);
+  Duration _clockOffset  = Duration.zero; 
 
   GradingBloc({
     required GradingRepository repository,
@@ -346,6 +353,9 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final lot      = results[1] as Lot;
       final grilleId = event.grilleId ?? grille.id;
 
+      _dureeStation = Duration(minutes: event.dureeMinutes > 0 ? event.dureeMinutes : 15);
+      _clockOffset  = event.clockOffset; 
+
       // ── Restaurer la progression et le verrouillage depuis le serveur ──
       final Map<int, Map<int, Notation>> notations        = {};
       final Set<int>                     etudiantsValides = {};
@@ -374,7 +384,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         rotationId:       event.rotationId,
         stationId:        event.stationId,
         grilleId:         grilleId,
-        stationNom:       'Station ${event.stationId}',
+        stationNom:       event.stationNom,
         grille:           grille,
         lot:              lot,
         notations:        notations,
@@ -583,7 +593,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       emit(GradingLoaded(
         rotationId: prochain.id, stationId: current.stationId, grilleId: current.grilleId,
         stationNom: current.stationNom, grille: current.grille, lot: prochain,
-        notations: {}, etudiantsValides: {}, tempsRestant: _durationStation,
+        notations: {}, etudiantsValides: {}, tempsRestant: _dureeStation,
         lotValide: prochain.valide,
         avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,
       ));
@@ -639,7 +649,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   /// (pas de rattrapage, pas de saut de temps).
   void _startTimer([Duration? initialDuration]) {
     _timer?.cancel();
-    var restant = initialDuration ?? _durationStation;
+    var restant = initialDuration ?? _dureeStation;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       final current = state;
       final enPause = current is GradingLoaded && current.enPause;
@@ -651,9 +661,14 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   }
 
   Duration _computeTempsRestant(DateTime? debutCreneau) {
-    if (debutCreneau == null) return _durationStation;
+    if (debutCreneau == null) return _dureeStation;
+    // ADR-0012 : "maintenant" corrigé du décalage horloge serveur/appareil —
+    // sinon une horloge/fuseau d'appareil qui diffère du serveur recalcule un
+    // temps écoulé faux à CHAQUE réouverture, donnant l'impression que le
+    // minuteur "se réinitialise".
+    final effectiveNow = DateTime.now().add(_clockOffset);
     final elapsed = DateTime.now().difference(debutCreneau);
-    return _durationStation - elapsed;
+    return _dureeStation; - elapsed;
   }
 
   // ── Utilitaire ────────────────────────────────────────────────────────────

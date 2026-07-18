@@ -48,6 +48,8 @@ void _naviguerVersNotation(
   final int rotationId = session.id;
   final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
   final debutCreneau  = _parseHeureDebut(session.heureDebut);
+  final sessionState = sessionBloc.state;
+  final clockOffset = sessionState is SessionLoaded ? sessionState.clockOffset : Duration.zero;
 
   final gradingBloc = GradingBloc(
      repository:  gradingRepository,
@@ -56,12 +58,15 @@ void _naviguerVersNotation(
        rotationId:   rotationId,
        stationId:    stationId,
        lotNumero:    lotNumero,
-       debutCreneau: debutCreneau,
+       stationNom:   session.stationNom,
+       dureeMinutes: session.dureeStationMin,
+       debutCreneau: session.debutPrevu,
        // #196 (ADR-0012 / ADR-0009) — la session porte déjà ces deux
        // valeurs depuis le dashboard ; on les transmet à GradingBloc pour
        // piloter le compte à rebours / avertissement de fin de passage.
        avertissementLeadSec: session.avertissementLeadSec,
        enPause:              session.enPause,
+       clockOffset:          clockOffset,
      ));
 
   Navigator.of(context, rootNavigator: true)
@@ -79,6 +84,11 @@ void _naviguerVersNotation(
       ),
     ))
     .then((_) {
+      // FIX : BlocProvider.value ne dispose JAMAIS le bloc fourni. Sans ce
+      // close() explicite, le Timer.periodic restait actif en arrière-plan
+      // après un retour à l'accueil — fuite mémoire ET source de confusion
+      // sur "quel minuteur est actif".
+      gradingBloc.close();
       sessionBloc.add(const SessionRefreshRequested());
     });
 }
@@ -445,9 +455,11 @@ class _SessionEnCoursCard extends StatelessWidget {
                     children: [
                       Text(session.stationNom,
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: c.textTitle)),
-                      const SizedBox(height: 2),
-                      Text('${session.matiere} · ${session.annee}',
-                          style: TextStyle(fontSize: 12, color: c.textSub)),
+                          
+                      if (_matiereAnneeLabel(session) case final label?) ...[
+                        const SizedBox(height: 2),
+                        Text(label, style: TextStyle(fontSize: 12, color: c.textSub)),
+                      ],
                     ],
                   ),
                 ),
@@ -551,10 +563,11 @@ class _SessionAVenirCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(session.stationNom,
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.textTitle)),
-                const SizedBox(height: 3),
-                Text('${session.matiere} · ${session.annee}',
-                    style: TextStyle(fontSize: 11, color: c.textSub)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.textTitle)),
+                if (_matiereAnneeLabel(session) case final label?) ...[
+                  const SizedBox(height: 3),
+                  Text(label, style: TextStyle(fontSize: 11, color: c.textSub)),
+            ],
                 const SizedBox(height: 6),
                 Row(children: [
                   _InfoChip(icon: Icons.group_outlined,       label: '${session.nbEtudiants} ét.', small: true),
@@ -824,4 +837,17 @@ class _AucuneSessionCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Construit "matière · année" en ne gardant que les parties non vides.
+/// Retourne null si rien à afficher — pas de "· null" ni de séparateur orphelin.
+String? _matiereAnneeLabel(Session s) {
+  final m = s.matiere?.trim();
+  final a = s.annee?.trim();
+
+  final parts = [
+    if (m?.isNotEmpty == true) m,
+    if (a?.isNotEmpty == true) a,
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }

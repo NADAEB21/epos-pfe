@@ -399,6 +399,8 @@ public class EvaluateurDashboardService {
                             .statut(statut)
                             .heureDebut(rotation.getDebutCreneau().format(TIME_FMT))
                             .heureFin(rotation.getDebutCreneau().plusMinutes(dureeMin).format(TIME_FMT))
+                            .dureeStationMin(dureeMin)
+                            .nbEtudiants((int) rotationAssignmentRepository.countByRotationId(rotation.getId()))
                             .lotActuel(lotLie != null ? lotLie.getNumeroLot() : 0)
                             .debutPrevu(debutPrevu(rotation, timing, rawNow))
                             .enPause(timing.enPause()).build();

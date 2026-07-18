@@ -59,11 +59,13 @@ class SessionLoaded extends SessionState {
   final List<Session>     sessions;
   final EvaluateurStats   stats;
   final List<PlanningCell> planning;
+  final Duration clockOffset; 
 
   const SessionLoaded({
     required this.sessions,
     required this.stats,
     required this.planning,
+    this.clockOffset = Duration.zero,
   });
 
   /// Sessions en cours uniquement
@@ -91,7 +93,7 @@ class SessionLoaded extends SessionState {
   }
 
   @override
-  List<Object?> get props => [sessions, stats, planning];
+  List<Object?> get props => [sessions, stats, planning, clockOffset];
 }
 
 // ========================
@@ -154,6 +156,7 @@ class SessionBloc extends Bloc<SessionEvent, SessionState> {
         _repository.getSessions(),
         _repository.getStats(),
         _repository.getPlanningDuJour(),
+        _repository.getClockOffset(),
       ]);
 
       final sessions = results[0] as List<Session>;
@@ -162,6 +165,7 @@ class SessionBloc extends Bloc<SessionEvent, SessionState> {
         sessions: sessions,
         stats:    results[1] as EvaluateurStats,
         planning: results[2] as List<PlanningCell>,
+        clockOffset: results[3] as Duration, 
       ));
 
       WebSocketService.instance.syncLotSubscriptions(

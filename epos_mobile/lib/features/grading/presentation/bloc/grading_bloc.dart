@@ -55,6 +55,7 @@ class GradingSessionStarted extends GradingEvent {
   /// initial, transmis depuis la Session choisie sur le dashboard.
   final int  avertissementLeadSec;
   final bool enPause;
+  final Duration clockOffset; 
 
   const GradingSessionStarted({
     required this.rotationId,
@@ -66,11 +67,12 @@ class GradingSessionStarted extends GradingEvent {
     this.avertissementLeadSec = 0,
     this.enPause = false,
     this.dureeMinutes = 15,
+    this.clockOffset = Duration.zero,
   });
 
   @override
   List<Object?> get props =>
-      [rotationId, stationId, lotNumero, grilleId, debutCreneau, stationNom, avertissementLeadSec, enPause, dureeMinutes];
+      [rotationId, stationId, lotNumero, grilleId, debutCreneau, stationNom, avertissementLeadSec, enPause, dureeMinutes, clockOffset];
 }
 
 class GradingBinaryUpdated extends GradingEvent {
@@ -316,6 +318,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   StreamSubscription<ScoreUpdate>? _wsSub; // BF6.1
 
   Duration _dureeStation = const Duration(minutes: 15);
+  Duration _clockOffset  = Duration.zero; 
 
   GradingBloc({
     required GradingRepository repository,
@@ -351,6 +354,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final grilleId = event.grilleId ?? grille.id;
 
       _dureeStation = Duration(minutes: event.dureeMinutes > 0 ? event.dureeMinutes : 15);
+      _clockOffset  = event.clockOffset; 
 
       // ── Restaurer la progression et le verrouillage depuis le serveur ──
       final Map<int, Map<int, Notation>> notations        = {};
@@ -658,6 +662,11 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
   Duration _computeTempsRestant(DateTime? debutCreneau) {
     if (debutCreneau == null) return _dureeStation;
+    // ADR-0012 : "maintenant" corrigé du décalage horloge serveur/appareil —
+    // sinon une horloge/fuseau d'appareil qui diffère du serveur recalcule un
+    // temps écoulé faux à CHAQUE réouverture, donnant l'impression que le
+    // minuteur "se réinitialise".
+    final effectiveNow = DateTime.now().add(_clockOffset);
     final elapsed = DateTime.now().difference(debutCreneau);
     return _dureeStation; - elapsed;
   }

@@ -90,4 +90,7 @@ class MockSessionRepository implements SessionRepository {
       PlanningCell(heure: '14:00', lotNumero: 4, statut: CellStatus.aVenir),
     ];
   }
+
+  @override
+  Future<Duration> getClockOffset() async => Duration.zero;
 }

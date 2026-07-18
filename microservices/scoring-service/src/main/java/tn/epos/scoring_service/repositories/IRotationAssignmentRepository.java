@@ -15,6 +15,8 @@ public interface IRotationAssignmentRepository extends JpaRepository<RotationAss
     // Lister tous les assignments d'une rotation spécifique
     List<RotationAssignment> findByRotationId(Long rotationId);
 
+    long countByRotationId(Long rotationId);
+
     /**
      * Retrouve l'assignment d'une participation POUR UNE STATION donnée.
      *

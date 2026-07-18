@@ -1,6 +1,8 @@
 // lib/features/home/data/models/session_model.dart
 
 import '../../domain/entities/session.dart';
+import '../repositories/session_repository_impl.dart' show parseServerTimestamp;
+
 
 class SessionModel extends Session {
   const SessionModel({
@@ -20,6 +22,8 @@ class SessionModel extends Session {
     super.heureFin,
     super.avertissementLeadSec,
     super.enPause,
+    super.dureeStationMin,
+    super.debutPrevu,
   });
 
   /// Parse la réponse de GET /api/v1/evaluateur/dashboard → sessions[].
@@ -51,7 +55,19 @@ class SessionModel extends Session {
       totalLots:   json['totalLots']   as int,
       avertissementLeadSec: _toInt(json['avertissementLeadSec']),
       enPause:              json['enPause'] as bool? ?? false,
+      debutPrevu: _parseServerDateTime(json['debutPrevu'] as String?),
     );
+  }
+
+  // "yyyy-MM-dd HH:mm:ss" — même motif que pausedAt/launchedAt côté backend
+  // (@JsonFormat sur SessionResponse.debutPrevu).
+  static DateTime? _parseServerDateTime(String? raw) {
+    if (raw == null) return null;
+    try {
+      return DateTime.parse(raw.replaceFirst(' ', 'T'));
+    } catch (_) {
+      return null;
+    }
   }
 
   static int _toInt(dynamic value) {

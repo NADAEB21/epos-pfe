@@ -8,6 +8,13 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+  # Tests build the schema from the JPA entities (ddl-auto below), so Flyway is
+  # off here: the migrations are Postgres-specific (BIGSERIAL, a functional
+  # UNIQUE INDEX over COALESCE) and would not all run on H2, even in
+  # PostgreSQL-compatibility mode.
+  flyway:
+    enabled: false
+
   jpa:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:

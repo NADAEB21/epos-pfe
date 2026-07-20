@@ -1,5 +1,8 @@
 # Keep the Docker build context small and free of build output / secrets.
 **/target
+**/node_modules
+**/.angular
+frontend-web/dist
 .git
 .github
 .idea

@@ -124,6 +124,13 @@ case "$SCENARIO" in
     docker stop epos-exam-service > /dev/null
     EXAM_SERVICE_STOPPED=1
     TARGET=integration_test/grading_screen_test.dart ;;
+  grading-save)     # session 22 — LE CHEMIN D'ÉCRITURE, piloté depuis l'UI
+    # Même fenêtre que grading-nominal. La différence est ce qu'on prouve :
+    # non pas « l'écran s'affiche » mais « la note traverse l'UI et PERSISTE ».
+    $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
+    VERIFIER_ECRITURE=1
+    TARGET=integration_test/grading_save_test.dart ;;
   smoke)
     TARGET=integration_test/smoke_test.dart ;;
   *)
@@ -139,3 +146,31 @@ echo ">>> fixture posée pour $SCENARIO ; lancement de $TARGET"
 # avec le port 4400). Le smoke test ne l'avait pas révélé : il ne fait aucun
 # appel authentifié.
 flutter drive --driver=test_driver/integration_test.dart --target="$TARGET" -d chrome --web-port=4300
+DRIVE_RC=$?
+
+# ── vérification de PERSISTANCE, avant le restore ───────────────────────────
+# Le test Dart tourne dans Chrome : il ne peut pas interroger la base. Il prouve
+# que l'UI a accepté la saisie ; c'est ICI qu'on prouve qu'elle a persisté — et
+# obligatoirement AVANT le trap EXIT, qui efface justement ces notations.
+if [ "${VERIFIER_ECRITURE:-0}" = "1" ]; then
+  echo ">>> PERSISTANCE (rotation 141, avant restore)"
+  $PSQL "
+    SELECT '    notations: '||count(*) FROM notations n
+      JOIN rotation_assignment ra ON ra.id=n.assignment_id WHERE ra.rotation_id=141;
+    SELECT '    items notés: '||count(*) FROM notation_items ni
+      JOIN notations n ON n.id=ni.notation_id
+      JOIN rotation_assignment ra ON ra.id=n.assignment_id WHERE ra.rotation_id=141;"
+  echo "    détail (etudiant | score_final | verrouillee) :"
+  $PSQL "
+    SELECT '    '||ra.participation_id||' | '||coalesce(n.score_final::text,'NULL')
+           ||' | '||coalesce(n.verouillee::text,'NULL')
+    FROM notations n JOIN rotation_assignment ra ON ra.id=n.assignment_id
+    WHERE ra.rotation_id=141 ORDER BY ra.participation_id;"
+  echo "    valeurs saisies :"
+  $PSQL "
+    SELECT '    item '||ni.item_id||' = '||ni.valeur
+    FROM notation_items ni JOIN notations n ON n.id=ni.notation_id
+    JOIN rotation_assignment ra ON ra.id=n.assignment_id
+    WHERE ra.rotation_id=141 ORDER BY ni.item_id;"
+fi
+exit ${DRIVE_RC:-0}

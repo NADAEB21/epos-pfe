@@ -53,6 +53,7 @@ class EvaluateurDashboardServiceTest {
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private IStudentGroupRepository        studentGroupRepository;
     @Mock private ExamServiceClient              examServiceClient;
+    @Mock private ExamDefinitionSnapshotService  examDefinitionSnapshot;
     @Mock private SimpMessagingTemplate          messagingTemplate;
 
     // Vraie horloge (pas un mock) pinnée Africa/Tunis comme ClockConfig, pour que
@@ -74,9 +75,34 @@ class EvaluateurDashboardServiceTest {
                 .thenReturn(new ExamServiceClient.ExamTiming(false, null, 0, 15, 0, "EN_COURS"));
         lenient().when(examServiceClient.getStationInfo(anyLong()))
                 .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
+        lenient().when(examDefinitionSnapshot.resolveStationNom(any(), anyLong()))
+                .thenReturn("Station Test");
+        // weigh() garde l'arithmétique RÉELLE (déléguée à ExamItemSnapshot) : si on la
+        // stubbait, les tests de score ne vérifieraient plus que le mock sait compter.
+        lenient().when(examDefinitionSnapshot.weigh(anyMap(), anyLong(), any()))
+                .thenAnswer(inv -> {
+                    Map<Long, ExamItemSnapshot> def = inv.getArgument(0);
+                    ExamItemSnapshot item = def.get((Long) inv.getArgument(1));
+                    if (item == null) {
+                        throw new BusinessException("Item hors snapshot (ADR-0015)");
+                    }
+                    return item.weigh(inv.getArgument(2));
+                });
     }
 
     // ─── shared helpers ──────────────────────────────────────────────────────
+
+    /**
+     * ADR-0015 — définition figée d'une grille à un seul critère notable. Remplace les stubs
+     * {@code getItemInfosForGrille(...) → Map.of()} : une map vide ne signifie plus « on ne sait
+     * pas, laisse passer » mais « aucun critère notable », ce qui doit désormais échouer.
+     */
+    private Map<Long, ExamItemSnapshot> definition(long itemId, double ponderation, String type) {
+        return Map.of(itemId, ExamItemSnapshot.builder()
+                .examenId(99L).grilleId(1L).itemId(itemId)
+                .ponderation(ponderation).type(type)
+                .build());
+    }
 
     private Rotation rotationAt(LocalDateTime debut) {
         Rotation r = new Rotation();
@@ -443,6 +469,49 @@ class EvaluateurDashboardServiceTest {
         void setup() {
             lenient().when(examServiceClient.getStationInfo(anyLong()))
                     .thenReturn(new ExamServiceClient.StationInfo("Station Test"));
+        }
+
+        @Test
+        @DisplayName("ADR-0015 — une station irrésolue dégrade SA session seule ; les sessions figées restent lisibles")
+        void stationIrresolue_degradeSansTuerLeTableau() {
+            // Régression live 2026-07-20 : pendant une panne d'exam-service, le repli-ouvert de
+            // #241 fait remonter des sessions d'autres examens, jamais figées. Avec un resolve
+            // strict sur le chemin de LECTURE, tout le dashboard tombait en HTTP 400 — y compris
+            // les sessions parfaitement figées, ce qui contredit la promesse de l'ADR
+            // (« après le premier succès, une panne d'exam-service est sans effet »).
+            Lot lot = new Lot(); lot.setId(1L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            lot.setTailleLot(4); lot.setStatut(LotStatus.EN_COURS);
+
+            Rotation figee    = rotationWithLot(1L, lot, 1);  // station 1 : figée
+            Rotation parasite = rotationWithLot(2L, lot, 1);  // station 2 : jamais figée
+            figee.setStationId(1L);
+            parasite.setStationId(2L);
+            // buildSessions ignore toute rotation sans debutCreneau.
+            LocalDateTime debut = LocalDateTime.now(TUNIS).minusMinutes(5);
+            figee.setDebutCreneau(debut);
+            parasite.setDebutCreneau(debut);
+
+            when(rotationRepository.findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(eq(EVAL_ID), anyList()))
+                    .thenReturn(List.of(figee, parasite));
+            when(examDefinitionSnapshot.resolveStationNomPourAffichage(any(), eq(1L)))
+                    .thenReturn("Titrimétrie acido-basique");
+            when(examDefinitionSnapshot.resolveStationNomPourAffichage(any(), eq(2L)))
+                    .thenReturn(ExamDefinitionSnapshotService.NOM_INDISPONIBLE);
+
+            EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
+
+            assertThat(resp.getSessions()).hasSize(2);
+            assertThat(resp.getSessions())
+                    .extracting(SessionResponse::getStationNom)
+                    .containsExactlyInAnyOrder("Titrimétrie acido-basique",
+                            ExamDefinitionSnapshotService.NOM_INDISPONIBLE);
+
+            // Le marqueur dégradé doit rester HONNÊTE : ni vide (le mobile fait
+            // `stationNom ?? ''`, un null rendrait un libellé blanc), ni plausible
+            // (« Station 2 » se lirait comme un vrai intitulé — c'est le repli supprimé).
+            assertThat(ExamDefinitionSnapshotService.NOM_INDISPONIBLE)
+                    .isNotBlank()
+                    .doesNotMatch("^Station \\d+$");
         }
 
         @Test
@@ -813,7 +882,8 @@ class EvaluateurDashboardServiceTest {
             when(notationRepository.findByAssignmentId(250L)).thenReturn(Optional.of(n));
             when(notationItemRepository.findByNotationIdAndItemId(2L, 5L)).thenReturn(Optional.empty());
             when(notationItemRepository.findByNotationId(2L)).thenReturn(List.of());
-            when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             service.saisirNotation(new SaisirNotationRequest(2L, STATION_ID, 1L, 5L, 1.0f), EVAL_ID);
 
@@ -832,6 +902,10 @@ class EvaluateurDashboardServiceTest {
             when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
+            // L'item EST notable : on veut que le rejet vienne bien du VERROU et non de la
+            // garde ADR-0015, sinon ce test ne prouverait plus rien sur le verrouillage.
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f);
 
@@ -859,7 +933,8 @@ class EvaluateurDashboardServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
                     .thenReturn(Optional.of(existingItem));
             when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of(existingItem));
-            when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 3.0f);
             service.saisirNotation(req, EVAL_ID);
@@ -884,7 +959,8 @@ class EvaluateurDashboardServiceTest {
                     .thenReturn(Optional.empty());
 
             lenient().when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
-            lenient().when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
+            lenient().when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(7L, 1.0, "NUMERIQUE"));
 
             SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 7L, 2.0f);
             service.saisirNotation(req, EVAL_ID);
@@ -912,6 +988,8 @@ class EvaluateurDashboardServiceTest {
             lenient().when(notationItemRepository.findByNotationIdAndItemId(anyLong(), anyLong()))
                     .thenReturn(Optional.empty());
             lenient().when(notationItemRepository.findByNotationId(anyLong())).thenReturn(List.of());
+            lenient().when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             service.saisirNotation(new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f), EVAL_ID);
 
@@ -935,8 +1013,8 @@ class EvaluateurDashboardServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
                     .thenReturn(Optional.of(ni));
             when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of(ni));
-            when(examServiceClient.getItemInfosForGrille(1L))
-                    .thenReturn(Map.of(5L, new ExamServiceClient.ItemInfo(5L, 4.0, "BINAIRE")));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 4.0, "BINAIRE"));
 
             service.saisirNotation(new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f), EVAL_ID);
 
@@ -960,8 +1038,8 @@ class EvaluateurDashboardServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
                     .thenReturn(Optional.of(ni));
             when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of(ni));
-            when(examServiceClient.getItemInfosForGrille(1L))
-                    .thenReturn(Map.of(5L, new ExamServiceClient.ItemInfo(5L, 10.0, "NUMERIQUE")));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 10.0, "NUMERIQUE"));
 
             service.saisirNotation(new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 3.5f), EVAL_ID);
 
@@ -969,27 +1047,57 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("Score fallback (exam-service indisponible) : somme des valeurs brutes")
-        void scoreCalcul_fallback() {
+        @DisplayName("ADR-0015 / #240 — item hors définition figée : ÉCHEC FORT, aucun score faux persisté")
+        void scoreCalcul_itemHorsSnapshot_echoueFort() {
+            // Régression #240. Cette assertion était écrite À L'ENVERS : elle exigeait
+            // « exam-service indisponible → somme des valeurs brutes », c'est-à-dire elle
+            // consacrait le bug. Un item BINAIRE valeur 1 × pondération 5 valait alors 1 au
+            // lieu de 5, score_final persisté et diffusé en WebSocket sans aucune erreur.
+            // La règle ADR-0015 est l'inverse : on refuse la note plutôt que d'en écrire une fausse.
             ExamenParticipation p = participation(1L); p.setId(100L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(200L);
             Notation n = new Notation(); n.setId(1L); n.setGrilleId(1L); n.setVerouillee(false);
-            NotationItem ni = new NotationItem();
-            ni.setItemId(5L); ni.setValeur(2.5f); ni.setNotation(n);
 
             when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(p));
-            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
+            // Volontairement `lenient` : la garde ADR-0015 rejette AVANT même de résoudre
+            // l'assignment — c'est le comportement voulu (on ne touche à rien).
+            lenient().when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
                     .thenReturn(Optional.of(ra));
-            when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
-            when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
-                    .thenReturn(Optional.of(ni));
-            when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of(ni));
-            when(examServiceClient.getItemInfosForGrille(1L)).thenReturn(Map.of());
+            lenient().when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
+            // La grille ne déclare notable que l'item 9 — l'item 5 saisi n'en fait pas partie.
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(9L, 5.0, "BINAIRE"));
 
-            service.saisirNotation(new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 2.5f), EVAL_ID);
+            SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f);
 
-            assertThat(n.getScore_final()).isEqualTo(2.5f);
+            assertThatThrownBy(() -> service.saisirNotation(req, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("n'est pas un critère notable");
+
+            // Le fond de l'affaire : rien n'est écrit, donc aucune note fausse ne survit.
+            assertThat(n.getScore_final()).isNull();
+            verify(notationRepository, never()).save(any(Notation.class));
+            verify(notationItemRepository, never()).save(any(NotationItem.class));
+        }
+
+        @Test
+        @DisplayName("ADR-0015 — la garde feuille ne se désactive plus sur définition vide (fail-open supprimé)")
+        void gardeFeuille_inconditionnelle() {
+            // Ancien comportement : `!feuillesValides.isEmpty() && ...` — une réponse vide
+            // d'exam-service désactivait la garde, laissant noter un critère PARENT dont la
+            // ligne se double-comptait ensuite définitivement dans recalculerScoreFinal.
+            ExamenParticipation p = participation(1L); p.setId(100L);
+
+            when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(p));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L))).thenReturn(Map.of());
+
+            SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f);
+
+            assertThatThrownBy(() -> service.saisirNotation(req, EVAL_ID))
+                    .isInstanceOf(BusinessException.class);
+            verify(notationItemRepository, never()).save(any(NotationItem.class));
         }
 
         @Test
@@ -1007,6 +1115,8 @@ class EvaluateurDashboardServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(1L, 5L))
                     .thenReturn(Optional.empty());
             when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             service.saisirNotation(new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 1.0f), EVAL_ID);
 

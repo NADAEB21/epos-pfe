@@ -6,10 +6,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.ResourceNotFoundException;
-import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.NotationAdjustmentDTO;
 import tn.epos.scoring_service.dto.ReajustementRequest;
+import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.NotationAdjustment;
 import tn.epos.scoring_service.entities.NotationItem;
@@ -39,13 +39,13 @@ import java.util.Map;
 @Transactional
 public class NotationReajustementService {
 
-    private static final String TYPE_BINAIRE = "BINAIRE";
-
     private final INotationRepository notationRepository;
     private final INotationItemRepository notationItemRepository;
     private final INotationAdjustmentRepository adjustmentRepository;
-    private final ExamServiceClient examServiceClient;
     private final EvaluateurScopeChecker scopeChecker;
+
+    /** ADR-0015 — définition figée : seule source des pondérations et du calcul du score. */
+    private final ExamDefinitionSnapshotService examDefinitionSnapshot;
 
     /**
      * Applies an audited réajustement and returns the persisted adjustment row.
@@ -120,26 +120,31 @@ public class NotationReajustementService {
     }
 
     /**
-     * Recompute {@code score_final} as the weighted sum of the notation's items —
-     * canonical copy of {@code EvaluateurDashboardService.recalculerScoreFinal}
-     * (BINAIRE items count {@code valeur × pondération}, others count raw
-     * {@code valeur}). The two will be unified when config/service duplication is
-     * folded into epos-common (#68); until then they MUST stay identical so a
-     * réajustement produces the same total the évaluateur's grading would.
+     * Recompute {@code score_final} as the weighted sum of the notation's items.
+     *
+     * <p><b>ADR-0015 — l'arithmétique n'est plus dupliquée.</b> Cette copie et celle de
+     * {@code EvaluateurDashboardService} devaient « rester identiques » jusqu'à #68 ; elles avaient
+     * déjà divergé sans que personne ne le voie : celle-ci protégeait un {@code valeur} nul, l'autre
+     * déballait le {@code Float} directement et provoquait donc un <b>NPE sur le chemin de
+     * notation</b>. Les deux délèguent maintenant à {@link ExamDefinitionSnapshotService#weigh},
+     * seule définition du calcul — la divergence ne peut plus se reproduire.
      */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
-        Map<Long, ExamServiceClient.ItemInfo> infos =
-                examServiceClient.getItemInfosForGrille(notation.getGrilleId());
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(examenIdDe(notation), notation.getGrilleId());
         float score = 0f;
         for (NotationItem ni : items) {
-            ExamServiceClient.ItemInfo info = infos.get(ni.getItemId());
-            float valeur = ni.getValeur() != null ? ni.getValeur() : 0f;
-            score += (info != null && TYPE_BINAIRE.equals(info.type()))
-                    ? valeur * (float) info.ponderation()
-                    : valeur;
+            score += examDefinitionSnapshot.weigh(definition, ni.getItemId(), ni.getValeur());
         }
         notation.setScore_final(score);
         notationRepository.save(notation);
+    }
+
+    /** Chemin {@code Notation → assignment → participation → examen_id} (ADR-0015). */
+    private Long examenIdDe(Notation notation) {
+        return (notation.getAssignment() != null && notation.getAssignment().getParticipation() != null)
+                ? notation.getAssignment().getParticipation().getExamen_id()
+                : null;
     }
 }

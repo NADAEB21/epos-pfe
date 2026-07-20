@@ -45,6 +45,14 @@ public class EvaluateurDashboardService {
     private final IStudentGroupRepository        studentGroupRepository;
     private final ExamServiceClient              examServiceClient;
 
+    /**
+     * ADR-0015 — définition figée dans {@code scoring_db}. Remplace les lectures réseau pour le
+     * <b>nom de station</b> et les <b>pondérations d'items</b> : ces valeurs sont immuables une fois
+     * l'examen {@code EN_COURS}, donc les refetcher n'apportait rien et coûtait trois défaillances
+     * silencieuses pendant une panne d'exam-service (reproduites le 2026-07-20).
+     */
+    private final ExamDefinitionSnapshotService  examDefinitionSnapshot;
+
     /** Horloge injectable ADR-0010. */
     private final Clock clock;
 
@@ -223,14 +231,21 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
-        Set<Long> feuillesValides = examServiceClient.getItemIdsForGrille(request.getGrilleId());
-        if (!feuillesValides.isEmpty() && !feuillesValides.contains(request.getItemId())) {
-            throw new BusinessException(
-                    "L'item " + request.getItemId() + " est un critère parent (il a des sous-critères) "
-                            + "— seuls ses sous-critères sont notables.");
-        }
-
         ExamenParticipation participation = resolverParticipation(request.getEtudiantId(), request.getStationId());
+
+        // ADR-0015 — garde feuille LOCALE et INCONDITIONNELLE. L'ancienne version interrogeait
+        // exam-service et se désactivait elle-même sur réponse vide (`!isEmpty()`) : pendant une
+        // panne, un critère PARENT devenait notable, et sa ligne se double-comptait ensuite
+        // définitivement dans recalculerScoreFinal. Le snapshot EST l'ensemble des items notables :
+        // une absence signifie « non notable », il n'y a donc plus de cas « je ne sais pas ».
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(participation.getExamen_id(), request.getGrilleId());
+        if (!definition.containsKey(request.getItemId())) {
+            throw new BusinessException(
+                    "L'item " + request.getItemId() + " n'est pas un critère notable de la grille "
+                            + request.getGrilleId() + " (critère parent, ou absent de la définition "
+                            + "figée au lancement — ADR-0015).");
+        }
         // #203 : lookup scopé (participation, station) — une participation a un
         // assignment par station, donc un lookup par participation seule crasherait.
         RotationAssignment assignment = rotationAssignmentRepository
@@ -395,7 +410,11 @@ public class EvaluateurDashboardService {
                             .groupeNumero(rotation.getStudentGroup() != null
                                     ? rotation.getStudentGroup().getNumeroGroupe() : 0)
                             .stationId(rotation.getStationId())
-                            .stationNom(examServiceClient.getStationInfo(rotation.getStationId()).nom())
+                            // ADR-0015 : nom figé, jamais le repli « Station <id> » — une panne
+                            // d'exam-service ne doit plus fabriquer un intitulé plausible mais faux.
+                            .stationNom(examDefinitionSnapshot.resolveStationNom(
+                                    lotLie != null ? lotLie.getExamenId() : null,
+                                    rotation.getStationId()))
                             .statut(statut)
                             .heureDebut(rotation.getDebutCreneau().format(TIME_FMT))
                             .heureFin(rotation.getDebutCreneau().plusMinutes(dureeMin).format(TIME_FMT))
@@ -486,16 +505,32 @@ public class EvaluateurDashboardService {
         return m.isBefore(r.getDebutCreneau()) || !m.isAfter(fin) ? "A_VENIR" : "TERMINE";
     }
 
+    /**
+     * ADR-0015 — le score est recalculé <b>uniquement</b> à partir de la définition figée.
+     *
+     * <p>L'ancienne version tolérait un {@code info == null} et notait alors l'item à sa valeur
+     * brute : pendant une panne d'exam-service, un item {@code valeur 1 × pondération 5} valait
+     * <b>1 au lieu de 5</b>, et ce {@code score_final} faux était persisté puis diffusé en WebSocket
+     * sans la moindre erreur. Un item inconnu fait désormais échouer le calcul — on préfère refuser
+     * la note plutôt qu'en enregistrer une fausse.
+     */
     private void recalculerScoreFinal(Notation notation) {
         List<NotationItem> items = notationItemRepository.findByNotationId(notation.getId());
-        Map<Long, ExamServiceClient.ItemInfo> infos = examServiceClient.getItemInfosForGrille(notation.getGrilleId());
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(examenIdDe(notation), notation.getGrilleId());
         float score = 0f;
         for (NotationItem ni : items) {
-            ExamServiceClient.ItemInfo info = infos.get(ni.getItemId());
-            score += (info != null && "BINAIRE".equals(info.type())) ? ni.getValeur() * (float) info.ponderation() : ni.getValeur();
+            score += examDefinitionSnapshot.weigh(definition, ni.getItemId(), ni.getValeur());
         }
         notation.setScore_final(score);
         notationRepository.save(notation);
+    }
+
+    /** Chemin {@code Notation → assignment → participation → examen_id} (ADR-0015). */
+    private Long examenIdDe(Notation notation) {
+        return (notation.getAssignment() != null && notation.getAssignment().getParticipation() != null)
+                ? notation.getAssignment().getParticipation().getExamen_id()
+                : null;
     }
 
     private Map<Long, ExamServiceClient.ExamTiming> fetchTimings(List<Rotation> rotations) {

@@ -136,6 +136,66 @@ public class ExamServiceClient {
         return getItemInfosForGrille(grilleId).keySet();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADR-0015 — variantes STRICTES, utilisées uniquement par
+    // ExamDefinitionSnapshotService pour figer la définition.
+    //
+    // Les variantes historiques ci-dessus dégradent en silence (map vide /
+    // « Station <id> ») pour ne pas bloquer l'appelant. C'est précisément ce qui
+    // faisait enregistrer des notes fausses pendant une panne d'exam-service.
+    // Une matérialisation ne doit JAMAIS figer une valeur de repli : ce qu'on
+    // écrit ici est définitif. En cas d'échec : ne rien écrire, échouer fort.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Nom réel de la station, sans repli.
+     *
+     * @throws BusinessException si exam-service est injoignable, répond en erreur, ou ne fournit
+     *                           pas de nom. Ne renvoie jamais {@code "Station <id>"}.
+     */
+    public String getStationNomStrict(Long stationId) {
+        String bearerToken = currentBearerToken();
+        JsonNode root;
+        try {
+            root = webClient.get()
+                    .uri("/api/stations/{id}", stationId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value()
+                    + " pour la station " + stationId + " — définition non figée (ADR-0015).");
+        } catch (RuntimeException e) {
+            throw new BusinessException("exam-service injoignable pour la station " + stationId
+                    + " — définition non figée (ADR-0015) : " + e.getMessage());
+        }
+
+        String nom = (root != null) ? root.path("data").path("nom").asText(null) : null;
+        if (nom == null || nom.isBlank()) {
+            throw new BusinessException("exam-service n'a pas fourni de nom pour la station "
+                    + stationId + " — définition non figée (ADR-0015).");
+        }
+        return nom;
+    }
+
+    /**
+     * Items notables (feuilles) d'une grille, sans repli sur une map vide.
+     *
+     * <p>{@link #fetchItemInfos} lève déjà sur erreur de transport ; la dégradation silencieuse
+     * venait d'un corps nul renvoyant une map vide. On la rejette ici.
+     *
+     * @throws BusinessException si la grille ne peut pas être lue ou ne déclare aucun item.
+     */
+    public Map<Long, ItemInfo> getItemInfosForGrilleStrict(Long grilleId) {
+        Map<Long, ItemInfo> infos = fetchItemInfos(grilleId);
+        if (infos.isEmpty()) {
+            throw new BusinessException("exam-service n'a renvoyé aucun critère notable pour la "
+                    + "grille " + grilleId + " — définition non figée (ADR-0015).");
+        }
+        return infos;
+    }
+
     /**
      * Récupère le nom d'une station depuis l'exam-service.
      * Résultat non mis en cache (champ mutable si examen en brouillon).

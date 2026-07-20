@@ -17,6 +17,7 @@ import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
+import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
@@ -172,6 +173,39 @@ class RotationGenerationServiceTest {
             assertThat(r.avertissement()).isNull();
 
             verify(studentGroupRepository, org.mockito.Mockito.times(3)).save(any(StudentGroup.class));
+        }
+
+        /**
+         * #207 — la génération est l'acte du jour J (examen lancé + présence marquée) :
+         * c'est donc là que la vague devient réellement notable. Le premier rang part
+         * EN_COURS, les suivants attendent leur « Groupe suivant ».
+         *
+         * <p>Le point qui compte : il y a UNE rotation EN_COURS PAR STATION, pas une seule
+         * pour tout le lot — un circuit OSCE fait tourner les K stations en parallèle.
+         */
+        @Test
+        @DisplayName("#207 : le rang 1 démarre EN_COURS sur CHAQUE station, les rangs suivants EN_ATTENTE")
+        void genere_rangUnDemarreEnCoursParStation() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+
+            service.generateForLot(LOT_ID);
+
+            var enCours = savedRotations.stream()
+                    .filter(r -> r.getStatut() == RotationStatus.EN_COURS)
+                    .toList();
+
+            // Une seule rotation ouverte par station, et c'est toujours le rang 1.
+            assertThat(enCours).hasSize(3);
+            assertThat(enCours).allMatch(r -> r.getOrdrePassage() == 1);
+            assertThat(enCours.stream().map(Rotation::getStationId).distinct().count()).isEqualTo(3L);
+
+            // Tout le reste attend explicitement — aucun statut déduit d'une horloge.
+            assertThat(savedRotations.stream().filter(r -> r.getOrdrePassage() > 1))
+                    .isNotEmpty()
+                    .allMatch(r -> r.getStatut() == RotationStatus.EN_ATTENTE);
         }
 
         @Test

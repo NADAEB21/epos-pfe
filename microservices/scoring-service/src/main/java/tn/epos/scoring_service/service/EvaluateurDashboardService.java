@@ -66,7 +66,6 @@ public class EvaluateurDashboardService {
     private static final String            LOG_ETUDIANT_STATION = " station=";
 
     private static final int DUREE_STATION_MIN = 15;
-    private static final int GRACE_PERIOD_MIN  = 30;
 
     private static final String TOPIC_SCORES = "/topic/stations/%d/scores";
     private static final String TOPIC_LOT    = "/topic/lots/%d/status";
@@ -377,6 +376,23 @@ public class EvaluateurDashboardService {
         Lot lot = rotation.getStudentGroup() != null ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) return;
 
+        // #207 — « Groupe suivant » : valider ouvre explicitement le rang suivant DE CETTE
+        // STATION. C'est ce qui remplace la déduction d'horloge — sans cette écriture,
+        // EN_COURS n'existerait nulle part en base et le tableau de bord devrait à nouveau
+        // deviner. Séquencé sur ordrePassage, pas sur debutCreneau : l'horloge ne décide
+        // plus de l'avancement (ADR-0014). Les stations avancent indépendamment.
+        rotationRepository
+                .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                        rotation.getStationId(), lot.getId(), rotation.getOrdrePassage())
+                .ifPresent(suivante -> {
+                    if (suivante.getStatut() != RotationStatus.TERMINE) {
+                        suivante.setStatut(RotationStatus.EN_COURS);
+                        rotationRepository.save(suivante);
+                        log.info("Station {} : groupe suivant (rotation {}, rang {}) ouvert.",
+                                rotation.getStationId(), suivante.getId(), suivante.getOrdrePassage());
+                    }
+                });
+
         broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard : groupe suivant dispo
 
         if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lot.getId(), RotationStatus.TERMINE) == 0) {
@@ -399,9 +415,8 @@ public class EvaluateurDashboardService {
                 .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
                 .map(rotation -> {
                     ExamServiceClient.ExamTiming timing = timingFor(rotation, timingByExam);
-                    LocalDateTime maintenant = effectiveNow(timing, rawNow);
                     int dureeMin = dureeMinFor(timing);
-                    String statut = resolveSessionStatut(rotation, maintenant, dureeMin);
+                    String statut = resolveSessionStatut(rotation);
                     Lot lotLie = resolverLotDepuisRotation(rotation, lotsParId);
 
                     return SessionResponse.builder()
@@ -433,13 +448,29 @@ public class EvaluateurDashboardService {
                 .collect(Collectors.toList());
     }
 
-    private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant, int dureeMin) {
-        if (rotation.getStatut() == RotationStatus.TERMINE) return STATUT_TERMINEE;
-        LocalDateTime debut = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
-        if (maintenant.isBefore(debut)) return "A_VENIR";
-        if (!maintenant.isAfter(finReelle)) return "EN_COURS";
-        return STATUT_TERMINEE;
+    /**
+     * #207 / ADR-0014 — l'avancement est lu, plus déduit.
+     *
+     * <p>L'ancienne version calculait {@code debutCreneau + duree + 30 min de grâce} et
+     * retirait d'office la session passé ce délai. C'était un <b>PLAFOND</b> : un examen qui
+     * dérive de plus de 45 min voyait toutes ses sessions basculer TERMINEE alors que
+     * personne n'avait rien validé, et l'évaluateur se retrouvait devant un tableau mort
+     * (#238). Le statut vient désormais de la seule source qui sait où en est réellement la
+     * salle : l'état persisté de la rotation, écrit à la génération (rang 1) puis à chaque
+     * « Groupe suivant ».
+     *
+     * <p>L'horloge garde son rôle de <b>PLANCHER</b> ailleurs — {@code debutPrevu} et
+     * {@code dureeStationMin} alimentent toujours le compte à rebours mobile, qui garantit à
+     * l'étudiant le temps qui lui est dû. Elle ne décide simplement plus de la fin.
+     */
+    private String resolveSessionStatut(Rotation rotation) {
+        RotationStatus statut = rotation.getStatut();
+        if (statut == null) return "A_VENIR";
+        return switch (statut) {
+            case TERMINE   -> STATUT_TERMINEE;
+            case EN_COURS  -> "EN_COURS";
+            case EN_ATTENTE -> "A_VENIR";
+        };
     }
 
     private int sessionStatutOrdre(String statut) {
@@ -448,10 +479,6 @@ public class EvaluateurDashboardService {
             case "A_VENIR"  -> 1;
             default         -> 2;
         };
-    }
-
-    private LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing, LocalDateTime rawNow) {
-        return rawNow.minusSeconds(pauseSeconds(timing, rawNow));
     }
 
     private long pauseSeconds(ExamServiceClient.ExamTiming timing, LocalDateTime rawNow) {
@@ -495,18 +522,22 @@ public class EvaluateurDashboardService {
         return rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null && r.getDebutCreneau().toLocalDate().equals(rawNow.toLocalDate()))
                 .map(r -> {
-                    ExamServiceClient.ExamTiming t = timingFor(r, timingByExam);
                     return PlanningCellResponse.builder()
                             .heure(r.getDebutCreneau().format(TIME_FMT))
                             .lotNumero(r.getStudentGroup() != null ? r.getStudentGroup().getLot().getNumeroLot() : 0)
-                            .statut(mapRotationStatutToPlanningStatut(r, effectiveNow(t, rawNow), dureeMinFor(t))).build();
+                            .statut(mapRotationStatutToPlanningStatut(r)).build();
                 }).collect(Collectors.toList());
     }
 
-    private String mapRotationStatutToPlanningStatut(Rotation r, LocalDateTime m, int d) {
-        if (r.getStatut() == RotationStatus.TERMINE) return "TERMINE";
-        LocalDateTime fin = r.getDebutCreneau().plusMinutes((long) d + GRACE_PERIOD_MIN);
-        return m.isBefore(r.getDebutCreneau()) || !m.isAfter(fin) ? "A_VENIR" : "TERMINE";
+    /**
+     * #207 — même plafond d'horloge que {@link #resolveSessionStatut}, retiré de la même façon.
+     *
+     * <p>La cellule de planning est binaire côté client ({@code CellStatus} ne connaît que
+     * TERMINE / A_VENIR / AUCUN, sans EN_COURS) : un groupe en cours reste donc affiché
+     * « à venir » tant qu'il n'est pas validé, ce qui était déjà le contrat.
+     */
+    private String mapRotationStatutToPlanningStatut(Rotation r) {
+        return r.getStatut() == RotationStatus.TERMINE ? "TERMINE" : "A_VENIR";
     }
 
     /**

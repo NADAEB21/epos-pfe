@@ -188,7 +188,13 @@ public class RotationGenerationService {
                 rotation.setEvaluateurId(evaluateurId);
                 rotation.setOrdrePassage(t + 1);
                 rotation.setDebutCreneau(creneau);
-                rotation.setStatut(RotationStatus.EN_ATTENTE);
+                // #207 — l'avancement est un ÉTAT STOCKÉ, plus une déduction d'horloge.
+                // Le premier rang part donc EN_COURS dès la génération : la génération est
+                // déjà l'acte du jour J (examen lancé + présence marquée, gardes plus haut),
+                // donc c'est le moment où la vague devient réellement gradable. Le carré
+                // latin place les k groupes sur k stations distinctes à t=0 : cela ouvre
+                // exactement UNE rotation par station, pas une seule pour tout le lot.
+                rotation.setStatut(t == 0 ? RotationStatus.EN_COURS : RotationStatus.EN_ATTENTE);
                 rotation.setStudentGroup(groups.get(g));
                 rotation = rotationRepository.save(rotation);
                 rotationCount++;

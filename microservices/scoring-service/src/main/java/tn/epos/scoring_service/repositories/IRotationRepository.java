@@ -80,4 +80,15 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
      * toutes les stations, ce compte tombe à 0 et le lot peut être clôturé.
      */
     long countByStudentGroup_Lot_IdAndStatutNot(Long lotId, RotationStatus statut);
+
+    /**
+     * #207 — rotation suivante d'une station donnée, au sens du RANG DE PASSAGE.
+     *
+     * <p>Volontairement séquencée sur {@code ordrePassage} et non sur {@code debutCreneau} :
+     * l'horloge ne doit plus déterminer quel groupe est en cours (ADR-0014). Le voisin
+     * chronologique existant ({@code findFirstByEvaluateurIdAndDebutCreneauAfter…}) répond à
+     * une autre question — « quoi ensuite dans le planning » — et reste pour l'affichage.
+     */
+    Optional<Rotation> findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+            Long stationId, Long lotId, Integer ordrePassage);
 }

@@ -51,8 +51,22 @@ trap restore EXIT
 # NB: toujours via (now() AT TIME ZONE 'Africa/Tunis') — le Clock backend est
 # épinglé Africa/Tunis (UTC+1) alors que l'hôte dev est UTC+2. Utiliser l'heure
 # murale de l'hôte produit un faux 'A_VENIR'.
+#
+# ⚠️ #207 — DEUX RÉGLAGES DISTINCTS, ne pas les confondre :
+#   • statut='EN_COURS'  → rend la session JOIGNABLE. C'est désormais la SEULE
+#     chose qui l'ouvre : le dashboard lit l'état stocké et ne déduit plus rien
+#     de l'heure. Avant #207, poser debut_creneau dans la fenêtre suffisait.
+#   • debut_creneau      → ancre le COMPTE À REBOURS (le PLANCHER). Toujours
+#     nécessaire, et c'est ce que les assertions de minuteur mesurent.
+# Poser l'un sans l'autre donne un faux échec : bon minuteur / session fermée,
+# ou session ouverte / minuteur ancré n'importe où.
 case "$SCENARIO" in
-  S2-1-derive)   # fenêtre dépassée, rotation toujours EN_ATTENTE
+  S2-1-derive)   # ⛔ OBSOLÈTE depuis #207 — l'impasse « A » ne peut plus se produire.
+    # Ce scénario reproduisait la dérive au-delà de duree+GRACE, qui retirait la
+    # session toute seule. Ce plafond est supprimé : une rotation EN_COURS le
+    # reste quelle que soit l'heure (assertion backend
+    # EvaluateurDashboardServiceTest#statut_enCours_survitALaDerive). Laissé pour
+    # la trace ; sa cible dead_end_test.dart n'a de toute façon jamais été écrite.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '46 minutes' WHERE id=141;"
     TARGET=integration_test/dead_end_test.dart ;;
   S2-2-entre-groupes)  # groupe 1 terminé en avance, groupe 2 pas encore dû
@@ -61,9 +75,11 @@ case "$SCENARIO" in
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/dead_end_test.dart ;;
   timer-anchor)  # finding #1 — passage commencé il y a 6 min, station de 15 min
-    # 6 min < 45 min (duree+GRACE) ⇒ la session reste EN_COURS et joignable :
-    # on teste le MINUTEUR, pas l'impasse #238. Il doit rester ~9 min.
+    # La session est joignable parce qu'elle est STOCKÉE EN_COURS (#207) — la
+    # règle « 6 min < 45 min (duree+GRACE) » qui figurait ici n'existe plus.
+    # On teste le MINUTEUR, pas l'impasse #238 : il doit rester ~9 min.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/timer_anchor_test.dart ;;
   S1-nominal)    # une session réellement en cours
@@ -77,6 +93,7 @@ case "$SCENARIO" in
     # (« après le premier succès, une panne est sans effet ») plutôt que la fenêtre
     # étroite d'avant-première-matérialisation.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     echo ">>> chauffage du snapshot (exam-service UP)"
     TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
@@ -91,10 +108,12 @@ case "$SCENARIO" in
     EXAM_SERVICE_STOPPED=1
     TARGET=integration_test/render_audit_test.dart ;;
   grading-nominal)  # session 22 — l'écran de NOTATION, jamais piloté jusqu'ici
-    # Passage commencé il y a 6 min sur une station de 15 min : la session reste
-    # EN_COURS (6 < 15+30 de GRACE) donc joignable, et le minuteur doit ouvrir
-    # vers ~9 min. Avec le `;` de #239 il ouvrait à 15:00.
+    # Passage commencé il y a 6 min sur une station de 15 min. La session est
+    # joignable parce qu'elle est STOCKÉE EN_COURS (#207, plus de fenêtre de
+    # grâce), et le minuteur doit ouvrir vers ~9 min : c'est debut_creneau, le
+    # PLANCHER, qui l'ancre. Avec le `;` de #239 il ouvrait à 15:00.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/grading_screen_test.dart ;;
   grading-outage)   # session 22 — LE PAYOFF d'ADR-0015, vu depuis l'UI
@@ -104,6 +123,7 @@ case "$SCENARIO" in
     # ferait tout dégrader — on perdrait la promesse à vérifier (« la station
     # déjà figée reste notable pendant la panne »).
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     echo ">>> chauffage du snapshot (exam-service UP)"
     TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
@@ -128,6 +148,7 @@ case "$SCENARIO" in
     # Même fenêtre que grading-nominal. La différence est ce qu'on prouve :
     # non pas « l'écran s'affiche » mais « la note traverse l'UI et PERSISTE ».
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     VERIFIER_ECRITURE=1
     TARGET=integration_test/grading_save_test.dart ;;

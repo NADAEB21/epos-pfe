@@ -1,0 +1,13 @@
+-- =============================================================
+-- V7 — Optional per-lot day for multi-day exams (ADR-0014-A §5, issue #147)
+--
+-- A `Lot` normally runs on its exam's single `dateExamen` (held in exam_db, no
+-- SQL FK here). When the responsable splits a large cohort across several days,
+-- each lot gets its own `jour`. NULL = "runs on the exam's dateExamen" — so
+-- single-day exams (the common case) need no backfill and keep working unchanged.
+--
+-- This is PLAN, not PACE (ADR-0014-A): a stored decision about which day a lot
+-- runs, emailed to students in advance. It never gates pace — an un-advanced
+-- lot's rotations simply stay EN_ATTENTE on whatever day they run.
+-- =============================================================
+ALTER TABLE lot ADD COLUMN jour DATE;

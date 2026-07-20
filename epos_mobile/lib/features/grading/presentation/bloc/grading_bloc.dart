@@ -4,6 +4,20 @@
 // BF6.2 — Offline  : la sauvegarde locale est transparente (gérée par le
 //          repository). Le bloc notifie l'OfflineBloc après chaque saisie
 //          pour maintenir le compteur de notations en attente à jour.
+//
+// #196 (ADR-0012) — Avertissement inter-créneau + compte à rebours pause-aware :
+//   - `avertissementLeadSec` (issu de Session, lui-même issu du backend) est
+//     transporté dans l'état pour piloter PassageCountdownBadge /
+//     PassageWarningBanner (voir grading_screen.dart) ;
+//   - `enPause` gèle le compte à rebours (ADR-0009) : le Timer local ne
+//     décrémente plus tant que l'examen est en pause, et reprend exactement
+//     où il en était à la reprise — jamais de saut de temps ni de faux
+//     avertissement déclenché pendant une pause ;
+//   - `enPause` est mis à jour en direct via GradingPauseStateUpdated, que
+//     l'écran (grading_screen.dart) déclenche en observant le SessionBloc
+//     déjà injecté dans l'arbre de widgets (voir home_screen.dart) — pas de
+//     nouvel appel réseau, on réutilise les données déjà pollées/poussées
+//     pour le dashboard.
 
 import 'dart:async';
 
@@ -29,20 +43,36 @@ abstract class GradingEvent extends Equatable {
 }
 
 class GradingSessionStarted extends GradingEvent {
+  final int       rotationId;
   final int       stationId;
   final int       lotNumero;
   final int?      grilleId;
   final DateTime? debutCreneau;
+  final String stationNom;
+  final int  dureeMinutes;
+
+  /// #196 — Délai de préavis (s) avant fin de passage, et état de pause
+  /// initial, transmis depuis la Session choisie sur le dashboard.
+  final int  avertissementLeadSec;
+  final bool enPause;
+  final Duration clockOffset; 
 
   const GradingSessionStarted({
+    required this.rotationId,
     required this.stationId,
     required this.lotNumero,
+    required this.stationNom,
     this.grilleId,
     this.debutCreneau,
+    this.avertissementLeadSec = 0,
+    this.enPause = false,
+    this.dureeMinutes = 15,
+    this.clockOffset = Duration.zero,
   });
 
   @override
-  List<Object?> get props => [stationId, lotNumero, grilleId, debutCreneau];
+  List<Object?> get props =>
+      [rotationId, stationId, lotNumero, grilleId, debutCreneau, stationNom, avertissementLeadSec, enPause, dureeMinutes, clockOffset];
 }
 
 class GradingBinaryUpdated extends GradingEvent {
@@ -81,21 +111,21 @@ class GradingEtudiantValide extends GradingEvent {
   final String? commentaire;
 
   const GradingEtudiantValide(
-    this.etudiantId, {
-    this.absent      = false,
-    this.commentaire,
-  });
+      this.etudiantId, {
+        this.absent      = false,
+        this.commentaire,
+      });
 
   @override
   List<Object?> get props => [etudiantId, absent, commentaire];
 }
 
-class GradingLotValide extends GradingEvent {
-  const GradingLotValide();
+class GradingGroupeValide extends GradingEvent {
+  const GradingGroupeValide();
 }
 
-class GradingLotSuivantDemande extends GradingEvent {
-  const GradingLotSuivantDemande();
+class GradingGroupeSuivantDemande extends GradingEvent {
+  const GradingGroupeSuivantDemande();
 }
 
 class GradingEtudiantSubstitue extends GradingEvent {
@@ -137,6 +167,16 @@ class GradingWsScoreReceived extends GradingEvent {
   List<Object?> get props => [etudiantId, stationId, score, verrouille];
 }
 
+/// #196 (ADR-0009) — L'état de pause de l'examen a changé (rapporté par
+/// l'écran de notation, qui observe le SessionBloc déjà chargé). Fige ou
+/// relâche le compte à rebours en conséquence.
+class GradingPauseStateUpdated extends GradingEvent {
+  final bool enPause;
+  const GradingPauseStateUpdated(this.enPause);
+  @override
+  List<Object?> get props => [enPause];
+}
+
 // ════════════════════════════════════════════════
 // STATES
 // ════════════════════════════════════════════════
@@ -157,6 +197,7 @@ class GradingError extends GradingState {
 }
 
 class GradingLoaded extends GradingState {
+  final int                          rotationId;
   final int                          stationId;
   final int                          grilleId;
   final String                       stationNom;
@@ -174,7 +215,15 @@ class GradingLoaded extends GradingState {
   /// car le serveur applique les pondérations de la grille.
   final Map<int, double>             wsScores;
 
+  /// #196 (ADR-0012) — Délai de préavis (s) avant la fin du passage courant.
+  final int  avertissementLeadSec;
+
+  /// #196 (ADR-0009) — L'examen est actuellement en pause : le compte à
+  /// rebours affiché par l'UI doit être figé (voir _startTimer).
+  final bool enPause;
+
   const GradingLoaded({
+    required this.rotationId,
     required this.stationId,
     required this.grilleId,
     required this.stationNom,
@@ -187,6 +236,8 @@ class GradingLoaded extends GradingState {
     this.messageSucces,
     this.lotValide    = false,
     this.wsScores     = const {},
+    this.avertissementLeadSec = 0,
+    this.enPause = false,
   });
 
   // ── Calculs de score ──────────────────────────
@@ -214,6 +265,7 @@ class GradingLoaded extends GradingState {
       lot.etudiants.every((e) => etudiantsValides.contains(e.id));
 
   GradingLoaded copyWith({
+    int?                   rotationId,
     Map<int, Map<int, Notation>>? notations,
     Set<int>?              etudiantsValides,
     Duration?              tempsRestant,
@@ -222,8 +274,11 @@ class GradingLoaded extends GradingState {
     Lot?                   lot,
     bool?                  lotValide,
     Map<int, double>?      wsScores,
+    int?                   avertissementLeadSec,
+    bool?                  enPause,
   }) =>
       GradingLoaded(
+        rotationId:             rotationId       ?? this.rotationId,
         stationId:              stationId,
         grilleId:               grilleId,
         stationNom:             stationNom,
@@ -236,13 +291,16 @@ class GradingLoaded extends GradingState {
         messageSucces:          messageSucces,
         lotValide:              lotValide ?? this.lotValide,
         wsScores:               wsScores  ?? this.wsScores,
+        avertissementLeadSec:   avertissementLeadSec ?? this.avertissementLeadSec,
+        enPause:                enPause ?? this.enPause,
       );
 
   @override
   List<Object?> get props => [
-    stationId, grilleId, stationNom, grille, lot,
+    rotationId, stationId, grilleId, stationNom, grille, lot,
     notations, etudiantsValides, tempsRestant,
     lotEnCoursDeValidation, messageSucces, lotValide, wsScores,
+    avertissementLeadSec, enPause,
   ];
 }
 
@@ -259,7 +317,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
   Timer?                       _timer;
   StreamSubscription<ScoreUpdate>? _wsSub; // BF6.1
 
-  static const _durationStation = Duration(minutes: 15);
+  Duration _dureeStation = const Duration(minutes: 15);
+  Duration _clockOffset  = Duration.zero; 
 
   GradingBloc({
     required GradingRepository repository,
@@ -270,28 +329,32 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingBinaryUpdated>    (_onBinaryUpdated);
     on<GradingNumericUpdated>   (_onNumericUpdated);
     on<GradingEtudiantValide>   (_onEtudiantValide);
-    on<GradingLotValide>        (_onLotValide);
-    on<GradingLotSuivantDemande>(_onLotSuivant);
+    on<GradingGroupeValide>        (_onGroupeValide);
+    on<GradingGroupeSuivantDemande>(_onGroupeSuivant);
     on<GradingEtudiantSubstitue>(_onSubstituer);
     on<GradingTimerTick>        (_onTimerTick);
     on<GradingWsScoreReceived>  (_onWsScoreReceived); // BF6.1
+    on<GradingPauseStateUpdated>(_onPauseStateUpdated); // #196
   }
 
   // ── Chargement initial ────────────────────────────────────────────────────
   Future<void> _onSessionStarted(
-    GradingSessionStarted event,
-    Emitter<GradingState> emit,
-  ) async {
+      GradingSessionStarted event,
+      Emitter<GradingState> emit,
+      ) async {
     emit(GradingLoading());
     try {
       final results = await Future.wait([
         _repository.getGrille(event.stationId),
-        _repository.getLot(event.stationId, event.lotNumero),
+        _repository.getGroupe(event.rotationId),
       ]);
 
       final grille   = results[0] as Grille;
       final lot      = results[1] as Lot;
       final grilleId = event.grilleId ?? grille.id;
+
+      _dureeStation = Duration(minutes: event.dureeMinutes > 0 ? event.dureeMinutes : 15);
+      _clockOffset  = event.clockOffset; 
 
       // ── Restaurer la progression et le verrouillage depuis le serveur ──
       final Map<int, Map<int, Notation>> notations        = {};
@@ -318,15 +381,18 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final tempsRestant = _computeTempsRestant(event.debutCreneau);
 
       emit(GradingLoaded(
+        rotationId:       event.rotationId,
         stationId:        event.stationId,
         grilleId:         grilleId,
-        stationNom:       'Station ${event.stationId}',
+        stationNom:       event.stationNom,
         grille:           grille,
         lot:              lot,
         notations:        notations,
         etudiantsValides: etudiantsValides,
         tempsRestant:     tempsRestant,
         lotValide:        lot.valide,
+        avertissementLeadSec: event.avertissementLeadSec,
+        enPause:              event.enPause,
       ));
 
       _startTimer(tempsRestant);
@@ -357,9 +423,9 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
   // ── BF6.1 — Réception score WebSocket ────────────────────────────────────
   void _onWsScoreReceived(
-    GradingWsScoreReceived event,
-    Emitter<GradingState> emit,
-  ) {
+      GradingWsScoreReceived event,
+      Emitter<GradingState> emit,
+      ) {
     final current = state;
     if (current is! GradingLoaded) return;
 
@@ -376,11 +442,26 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     ));
   }
 
+  // ── #196 (ADR-0009) — Pause / reprise ────────────────────────────────────
+  /// Met simplement à jour le flag `enPause` de l'état. Le Timer (voir
+  /// `_startTimer`) lit `state.enPause` à chaque tick et gèle la décrémentation
+  /// en conséquence — aucune resynchronisation de durée nécessaire ici : à la
+  /// reprise, le compte à rebours continue exactement là où il s'était arrêté.
+  void _onPauseStateUpdated(
+      GradingPauseStateUpdated event,
+      Emitter<GradingState> emit,
+      ) {
+    final current = state;
+    if (current is! GradingLoaded) return;
+    if (current.enPause == event.enPause) return;
+    emit(current.copyWith(enPause: event.enPause));
+  }
+
   // ── Mise à jour critère binaire ───────────────────────────────────────────
   void _onBinaryUpdated(
-    GradingBinaryUpdated event,
-    Emitter<GradingState> emit,
-  ) {
+      GradingBinaryUpdated event,
+      Emitter<GradingState> emit,
+      ) {
     final current = state;
     if (current is! GradingLoaded) return;
     if (current.etudiantsValides.contains(event.etudiantId)) return;
@@ -391,7 +472,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     if (event.fait == null) {
       // Case décochée → supprime la notation locale
       final etudiantNotations =
-          Map<int, Notation>.from(current.notations[event.etudiantId] ?? {});
+      Map<int, Notation>.from(current.notations[event.etudiantId] ?? {});
       etudiantNotations.remove(event.itemId);
       updatedNotations = {
         ...current.notations,
@@ -420,9 +501,9 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
   // ── Mise à jour critère numérique ─────────────────────────────────────────
   void _onNumericUpdated(
-    GradingNumericUpdated event,
-    Emitter<GradingState> emit,
-  ) {
+      GradingNumericUpdated event,
+      Emitter<GradingState> emit,
+      ) {
     final current = state;
     if (current is! GradingLoaded) return;
     if (current.etudiantsValides.contains(event.etudiantId)) return;
@@ -459,15 +540,15 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
   // ── Validation d'un étudiant ──────────────────────────────────────────────
   Future<void> _onEtudiantValide(
-    GradingEtudiantValide event,
-    Emitter<GradingState> emit,
-  ) async {
+      GradingEtudiantValide event,
+      Emitter<GradingState> emit,
+      ) async {
     final current = state;
     if (current is! GradingLoaded) return;
 
     final updatedNotations = event.absent
         ? (Map<int, Map<int, Notation>>.from(current.notations)
-              ..remove(event.etudiantId))
+      ..remove(event.etudiantId))
         : current.notations;
 
     emit(current.copyWith(
@@ -484,63 +565,49 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     );
   }
 
-  // ── Validation du lot ─────────────────────────────────────────────────────
-  Future<void> _onLotValide(
-    GradingLotValide event,
-    Emitter<GradingState> emit,
-  ) async {
+  // ── Validation du groupe ─────────────────────────────────────────────────────
+  Future<void> _onGroupeValide(GradingGroupeValide event, Emitter<GradingState> emit) async {
     final current = state;
     if (current is! GradingLoaded) return;
-
     emit(current.copyWith(lotEnCoursDeValidation: true));
     try {
-      await _repository.validerLot(current.lot.id);
+      await _repository.validerGroupe(current.rotationId);   // ← FIX
       emit(current.copyWith(
-        lotEnCoursDeValidation: false,
-        lotValide:              true,
-        messageSucces:          'Lot ${current.lot.numero} validé !',
+        lotEnCoursDeValidation: false, lotValide: true, messageSucces: 'Groupe validé !',
       ));
     } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));
     }
   }
 
-  // ── Lot suivant ───────────────────────────────────────────────────────────
-  Future<void> _onLotSuivant(
-    GradingLotSuivantDemande event,
-    Emitter<GradingState> emit,
-  ) async {
+  // ── groupe suivant ───────────────────────────────────────────────────────────
+  Future<void> _onGroupeSuivant(
+      GradingGroupeSuivantDemande event,
+      Emitter<GradingState> emit,
+      ) async {
     final current = state;
     if (current is! GradingLoaded) return;
-
-    final prochainLot = current.lot.numero + 1;
-    if (prochainLot > current.lot.total) return;
-
     emit(GradingLoading());
     try {
-      final lot = await _repository.getLot(current.stationId, prochainLot);
+      final prochain = await _repository.getGroupeSuivant(current.rotationId);
       emit(GradingLoaded(
-        stationId:        current.stationId,
-        grilleId:         current.grilleId,
-        stationNom:       current.stationNom,
-        grille:           current.grille,
-        lot:              lot,
-        notations:        {},
-        etudiantsValides: {},
-        tempsRestant:     _durationStation,
-        lotValide:        lot.valide,
+        rotationId: prochain.id, stationId: current.stationId, grilleId: current.grilleId,
+        stationNom: current.stationNom, grille: current.grille, lot: prochain,
+        notations: {}, etudiantsValides: {}, tempsRestant: _dureeStation,
+        lotValide: prochain.valide,
+        avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,
       ));
       _startTimer();
     } catch (e) {
-      emit(GradingError('Impossible de charger le lot suivant : $e'));
+    emit(GradingError('Aucun groupe suivant disponible : $e'));
     }
   }
 
   // ── Substitution d'un étudiant ────────────────────────────────────────────
   Future<void> _onSubstituer(
-    GradingEtudiantSubstitue event,
-    Emitter<GradingState> emit,
-  ) async {
+      GradingEtudiantSubstitue event,
+      Emitter<GradingState> emit,
+      ) async {
     final current = state;
     if (current is! GradingLoaded) return;
 
@@ -576,30 +643,52 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     emit(current.copyWith(tempsRestant: event.restant));
   }
 
+  /// #196 (ADR-0009) — Le compte à rebours se fige tant que `state.enPause`
+  /// est vrai : la variable locale `restant` n'est simplement pas décrémentée
+  /// à ce tick, donc à la reprise elle repart exactement d'où elle en était
+  /// (pas de rattrapage, pas de saut de temps).
   void _startTimer([Duration? initialDuration]) {
     _timer?.cancel();
-    var restant = initialDuration ?? _durationStation;
+    var restant = initialDuration ?? _dureeStation;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      restant -= const Duration(seconds: 1);
+      final current = state;
+      final enPause = current is GradingLoaded && current.enPause;
+      if (!enPause) {
+        restant -= const Duration(seconds: 1);
+      }
       add(GradingTimerTick(restant));
     });
   }
 
   Duration _computeTempsRestant(DateTime? debutCreneau) {
-    if (debutCreneau == null) return _durationStation;
-    final elapsed = DateTime.now().difference(debutCreneau);
-    return _durationStation - elapsed;
+    if (debutCreneau == null) return _dureeStation;
+    // ADR-0012 : "maintenant" corrigé du décalage horloge serveur/appareil —
+    // sinon une horloge/fuseau d'appareil qui diffère du serveur recalcule un
+    // temps écoulé faux à CHAQUE réouverture, donnant l'impression que le
+    // minuteur "se réinitialise".
+    // #239 — un `;` parasite terminait ce `return` (« return _dureeStation; - elapsed; ») :
+    // `- elapsed` était du code mort, le compte à rebours renvoyait donc TOUJOURS la durée
+    // pleine et ignorait `debutCreneau`. C'est exactement le symptôme « le minuteur se
+    // réinitialise » que #232/#234 prétendaient corriger, et cela rendait `clockOffset`
+    // inerte de bout en bout (son unique consommateur était `effectiveNow`, inutilisé).
+    //
+    // Un résultat NÉGATIF est voulu : PassageCountdownBadge le rend en « dépassement »
+    // (`tempsRestant ≤ 0`, affiché en `.abs()`). Ne pas borner à zéro — ce serait un
+    // plafond, et ADR-0014 n'autorise l'horloge qu'à poser un plancher.
+    final effectiveNow = DateTime.now().add(_clockOffset);
+    final elapsed = effectiveNow.difference(debutCreneau);
+    return _dureeStation - elapsed;
   }
 
   // ── Utilitaire ────────────────────────────────────────────────────────────
   Map<int, Map<int, Notation>> _updateNotation(
-    Map<int, Map<int, Notation>> current,
-    int etudiantId,
-    int itemId,
-    double valeur,
-  ) {
+      Map<int, Map<int, Notation>> current,
+      int etudiantId,
+      int itemId,
+      double valeur,
+      ) {
     final etudiantNotations =
-        Map<int, Notation>.from(current[etudiantId] ?? {});
+    Map<int, Notation>.from(current[etudiantId] ?? {});
     etudiantNotations[itemId] = Notation(
       etudiantId: etudiantId,
       itemId:     itemId,
@@ -622,21 +711,21 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
   // Dans GradingBloc — à ajouter avec les autres méthodes utilitaires privées
 
-/// #160 — Retrouve un item par son id, qu'il soit de premier niveau OU un
-/// sous-critère niché. grille.items ne contient QUE le premier niveau (voir
-/// ScoreUtils.feuilles()) : une simple recherche à plat rate systématiquement
-/// les sous-critères et lève une StateError silencieusement avalée par le
-/// bloc (la saisie semble fonctionner dans le champ mais n'est jamais
-/// persistée — c'est exactement le bug "le sous-critère numérique reste à 0").
-ItemEvaluation _trouverItemDansArbre(List<ItemEvaluation> items, int itemId) {
-  for (final item in items) {
-    if (item.id == itemId) return item;
-    if (item.hasSousCriteres) {
-      for (final enfant in item.sousCriteres) {
-        if (enfant.id == itemId) return enfant;
+  /// #160 — Retrouve un item par son id, qu'il soit de premier niveau OU un
+  /// sous-critère niché. grille.items ne contient QUE le premier niveau (voir
+  /// ScoreUtils.feuilles()) : une simple recherche à plat rate systématiquement
+  /// les sous-critères et lève une StateError silencieusement avalée par le
+  /// bloc (la saisie semble fonctionner dans le champ mais n'est jamais
+  /// persistée — c'est exactement le bug "le sous-critère numérique reste à 0").
+  ItemEvaluation _trouverItemDansArbre(List<ItemEvaluation> items, int itemId) {
+    for (final item in items) {
+      if (item.id == itemId) return item;
+      if (item.hasSousCriteres) {
+        for (final enfant in item.sousCriteres) {
+          if (enfant.id == itemId) return enfant;
+        }
       }
     }
+    throw StateError('Item introuvable : $itemId (ni en premier niveau, ni en sous-critère)');
   }
-  throw StateError('Item introuvable : $itemId (ni en premier niveau, ni en sous-critère)');
-}
 }

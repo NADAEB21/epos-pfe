@@ -57,6 +57,7 @@ public class LotController {
         entity.setStatut(dto.statut());
         entity.setEvaluateurId(dto.evaluateurId());
         entity.setExamenId(dto.examenId());
+        entity.setJour(dto.jour()); // #147 — null = jour unique de l'examen
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Lot créé avec succès", LotDTO.fromEntity(lotService.save(entity))));
     }
@@ -68,6 +69,7 @@ public class LotController {
         entity.setNumeroLot(dto.numeroLot());
         entity.setTailleLot(dto.tailleLot());
         entity.setStatut(dto.statut());
+        entity.setJour(dto.jour()); // #147 — appliqué seulement si non-null (cf. LotService.update)
         // Pass to service update logic
         return ResponseEntity.ok(ApiResponse.ok("Lot mis à jour", LotDTO.fromEntity(lotService.update(id, entity))));
     }

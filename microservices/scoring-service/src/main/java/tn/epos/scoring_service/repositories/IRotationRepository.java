@@ -5,7 +5,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import tn.epos.scoring_service.entities.Rotation;
+import tn.epos.scoring_service.entities.RotationStatus;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -62,4 +64,20 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
     // bon marché quand le volume de rotations grandit.
     List<Rotation> findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(
             Long evaluateurId, Collection<Long> examenIds);
+
+    /**
+     * Prochaine rotation planifiée pour cet évaluateur après la rotation courante.
+     * L'évaluateur est fixe sur UNE SEULE station par examen (contrainte métier),
+     * donc "chronologiquement suivant" suffit à trouver le bon prochain groupe,
+     * sans avoir besoin de refiltrer par station.
+     */
+    Optional<Rotation> findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
+            Long evaluateurId, LocalDateTime after);
+
+    /**
+     * Nombre de rotations d'un lot qui ne sont PAS encore TERMINE. Sert à détecter
+     * automatiquement la fin d'un lot : dès que tous les groupes ont terminé
+     * toutes les stations, ce compte tombe à 0 et le lot peut être clôturé.
+     */
+    long countByStudentGroup_Lot_IdAndStatutNot(Long lotId, RotationStatus statut);
 }

@@ -1,0 +1,76 @@
+#!/bin/bash
+# EPOS instance bootstrap. Installs the container runtime and writes the env
+# file that docker-compose.prod.yml consumes. It deliberately does NOT fetch
+# application code: scripts/deploy.ps1 ships the working tree over SSH so you
+# can deploy mid-development without pushing to GitHub first.
+#
+# No `set -x` here on purpose — tracing would print the secrets below into
+# /var/log/cloud-init-output.log.
+#
+# Note on templating: Terraform resolves its own brace-delimited placeholders
+# before bash ever sees this file, so plain $VAR below is ordinary shell
+# expansion and is left untouched.
+set -euo pipefail
+
+dnf update -y
+dnf install -y docker git
+
+# Compose v2 ships as a CLI plugin, not an AL2023 package.
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL \
+  "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# buildx is a hard requirement, not a nicety: current compose refuses to build
+# without it ("compose build requires buildx 0.17.0 or later"), and the root
+# Dockerfile's `RUN --mount=type=cache` needs BuildKit regardless. The release
+# asset name embeds the version, so resolve the tag first. $${...} is escaped so
+# Terraform leaves these shell variables alone.
+BUILDX_VER=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest \
+  | grep -oP '"tag_name": "\K[^"]+')
+curl -fsSL \
+  "https://github.com/docker/buildx/releases/download/$${BUILDX_VER}/buildx-$${BUILDX_VER}.linux-amd64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# 4 GiB of RAM is enough to *run* the stack but not to build it: the Maven
+# reactor and the Angular production build both spike well past what is free.
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+mkdir -p /opt/epos/app
+chown -R ec2-user:ec2-user /opt/epos
+
+JWT_SECRET=$(aws ssm get-parameter --name "${jwt_param}" --with-decryption \
+  --region "${region}" --query Parameter.Value --output text)
+DB_PASSWORD=$(aws ssm get-parameter --name "${db_param}" --with-decryption \
+  --region "${region}" --query Parameter.Value --output text)
+
+# Create the file 600-owned first; `cat >` truncates in place and keeps the mode,
+# so no secret is ever briefly world-readable.
+install -m 600 -o ec2-user -g ec2-user /dev/null /opt/epos/epos.env
+cat > /opt/epos/epos.env <<EOF
+POSTGRES_USER=${db_username}
+POSTGRES_PASSWORD=$DB_PASSWORD
+POSTGRES_DB=epos_master
+DB_USERNAME=${db_username}
+DB_PASSWORD=$DB_PASSWORD
+JWT_SECRET=$JWT_SECRET
+EPOS_DOMAIN=${domain}
+APP_TIMEZONE=${app_timezone}
+CORS_ALLOWED_ORIGINS=https://${domain}
+MAIL_ENABLED=false
+MAIL_FROM=noreply@epos.tn
+MAIL_RESET_BASE_URL=https://${domain}/reset-password
+EOF
+
+echo "epos: bootstrap complete, awaiting code push" > /opt/epos/READY

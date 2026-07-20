@@ -7,13 +7,22 @@
 -- -------------------------------------------------------------
 -- 1. Databases (one per microservice)
 --
--- auth_db schema is defined inline below (auth-service owns the
--- DDL here for historical reasons + seed data needs).
---
 -- exam_db and scoring_db are created empty: their schemas are
 -- owned by Flyway and applied on first service startup
 -- (src/main/resources/db/migration/V1__init_*.sql in each service).
 -- Do NOT add CREATE TABLE statements here for those DBs.
+--
+-- auth_db's schema is ALSO owned by Flyway now
+-- (auth-service .../db/migration/V1__init_auth_schema.sql). The DDL
+-- below is kept only so existing volumes and a plain `docker compose
+-- up` keep working unchanged; auth-service baselines over it at V1.
+--
+-- >>> Do NOT add or alter auth_db tables here. Write a new
+-- >>> V<n>__*.sql in auth-service instead, or the change will never
+-- >>> reach any database that already has a data volume.
+--
+-- The seed data further down is dev/demo convenience and stays here:
+-- it must not ship as a migration to a real environment.
 -- -------------------------------------------------------------
 CREATE DATABASE auth_db;
 CREATE DATABASE exam_db;

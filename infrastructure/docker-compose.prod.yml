@@ -1,0 +1,235 @@
+# EPOS — AWS deployment stack.
+#
+# Standalone, NOT an overlay on docker-compose.yml. Compose *concatenates* the
+# `ports` lists of an override file rather than replacing them, so an overlay
+# could not have removed the dev host-port bindings (Postgres on 5432, Eureka on
+# 8761, ...). Keeping this file separate makes the exposed surface explicit.
+#
+# Only the `web` container publishes ports. Everything else talks over the
+# internal bridge network, exactly as in dev.
+#
+# Env comes from /opt/epos/epos.env, written by Terraform's user_data:
+#   docker compose --env-file /opt/epos/epos.env -f docker-compose.prod.yml up -d --build
+
+name: epos
+
+services:
+  # ─── Data ────────────────────────────────────────────────────────────────
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: epos-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Runs only against an empty data volume. auth_db's schema + seed live
+      # here; exam_db and scoring_db are created empty and migrated by Flyway
+      # on first service startup.
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - epos-network
+
+  # ─── Service discovery ───────────────────────────────────────────────────
+  discovery-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: discovery-server
+    image: epos/discovery-server
+    container_name: epos-discovery-server
+    restart: unless-stopped
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - EUREKA_HOSTNAME=discovery-server
+      # Heap is capped on every JVM below: five unconstrained Spring Boot
+      # services would each claim 25% of the 4 GiB box and thrash.
+      - JAVA_TOOL_OPTIONS=-Xmx192m -XX:+UseSerialGC
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    networks:
+      - epos-network
+
+  # ─── API gateway — internal only; Caddy is the public edge ───────────────
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    image: epos/api-gateway
+    container_name: epos-api-gateway
+    restart: unless-stopped
+    environment:
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - JAVA_TOOL_OPTIONS=-Xmx256m -XX:+UseSerialGC
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  # ─── Application services ────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: auth-service
+    image: epos/auth-service
+    container_name: epos-auth-service
+    restart: unless-stopped
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/auth_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
+      # Actuator registers MailHealthIndicator whenever a JavaMailSender exists,
+      # and application.yml sets spring.mail.host unconditionally (line 49). The
+      # indicator therefore opens a real SMTP connection on every probe; with no
+      # credentials it throws AuthenticationFailedException and pins
+      # /actuator/health to DOWN, failing the healthcheck below. app.mail.enabled
+      # only chooses stub-vs-real sender, so it does NOT prevent this.
+      - MANAGEMENT_HEALTH_MAIL_ENABLED=false
+      - MAIL_ENABLED=${MAIL_ENABLED:-false}
+      - MAIL_FROM=${MAIL_FROM:-noreply@epos.tn}
+      - MAIL_RESET_BASE_URL=${MAIL_RESET_BASE_URL}
+      - MAIL_SMTP_HOST=${MAIL_SMTP_HOST:-smtp.gmail.com}
+      - MAIL_SMTP_PORT=${MAIL_SMTP_PORT:-587}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  exam-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: exam-service
+    image: epos/exam-service
+    container_name: epos-exam-service
+    restart: unless-stopped
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/exam_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
+      # ADR-0010: the exam clock follows Tunisian wall time wherever the server runs.
+      - APP_TIMEZONE=${APP_TIMEZONE:-Africa/Tunis}
+      - TZ=${APP_TIMEZONE:-Africa/Tunis}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  scoring-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: scoring-service
+    image: epos/scoring-service
+    container_name: epos-scoring-service
+    restart: unless-stopped
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/scoring_db
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - EUREKA_URI=http://discovery-server:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
+      - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
+      - EXAM_SERVICE_BASE_URL=http://exam-service:8082
+      - TZ=${APP_TIMEZONE:-Africa/Tunis}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - epos-network
+
+  # ─── Public edge: TLS, Angular SPA, reverse proxy ────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: frontend-web/Dockerfile
+    image: epos/web
+    container_name: epos-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - EPOS_DOMAIN=${EPOS_DOMAIN}
+    volumes:
+      # Persists the Let's Encrypt account + certificates. Without this, every
+      # redeploy re-requests a cert and burns the 5-per-week rate limit.
+      - caddy_data:/data
+      - caddy_config:/config
+    # Intentionally not gated on gateway health: the SPA should still load (and
+    # the API return 502) when a backend is down, which is far easier to debug.
+    depends_on:
+      - api-gateway
+      - scoring-service
+    networks:
+      - epos-network
+
+networks:
+  epos-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

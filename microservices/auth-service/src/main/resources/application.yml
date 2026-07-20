@@ -15,10 +15,25 @@ spring:
       minimum-idle: 2
       connection-timeout: 30000
 
+  # Schema is owned by Flyway (db/migration/V*.sql), matching exam-service and
+  # scoring-service. Add a column by writing V<n>__*.sql — never by editing
+  # init.sql or a previously applied migration.
+  flyway:
+    enabled: true
+    # Every database that predates this config (team dev volumes, the AWS
+    # deployment) already carries the V1 schema, created by init.sql. Without a
+    # baseline Flyway aborts on a non-empty schema that has no history table.
+    # baseline-version=1 records those databases as already at V1 and skips it,
+    # so only V2 onwards run. A genuinely empty database is unaffected and gets
+    # built from V1. exam/scoring need none of this — their schemas were empty
+    # from the start.
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
     hibernate:
-      ddl-auto: validate          # schema managed by Liquibase/Flyway in production;
-      # use 'update' locally when no migration tool is wired
+      # Flyway builds the schema; Hibernate only checks the entities match it.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:

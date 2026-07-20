@@ -46,6 +46,8 @@ public class SessionResponse {
 
     private Long   id;
     private Long   stationId;
+    private Long lotId;        // pour le suivi WebSocket du lot et les stats
+    private int  groupeNumero; // numéro du groupe au sein du lot (1..K)
     private String stationNom;
     private String matiere;
     private String annee;
@@ -56,6 +58,8 @@ public class SessionResponse {
     private String salle;
     private int    lotActuel;
     private int    totalLots;
+    // ajouter le champ
+    private int dureeStationMin;
 
     // ── ADR-0012 : compte à rebours + avertissement de transition ────────────
     // Instant absolu (date+heure) du début prévu du passage, réconcilié une

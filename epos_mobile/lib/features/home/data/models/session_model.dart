@@ -1,10 +1,14 @@
 // lib/features/home/data/models/session_model.dart
 
 import '../../domain/entities/session.dart';
+import '../repositories/session_repository_impl.dart' show parseServerTimestamp;
+
 
 class SessionModel extends Session {
   const SessionModel({
     required super.id,
+    super.lotId,                // ← nouveau : pour le suivi WS du lot
+    super.groupeNumero,         // ← nouveau : numéro du groupe (1..K)
     super.stationId,              // nullable — absent des données mock
     required super.stationNom,
     super.matiere,
@@ -16,6 +20,10 @@ class SessionModel extends Session {
     required super.lotActuel,
     required super.totalLots,
     super.heureFin,
+    super.avertissementLeadSec,
+    super.enPause,
+    super.dureeStationMin,
+    super.debutPrevu,
   });
 
   /// Parse la réponse de GET /api/v1/evaluateur/dashboard → sessions[].
@@ -23,9 +31,16 @@ class SessionModel extends Session {
   /// Correction point 3 : json['stationId'] est parsé séparément de json['id'].
   ///   json['id']        → lot.id (scoring-service)
   ///   json['stationId'] → station réelle (exam-service), nullable
+  ///
+  /// #196 (ADR-0012) : json['avertissementLeadSec'] et json['enPause'] sont
+  /// déjà émis par SessionResponse (backend) mais n'étaient pas lus. Absents
+  /// → valeurs neutres (0 / false) pour rester rétrocompatible avec un
+  /// backend plus ancien ou avec les fixtures de test.
   factory SessionModel.fromJson(Map<String, dynamic> json) {
     return SessionModel(
-      id:          json['id']          as int,
+      id:          json['id']          as int,   // = rotationId maintenant
+      lotId:       json['lotId']       as int?,   // ← nouveau, nullable
+      groupeNumero: _toInt(json['groupeNumero']),
       stationId:   json['stationId']   as int?,   // ← nouveau, nullable
       stationNom:  json['stationNom']  as String? ?? '',
       matiere:     json['matiere']     as String? ?? '',
@@ -34,10 +49,33 @@ class SessionModel extends Session {
       heureDebut:  json['heureDebut']  as String,
       heureFin:    json['heureFin']    as String?,
       nbEtudiants: json['nbEtudiants'] as int,
+      dureeStationMin: _toInt(json['dureeStationMin']) > 0 ? _toInt(json['dureeStationMin']) : 15,
       salle:       json['salle']       as String?,
       lotActuel:   json['lotActuel']   as int,
       totalLots:   json['totalLots']   as int,
+      avertissementLeadSec: _toInt(json['avertissementLeadSec']),
+      enPause:              json['enPause'] as bool? ?? false,
+      debutPrevu: _parseServerDateTime(json['debutPrevu'] as String?),
     );
+  }
+
+  // "yyyy-MM-dd HH:mm:ss" — même motif que pausedAt/launchedAt côté backend
+  // (@JsonFormat sur SessionResponse.debutPrevu).
+  static DateTime? _parseServerDateTime(String? raw) {
+    if (raw == null) return null;
+    try {
+      return DateTime.parse(raw.replaceFirst(' ', 'T'));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
   }
 
   static SessionStatus _parseStatut(String statut) {

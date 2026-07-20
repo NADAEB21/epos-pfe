@@ -36,6 +36,39 @@ export function isExamDay(dateExamen: string | null | undefined, now: Date = new
 }
 
 /**
+ * ADR-0014-A §5 / #147 — the concrete set of days on which this exam has lots
+ * scheduled. A lot with no explicit `jour` runs on the exam's own `dateExamen`.
+ * With no lots (or none carrying a day) this reduces to `[dateExamen]`, so a
+ * single-day exam keeps exactly the old one-day behaviour.
+ */
+export function examLotDays(
+  dateExamen: string | null | undefined,
+  lotJours: ReadonlyArray<string | null | undefined> = [],
+): string[] {
+  const days = new Set<string>();
+  for (const j of lotJours) {
+    const day = j ?? dateExamen;
+    if (day) days.add(day);
+  }
+  if (days.size === 0 && dateExamen) days.add(dateExamen);
+  return [...days];
+}
+
+/**
+ * Launch is allowed when today is one of the exam's lot-days — the multi-day
+ * generalisation of {@link isExamDay}. For a single-day exam (no lot carries a
+ * `jour`) this is exactly `today === dateExamen`. PLAN, not PACE: it gates only
+ * the *launch* edge, never the pace of grading.
+ */
+export function isLaunchDay(
+  dateExamen: string | null | undefined,
+  lotJours: ReadonlyArray<string | null | undefined> = [],
+  now: Date = new Date(),
+): boolean {
+  return examLotDays(dateExamen, lotJours).includes(todayStr(now));
+}
+
+/**
  * "À venir" (upcoming) is a DERIVED display state, not a persisted status: a
  * CONFIGURE exam whose date is still in the future is locked and ready but cannot
  * be launched until the jour J. The lifecycle itself stays

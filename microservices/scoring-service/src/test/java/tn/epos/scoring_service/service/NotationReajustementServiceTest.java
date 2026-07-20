@@ -11,10 +11,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import tn.epos.common.exception.ResourceNotFoundException;
-import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.NotationAdjustmentDTO;
 import tn.epos.scoring_service.dto.ReajustementRequest;
+import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.NotationAdjustment;
 import tn.epos.scoring_service.entities.NotationItem;
@@ -41,8 +41,8 @@ class NotationReajustementServiceTest {
     @Mock private INotationRepository notationRepository;
     @Mock private INotationItemRepository notationItemRepository;
     @Mock private INotationAdjustmentRepository adjustmentRepository;
-    @Mock private ExamServiceClient examServiceClient;
     @Mock private EvaluateurScopeChecker scopeChecker;
+    @Mock private ExamDefinitionSnapshotService examDefinitionSnapshot;
 
     @InjectMocks
     private NotationReajustementService service;
@@ -58,6 +58,23 @@ class NotationReajustementServiceTest {
         locked.setScore_final(15.0f);
         locked.setGrilleId(11L);
         locked.setVerouillee(true);
+
+        // ADR-0015 — weigh() garde l'arithmétique RÉELLE (déléguée à ExamItemSnapshot) :
+        // c'est précisément le calcul dont les deux copies avaient divergé, le stubber
+        // reviendrait à ne plus le tester.
+        lenient().when(examDefinitionSnapshot.weigh(anyMap(), anyLong(), any()))
+                .thenAnswer(inv -> {
+                    Map<Long, ExamItemSnapshot> def = inv.getArgument(0);
+                    ExamItemSnapshot it = def.get((Long) inv.getArgument(1));
+                    if (it == null) throw new tn.epos.common.exception.BusinessException("hors snapshot");
+                    return it.weigh(inv.getArgument(2));
+                });
+    }
+
+    /** ADR-0015 — définition figée d'un critère notable. */
+    private static Map<Long, ExamItemSnapshot> definition(long itemId, double pond, String type) {
+        return Map.of(itemId, ExamItemSnapshot.builder()
+                .examenId(99L).grilleId(11L).itemId(itemId).ponderation(pond).type(type).build());
     }
 
     @Nested
@@ -80,8 +97,8 @@ class NotationReajustementServiceTest {
 
             // Recompute : un seul item, type NUMERIQUE (non pondéré) → score = valeur.
             when(notationItemRepository.findByNotationId(5L)).thenReturn(List.of(item));
-            when(examServiceClient.getItemInfosForGrille(11L))
-                    .thenReturn(Map.of(100L, new ExamServiceClient.ItemInfo(100L, 1.0, "NUMERIQUE")));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(11L)))
+                    .thenReturn(definition(100L, 1.0, "NUMERIQUE"));
             when(adjustmentRepository.save(any(NotationAdjustment.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ReajustementRequest req = new ReajustementRequest(100L, 8.0f, "Réclamation étudiant : erreur de saisie");
@@ -123,8 +140,8 @@ class NotationReajustementServiceTest {
             when(notationItemRepository.findByNotationIdAndItemId(5L, 200L)).thenReturn(Optional.of(bin));
             when(notationItemRepository.save(any(NotationItem.class))).thenAnswer(inv -> inv.getArgument(0));
             when(notationItemRepository.findByNotationId(5L)).thenReturn(List.of(bin));
-            when(examServiceClient.getItemInfosForGrille(11L))
-                    .thenReturn(Map.of(200L, new ExamServiceClient.ItemInfo(200L, 5.0, "BINAIRE")));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(11L)))
+                    .thenReturn(definition(200L, 5.0, "BINAIRE"));
             when(adjustmentRepository.save(any(NotationAdjustment.class))).thenAnswer(inv -> inv.getArgument(0));
 
             service.reajuster(5L, new ReajustementRequest(200L, 1.0f, "Réclamation : point acquis"));
@@ -173,7 +190,7 @@ class NotationReajustementServiceTest {
             assertThat(adj.getAdjustedByUserId()).isEqualTo(RESP_USER_ID);
 
             verify(notationItemRepository, never()).findByNotationIdAndItemId(any(), any());
-            verify(examServiceClient, never()).getItemInfosForGrille(any());
+            verify(examDefinitionSnapshot, never()).resolveItems(any(), any());
             verify(notationRepository).save(locked);
         }
     }

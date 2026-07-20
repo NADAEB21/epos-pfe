@@ -1,0 +1,41 @@
+# EPOS public edge.
+#
+# One origin for everything, which is what the Angular build already assumes:
+# environment.ts sets apiBaseUrl to the relative '/api/v1', so the SPA and the
+# API must be same-origin. That also means no CORS preflight in the browser path.
+#
+# EPOS_DOMAIN is an sslip.io hostname embedding the Elastic IP, so Caddy can
+# complete the ACME HTTP-01 challenge and serve a real Let's Encrypt certificate
+# without us owning a domain. HTTP->HTTPS redirect is automatic.
+
+{$EPOS_DOMAIN} {
+	encode zstd gzip
+
+	# REST API through the gateway, which owns JWT validation and rate limiting.
+	handle /api/v1/* {
+		reverse_proxy api-gateway:8080
+	}
+
+	# Health probe. epos_mobile's ConnectivityService derives this by stripping
+	# /api/v1 off the base URL, so it must answer on the public origin.
+	# Only /health is proxied — the rest of /actuator stays private.
+	handle /actuator/health {
+		reverse_proxy api-gateway:8080
+	}
+
+	# STOMP/SockJS live score push. Connects straight to scoring-service rather
+	# than through the gateway, matching the dev setup. The matcher is /ws* (not
+	# /ws/*) so it catches both the bare /ws upgrade and SockJS's /ws/info and
+	# /ws/{server}/{session}/websocket paths. Caddy upgrades WebSockets natively.
+	handle /ws* {
+		reverse_proxy scoring-service:8083
+	}
+
+	# Angular SPA. try_files sends unknown paths to index.html so client-side
+	# routes (/exams/42/suivi, ...) survive a hard refresh.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -305,6 +305,12 @@ export interface LotSummary {
   statut: 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE' | null;
   evaluateurId: number | null;
   examenId: number | null;
+  /**
+   * ADR-0014-A §5 / #147 — the day this lot runs (yyyy-MM-dd). `null` = it runs
+   * on the exam's own `dateExamen` (the single-day default). Set only when a
+   * cohort is split across days.
+   */
+  jour: string | null;
 }
 
 /**

@@ -43,19 +43,30 @@ void _naviguerVersNotation(
   // BF6.2 — OfflineBloc injecté dans GradingBloc pour rafraîchir le badge
   final offlineBloc = context.read<OfflineBloc>();
 
-  final int stationId = session.stationId ?? session.id;
+  // final int stationId = session.stationId ?? session.id;
+  final int stationId  = session.stationId ?? 0;
+  final int rotationId = session.id;
   final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
-  final debutCreneau  = _parseHeureDebut(session.heureDebut);
+  final sessionState = sessionBloc.state;
+  final clockOffset = sessionState is SessionLoaded ? sessionState.clockOffset : Duration.zero;
 
-  // BF6 — offlineBloc passé au GradingBloc pour notifier après chaque saisie
   final gradingBloc = GradingBloc(
-    repository:  gradingRepository,
-    offlineBloc: offlineBloc,
-  )..add(GradingSessionStarted(
-      stationId:    stationId,
-      lotNumero:    lotNumero,
-      debutCreneau: debutCreneau,
-    ));
+     repository:  gradingRepository,
+     offlineBloc: offlineBloc,
+   )..add(GradingSessionStarted(
+       rotationId:   rotationId,
+       stationId:    stationId,
+       lotNumero:    lotNumero,
+       stationNom:   session.stationNom,
+       dureeMinutes: session.dureeStationMin,
+       debutCreneau: session.debutPrevu,
+       // #196 (ADR-0012 / ADR-0009) — la session porte déjà ces deux
+       // valeurs depuis le dashboard ; on les transmet à GradingBloc pour
+       // piloter le compte à rebours / avertissement de fin de passage.
+       avertissementLeadSec: session.avertissementLeadSec,
+       enPause:              session.enPause,
+       clockOffset:          clockOffset,
+     ));
 
   Navigator.of(context, rootNavigator: true)
     .push(MaterialPageRoute(
@@ -72,24 +83,20 @@ void _naviguerVersNotation(
       ),
     ))
     .then((_) {
+      // FIX : BlocProvider.value ne dispose JAMAIS le bloc fourni. Sans ce
+      // close() explicite, le Timer.periodic restait actif en arrière-plan
+      // après un retour à l'accueil — fuite mémoire ET source de confusion
+      // sur "quel minuteur est actif".
+      gradingBloc.close();
       sessionBloc.add(const SessionRefreshRequested());
     });
 }
 
-/// Convertit "HH:mm" en DateTime du jour courant.
-DateTime? _parseHeureDebut(String heureDebut) {
-  try {
-    final parts = heureDebut.split(':');
-    if (parts.length != 2) return null;
-    final now = DateTime.now();
-    return DateTime(
-      now.year, now.month, now.day,
-      int.parse(parts[0]), int.parse(parts[1]),
-    );
-  } catch (_) {
-    return null;
-  }
-}
+// _parseHeureDebut a été SUPPRIMÉ (#234 / #239). Il reconstruisait un DateTime à
+// partir de « HH:mm » et de la date de l'APPAREIL — une re-dérivation locale de
+// l'heure serveur, exactement le genre d'horloge divergente qu'ADR-0012 élimine.
+// Son résultat n'était d'ailleurs plus lu : GradingSessionStarted reçoit
+// `session.debutPrevu`, l'horodatage serveur complet. Ne pas le réintroduire.
 
 // ── Navigation vers ProfileScreen ─────────────────────────────────────────────
 void _naviguerVersProfil(BuildContext context) {
@@ -438,9 +445,11 @@ class _SessionEnCoursCard extends StatelessWidget {
                     children: [
                       Text(session.stationNom,
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: c.textTitle)),
-                      const SizedBox(height: 2),
-                      Text('${session.matiere} · ${session.annee}',
-                          style: TextStyle(fontSize: 12, color: c.textSub)),
+                          
+                      if (_matiereAnneeLabel(session) case final label?) ...[
+                        const SizedBox(height: 2),
+                        Text(label, style: TextStyle(fontSize: 12, color: c.textSub)),
+                      ],
                     ],
                   ),
                 ),
@@ -455,8 +464,15 @@ class _SessionEnCoursCard extends StatelessWidget {
                 _InfoChip(icon: Icons.access_time_outlined,  label: session.heureDebut),
                 const SizedBox(width: 16),
                 _InfoChip(icon: Icons.group_outlined,        label: '${session.nbEtudiants} ét.'),
-                const SizedBox(width: 16),
-                _InfoChip(icon: Icons.location_on_outlined,  label: session.salle ?? 'Salle N/A'),
+                // La salle n'existe pas dans le modèle de données : le lieu est
+                // HORS PÉRIMÈTRE (ADR-0014), donc `session.salle` est toujours nul.
+                // On omet la puce plutôt que d'afficher « Salle N/A », qui annonce
+                // une information manquante alors qu'aucune n'a jamais été promise.
+                // Repérée par integration_test/render_audit_test.dart.
+                if (session.salle != null && session.salle!.trim().isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  _InfoChip(icon: Icons.location_on_outlined, label: session.salle!),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -544,10 +560,11 @@ class _SessionAVenirCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(session.stationNom,
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.textTitle)),
-                const SizedBox(height: 3),
-                Text('${session.matiere} · ${session.annee}',
-                    style: TextStyle(fontSize: 11, color: c.textSub)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.textTitle)),
+                if (_matiereAnneeLabel(session) case final label?) ...[
+                  const SizedBox(height: 3),
+                  Text(label, style: TextStyle(fontSize: 11, color: c.textSub)),
+            ],
                 const SizedBox(height: 6),
                 Row(children: [
                   _InfoChip(icon: Icons.group_outlined,       label: '${session.nbEtudiants} ét.', small: true),
@@ -817,4 +834,17 @@ class _AucuneSessionCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Construit "matière · année" en ne gardant que les parties non vides.
+/// Retourne null si rien à afficher — pas de "· null" ni de séparateur orphelin.
+String? _matiereAnneeLabel(Session s) {
+  final m = s.matiere?.trim();
+  final a = s.annee?.trim();
+
+  final parts = [
+    if (m?.isNotEmpty == true) m,
+    if (a?.isNotEmpty == true) a,
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }

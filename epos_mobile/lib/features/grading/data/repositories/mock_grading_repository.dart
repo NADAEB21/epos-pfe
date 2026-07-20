@@ -140,15 +140,9 @@ class MockGradingRepository implements GradingRepository {
   }
 
   @override
-  Future<Lot> getLot(int stationId, int lotNumero) async {
+  Future<Lot> getGroupe(int rotationId) async {
     await Future.delayed(_delay);
-    return LotModel(
-      id:        300 + lotNumero,
-      numero:    lotNumero,
-      total:     8,
-      etudiants: _etudiants,
-      valide:    false,
-    );
+    return LotModel(id: rotationId, numero: 1, total: 4, etudiants: _etudiants, valide: false);
   }
 
   @override
@@ -200,9 +194,14 @@ class MockGradingRepository implements GradingRepository {
 }
 
   @override
-  Future<void> validerLot(int lotId) async {
+  Future<void> validerGroupe(int rotationId) async {
     await Future.delayed(const Duration(milliseconds: 300));
-    // Simule la validation côté serveur
+  }
+
+  @override
+  Future<Lot> getGroupeSuivant(int rotationId) async {
+    await Future.delayed(_delay);
+    return LotModel(id: rotationId + 1, numero: 2, total: 4, etudiants: _etudiants, valide: false);
   }
 
   @override

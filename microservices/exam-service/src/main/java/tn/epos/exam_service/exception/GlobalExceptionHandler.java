@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -81,6 +82,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    // ===== 404 - URL inconnue (aucun handler ni ressource statique) =====
+    // Sans ce handler, NoResourceFoundException tombe dans le catch-all
+    // Exception ci-dessous : une simple faute de frappe dans l'URL renvoie
+    // alors « 500 Une erreur interne s'est produite », ce qui fait chercher
+    // une panne serveur inexistante.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("Endpoint introuvable : " + ex.getResourcePath()));
     }
 
     // ===== 500 - Erreur inattendue =====

@@ -30,6 +30,8 @@ class SessionRepositoryImpl implements SessionRepository {
   // Invalidé à chaque appel de getSessions() (refresh ou premier chargement).
   Map<String, dynamic>? _cachedDashboard;
 
+  Duration _clockOffset = Duration.zero;
+
   SessionRepositoryImpl({required ApiClient apiClient})
       : _apiClient = apiClient;
 
@@ -45,6 +47,21 @@ class SessionRepositoryImpl implements SessionRepository {
       final body = response.data as Map<String, dynamic>;
       // Déballe l'enveloppe ApiResponse<EvaluateurDashboardResponse>
       _cachedDashboard = body['data'] as Map<String, dynamic>;
+
+      // ADR-0012 : capture le décalage serveur ↔ appareil. serverNow est
+      // sérialisé "yyyy-MM-dd HH:mm:ss" (sans zone), donc DateTime.parse
+      // l'interprète comme une heure "locale" de l'appareil — techniquement
+      // faux si l'appareil n'est pas sur Africa/Tunis. Mais debutPrevu subit
+      // EXACTEMENT la même interprétation "fake local" (même motif, même
+      // source) : l'erreur de fuseau s'annule dans la soustraction, et seul
+      // l'écart RÉEL entre les deux horloges (dérive, latence) survit.
+      final rawServerNow = _cachedDashboard?['serverNow'] as String?;
+      if (rawServerNow != null) {
+        final parsed = parseServerTimestamp(rawServerNow);
+        if (parsed != null) {
+          _clockOffset = parsed.difference(DateTime.now());
+        }
+      }
       return _cachedDashboard!;
     } on DioException catch (e) {
       throw _handleDioError(e, 'Impossible de charger le dashboard');
@@ -96,6 +113,12 @@ class SessionRepositoryImpl implements SessionRepository {
         .toList();
   }
 
+  @override
+  Future<Duration> getClockOffset() async {
+    await _fetchDashboard();
+    return _clockOffset;
+  }
+
   // ── Gestion des erreurs ───────────────────────────────────────────────────
 
   Exception _handleDioError(DioException e, String defaultMessage) {
@@ -120,6 +143,16 @@ class SessionRepositoryImpl implements SessionRepository {
           );
         }
         return Exception('$defaultMessage : ${e.message}');
+    }
+  }
+
+  /// Parse un timestamp serveur "yyyy-MM-dd HH:mm:ss" (pausedAt, launchedAt,
+  /// debutPrevu, serverNow — même motif partout). Partagé pour rester cohérent.
+  DateTime? parseServerTimestamp(String raw) {
+    try {
+      return DateTime.parse(raw.replaceFirst(' ', 'T'));
+    } catch (_) {
+      return null;
     }
   }
 }

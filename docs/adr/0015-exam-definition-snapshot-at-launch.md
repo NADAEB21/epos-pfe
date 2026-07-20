@@ -1,7 +1,9 @@
 # ADR 0015: Exam definition snapshot at launch — data plane vs control plane
 
 - **Date:** 2026-07-20
-- **Status:** Proposed (awaiting ratification by Nada).
+- **Status:** **Accepted** — ratifié par la fusion de la PR #245 dans `develop` le 2026-07-20
+  (`072527a`). Voir la *limite connue* en fin de §1 : la promesse « une panne est sans effet » vaut
+  pour les lectures de scoring, **pas** pour le chemin de notation mobile (#244).
 - **Deciders:** Nada (lead architect).
 - **Related:** **ADR-0014** + **ADR-0014-A** (évaluateur-paced lifecycle — this ADR must NOT weaken
   them; see the guardrail in Decision 4), ADR-0006 (matière as cross-service logical FK — this ADR
@@ -117,6 +119,19 @@ fabricate nothing**. Fail that request loudly. A missing snapshot must never deg
 placeholder or an unweighted score. Cost: a narrow window right after launch where, if exam-service
 is down, grading cannot start — but it stops **visibly** instead of silently recording wrong marks.
 After the first success, exam-service may stay down indefinitely with no effect on grading.
+
+> ⚠️ **LIMITE CONNUE — cette promesse ne vaut pas encore de bout en bout (#244).** Vérifié en E2E le
+> 2026-07-20, en pilotant l'app réelle contre un exam-service arrêté : l'évaluateur atteint bien son
+> tableau de bord dégradé (4 sessions figées gardent leur vrai intitulé, 8 non figées affichent
+> `Intitulé indisponible`, aucune n'est retirée), **puis ne peut ouvrir aucune station**. Le mobile
+> lit la grille **directement dans exam-service** (`api_constants.dart:74`, sans cache) et
+> `Future.wait` (`grading_bloc.dart:347`) fait échouer tout le chargement sur cette seule branche.
+>
+> Autrement dit : la promesse tient pour **les lectures faites par scoring**, et le point de
+> défaillance s'est **déplacé** du tableau de bord vers l'écran de notation plutôt que de disparaître.
+> L'écriture reste immunisée **au niveau API** — mais **inatteignable depuis l'app**. Deux voies
+> possibles, non exclusives : étendre le snapshot à la structure de grille (tient la promesse telle
+> qu'écrite ici), ou cacher la grille sur l'appareil (réponse offline-first, ADR-0002).
 
 **Optional warm-up (optimisation, not correctness):** an explicit
 `POST /api/v1/exams/{id}/snapshot` on scoring, callable from the launch UI right after launch, closes

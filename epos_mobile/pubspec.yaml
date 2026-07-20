@@ -77,7 +77,12 @@ dependencies:
 
 dev_dependencies:
   flutter_test:
-    sdk: flutter 
+    sdk: flutter
+
+  # E2E sur l'app réelle (widget tree réel + backend réel) — voir
+  # integration_test/README.md. Nécessite chromedriver pour la cible Chrome.
+  integration_test:
+    sdk: flutter
 
   # === Code Generation ===
   build_runner: ^2.4.9

@@ -32,10 +32,18 @@ restore() {
       SELECT id FROM rotation_assignment WHERE rotation_id BETWEEN 141 AND 156);
     UPDATE lot SET statut='EN_COURS' WHERE id=28;
     UPDATE lot SET statut='EN_ATTENTE' WHERE id=29;
-    UPDATE examen_participations SET note=NULL, commentaire=NULL WHERE etudiant_id IN (19,22,23,27);"
+    UPDATE examen_participations SET note=NULL, commentaire=NULL WHERE etudiant_id IN (19,22,23,27);
+    DELETE FROM exam_item_snapshot;
+    DELETE FROM exam_station_snapshot;"
   $PSQL_EXAM "UPDATE examens SET statut='EN_COURS' WHERE id=2;"   # launched_at NON touché
   echo ">>> verify:"
   $PSQL "SELECT id, debut_creneau, statut FROM rotation WHERE id IN (141,148,151,154) ORDER BY id;"
+  # ⚠️ Surface de nettoyage AJOUTÉE en session 22 : les scénarios ADR-0015
+  # matérialisent des lignes de snapshot DURABLES (write-once). Les laisser en
+  # place fait passer le scénario suivant pour « déjà chaud » et masque
+  # justement la fenêtre d'avant-première-matérialisation qu'on veut tester.
+  $PSQL "SELECT '    snapshot restant: '||(SELECT count(*) FROM exam_station_snapshot)||' station(s), '
+                ||(SELECT count(*) FROM exam_item_snapshot)||' item(s)';"
 }
 trap restore EXIT
 
@@ -82,10 +90,44 @@ case "$SCENARIO" in
     docker stop epos-exam-service > /dev/null
     EXAM_SERVICE_STOPPED=1
     TARGET=integration_test/render_audit_test.dart ;;
+  grading-nominal)  # session 22 — l'écran de NOTATION, jamais piloté jusqu'ici
+    # Passage commencé il y a 6 min sur une station de 15 min : la session reste
+    # EN_COURS (6 < 15+30 de GRACE) donc joignable, et le minuteur doit ouvrir
+    # vers ~9 min. Avec le `;` de #239 il ouvrait à 15:00.
+    $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
+    TARGET=integration_test/grading_screen_test.dart ;;
+  grading-outage)   # session 22 — LE PAYOFF d'ADR-0015, vu depuis l'UI
+    # Même ordre d'amorçage que render-audit, et cet ordre EST le test : on
+    # chauffe le snapshot pendant qu'exam-service est UP, PUIS on coupe. Couper
+    # avec 0 snapshot ne testerait que la fenêtre d'avant-matérialisation et
+    # ferait tout dégrader — on perdrait la promesse à vérifier (« la station
+    # déjà figée reste notable pendant la panne »).
+    $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
+    echo ">>> chauffage du snapshot (exam-service UP)"
+    TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+      -H 'Content-Type: application/json' \
+      -d '{"email":"eval@epos.tn","password":"Eval@1234"}' \
+      | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])")
+    curl -s http://localhost:8080/api/v1/evaluateur/dashboard -H "Authorization: Bearer $TOKEN" > /dev/null
+    # ⚠️ `success:true` n'est PAS une sonde de disponibilité : le dashboard est
+    # fail-open et répond 200 pendant une panne. On vérifie la MATÉRIALISATION.
+    SNAP=$($PSQL "SELECT count(*) FROM exam_station_snapshot;" | tr -d ' ')
+    echo "    snapshot: $SNAP station(s) figée(s)"
+    if [ "$SNAP" = "0" ]; then
+      echo "!!! ABANDON : le snapshot n'a pas chauffé — couper maintenant testerait"
+      echo "    la mauvaise chose (tout dégraderait). Vérifier exam-service."
+      exit 1
+    fi
+    echo ">>> coupure exam-service"
+    docker stop epos-exam-service > /dev/null
+    EXAM_SERVICE_STOPPED=1
+    TARGET=integration_test/grading_screen_test.dart ;;
   smoke)
     TARGET=integration_test/smoke_test.dart ;;
   *)
-    echo "usage: run_scenario.sh {smoke|S1-nominal|S2-1-derive|S2-2-entre-groupes|timer-anchor}"; exit 1 ;;
+    echo "usage: run_scenario.sh {smoke|S1-nominal|S2-1-derive|S2-2-entre-groupes|timer-anchor|render-audit|grading-nominal|grading-outage}"; exit 1 ;;
 esac
 
 echo ">>> fixture posée pour $SCENARIO ; lancement de $TARGET"

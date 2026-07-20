@@ -472,6 +472,49 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
+        @DisplayName("ADR-0015 — une station irrésolue dégrade SA session seule ; les sessions figées restent lisibles")
+        void stationIrresolue_degradeSansTuerLeTableau() {
+            // Régression live 2026-07-20 : pendant une panne d'exam-service, le repli-ouvert de
+            // #241 fait remonter des sessions d'autres examens, jamais figées. Avec un resolve
+            // strict sur le chemin de LECTURE, tout le dashboard tombait en HTTP 400 — y compris
+            // les sessions parfaitement figées, ce qui contredit la promesse de l'ADR
+            // (« après le premier succès, une panne d'exam-service est sans effet »).
+            Lot lot = new Lot(); lot.setId(1L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            lot.setTailleLot(4); lot.setStatut(LotStatus.EN_COURS);
+
+            Rotation figee    = rotationWithLot(1L, lot, 1);  // station 1 : figée
+            Rotation parasite = rotationWithLot(2L, lot, 1);  // station 2 : jamais figée
+            figee.setStationId(1L);
+            parasite.setStationId(2L);
+            // buildSessions ignore toute rotation sans debutCreneau.
+            LocalDateTime debut = LocalDateTime.now(TUNIS).minusMinutes(5);
+            figee.setDebutCreneau(debut);
+            parasite.setDebutCreneau(debut);
+
+            when(rotationRepository.findByEvaluateurIdAndStudentGroup_Lot_ExamenIdIn(eq(EVAL_ID), anyList()))
+                    .thenReturn(List.of(figee, parasite));
+            when(examDefinitionSnapshot.resolveStationNomPourAffichage(any(), eq(1L)))
+                    .thenReturn("Titrimétrie acido-basique");
+            when(examDefinitionSnapshot.resolveStationNomPourAffichage(any(), eq(2L)))
+                    .thenReturn(ExamDefinitionSnapshotService.NOM_INDISPONIBLE);
+
+            EvaluateurDashboardResponse resp = service.buildDashboard(EVAL_ID);
+
+            assertThat(resp.getSessions()).hasSize(2);
+            assertThat(resp.getSessions())
+                    .extracting(SessionResponse::getStationNom)
+                    .containsExactlyInAnyOrder("Titrimétrie acido-basique",
+                            ExamDefinitionSnapshotService.NOM_INDISPONIBLE);
+
+            // Le marqueur dégradé doit rester HONNÊTE : ni vide (le mobile fait
+            // `stationNom ?? ''`, un null rendrait un libellé blanc), ni plausible
+            // (« Station 2 » se lirait comme un vrai intitulé — c'est le repli supprimé).
+            assertThat(ExamDefinitionSnapshotService.NOM_INDISPONIBLE)
+                    .isNotBlank()
+                    .doesNotMatch("^Station \\d+$");
+        }
+
+        @Test
         @DisplayName("Stats : lots dérivés des rotations (resolverLotsDepuisRotations) — totalEtudiants, lotsValides")
         void stats_agregation() {
             Lot l1 = new Lot(); l1.setId(1L); l1.setExamenId(1L); l1.setNumeroLot(1);

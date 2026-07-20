@@ -72,6 +72,45 @@ public class ExamDefinitionSnapshotService {
     }
 
     /**
+     * Étiquette explicite substituée au nom d'une station qu'on ne sait pas résoudre.
+     *
+     * <p>Volontairement <b>ni plausible ni vide</b> : « Station 5 » se lit comme un vrai intitulé
+     * (c'est le repli que l'ADR supprime), et {@code null} rendrait un libellé vide côté mobile
+     * ({@code json['stationNom'] ?? ''}) — la même classe de fuite de valeur-repli dans l'UI.
+     * Ici l'évaluateur voit que l'information manque.
+     */
+    public static final String NOM_INDISPONIBLE = "Intitulé indisponible";
+
+    /**
+     * Nom de station <b>pour l'affichage</b> — dégrade au lieu d'échouer.
+     *
+     * <p><b>Pourquoi ce jumeau non strict.</b> Écriture et lecture n'ont pas le même enjeu : une
+     * note fausse persistée est un dégât permanent (d'où {@link #resolveStationNom}, strict), alors
+     * qu'un intitulé est de la métadonnée d'affichage — rien d'irréversible. Faire échouer tout le
+     * tableau de bord parce qu'UNE station est irrésolue est disproportionné, et cela contredit la
+     * promesse même de l'ADR : les sessions déjà figées ont justement été gelées pour ne plus
+     * dépendre d'exam-service.
+     *
+     * <p>Constaté en live le 2026-07-20 : pendant une panne d'exam-service, le repli-ouvert de
+     * #241 fait remonter les sessions d'examens auxquels l'évaluateur est affecté mais qu'il ne
+     * joue pas (stations 1/9/26/49 pour eval3) ; jamais figées, elles faisaient échouer le
+     * dashboard entier en HTTP 400 — y compris pour les 4 sessions parfaitement figées.
+     * On dégrade donc <b>session par session</b>. On ne filtre PAS les sessions parasites :
+     * déterminer l'ensemble des sessions vivantes sans exam-service est la question de #241, et
+     * en retirer risquerait de recréer l'impasse « aucune session » de #238.
+     */
+    @Transactional
+    public String resolveStationNomPourAffichage(Long examenId, Long stationId) {
+        try {
+            return resolveStationNom(examenId, stationId);
+        } catch (RuntimeException e) {
+            log.warn("ADR-0015 : intitulé de la station {} non résolu (examen {}) — affichage dégradé : {}",
+                    stationId, examenId, e.getMessage());
+            return NOM_INDISPONIBLE;
+        }
+    }
+
+    /**
      * The grille's notable (leaf) items, keyed by {@code itemId}. Materialises on first use.
      *
      * <p><b>Presence in this map is the authority on what may be graded.</b> An item absent from it

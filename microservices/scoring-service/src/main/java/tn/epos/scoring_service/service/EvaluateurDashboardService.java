@@ -412,7 +412,11 @@ public class EvaluateurDashboardService {
                             .stationId(rotation.getStationId())
                             // ADR-0015 : nom figé, jamais le repli « Station <id> » — une panne
                             // d'exam-service ne doit plus fabriquer un intitulé plausible mais faux.
-                            .stationNom(examDefinitionSnapshot.resolveStationNom(
+                            // Variante d'AFFICHAGE : dégrade cette session-là seulement, au lieu
+                            // de faire tomber tout le tableau de bord (les sessions déjà figées
+                            // doivent rester utilisables pendant une panne — c'est la promesse
+                            // de l'ADR). Le chemin d'ÉCRITURE, lui, reste strict.
+                            .stationNom(examDefinitionSnapshot.resolveStationNomPourAffichage(
                                     lotLie != null ? lotLie.getExamenId() : null,
                                     rotation.getStationId()))
                             .statut(statut)

@@ -666,9 +666,18 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     // sinon une horloge/fuseau d'appareil qui diffère du serveur recalcule un
     // temps écoulé faux à CHAQUE réouverture, donnant l'impression que le
     // minuteur "se réinitialise".
+    // #239 — un `;` parasite terminait ce `return` (« return _dureeStation; - elapsed; ») :
+    // `- elapsed` était du code mort, le compte à rebours renvoyait donc TOUJOURS la durée
+    // pleine et ignorait `debutCreneau`. C'est exactement le symptôme « le minuteur se
+    // réinitialise » que #232/#234 prétendaient corriger, et cela rendait `clockOffset`
+    // inerte de bout en bout (son unique consommateur était `effectiveNow`, inutilisé).
+    //
+    // Un résultat NÉGATIF est voulu : PassageCountdownBadge le rend en « dépassement »
+    // (`tempsRestant ≤ 0`, affiché en `.abs()`). Ne pas borner à zéro — ce serait un
+    // plafond, et ADR-0014 n'autorise l'horloge qu'à poser un plancher.
     final effectiveNow = DateTime.now().add(_clockOffset);
-    final elapsed = DateTime.now().difference(debutCreneau);
-    return _dureeStation; - elapsed;
+    final elapsed = effectiveNow.difference(debutCreneau);
+    return _dureeStation - elapsed;
   }
 
   // ── Utilitaire ────────────────────────────────────────────────────────────

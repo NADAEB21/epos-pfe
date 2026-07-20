@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.ExamStationSnapshot;
 import tn.epos.scoring_service.repositories.ExamItemSnapshotRepository;
@@ -50,6 +51,9 @@ public class ExamDefinitionSnapshotService {
 
     private final ExamStationSnapshotRepository stationSnapshotRepository;
     private final ExamItemSnapshotRepository itemSnapshotRepository;
+
+    /** Consulté UNIQUEMENT par le chemin d'affichage, pour son état de santé. */
+    private final ExamServiceClient examServiceClient;
 
     /**
      * Bean distinct <b>à dessein</b> : {@code REQUIRES_NEW} n'est appliqué que si l'appel traverse
@@ -101,6 +105,18 @@ public class ExamDefinitionSnapshotService {
      */
     @Transactional
     public String resolveStationNomPourAffichage(Long examenId, Long stationId) {
+        // Chemin d'AFFICHAGE : il consulte l'état de santé d'exam-service au lieu de
+        // retenter N fois. Le dashboard fait UN resolve par session ; pendant une panne,
+        // chacun payait son délai plein (mesuré : ~3,07 s × 8 sessions non figées, d'où
+        // un dashboard à 31–61 s alors que le client mobile abandonne à 20 s).
+        // La station DÉJÀ figée n'atteint jamais cette branche : elle sort du snapshot
+        // sans le moindre appel réseau — c'est tout l'intérêt d'ADR-0015.
+        if (stationSnapshotRepository.findByStationId(stationId).isEmpty()
+                && examServiceClient.estProbablementInjoignable()) {
+            log.warn("ADR-0015 : station {} non figée et exam-service réputé injoignable — "
+                    + "affichage dégradé immédiat (pas de nouvelle tentative)", stationId);
+            return NOM_INDISPONIBLE;
+        }
         try {
             return resolveStationNom(examenId, stationId);
         } catch (RuntimeException e) {

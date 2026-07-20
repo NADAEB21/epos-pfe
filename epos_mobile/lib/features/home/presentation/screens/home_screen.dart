@@ -47,7 +47,6 @@ void _naviguerVersNotation(
   final int stationId  = session.stationId ?? 0;
   final int rotationId = session.id;
   final int lotNumero = session.lotActuel > 0 ? session.lotActuel : 1;
-  final debutCreneau  = _parseHeureDebut(session.heureDebut);
   final sessionState = sessionBloc.state;
   final clockOffset = sessionState is SessionLoaded ? sessionState.clockOffset : Duration.zero;
 
@@ -93,20 +92,11 @@ void _naviguerVersNotation(
     });
 }
 
-/// Convertit "HH:mm" en DateTime du jour courant.
-DateTime? _parseHeureDebut(String heureDebut) {
-  try {
-    final parts = heureDebut.split(':');
-    if (parts.length != 2) return null;
-    final now = DateTime.now();
-    return DateTime(
-      now.year, now.month, now.day,
-      int.parse(parts[0]), int.parse(parts[1]),
-    );
-  } catch (_) {
-    return null;
-  }
-}
+// _parseHeureDebut a été SUPPRIMÉ (#234 / #239). Il reconstruisait un DateTime à
+// partir de « HH:mm » et de la date de l'APPAREIL — une re-dérivation locale de
+// l'heure serveur, exactement le genre d'horloge divergente qu'ADR-0012 élimine.
+// Son résultat n'était d'ailleurs plus lu : GradingSessionStarted reçoit
+// `session.debutPrevu`, l'horodatage serveur complet. Ne pas le réintroduire.
 
 // ── Navigation vers ProfileScreen ─────────────────────────────────────────────
 void _naviguerVersProfil(BuildContext context) {
@@ -474,8 +464,15 @@ class _SessionEnCoursCard extends StatelessWidget {
                 _InfoChip(icon: Icons.access_time_outlined,  label: session.heureDebut),
                 const SizedBox(width: 16),
                 _InfoChip(icon: Icons.group_outlined,        label: '${session.nbEtudiants} ét.'),
-                const SizedBox(width: 16),
-                _InfoChip(icon: Icons.location_on_outlined,  label: session.salle ?? 'Salle N/A'),
+                // La salle n'existe pas dans le modèle de données : le lieu est
+                // HORS PÉRIMÈTRE (ADR-0014), donc `session.salle` est toujours nul.
+                // On omet la puce plutôt que d'afficher « Salle N/A », qui annonce
+                // une information manquante alors qu'aucune n'a jamais été promise.
+                // Repérée par integration_test/render_audit_test.dart.
+                if (session.salle != null && session.salle!.trim().isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  _InfoChip(icon: Icons.location_on_outlined, label: session.salle!),
+                ],
               ],
             ),
             const SizedBox(height: 16),

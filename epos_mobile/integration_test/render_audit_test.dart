@@ -90,7 +90,14 @@ void main() {
     // On course les deux branches et on note laquelle a gagné, pour qu'un échec
     // dise LAQUELLE (recette du README : succès ET impasse attendus ensemble).
     final erreur = find.textContaining('Impossible');
-    final sessions = find.textContaining('Station');
+    // ⚠️ Ne PAS chercher « Station » : ni le vrai intitulé (« Identification d'un
+    // principe actif… ») ni le marqueur dégradé (« Intitulé indisponible ») ne
+    // contiennent ce mot — c'est justement le repli « Station N » qu'ADR-0015
+    // supprime. Un finder qui ne peut rien matcher ferait mal-rapporter la branche.
+    final sessions = find.byWidgetPredicate((w) =>
+        w is Text &&
+        w.data != null &&
+        (w.data!.contains('Intitulé indisponible') || w.data!.contains('Identification')));
     final vide = find.textContaining('Aucune session');
     final fin = DateTime.now().add(const Duration(seconds: 75));
     String issue = 'aucune (timeout du test)';

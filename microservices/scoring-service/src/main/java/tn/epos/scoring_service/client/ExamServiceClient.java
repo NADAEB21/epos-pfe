@@ -1,10 +1,13 @@
 package tn.epos.scoring_service.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -14,12 +17,14 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tn.epos.common.exception.BusinessException;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.*;
 
 /**
@@ -94,7 +99,34 @@ public class ExamServiceClient {
         }
     }
 
+    /**
+     * Plafond d'établissement de connexion. Sans ceci, WebClient héritait du défaut
+     * Netty/OS : mesuré le 2026-07-20, ~3 s par appel, et le dashboard en enchaîne 11.
+     */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
+
+    /** Plafond de réponse — exam-service joignable mais bloqué ne doit pas bloquer la notation. */
+    static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(3);
+
+    /**
+     * Fenêtre de « repli immédiat » après une panne de connectivité constatée.
+     *
+     * <p>Court à dessein : la récupération d'exam-service est rapide (≈10 s, vérifié session 20),
+     * donc la fenêtre borne la fraîcheur perdue une fois le service revenu.
+     */
+    static final Duration FENETRE_REPLI = Duration.ofSeconds(5);
+
     private final WebClient webClient;
+    private final long fenetreRepliNanos;
+
+    /**
+     * Échéance jusqu'à laquelle exam-service est réputé injoignable.
+     *
+     * <p><b>Ce n'est pas un cache, c'est un état de santé.</b> Comparaison par SOUSTRACTION
+     * ({@code now - echeance < 0}) : c'est le seul idiome correct avec {@link System#nanoTime()},
+     * dont l'origine est arbitraire et qui peut être négatif.
+     */
+    private final AtomicLong injoignableJusquA = new AtomicLong();
 
     // Cache permanent : les pondérations ne changent pas une fois l'examen EN_COURS.
     private final ConcurrentHashMap<Long, Map<Long, ItemInfo>> grilleItemsCache =
@@ -103,12 +135,76 @@ public class ExamServiceClient {
     @Autowired
     public ExamServiceClient(
             @Value("${exam-service.base-url:http://localhost:8082}") String baseUrl) {
-        this(WebClient.builder().baseUrl(baseUrl).build());
+        this(WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.create()
+                                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS,
+                                        (int) CONNECT_TIMEOUT.toMillis())
+                                .responseTimeout(RESPONSE_TIMEOUT)))
+                .build());
     }
 
     /** Package-private pour les tests — inject un WebClient stubbé. */
     ExamServiceClient(WebClient webClient) {
+        this(webClient, FENETRE_REPLI);
+    }
+
+    /** Package-private pour les tests — fenêtre de repli réglable. */
+    ExamServiceClient(WebClient webClient, Duration fenetreRepli) {
         this.webClient = webClient;
+        this.fenetreRepliNanos = fenetreRepli.toNanos();
+        this.injoignableJusquA.set(System.nanoTime()); // échéance déjà passée ⇒ sain
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Santé d'exam-service — pourquoi le repli est CONSULTÉ et non IMPOSÉ
+    //
+    // Mesuré le 2026-07-20 : dashboard 0,28 s à l'état sain, 31–61 s pendant une
+    // panne, alors que le client mobile abandonne à 20 s. L'évaluateur ne voyait
+    // donc jamais le tableau dégradé — juste « Impossible de charger les sessions :
+    // Vérifiez votre connexion réseau », qui accuse SON réseau d'une panne serveur.
+    // Borner les délais ne suffit pas : 11 appels × 2 s = 22 s, toujours trop.
+    //
+    // ⚠️ Les appelants STRICTS ne consultent JAMAIS cet état ; ils tentent toujours
+    // l'appel (borné à 2 s). Un faux positif — exam-service debout, un appel expiré
+    // sous charge — bloquerait sinon la NOTATION pendant toute la fenêtre, sur le
+    // chemin précisément protégé par ADR-0015. Le gain y serait nul de toute façon :
+    // snapshot chaud = 0 appel (0,056 s mesuré), snapshot froid = 1 seul appel.
+    // Seuls les appelants d'AFFICHAGE consultent — eux en font N.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * exam-service est-il réputé injoignable, d'après la dernière panne de connectivité ?
+     *
+     * <p>À consulter <b>uniquement</b> par les chemins d'affichage, qui ont un repli honnête à
+     * servir. Un chemin d'écriture doit tenter l'appel : lui, n'a pas de repli acceptable.
+     */
+    public boolean estProbablementInjoignable() {
+        return System.nanoTime() - injoignableJusquA.get() < 0;
+    }
+
+    /**
+     * Classe un échec. Seule une panne de <b>connectivité</b> ouvre la fenêtre de repli :
+     * une {@link WebClientResponseException} prouve qu'exam-service a RÉPONDU — un 404 sur une
+     * station ne doit pas nous rendre aveugles à toutes les autres.
+     */
+    private void classerEchec(Throwable e) {
+        if (e instanceof WebClientResponseException) return;
+        long echeance = System.nanoTime() + fenetreRepliNanos;
+        if (!estProbablementInjoignable()) {
+            log.warn("exam-service injoignable — repli immédiat pendant {} s (au lieu d'attendre "
+                    + "l'expiration de chaque appel)", FENETRE_REPLI.toSeconds());
+        }
+        injoignableJusquA.set(echeance);
+    }
+
+    /** Un appel a abouti : exam-service est debout, on referme immédiatement. */
+    private void signalerSucces() {
+        if (estProbablementInjoignable()) {
+            log.info("exam-service de nouveau joignable — fin du repli immédiat");
+        }
+        injoignableJusquA.set(System.nanoTime());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -212,8 +308,10 @@ public class ExamServiceClient {
             String nom = (root != null)
                     ? root.path("data").path("nom").asText(STATION_FALLBACK_PREFIX + stationId)
                     : STATION_FALLBACK_PREFIX + stationId;
+            signalerSucces();
             return new StationInfo(nom);
         } catch (Exception e) {
+            classerEchec(e);
             log.warn("exam-service injoignable pour station {} : {}", stationId, e.getMessage());
             return new StationInfo(STATION_FALLBACK_PREFIX + stationId);
         }
@@ -228,6 +326,13 @@ public class ExamServiceClient {
      * {@link #getStationInfo(Long)}. Non mis en cache : la pause est mutable.
      */
     public ExamTiming getExamTiming(Long examenId) {
+        // Appelant d'AFFICHAGE : il a un repli honnête (état neutre), donc il consulte.
+        // Le dashboard en fait un par examen — et #241 (repli-ouvert du filtre de statut)
+        // fait passer eval3 de 1 à 3 examens, donc 1 à 3 attentes. Sans ce court-circuit,
+        // chaque appel paie son délai plein.
+        if (estProbablementInjoignable()) {
+            return ExamTiming.neutral();
+        }
         String bearerToken = currentBearerToken();
         try {
             // /timing — vue minimale (statut / pause / durée) LISIBLE PAR L'ÉVALUATEUR.
@@ -257,8 +362,10 @@ public class ExamServiceClient {
             int leadSec = data.path(FIELD_AVERTISSEMENT_LEAD_SEC).isNumber()
                     ? data.path(FIELD_AVERTISSEMENT_LEAD_SEC).asInt() : 0;
             String statut = data.path("statut").isTextual() ? data.path("statut").asText() : null;
+            signalerSucces();
             return new ExamTiming(enPause, pausedAt, totalPauseSec, duree, leadSec, statut);
         } catch (Exception e) {
+            classerEchec(e);
             log.warn("exam-service injoignable pour timing examen {} : {} — état neutre",
                     examenId, e.getMessage());
             return ExamTiming.neutral();
@@ -278,11 +385,14 @@ public class ExamServiceClient {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block();
+            signalerSucces();
             return extractItemInfos(root, grilleId);
         } catch (WebClientResponseException e) {
+            classerEchec(e);   // réponse HTTP ⇒ service debout ⇒ n'ouvre PAS la fenêtre
             log.error("exam-service HTTP {} pour grille {}", e.getStatusCode(), grilleId);
             throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value());
         } catch (RuntimeException e) {
+            classerEchec(e);
             log.error("exam-service injoignable pour grille {}", grilleId, e);
             throw new BusinessException("exam-service injoignable : " + e.getMessage());
         }
@@ -307,11 +417,13 @@ public class ExamServiceClient {
                     .bodyToMono(JsonNode.class)
                     .block();
         } catch (WebClientResponseException e) {
+            classerEchec(e);
             log.error("exam-service rejected exam lookup for {} (status {}): {}",
                     examenId, e.getStatusCode(), e.getResponseBodyAsString());
             throw new BusinessException(
                     "Génération impossible : exam-service a renvoyé " + e.getStatusCode());
         } catch (RuntimeException e) {
+            classerEchec(e);
             log.error("exam-service unreachable for exam {} lookup", examenId, e);
             throw new BusinessException(
                     "Génération impossible : exam-service injoignable");

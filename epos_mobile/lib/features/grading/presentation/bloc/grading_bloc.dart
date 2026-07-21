@@ -595,6 +595,12 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       await _repository.validerGroupe(current.rotationId);   // ← FIX
       emit(current.copyWith(
         lotEnCoursDeValidation: false, lotValide: true, messageSucces: 'Groupe validé !',
+        // #248 — c'est ICI que la vague se termine du point de vue de l'évaluateur :
+        // il vient de valider son DERNIER passage à cette station. Le poser dans
+        // _onGroupeSuivant ne suffisait pas — ce chemin est justement injoignable quand
+        // il n'y a plus de suivant, puisque le bouton est alors désactivé : la bannière
+        // n'aurait jamais pu s'afficher.
+        vagueTerminee: !current.lot.groupeSuivantDisponible,
       ));
     } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));

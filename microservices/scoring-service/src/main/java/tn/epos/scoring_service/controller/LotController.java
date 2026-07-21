@@ -10,6 +10,7 @@ import tn.epos.scoring_service.dto.LotDTO; // New Import
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.service.LotAssignmentService;
+import tn.epos.scoring_service.service.LotOuvertureService;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -25,6 +26,9 @@ public class LotController {
 
     @Autowired
     private LotAssignmentService lotAssignmentService;
+
+    @Autowired
+    private LotOuvertureService lotOuvertureService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -79,6 +83,26 @@ public class LotController {
     public ResponseEntity<ApiResponse<Void>> deleteLot(@PathVariable Long id) {
         lotService.delete(id);
         return ResponseEntity.ok(ApiResponse.ok("Lot supprimé"));
+    }
+
+    /**
+     * ADR-0014-B — ouvre une vague : « Lot suivant » du responsable (#207/#208).
+     *
+     * <p>Réservé à RESP/ADMIN, et <b>délibérément fermé à EVALUATEUR</b> : un lot est servi
+     * simultanément par tous les évaluateurs, donc l'ouvrir engage la salle entière et les
+     * stations de tous les collègues. L'évaluateur, lui, avance ses propres GROUPES
+     * (« Groupe suivant », {@code POST /api/evaluateur/rotations/{id}/valider-groupe}).
+     *
+     * <p>Refuse — bruyamment — tant que la vague précédente n'est pas terminée, ce qui se
+     * mesure sur l'état des rotations (tous les évaluateurs ont validé), jamais sur une durée.
+     * 404 lot inconnu ; 400 présence non prise, planning non généré, lot déjà ouvert, ou
+     * vague précédente inachevée.
+     */
+    @PostMapping("/{id}/ouvrir")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<Void>> ouvrirLot(@PathVariable Long id) {
+        lotOuvertureService.ouvrirLot(id);
+        return ResponseEntity.ok(ApiResponse.ok("Lot ouvert : les étudiants peuvent être évalués."));
     }
 
     /**

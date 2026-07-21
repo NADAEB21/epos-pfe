@@ -150,10 +150,18 @@ belongs to the **responsable**, who is the only actor with the whole circuit in 
 - **Which lot « Lot suivant » targets.** Lowest `numeroLot` still `EN_ATTENTE`, or an explicit id
   from the responsable's click? Prefer the **explicit id** — the responsable sees the board, and an
   implicit "next" silently picks for them when lots are generated out of order.
-- **`Lot.statut` symmetry.** It is a **stored** column and `validerGroupe:399` writes `TERMINE` to
-  it; nothing writes `EN_COURS` today. `ouvrirLot` must leave it consistent — mirror the `:399`
-  write. §5's "derived" refers to the *rule* (status follows rotation progress), not to the absence
-  of a column.
+- **`Lot.statut` must NOT be used to ask "is this wave open?"** — corrected 2026-07-21 after
+  reading the writers. The column is **overloaded and already means something else**:
+  `LotAssignmentService:113` creates lots `EN_ATTENTE`; **marking presence** flips them to
+  `EN_COURS` (`LotAssignmentService:229`); `validerGroupe:399` flips them to `TERMINE`. The web
+  reads that meaning too — the generate button's tooltip is « Enregistrez d'abord la présence »
+  (`lots.component.ts:220`), and it **refuses to generate while `EN_ATTENTE`** (`:570`, `:584`).
+  So a lot is `EN_COURS` **before it is ever opened**.
+  Consequences, binding on #207 and #208: `ouvrirLot` **does not write `Lot.statut`** (it would be
+  a no-op that further blurs the field), and **open/closed is read from rotation state only** —
+  *started* = ∃ rotation not `EN_ATTENTE`; *finished* = ∀ rotations `TERMINE`. This also keeps the
+  handshake honest: "all évaluateurs are done" is a fact about rotations, never about a lot flag
+  someone might set by hand through `PUT /api/lots/{id}` (`LotService:42`).
 
 ### Explicitly NOT decided here
 

@@ -54,6 +54,7 @@ class RotationGenerationServiceTest {
     @Mock private IRotationRepository rotationRepository;
     @Mock private IRotationAssignmentRepository assignmentRepository;
     @Mock private INotationRepository notationRepository;
+    @Mock private LotOuvertureService lotOuvertureService;
 
     @InjectMocks private RotationGenerationService service;
 
@@ -176,16 +177,19 @@ class RotationGenerationServiceTest {
         }
 
         /**
-         * #207 — la génération est l'acte du jour J (examen lancé + présence marquée) :
-         * c'est donc là que la vague devient réellement notable. Le premier rang part
-         * EN_COURS, les suivants attendent leur « Groupe suivant ».
+         * ADR-0014-B — <b>générer un lot ne l'ouvre pas.</b> La version précédente de ce test
+         * exigeait le rang 1 {@code EN_COURS} dès la génération ; c'était le défaut lui-même :
+         * générer le lot N+1 pendant que le lot N tournait ouvrait une seconde vague, et la
+         * même station affichait deux groupes en cours à la fois.
          *
-         * <p>Le point qui compte : il y a UNE rotation EN_COURS PAR STATION, pas une seule
-         * pour tout le lot — un circuit OSCE fait tourner les K stations en parallèle.
+         * <p>Ouvrir une vague engage toutes les stations à la fois : c'est une décision de
+         * responsable, déléguée à {@code LotOuvertureService}, qui reste le seul écrivain
+         * d'{@code EN_COURS} au niveau lot. Que la PREMIÈRE vague s'ouvre bien toute seule est
+         * vérifié là-bas ({@code LotOuvertureServiceTest}), pas ici.
          */
         @Test
-        @DisplayName("#207 : le rang 1 démarre EN_COURS sur CHAQUE station, les rangs suivants EN_ATTENTE")
-        void genere_rangUnDemarreEnCoursParStation() {
+        @DisplayName("ADR-0014-B : la génération planifie (tout EN_ATTENTE) et délègue l'ouverture")
+        void genere_neDemarreAucuneRotationEtDelegueLOuverture() {
             when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
@@ -193,19 +197,16 @@ class RotationGenerationServiceTest {
 
             service.generateForLot(LOT_ID);
 
-            var enCours = savedRotations.stream()
-                    .filter(r -> r.getStatut() == RotationStatus.EN_COURS)
-                    .toList();
-
-            // Une seule rotation ouverte par station, et c'est toujours le rang 1.
-            assertThat(enCours).hasSize(3);
-            assertThat(enCours).allMatch(r -> r.getOrdrePassage() == 1);
-            assertThat(enCours.stream().map(Rotation::getStationId).distinct().count()).isEqualTo(3L);
-
-            // Tout le reste attend explicitement — aucun statut déduit d'une horloge.
-            assertThat(savedRotations.stream().filter(r -> r.getOrdrePassage() > 1))
+            // ADR-0014-B — GÉNÉRER n'est plus OUVRIR. L'assertion précédente exigeait ici le
+            // rang 1 EN_COURS : c'était exactement le défaut. Générer le lot N+1 pendant que le
+            // lot N tourne ouvrait une seconde vague concurrente sur les mêmes stations. La
+            // génération ne fait donc plus que planifier ; ouvrir est un acte à part.
+            assertThat(savedRotations)
                     .isNotEmpty()
                     .allMatch(r -> r.getStatut() == RotationStatus.EN_ATTENTE);
+
+            // …et la décision d'ouvrir (ou non) est déléguée au seul écrivain d'EN_COURS.
+            verify(lotOuvertureService).ouvrirSiPremiereVague(any(Lot.class));
         }
 
         @Test

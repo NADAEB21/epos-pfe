@@ -68,7 +68,9 @@ public class EvaluateurDashboardService {
     private static final int DUREE_STATION_MIN = 15;
 
     private static final String TOPIC_SCORES = "/topic/stations/%d/scores";
-    private static final String TOPIC_LOT    = "/topic/lots/%d/status";
+    // ADR-0014-B — destination unique, définie sur le DTO : deux copies de la même
+    // destination « à garder identiques » ont déjà divergé ailleurs dans ce service.
+    private static final String TOPIC_LOT    = LotStatusMessage.TOPIC;
 
     // =========================================================================
     // 1. DASHBOARD COMPLET

@@ -91,4 +91,15 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
      */
     Optional<Rotation> findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
             Long stationId, Long lotId, Integer ordrePassage);
+
+    /**
+     * #207 / ADR-0014-B — rotations du PREMIER rang d'un lot, c'est-à-dire la vague
+     * qui s'ouvre quand le responsable ouvre le lot. Le carré latin place les K groupes
+     * sur K stations distinctes à {@code t=0}, donc ce rang contient exactement une
+     * rotation par station : ouvrir le lot = passer ces rotations-là EN_COURS.
+     *
+     * <p>Séquencé sur {@code ordrePassage}, jamais sur {@code debutCreneau} : l'ouverture
+     * est un acte humain (ADR-0014-B §1), pas un créneau qui arrive à échéance.
+     */
+    List<Rotation> findByStudentGroup_Lot_IdAndOrdrePassage(Long lotId, Integer ordrePassage);
 }

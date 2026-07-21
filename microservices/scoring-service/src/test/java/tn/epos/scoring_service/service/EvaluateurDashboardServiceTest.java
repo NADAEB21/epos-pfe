@@ -819,23 +819,32 @@ class EvaluateurDashboardServiceTest {
     @DisplayName("getGroupeSuivant()")
     class GetGroupeSuivant {
 
+        /**
+         * #248 — la navigation se fait sur le RANG, à cette station et dans ce lot.
+         *
+         * <p>Les deux tests de ce bloc stubbaient auparavant
+         * {@code findFirstByEvaluateurIdAndDebutCreneauAfter…} : ils encodaient la navigation à
+         * l'HORLOGE, non filtrée, que ce ticket retire (#207 avait déjà déplacé
+         * {@code validerGroupe} sur {@code ordrePassage} et laissé ce chemin en arrière). Ils
+         * sont donc réécrits, pas restaurés.
+         */
         @Test
-        @DisplayName("200 — retourne le prochain groupe planifié, cherché après le créneau courant")
+        @DisplayName("#248 : retourne le passage de RANG suivant, borné à cette station et ce lot")
         void groupeSuivant_happy() {
             Lot lot = new Lot();
             lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
             lot.setStatut(LotStatus.EN_COURS);
 
-            LocalDateTime debutCourant = LocalDateTime.now(TUNIS);
             Rotation courante = rotationWithLot(1L, lot, 1);
-            courante.setDebutCreneau(debutCourant);
+            courante.setOrdrePassage(1);
 
             Rotation suivante = rotationWithLot(2L, lot, 2);
-            suivante.setDebutCreneau(debutCourant.plusMinutes(15));
+            suivante.setOrdrePassage(2);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
-            when(rotationRepository.findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
-                    EVAL_ID, debutCourant)).thenReturn(Optional.of(suivante));
+            when(rotationRepository
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            STATION_ID, 5L, 1)).thenReturn(Optional.of(suivante));
             when(studentGroupRepository.findByLotId(5L)).thenReturn(List.of(new StudentGroup(), new StudentGroup()));
             when(rotationAssignmentRepository.findByRotationId(2L)).thenReturn(List.of());
 
@@ -843,23 +852,57 @@ class EvaluateurDashboardServiceTest {
 
             assertThat(resp.getId()).isEqualTo(2L);
             assertThat(resp.getNumero()).isEqualTo(2);
+            // Le créneau ne doit jouer aucun rôle : aucune requête horaire n'est consultée.
+            verify(rotationRepository, never())
+                    .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(any(), any());
         }
 
         @Test
-        @DisplayName("Aucun groupe suivant planifié → ResourceNotFoundException")
+        @DisplayName("Dernier passage de la station pour ce lot → ResourceNotFoundException")
         void groupeSuivant_aucunSuivant() {
             Lot lot = new Lot(); lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
-            LocalDateTime debut = LocalDateTime.now(TUNIS);
             Rotation courante = rotationWithLot(1L, lot, 1);
-            courante.setDebutCreneau(debut);
+            courante.setOrdrePassage(2);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
-            when(rotationRepository.findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
-                    EVAL_ID, debut)).thenReturn(Optional.empty());
+            when(rotationRepository
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            STATION_ID, 5L, 2)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.getGroupeSuivant(1L, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("dernière rotation");
+                    .hasMessageContaining("dernier passage de cette station");
+        }
+
+        /**
+         * #248 — le drapeau que le client utilise pour (dé)griser « Groupe suivant ».
+         * Le bug venait de ce que le client le redéduisait de {@code numero >= total} : ici le
+         * groupe courant EST le dernier groupe (2/2) et il RESTE pourtant un passage — c'est
+         * exactement le cas que l'ancienne garde ratait, sur une station qui reçoit les
+         * groupes dans l'ordre 2 puis 1 (carré latin).
+         */
+        @Test
+        @DisplayName("#248 : groupeSuivantDisponible=true même quand le groupe courant est le dernier NUMÉRO")
+        void groupeSuivant_drapeauIndependantDuNumeroDeGroupe() {
+            Lot lot = new Lot(); lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            Rotation courante = rotationWithLot(1L, lot, 2); // groupe n°2 …
+            courante.setOrdrePassage(1);                     // … mais premier passage
+
+            Rotation suivante = rotationWithLot(2L, lot, 1);
+            suivante.setOrdrePassage(2);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
+            when(rotationRepository
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            STATION_ID, 5L, 1)).thenReturn(Optional.of(suivante));
+            when(studentGroupRepository.findByLotId(5L)).thenReturn(List.of(new StudentGroup(), new StudentGroup()));
+            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of());
+
+            LotDetailResponse resp = service.getGroupeDetail(1L, EVAL_ID);
+
+            assertThat(resp.getNumero()).isEqualTo(2);
+            assertThat(resp.getTotal()).isEqualTo(2);   // numero >= total ⇒ ancienne garde : grisé
+            assertThat(resp.isGroupeSuivantDisponible()).isTrue();  // … alors qu'un passage reste
         }
 
         @Test

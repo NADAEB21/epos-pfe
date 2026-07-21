@@ -168,12 +168,32 @@ public class EvaluateurDashboardService {
         Rotation courante = rotationRepository.findById(rotationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(courante, evaluateurId);
-        Rotation suivante = rotationRepository
-                .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
-                        evaluateurId, courante.getDebutCreneau())
+
+        // #248 — séquencé sur ordrePassage et borné à (cette station, ce lot), exactement comme
+        // validerGroupe. Auparavant : findFirstByEvaluateurIdAndDebutCreneauAfter…, c'est-à-dire
+        // l'HORLOGE et sans aucun filtre — deux défauts. #207 avait déplacé validerGroupe sur
+        // ordrePassage mais laissé ce chemin-ci sur debutCreneau : la même fonctionnalité
+        // séquençait donc de deux façons selon le bouton utilisé. Et faute de filtre, la requête
+        // pouvait renvoyer la rotation d'un AUTRE examen du même évaluateur.
+        Rotation suivante = rotationSuivante(courante)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Aucun groupe suivant : c'était la dernière rotation planifiée pour cet évaluateur."));
+                        "Aucun groupe suivant : c'était le dernier passage de cette station pour ce lot."));
         return toGroupeDetailResponse(suivante);
+    }
+
+    /**
+     * #248 — LE passage suivant : même station, même lot, rang immédiatement supérieur.
+     * Source unique pour {@code getGroupeSuivant}, pour le drapeau
+     * {@code groupeSuivantDisponible} envoyé au client, et pour l'ouverture faite par
+     * {@code validerGroupe} — afin que le bouton, la navigation et l'écriture ne puissent
+     * plus diverger.
+     */
+    private Optional<Rotation> rotationSuivante(Rotation courante) {
+        Lot lot = (courante.getStudentGroup() != null) ? courante.getStudentGroup().getLot() : null;
+        if (lot == null) return Optional.empty();
+        return rotationRepository
+                .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                        courante.getStationId(), lot.getId(), courante.getOrdrePassage());
     }
 
     private void verifierProprietaire(Rotation rotation, Long evaluateurId) {
@@ -214,6 +234,10 @@ public class EvaluateurDashboardService {
                 .numero(numeroGroupe)                // numéro du GROUPE (1..K), pas du lot
                 .total(totalGroupes)                 // nombre total de groupes du lot
                 .valide(rotation.getStatut() == RotationStatus.TERMINE)
+                // #248 — le client ne doit PAS redéduire ceci de numero/total : le carré latin
+                // fait tourner les groupes, donc « je suis le groupe K » ne veut pas dire « je
+                // suis le dernier passage de cette station ».
+                .groupeSuivantDisponible(rotationSuivante(rotation).isPresent())
                 .etudiants(etudiants)
                 .build();
     }
@@ -383,9 +407,7 @@ public class EvaluateurDashboardService {
         // EN_COURS n'existerait nulle part en base et le tableau de bord devrait à nouveau
         // deviner. Séquencé sur ordrePassage, pas sur debutCreneau : l'horloge ne décide
         // plus de l'avancement (ADR-0014). Les stations avancent indépendamment.
-        rotationRepository
-                .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
-                        rotation.getStationId(), lot.getId(), rotation.getOrdrePassage())
+        rotationSuivante(rotation)
                 .ifPresent(suivante -> {
                     if (suivante.getStatut() != RotationStatus.TERMINE) {
                         suivante.setStatut(RotationStatus.EN_COURS);

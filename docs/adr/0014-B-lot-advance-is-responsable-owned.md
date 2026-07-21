@@ -1,7 +1,9 @@
 # ADR 0014-B: Lot advance is responsable-owned — the wave handshake
 
 - **Date:** 2026-07-21
-- **Status:** Accepted (addendum to ADR-0014; **supersedes ADR-0014-A §1, second bullet**).
+- **Status:** Proposed (addendum to ADR-0014; **supersedes ADR-0014-A §1, second bullet** once
+  accepted). Records the model Nada settled 2026-07-20; flip to Accepted on her read, since it
+  overturns a already-ratified decision.
 - **Deciders:** Nada (lead architect).
 - **Related:** **ADR-0014** (évaluateur-paced station lifecycle — the constitution), **ADR-0014-A**
   (PLAN vs PACE — this addendum corrects its §1 lot-advance bullet and leaves §2–§7 intact),
@@ -112,8 +114,14 @@ belongs to the **responsable**, who is the only actor with the whole circuit in 
    "lot terminé" flag is stored: the alert is the already-derived `Lot.statut == TERMINE` plus the
    existence of a next lot still `EN_ATTENTE`. The backend signal exists
    (`broadcastLotStatus`, `:401`); since **web has no WebSocket client**, #208 derives the alert
-   from the REST Suivi payload it already polls. Adding STOMP to the web app is **out of scope
-   here** — it is a separate infrastructure decision, not a prerequisite for this handshake.
+   from the REST Suivi read. Adding STOMP to the web app is **out of scope here** — it is a
+   separate infrastructure decision, not a prerequisite for this handshake.
+   ⚠️ **Suivi does not refresh its data today.** Verified `suivi.component.ts:697`: the screen's
+   only interval is `setInterval(() => this.now.set(Date.now()), 1000)` — a **clock tick** feeding
+   the « temps écoulé / dépassement » readout ADR-0014 retires, **not** a data poll. The board
+   loads once. So #208 must **add a refresh** (poll, or reload on the responsable's own actions);
+   without it the alert cannot arrive, since web neither hears the broadcast nor re-reads. Deleting
+   that clock interval and adding a data refresh are the same edit, from opposite directions.
 
 6. **Mobile must NOT gain a lot-level control (#209).** The évaluateur advances groups only. The
    work is a rename (`_confirmerLotSuivant` → `_confirmerGroupeSuivant`) and cleanup, not a
@@ -136,6 +144,16 @@ belongs to the **responsable**, who is the only actor with the whole circuit in 
   #185): launch → presence → lot 1 opens → grade → « lot terminé » alert → « Lot suivant » → lot 2.
   Today the responsable must guess it across two tabs (Lancement → generate lots, then Lots →
   generate rotations).
+
+### Left to implementation (decisions, not accidents)
+
+- **Which lot « Lot suivant » targets.** Lowest `numeroLot` still `EN_ATTENTE`, or an explicit id
+  from the responsable's click? Prefer the **explicit id** — the responsable sees the board, and an
+  implicit "next" silently picks for them when lots are generated out of order.
+- **`Lot.statut` symmetry.** It is a **stored** column and `validerGroupe:399` writes `TERMINE` to
+  it; nothing writes `EN_COURS` today. `ouvrirLot` must leave it consistent — mirror the `:399`
+  write. §5's "derived" refers to the *rule* (status follows rotation progress), not to the absence
+  of a column.
 
 ### Explicitly NOT decided here
 

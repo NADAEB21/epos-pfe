@@ -1,9 +1,10 @@
 # ADR 0014-B: Lot advance is responsable-owned — the wave handshake
 
 - **Date:** 2026-07-21
-- **Status:** Proposed (addendum to ADR-0014; **supersedes ADR-0014-A §1, second bullet** once
-  accepted). Records the model Nada settled 2026-07-20; flip to Accepted on her read, since it
-  overturns a already-ratified decision.
+- **Status:** **Accepted** (2026-07-22, Nada — addendum to ADR-0014; **supersedes ADR-0014-A §1,
+  second bullet**). Ratified in her own terms: *« un lot, plusieurs évaluateurs — donc ce ne devrait
+  pas être à un seul évaluateur de décider de passer au lot suivant »*, which is precisely the
+  ownership argument of §Context below.
 - **Deciders:** Nada (lead architect).
 - **Related:** **ADR-0014** (évaluateur-paced station lifecycle — the constitution), **ADR-0014-A**
   (PLAN vs PACE — this addendum corrects its §1 lot-advance bullet and leaves §2–§7 intact),

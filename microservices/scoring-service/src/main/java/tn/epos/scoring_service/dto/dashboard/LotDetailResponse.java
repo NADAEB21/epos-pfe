@@ -34,6 +34,21 @@ public class LotDetailResponse {
     private int               numero;
     private int               total;
     private boolean           valide;
+
+    /**
+     * #248 — reste-t-il un passage APRÈS celui-ci, à CETTE station et dans CE lot ?
+     *
+     * <p>C'est la seule réponse à « le bouton Groupe suivant doit-il être actif ? ».
+     * Le client la calculait auparavant avec {@code numero >= total}, c'est-à-dire avec le
+     * numéro du groupe courant : or le carré latin fait tourner les groupes, donc une station
+     * peut recevoir le groupe 2 puis le groupe 1. La garde était alors vraie exactement à
+     * l'envers — grisée au premier passage, active au dernier (où le clic effaçait l'écran).
+     *
+     * <p>Calculé sur {@code ordrePassage}, comme {@code validerGroupe} : une seule source de
+     * vérité pour « quel est le passage suivant » (ADR-0014 : l'horloge ne séquence plus rien).
+     */
+    private boolean           groupeSuivantDisponible;
+
     private List<EtudiantLotResponse> etudiants;
 
     @Getter @Builder @NoArgsConstructor @AllArgsConstructor

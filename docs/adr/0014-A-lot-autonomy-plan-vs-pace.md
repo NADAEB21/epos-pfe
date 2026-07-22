@@ -77,8 +77,16 @@ of storing the responsable's real day/venue) **and** uses that fake schedule as 
 1. **Two explicit advance levels, neither driven by the clock.**
    - **Groupe suivant** (*intra-lot*) — the évaluateur walks the K groups/créneaux at their station.
      Built in **#207**; `getLotDetail` returns the current `EN_COURS` group, not `findFirst`.
-   - **Lot suivant** (*inter-lot*) — a new batch begins. Already exists in mobile
-     (`GradingLotSuivantDemande`); kept, and never conflated with Groupe suivant.
+   - ~~**Lot suivant** (*inter-lot*) — a new batch begins. Already exists in mobile
+     (`GradingLotSuivantDemande`); kept, and never conflated with Groupe suivant.~~
+     ⛔ **SUPERSEDED by ADR-0014-B (2026-07-22).** Wrong on both halves. It **does not exist in
+     mobile** — `grading_screen.dart` renders « Groupe suivant » and fires
+     `GradingGroupeSuivantDemande`; only a stale private method name survived. And it assigns the
+     inter-lot advance to the **évaluateur**, which the wave model rules out: a lot is served by
+     **all** évaluateurs at once, so moving it on moves the whole cohort and every colleague's
+     station. That advance belongs to the **responsable**, gated on every rotation of the current
+     lot being `TERMINE`. See **ADR-0014-B**. The first bullet (« Groupe suivant », évaluateur-owned)
+     is unaffected and stands.
 
 2. **Lot status is DERIVED from rotation progress, never from a stored time offset.** A lot is
    `TERMINE` only when **every** rotation of the lot is `TERMINE`; it is "started" when **any**

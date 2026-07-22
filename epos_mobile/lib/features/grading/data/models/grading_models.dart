@@ -187,6 +187,7 @@ class LotModel extends Lot {
     required super.total,
     required super.etudiants,
     super.valide,
+    super.groupeSuivantDisponible,
   });
 
   /// Réponse JSON de GET /evaluateur/stations/{id}/lots/{num} :
@@ -208,6 +209,11 @@ class LotModel extends Lot {
       numero:    _toInt(json['numero']),
       total:     _toInt(json['total']),
       valide:    json['valide'] as bool? ?? false,
+      // #248 — défaut `false` : en l'absence d'information, on n'annonce PAS un passage
+      // suivant. Se tromper dans ce sens grise un bouton utile (récupérable d'un retour
+      // en arrière) ; se tromper dans l'autre renvoie l'évaluateur sur une rotation
+      // inexistante et efface son écran de notation.
+      groupeSuivantDisponible: json['groupeSuivantDisponible'] as bool? ?? false,
       etudiants: etudiants,
     );
   }

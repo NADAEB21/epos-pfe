@@ -59,6 +59,7 @@ public class RotationGenerationService {
     private final IRotationRepository             rotationRepository;
     private final IRotationAssignmentRepository   assignmentRepository;
     private final INotationRepository             notationRepository;
+    private final LotOuvertureService             lotOuvertureService;
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
@@ -188,6 +189,12 @@ public class RotationGenerationService {
                 rotation.setEvaluateurId(evaluateurId);
                 rotation.setOrdrePassage(t + 1);
                 rotation.setDebutCreneau(creneau);
+                // ADR-0014-B — la génération ne fait que PLANIFIER : tout part EN_ATTENTE.
+                // Ouvrir la vague est un acte à part (LotOuvertureService, appelé plus bas),
+                // parce qu'ouvrir un lot engage TOUTES les stations à la fois. Auparavant ce
+                // rang partait EN_COURS ici même, pour tout lot généré : générer le lot N+1
+                // pendant que le lot N tournait ouvrait une seconde vague concurrente et la
+                // même station affichait deux groupes EN_COURS.
                 rotation.setStatut(RotationStatus.EN_ATTENTE);
                 rotation.setStudentGroup(groups.get(g));
                 rotation = rotationRepository.save(rotation);
@@ -210,6 +217,13 @@ public class RotationGenerationService {
             lotRepository.save(lot);
             log.debug("Lot {} : evaluateurId propagé = {}", lotId, evaluateurPrincipal);
         }
+
+        // ADR-0014-B — SEULE la première vague de l'examen s'ouvre d'elle-même : l'examen est
+        // déjà lancé et la présence déjà prise, donc exiger un clic de plus ne garderait rien.
+        // Toute vague suivante attend le « Lot suivant » du responsable, qui est le seul à voir
+        // si tous les évaluateurs ont fini. La décision est déléguée au service d'ouverture pour
+        // qu'il n'existe qu'UN seul écrivain d'EN_COURS au niveau lot.
+        lotOuvertureService.ouvrirSiPremiereVague(lot);
 
         return new GenerationResult(1, k, k, k, rotationCount, assignmentCount,
                 n, absents, avertissement);

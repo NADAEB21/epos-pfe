@@ -14,6 +14,9 @@ import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +45,8 @@ public class SuiviProgressionService {
     private final IRotationRepository           rotationRepository;
     private final IRotationAssignmentRepository assignmentRepository;
     private final INotationRepository           notationRepository;
+    /** ADR-0010 — même horloge que celle qui a horodaté l'ouverture, sinon la durée ment. */
+    private final Clock                         clock;
 
     @Transactional(readOnly = true)
     public SuiviProgressionResponse getProgression(Long examenId) {
@@ -81,9 +86,13 @@ public class SuiviProgressionService {
                 : List.of();
         boolean lotTermine = ouvert.isEmpty() && dernierTermine.isPresent() && suivant.isPresent();
 
+        // Le chronomètre ne tourne QUE sur une vague réellement en cours (cf. ecouleSec).
+        boolean vagueEnCours = ouvert.isPresent();
+
         return SuiviProgressionResponse.builder()
                 .examenId(examenId)
-                .lotOuvert(lotAffiche != null ? construireLotEnCours(lotAffiche, rotations) : null)
+                .lotOuvert(lotAffiche != null
+                        ? construireLotEnCours(lotAffiche, rotations, vagueEnCours) : null)
                 .lotTermine(lotTermine)
                 .lotSuivant(suivant.map(l -> SuiviProgressionResponse.LotSuivant.builder()
                         .id(l.getId())
@@ -96,7 +105,8 @@ public class SuiviProgressionService {
 
     // =========================================================================
 
-    private SuiviProgressionResponse.LotEnCours construireLotEnCours(Lot lot, List<Rotation> rotations) {
+    private SuiviProgressionResponse.LotEnCours construireLotEnCours(Lot lot, List<Rotation> rotations,
+                                                                    boolean vagueEnCours) {
         Map<Integer, List<Rotation>> parGroupe = rotations.stream()
                 .filter(r -> r.getStudentGroup() != null)
                 .collect(Collectors.groupingBy(r -> r.getStudentGroup().getNumeroGroupe()));
@@ -107,10 +117,21 @@ public class SuiviProgressionService {
                 .filter(rs -> rs.stream().allMatch(r -> r.getStatut() == RotationStatus.TERMINE))
                 .count();
 
+        // #252 — la mesure est faite ICI, côté serveur, et seulement si la vague tourne.
+        // Deux raisons, et aucune n'est cosmétique :
+        //  • le navigateur et le bean Clock ne sont pas dans le même fuseau (ADR-0010) — une
+        //    soustraction faite dans le front afficherait +1:00:00 dès l'ouverture ;
+        //  • sur une vague TERMINÉE le compteur doit S'ARRÊTER, sinon il grimpe pendant toute
+        //    l'attente entre deux vagues et recrée le « +42:16 et croissant » qu'on supprime.
+        Long ecouleSec = (vagueEnCours && lot.getOuvertA() != null)
+                ? Math.max(0, Duration.between(lot.getOuvertA(), LocalDateTime.now(clock)).getSeconds())
+                : null;
+
         return SuiviProgressionResponse.LotEnCours.builder()
                 .id(lot.getId())
                 .numeroLot(lot.getNumeroLot())
                 .ouvertA(lot.getOuvertA())
+                .ecouleSec(ecouleSec)
                 .groupesTermines((int) termines)
                 .groupesTotal(parGroupe.size())
                 .build();

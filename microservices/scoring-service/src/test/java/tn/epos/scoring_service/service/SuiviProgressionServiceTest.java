@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tn.epos.scoring_service.dto.dashboard.SuiviProgressionResponse;
 import tn.epos.scoring_service.entities.*;
@@ -14,7 +15,9 @@ import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,10 +41,16 @@ class SuiviProgressionServiceTest {
     private static final Long LOT1 = 40L;
     private static final Long LOT2 = 41L;
 
+    /** Horloge FIXE : la durée écoulée doit être vérifiable à la seconde près. */
+    private static final LocalDateTime MAINTENANT = LocalDateTime.of(2026, 7, 22, 10, 0);
+
     @Mock private ILotRepository                lotRepository;
     @Mock private IRotationRepository           rotationRepository;
     @Mock private IRotationAssignmentRepository assignmentRepository;
     @Mock private INotationRepository           notationRepository;
+
+    @Spy private Clock clock = Clock.fixed(
+            MAINTENANT.atZone(ZoneId.of("Africa/Tunis")).toInstant(), ZoneId.of("Africa/Tunis"));
 
     @InjectMocks private SuiviProgressionService service;
 
@@ -245,6 +254,48 @@ class SuiviProgressionServiceTest {
          * le client affiche « — » : inventer une ancre (launched_at, un créneau) reconstruirait
          * exactement la mesure fausse que ce ticket supprime.
          */
+        /**
+         * #252 — la mesure est SERVEUR. Le navigateur et le bean {@code Clock} ne sont pas dans
+         * le même fuseau (conteneur CEST, Clock Africa/Tunis, ADR-0010) : une soustraction faite
+         * dans le front afficherait +1:00:00 dès l'ouverture d'une vague.
+         */
+        @Test
+        @DisplayName("#252 : la durée écoulée est calculée côté serveur, en secondes")
+        void ecouleSec_calculeParLeServeur() {
+            Lot l1 = lot(LOT1, 1, MAINTENANT.minusMinutes(7));
+            lient(l1, List.of(rot(201L, 58L, 1, 1, RotationStatus.EN_COURS)));
+            when(lotRepository.findByExamenId(EXAM)).thenReturn(List.of(l1));
+            assignments(201L, 2, 0);
+
+            SuiviProgressionResponse r = service.getProgression(EXAM);
+
+            assertThat(r.getLotOuvert().getEcouleSec()).isEqualTo(7 * 60);
+        }
+
+        /**
+         * ⛔ <b>LA GARDE ANTI-PLAFOND.</b> Une vague terminée ne doit plus rien chronométrer :
+         * sinon le compteur grimperait pendant toute l'attente entre deux vagues et recréerait
+         * le « +42:16 et croissant » que ce lot de tickets supprime — le plafond réinventé sous
+         * un autre nom. Vague finie ⇒ pas de chronomètre, mais l'alerte « lot terminé ».
+         */
+        @Test
+        @DisplayName("#252 : une vague TERMINÉE ne chronomètre plus rien (anti-plafond)")
+        void ecouleSec_sArreteQuandLaVagueEstFinie() {
+            Lot l1 = lot(LOT1, 1, MAINTENANT.minusHours(3));   // ouverte il y a 3 h
+            Lot l2 = lot(LOT2, 2, null);
+            lient(l1, List.of(rot(201L, 58L, 1, 1, RotationStatus.TERMINE)));
+            lient(l2, List.of(rot(205L, 58L, 1, 1, RotationStatus.EN_ATTENTE)));
+            when(lotRepository.findByExamenId(EXAM)).thenReturn(List.of(l1, l2));
+            assignments(201L, 2, 2);
+
+            SuiviProgressionResponse r = service.getProgression(EXAM);
+
+            assertThat(r.getLotOuvert().getEcouleSec())
+                    .as("une vague finie ne doit pas continuer à compter — ce serait le plafond")
+                    .isNull();
+            assertThat(r.isLotTermine()).isTrue();
+        }
+
         @Test
         @DisplayName("vague ouverte avant V9 : ouvertA null, aucune ancre inventée")
         void ouvertA_nullSansRattrapage() {

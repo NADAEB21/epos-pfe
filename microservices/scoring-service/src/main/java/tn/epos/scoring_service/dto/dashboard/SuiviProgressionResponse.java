@@ -72,6 +72,31 @@ public class SuiviProgressionResponse {
          */
         private LocalDateTime ouvertA;
 
+        /**
+         * #252 — temps écoulé depuis l'ouverture, en secondes, <b>calculé par le SERVEUR</b>.
+         * {@code null} si la vague n'a pas d'horodatage (ouverte avant V9) : le client affiche
+         * « — », il n'invente rien.
+         *
+         * <p><b>Pourquoi ce n'est pas au client de faire la soustraction.</b> Les horloges ne
+         * coïncident pas : le conteneur tourne en CEST (UTC+2), le bean {@code Clock} est épinglé
+         * Africa/Tunis (UTC+1, ADR-0010), et le navigateur suit l'heure du poste. Un
+         * {@code Date.now() - ouvertA} dans le front afficherait donc <b>+1:00:00 dès l'ouverture
+         * d'une vague</b> — exactement le décalage documenté par ADR-0010. En envoyant une DURÉE
+         * plutôt qu'un instant, la mesure devient insensible au fuseau du poste, et c'est aussi
+         * la doctrine : le serveur dérive, le client affiche.
+         *
+         * <p>⚠️ <b>Ne compte QUE tant que la vague tourne réellement.</b> Une fois toutes ses
+         * rotations TERMINE, ce champ repasse à {@code null} : sinon il continuerait de grimper
+         * pendant l'attente entre deux vagues et reproduirait très exactement le « +42:16 et
+         * croissant » que ce ticket supprime — le PLAFOND, réinventé sous un autre nom. Quand la
+         * vague est finie, le responsable n'a pas besoin d'un chronomètre : il a besoin de
+         * l'alerte « lot terminé » et du bouton « Lot suivant ».
+         *
+         * <p>Aucun seuil, aucune comparaison à une durée prévue, aucun état « dépassé » n'est
+         * dérivé de ce nombre. Il monte, on l'affiche, c'est tout.
+         */
+        private Long          ecouleSec;
+
         /** Groupes de la vague déjà bouclés sur TOUTES les stations, sur le total. */
         private int           groupesTermines;
         private int           groupesTotal;

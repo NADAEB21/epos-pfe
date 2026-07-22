@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
@@ -28,6 +29,14 @@ public class Lot {
     // tourne le jour unique de l'examen (exam_db.dateExamen). Renseigné seulement
     // quand le responsable étale une cohorte sur plusieurs jours. PLAN, pas PACE.
     private LocalDate jour;
+
+    // ADR-0014-B / #252 — instant où le responsable a OUVERT cette vague. Fait observé,
+    // pas horaire prévu : c'est la seule ancre honnête pour le chronomètre du Suivi, car
+    // `launched_at` ne connaît que le premier lot et `debut_creneau` est un horaire
+    // calculé à la génération. NULL = vague jamais ouverte.
+    // Écrit uniquement par LotOuvertureService. Mesure d'AFFICHAGE : rien ne doit en être
+    // dérivé (ni statut, ni visibilité) sous peine de reconstruire le plafond d'ADR-0014.
+    private LocalDateTime ouvertA;
 
     @Enumerated(EnumType.STRING)
     private LotStatus statut;

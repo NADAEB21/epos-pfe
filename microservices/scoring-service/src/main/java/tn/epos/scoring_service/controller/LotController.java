@@ -8,10 +8,12 @@ import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.LotDTO; // New Import
 import tn.epos.scoring_service.dto.ParticipationDTO;
+import tn.epos.scoring_service.dto.dashboard.SuiviProgressionResponse;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.service.LotAssignmentService;
 import tn.epos.scoring_service.service.LotOuvertureService;
 import tn.epos.scoring_service.service.LotService;
+import tn.epos.scoring_service.service.SuiviProgressionService;
 
 import java.util.List;
 
@@ -29,6 +31,9 @@ public class LotController {
 
     @Autowired
     private LotOuvertureService lotOuvertureService;
+
+    @Autowired
+    private SuiviProgressionService suiviProgressionService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
@@ -98,6 +103,23 @@ public class LotController {
      * 404 lot inconnu ; 400 présence non prise, planning non généré, lot déjà ouvert, ou
      * vague précédente inachevée.
      */
+    /**
+     * #208 / #252 — tableau de progression du responsable pendant l'épreuve.
+     *
+     * <p>Renvoie, DÉRIVÉ de l'état stocké : la vague ouverte et son instant d'ouverture réel
+     * ({@code ouvertA}), l'alerte « lot terminé », le lot que « Lot suivant » ouvrira, et par
+     * station le groupe en cours + « N/M notés ».
+     *
+     * <p>Le client ne recalcule rien : c'est en laissant le web re-déduire un statut depuis
+     * l'horloge que le Suivi affichait « dépassement / encore en cours » sur des rotations
+     * pourtant TERMINE en base.
+     */
+    @GetMapping("/examens/{examenId}/progression")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<SuiviProgressionResponse>> progression(@PathVariable Long examenId) {
+        return ResponseEntity.ok(ApiResponse.ok(suiviProgressionService.getProgression(examenId)));
+    }
+
     @PostMapping("/{id}/ouvrir")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<Void>> ouvrirLot(@PathVariable Long id) {

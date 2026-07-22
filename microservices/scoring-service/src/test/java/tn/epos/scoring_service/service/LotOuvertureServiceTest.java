@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import tn.epos.common.exception.BusinessException;
@@ -18,7 +19,9 @@ import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,11 +50,24 @@ class LotOuvertureServiceTest {
     private static final Long LOT_1   = 31L;
     private static final Long LOT_2   = 32L;
 
+    /** #252 — horloge FIXE : l'horodatage d'ouverture doit être vérifiable à la valeur près. */
+    private static final LocalDateTime T0 = LocalDateTime.of(2026, 7, 22, 9, 30);
+
     @Mock private ILotRepository        lotRepository;
     @Mock private IRotationRepository   rotationRepository;
     @Mock private SimpMessagingTemplate messagingTemplate;
 
+    @Spy private Clock clock = Clock.fixed(
+            T0.atZone(ZoneId.of("Africa/Tunis")).toInstant(), ZoneId.of("Africa/Tunis"));
+
     @InjectMocks private LotOuvertureService service;
+
+    /** Le Lot réellement sauvegardé par l'ouverture (porteur de {@code ouvertA}). */
+    private Lot lotSauvegarde() {
+        ArgumentCaptor<Lot> captor = ArgumentCaptor.forClass(Lot.class);
+        verify(lotRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        return captor.getValue();
+    }
 
     // ---------------------------------------------------------------- fixtures
 
@@ -315,9 +331,14 @@ class LotOuvertureServiceTest {
          * {@code Lot.statut} veut déjà dire « présence prise » (LotAssignmentService:229) :
          * l'ouverture ne doit donc PAS y toucher, sous peine de surcharger un champ déjà
          * ambigu. L'état « ouvert » se lit sur les rotations, et nulle part ailleurs.
+         *
+         * <p>⚠️ L'assertion a changé de MÉCANISME avec #252, pas d'intention : le lot est
+         * désormais bien sauvegardé — pour y poser {@code ouvertA} — donc « ne sauvegarde jamais
+         * le Lot » ne dit plus ce qu'on veut dire. On vérifie ce qui compte vraiment : le statut
+         * ressort inchangé.
          */
         @Test
-        @DisplayName("n'écrit pas Lot.statut — le champ signifie déjà « présence prise »")
+        @DisplayName("ne touche pas Lot.statut — le champ signifie déjà « présence prise »")
         void nEcritPas_leStatutDuLot() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
             lotOuvrable(lot2);
@@ -328,7 +349,29 @@ class LotOuvertureServiceTest {
 
             service.ouvrirLot(LOT_2);
 
-            verify(lotRepository, never()).save(any(Lot.class));
+            assertThat(lotSauvegarde().getStatut()).isEqualTo(LotStatus.EN_COURS);
+        }
+
+        /**
+         * #252 — l'ouverture date la vague. C'est la seule ancre honnête du chronomètre de Suivi :
+         * {@code launched_at} ne connaît que la première vague, et {@code debutCreneau} est un
+         * horaire PRÉVU à la génération, pas le moment où la vague a commencé.
+         */
+        @Test
+        @DisplayName("#252 : l'ouverture horodate la vague (ouvertA)")
+        void horodate_lOuvertureDeLaVague() {
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
+            lotOuvrable(lot2);
+            lotJamaisDemarre(LOT_2);
+            when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot2));
+            when(rotationRepository.findByStudentGroup_Lot_IdAndOrdrePassage(LOT_2, 1))
+                    .thenReturn(rangUn());
+
+            assertThat(lot2.getOuvertA()).isNull();
+
+            service.ouvrirLot(LOT_2);
+
+            assertThat(lotSauvegarde().getOuvertA()).isEqualTo(T0);
         }
 
         @Test

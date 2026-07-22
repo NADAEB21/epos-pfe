@@ -2,106 +2,62 @@ import { resolveLaneState, Slot } from './suivi.component';
 import { RotationStatus } from '../../core/api/models';
 
 /**
- * #182 — regression pin.
+ * resolveLaneState — réécrit pour #208, pas restauré.
  *
- * A station with NO rotations must never resolve to 'done'. The board used to fall
- * through live → upcoming → "Terminée", so a station whose rotations were never
- * generated displayed as already finished. During a real exam simulation the
- * responsable read "Terminée" across every station and concluded it was too late —
- * when in fact nothing had run, no data was lost, and rotations could still be
- * generated (RotationGenerationService permits it while the exam is EN_COURS).
+ * <p>L'ancienne version de ce spec épinglait le modèle à l'horloge : elle passait un
+ * « effectiveNowMs » et une durée, et vérifiait qu'un créneau écoulé donnait « enRetard »
+ * (#184). Ce modèle est retiré : l'état d'une station se LIT désormais dans la progression
+ * servie par le backend (statut stocké #207), et « enRetard »/« dépassement » n'existe plus
+ * — ce n'était pas un état mais une opinion de l'horloge sur un travail qu'elle ne voyait
+ * pas (constaté le 2026-07-21 : badges « dépassement » sur des rotations TERMINE en base).
  *
- * The empty case must resolve to 'sansRotations' — an unknown, recoverable state.
+ * <p>Ce qui SURVIT de l'ancien spec — parce que c'est un invariant, pas de l'horloge :
+ * <b>#182, une station sans rotations ne se lit JAMAIS « done »</b>. Le tableau tombait
+ * autrefois en cascade jusqu'à « Terminée », et une simulation d'examen entière a été
+ * perdue parce que le responsable a lu « Terminée » partout et conclu qu'il était trop
+ * tard. La branche vide se résout AVANT tout le reste, et vers un état récupérable.
  */
-describe('resolveLaneState (#182)', () => {
-  const DUREE = 15 * 60_000; // 15 min
-  const T = (h: number, m = 0) => new Date(2026, 6, 13, h, m).getTime();
-
-  const slot = (
-    debutMs: number,
-    ordre = 1,
-    statut: RotationStatus = 'EN_ATTENTE',
-  ): Slot => ({
+describe('resolveLaneState (#182 / #208)', () => {
+  const slot = (ordre = 1, statut: RotationStatus = 'EN_ATTENTE'): Slot => ({
     rotationId: ordre,
     ordrePassage: ordre,
-    debutMs,
+    debutMs: 0,
     debutLabel: '',
     statut,
   });
 
-  describe('the invariant: empty is never done', () => {
-    it('resolves an empty slot set to sansRotations, NOT done', () => {
-      expect(resolveLaneState([], T(18), DUREE)).toBe('sansRotations');
+  describe("l'invariant #182 : vide n'est jamais fini", () => {
+    it('un planning vide se résout en sansRotations, PAS en done', () => {
+      expect(resolveLaneState([], null)).toBe('sansRotations');
     });
 
-    it('stays sansRotations however late the clock is', () => {
-      // The old bug: any time past the (non-existent) plan fell through to "Terminée".
-      expect(resolveLaneState([], T(23, 59), DUREE)).toBe('sansRotations');
-    });
-
-    it('stays sansRotations even before the exam clock resolves', () => {
-      expect(resolveLaneState([], null, DUREE)).toBe('sansRotations');
+    it('vide reste sansRotations même si le backend annonce un statut', () => {
+      // Défense en profondeur : même une progression incohérente (statut sans passages)
+      // ne doit pas faire lire « Terminée » sur une station sans planning.
+      expect(resolveLaneState([], 'TERMINE')).toBe('sansRotations');
+      expect(resolveLaneState([], 'EN_COURS')).toBe('sansRotations');
     });
   });
 
-  describe('a real plan still resolves normally (no regression)', () => {
-    const plan = [slot(T(9), 1), slot(T(9, 15), 2), slot(T(9, 30), 3)];
+  describe("l'état est LU depuis le statut servi (#208)", () => {
+    const plan = [slot(1), slot(2)];
 
-    it('is upcoming before the first slot', () => {
-      expect(resolveLaneState(plan, T(8, 30), DUREE)).toBe('upcoming');
+    it('EN_COURS → live', () => {
+      expect(resolveLaneState(plan, 'EN_COURS')).toBe('live');
     });
 
-    it('is live inside a slot', () => {
-      expect(resolveLaneState(plan, T(9, 20), DUREE)).toBe('live');
+    it('TERMINE → done', () => {
+      expect(resolveLaneState(plan, 'TERMINE')).toBe('done');
     });
 
-    it('is live on the exact slot boundary (inclusive start)', () => {
-      expect(resolveLaneState(plan, T(9, 15), DUREE)).toBe('live');
+    it("EN_ATTENTE → upcoming — la vague n'a pas commencé", () => {
+      expect(resolveLaneState(plan, 'EN_ATTENTE')).toBe('upcoming');
     });
 
-    it('falls back to upcoming when the clock has not resolved', () => {
-      expect(resolveLaneState(plan, null, DUREE)).toBe('upcoming');
-    });
-  });
-
-  /**
-   * #184 — the créneau is indicative, never a completion verdict.
-   *
-   * A station whose clock has elapsed but whose passages were never validated is
-   * NOT finished — the évaluateur may still be grading (time never blocks writes).
-   * It must resolve to 'enRetard' (dépassement), not 'done'. Only when every slot
-   * is really TERMINE (évaluateur's validerLot) does the station read 'done'.
-   */
-  describe('elapsed is not done unless validated (#184)', () => {
-    const T2 = (h: number, m = 0) => new Date(2026, 6, 13, h, m).getTime();
-    const done = (debutMs: number, ordre = 1) => slot(debutMs, ordre, 'TERMINE');
-
-    it('is enRetard once the plan elapsed but nothing is validated', () => {
-      const plan = [slot(T2(9), 1), slot(T2(9, 15), 2), slot(T2(9, 30), 3)];
-      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('enRetard');
-    });
-
-    it('is enRetard in the gap after the last slot ends (was the phantom "done")', () => {
-      const plan = [slot(T2(9), 1), slot(T2(9, 15), 2), slot(T2(9, 30), 3)];
-      expect(resolveLaneState(plan, T2(9, 46), DUREE)).toBe('enRetard');
-    });
-
-    it('is done only when every elapsed slot is really TERMINE', () => {
-      const plan = [done(T2(9), 1), done(T2(9, 15), 2), done(T2(9, 30), 3)];
-      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('done');
-    });
-
-    it('is enRetard when validation is only partial', () => {
-      const plan = [done(T2(9), 1), slot(T2(9, 15), 2), done(T2(9, 30), 3)];
-      expect(resolveLaneState(plan, T2(18), DUREE)).toBe('enRetard');
-    });
-
-    it('still resolves live/upcoming before consulting completion', () => {
-      // A slot inside its window is live regardless of statut — the terminal
-      // completion branch is only reached once the whole plan has elapsed.
-      const plan = [slot(T2(9), 1, 'TERMINE'), slot(T2(9, 15), 2)];
-      expect(resolveLaneState(plan, T2(9, 20), DUREE)).toBe('live');
-      expect(resolveLaneState(plan, T2(8, 30), DUREE)).toBe('upcoming');
+    it('statut absent (station hors de la vague affichée) → upcoming, jamais done', () => {
+      // Une station que la progression ne couvre pas est INCONNUE : la lire « Terminée »
+      // recréerait le fantôme #182 par un autre chemin.
+      expect(resolveLaneState(plan, null)).toBe('upcoming');
     });
   });
 });

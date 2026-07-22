@@ -17,7 +17,9 @@ import {
   ParticipationSummary,
   RotationStatus,
   RotationSummary,
+  StationProgression,
   StationSummary,
+  SuiviProgression,
   UserResponse,
 } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
@@ -45,107 +47,101 @@ interface Lane {
   slots: Slot[]; // sorted by debutMs
 }
 
-type SlotState = 'done' | 'live' | 'upcoming' | 'enRetard';
+type SlotState = 'done' | 'live' | 'upcoming';
 
 /**
- * A station's state on the board. {@code sansRotations} is NOT a time-derived
- * state — it means the station has no rotation plan at all, and it is resolved
- * BEFORE any clock branch so an unknown station can never read as a finished one.
+ * État d'une station sur le tableau — désormais **LU** dans la progression servie par le
+ * backend (#208), plus jamais déduit de l'horloge.
  *
- * {@code enRetard} (#184) is the "dépassement" state: the créneau clock has
- * elapsed but the passages are not really validated. Time is indicative and
- * never blocks grading, so an overrun must NOT read as {@code done} — the
- * évaluateur may still be working.
+ * <p>{@code sansRotations} n'est pas un état temporel : la station n'a aucun planning, et il
+ * est résolu AVANT tout le reste pour qu'une station inconnue ne puisse jamais se lire comme
+ * terminée (#182).
+ *
+ * <p>⛔ {@code enRetard} (« dépassement ») a été **supprimé**. Ce n'était pas un état mais une
+ * opinion de l'horloge sur un travail qu'elle ne voyait pas : le tableau l'affichait sur des
+ * rotations pourtant `TERMINE` en base (constaté le 2026-07-21 sur l'examen 31). ADR-0014 : le
+ * temps ne mesure pas l'avancement, l'avancement se lit.
  */
 export type LaneState =
   | 'sansRotations'
   | 'live'
   | 'upcoming'
-  | 'enRetard'
   | 'done';
 
 const DEFAULT_DUREE_MIN = 15;
 const DEFAULT_HEURE = '09:00';
 
 /**
- * Resolve a station's board state — the #182 invariant, kept pure so it can be
- * pinned by a unit test without a TestBed.
+ * Résout l'état d'une station **à partir de l'avancement stocké**, jamais de l'heure (#208).
  *
- * The {@code sansRotations} branch comes FIRST and must stay first: a station with
- * no rotation plan is UNKNOWN, not finished. The board previously fell through
- * live → upcoming → "Terminée", so a station whose rotations were never generated
- * rendered as already over — a phantom terminal state that cost a live exam
- * simulation. 'done' must only ever be reachable from a real, non-empty slot set.
+ * <p>La branche {@code sansRotations} vient EN PREMIER et doit y rester : une station sans
+ * planning est INCONNUE, pas terminée. Le tableau tombait autrefois en cascade
+ * live → upcoming → « Terminée », si bien qu'une station dont les rotations n'avaient jamais
+ * été générées s'affichait comme déjà finie — l'état terminal fantôme qui a coûté une
+ * simulation d'examen entière (#182).
  *
- * <p><b>Time is not completion (#184):</b> once the whole plan has elapsed with
- * nothing live, the clock has merely overrun — it does NOT mean the passages were
- * graded. Créneaux are indicative and never block writes, so this resolves to
- * {@code done} ONLY when every slot is really validated ({@code statut === 'TERMINE'},
- * set by the évaluateur's validerLot); otherwise it is {@code enRetard} — dépassement,
- * still open, the évaluateur may still be working. An overrun must never read "Terminée".
+ * <p><b>Ce que cette fonction ne fait plus.</b> Elle prenait {@code effectiveNowMs} et une
+ * durée, et comparait des créneaux : d'où le « dépassement » affiché sur des passages
+ * pourtant validés. Le backend écrit désormais une vraie progression (#207) et la sert
+ * dérivée (#208) : on la lit.
  *
- * @param slots the station's slots, sorted by debutMs (may be empty)
- * @param effectiveNowMs ADR-0009 effective instant, or null before the clock resolves
- * @param dureeMs a slot's duration in ms
+ * @param slots  les passages de la station (peut être vide) — sert UNIQUEMENT à distinguer
+ *               « aucun planning » du reste
+ * @param statut le statut servi par le backend pour cette station, ou null s'il est absent
+ *               de la progression (station sans vague ouverte)
  */
 export function resolveLaneState(
   slots: readonly Slot[],
-  effectiveNowMs: number | null,
-  dureeMs: number,
+  statut: RotationStatus | null,
 ): LaneState {
   if (slots.length === 0) return 'sansRotations';
-  if (effectiveNowMs == null) return 'upcoming';
-  const live = slots.some(
-    (s) => effectiveNowMs >= s.debutMs && effectiveNowMs < s.debutMs + dureeMs,
-  );
-  if (live) return 'live';
-  const first = slots[0];
-  if (effectiveNowMs < first.debutMs) return 'upcoming';
-  // The whole plan has elapsed with nothing live. Real completion (every passage
-  // validated) → done; a bare clock overrun → enRetard (#184).
-  return slots.every((s) => s.statut === 'TERMINE') ? 'done' : 'enRetard';
+  switch (statut) {
+    case 'EN_COURS':
+      return 'live';
+    case 'TERMINE':
+      return 'done';
+    default:
+      // EN_ATTENTE, ou station absente de la vague affichée : elle n'a pas commencé.
+      // Surtout pas « done » — cf. le fantôme #182 ci-dessus.
+      return 'upcoming';
+  }
 }
 
 /**
- * Suivi en direct — the live exam-day monitoring board (EN_COURS only).
+ * Suivi en direct — le tableau de pilotage du jour J (examens EN_COURS uniquement).
  *
- * <p><b>Why the clock, not the status:</b> rotations are persisted EN_ATTENTE and
- * nothing on the backend ever flips them (the mobile évaluateur app that would is
- * unbuilt — see RotationGenerationService + RotationStatus). So this screen DERIVES
- * each slot's live state from time: the generator lays every rotation's
- * {@code debutCreneau} on a back-to-back schedule anchored at the exam's planned
- * start, and a slot is live while {@code [debutCreneau, debutCreneau + dureeStationMin)}
- * brackets "now".
+ * <p><b>L'avancement se LIT, il ne se déduit plus de l'heure (#208, ADR-0014).</b> L'ancien
+ * en-tête de cette classe commençait par « Why the clock, not the status » : les rotations
+ * restaient EN_ATTENTE en base et rien ne les faisait jamais avancer, donc l'écran devinait
+ * l'état de chaque passage en comparant l'heure courante aux créneaux. Cette prémisse est
+ * MORTE : #207 écrit une vraie progression (EN_COURS à l'ouverture d'un groupe, TERMINE à sa
+ * validation), et le backend la sert dérivée ({@code GET /lots/examens/{id}/progression}).
+ * Le tableau affiche cette progression. Il ne possède AUCUN état calculé depuis
+ * {@code Date.now()} — c'est ainsi qu'il affichait « dépassement — encore en cours » sur des
+ * rotations pourtant TERMINE en base (constaté le 2026-07-21).
  *
- * <p><b>Clock origin (ADR-0010):</b> the schedule and the live clock share one origin —
- * the REAL launch instant {@code launchedAt}, stamped once when Lancement flips the exam
- * to EN_COURS, falling back to the PLANNED {@code dateExamen + heureDebut} only for
- * legacy/not-yet-launched rows. So an exam started off its planned hour no longer reads
- * "X minutes already elapsed" the moment the board opens — the timeline shifts with it.
+ * <p><b>Ce que le responsable voit (spec Nada, 2026-07-21) :</b> par station, le groupe en
+ * cours et « N/M notés » ; pour la vague, un chronomètre unique qui repart à zéro à chaque
+ * ouverture de lot (#252, durée calculée PAR LE SERVEUR — les fuseaux navigateur/backend
+ * divergent, ADR-0010) et s'arrête quand la vague est finie. Aucun « dépassement », nulle
+ * part : ce n'était pas un état mais une opinion de l'horloge sur un travail qu'elle ne
+ * voyait pas.
  *
- * <p><b>Effective time (ADR-0009 pause/resume):</b> a paused exam stays EN_COURS but
- * its clock must stop, or every countdown would drift through the break. While running,
- * "now" is the EFFECTIVE instant {@code examStart + (now − examStart) − totalPauseSec},
- * anchored to the browser clock. When the responsable pauses, the board FREEZES at the
- * effective instant the pause began ({@code pausedAt − totalPauseSec}); Reprendre continues
- * exactly from there (the server folds the gap into {@code totalPauseSec}, so the running
- * formula picks up seamlessly).
+ * <p><b>La poignée de main (ADR-0014-B) :</b> quand tous les évaluateurs ont validé leurs
+ * groupes, l'alerte « Lot N terminé » apparaît et le responsable — lui seul — ouvre la vague
+ * suivante (« Ouvrir le lot N+1 »). « Terminer l'examen » se débloque quand toutes les vagues
+ * sont passées, dérivé de l'avancement réel et non d'une heure atteinte.
  *
- * <p><b>"Terminée" is never a fallthrough (#182):</b> a station with NO rotations is
- * {@code sansRotations} — unknown, not finished — and {@link #laneState} resolves that
- * BEFORE any clock branch. The old template fell through live → upcoming → "Terminée",
- * so a station whose rotations were never generated rendered as already over. That
- * phantom terminal state cost a real exam simulation: the responsable read "Terminée"
- * across the board and concluded it was too late, when in fact
- * {@code RotationGenerationService} still permits generation while the exam is EN_COURS
- * — nothing was lost. Do not reintroduce a default that reads as "done".
+ * <p><b>Rafraîchissement :</b> la progression est rechargée toutes les 5 s et après chaque
+ * action. L'ancien intervalle d'1 s ne faisait avancer QUE l'horloge d'affichage sur des
+ * données figées au chargement — un chronomètre posé sur un tableau mort.
  *
- * <p><b>Timezone (ADR-0010, option A):</b> the backend Clock is pinned to the exam zone
- * (prod {@code Africa/Tunis}; dev aligned to the host via {@code APP_TIMEZONE}), so the
- * server-stamped {@code launchedAt}/{@code pausedAt} share the schedule's wall-clock
- * domain. The board trusts those server timestamps on any (re)load — including the
- * reload-while-paused freeze. The client-captured {@code pauseFrozenMs} stays only as a
- * belt-and-braces optimisation for the live session (exact mid-tick, skips a parse).
+ * <p><b>« Terminée » n'est jamais un défaut de fallthrough (#182) :</b> une station SANS
+ * rotations est {@code sansRotations} — inconnue, pas finie — résolu AVANT toute autre
+ * branche. Ne jamais réintroduire un défaut qui se lit comme « fini ».
+ *
+ * <p><b>Les horaires plannifiés restent affichés</b> (frise, libellés HH:mm) : c'est le PLAN,
+ * une indication ADR-0014-A §3. Ils ne pilotent ni statut, ni visibilité, ni action.
  */
 @Component({
   selector: 'app-suivi',
@@ -182,12 +178,12 @@ export function resolveLaneState(
       <!-- Exam-level live bar -->
       <section
         class="rounded-xl border shadow-card p-5 mb-6"
-        [class.bg-white]="normalRunning()"
-        [class.border-gray-200]="normalRunning()"
+        [class.bg-white]="!isEnPause() && !toutesVaguesTerminees()"
+        [class.border-gray-200]="!isEnPause() && !toutesVaguesTerminees()"
         [class.bg-amber-50]="isEnPause()"
         [class.border-amber-200]="isEnPause()"
-        [class.bg-red-50]="overtimeRunning()"
-        [class.border-red-200]="overtimeRunning()"
+        [class.bg-brand-50]="toutesVaguesTerminees()"
+        [class.border-brand]="toutesVaguesTerminees()"
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -195,9 +191,13 @@ export function resolveLaneState(
               @if (isEnPause()) {
                 <span class="h-2.5 w-2.5 rounded-full bg-status-warning"></span>
                 <h2 class="font-semibold text-amber-800">Examen en pause</h2>
-              } @else if (overtimeRunning()) {
-                <span class="h-2.5 w-2.5 rounded-full bg-status-danger animate-pulse"></span>
-                <h2 class="font-semibold text-red-800">Temps dépassé</h2>
+              } @else if (toutesVaguesTerminees()) {
+                <!--
+                  #208 — plus de « Temps dépassé ». L'examen n'est pas en faute parce que la
+                  pendule a tourné : il est fini quand toutes les vagues sont passées.
+                -->
+                <span class="h-2.5 w-2.5 rounded-full bg-brand"></span>
+                <h2 class="font-semibold text-brand-dark">Toutes les vagues sont terminées</h2>
               } @else {
                 <span class="h-2.5 w-2.5 rounded-full bg-status-success animate-pulse"></span>
                 <h2 class="font-semibold text-gray-900">Examen en cours</h2>
@@ -206,18 +206,32 @@ export function resolveLaneState(
             <p
               class="text-sm mt-1"
               [class.text-amber-700]="isEnPause()"
-              [class.text-red-700]="overtimeRunning()"
-              [class.text-gray-500]="normalRunning()"
+              [class.text-gray-500]="!isEnPause()"
             >
+              <!--
+                #252 — le chronomètre est porté par le LOT, pas par l'examen, et il repart
+                de zéro à chaque ouverture de vague. Il mesurait auparavant depuis
+                launched_at, qui ne connaît que la première vague : l'examen passait donc
+                en « dépassement » dès la fin du lot 1 et y restait (+42:16 et croissant).
+                La durée vient du SERVEUR (décalage de fuseau, ADR-0010) et disparaît dès
+                que la vague est terminée — un compteur qui continuerait de monter pendant
+                l'attente entre deux vagues serait le plafond, réinventé.
+              -->
               @if (isEnPause()) {
                 Le chronomètre est figé — les minuteurs reprendront à l'identique.
               } @else {
-                Temps effectif écoulé : <span class="font-medium tabular-nums">{{ elapsedLabel() }}</span>
-                @if (overtimeRunning()) {
-                  · dépassement <span class="font-medium tabular-nums">+{{ overtimeLabel() }}</span>
-                }
-                @if (totalPauseSec() > 0) {
-                  · <span class="text-gray-400">pauses cumulées {{ pauseLabel() }}</span>
+                @if (progression()?.lotOuvert; as lot) {
+                  @if (lotElapsedLabel(); as ecoule) {
+                    Lot {{ lot.numeroLot }} · ouvert depuis
+                    <span class="font-medium tabular-nums">{{ ecoule }}</span>
+                  } @else {
+                    Lot {{ lot.numeroLot }} · vague terminée
+                  }
+                  · <span class="text-gray-400">
+                    {{ lot.groupesTermines }}/{{ lot.groupesTotal }} groupes bouclés
+                  </span>
+                } @else {
+                  Aucune vague ouverte pour le moment.
                 }
               }
             </p>
@@ -237,7 +251,7 @@ export function resolveLaneState(
                 {{ pausing() ? '…' : '▶ Reprendre' }}
               </button>
             } @else {
-              @if (overtimeRunning()) {
+              @if (toutesVaguesTerminees()) {
                 @if (confirmingEnd()) {
                   <span class="text-sm font-medium text-gray-800">Terminer définitivement&nbsp;?</span>
                   <button
@@ -317,14 +331,50 @@ export function resolveLaneState(
           </div>
         </div>
 
+        <!--
+          #208 / ADR-0014-B — LA POIGNÉE DE MAIN. Tous les évaluateurs ont fini la vague :
+          le responsable est alerté, et lui seul ouvre la suivante. L'avancement lot→lot ne
+          peut pas appartenir à un évaluateur, puisqu'un lot est servi simultanément par
+          toutes les stations.
+          L'alerte est DÉRIVÉE de l'état des rotations (toutes TERMINE), jamais d'une durée.
+        -->
+        @if (progression()?.lotTermine && progression()?.lotSuivant; as suivant) {
+          <div
+            class="mt-4 rounded-lg border border-brand bg-brand-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+            role="status"
+          >
+            <div>
+              <p class="font-semibold text-brand-dark">
+                Lot {{ progression()!.lotOuvert!.numeroLot }} terminé
+              </p>
+              <p class="text-sm text-gray-600">
+                Tous les évaluateurs ont validé leurs groupes.
+                @if (suivant.rotationsGenerees) {
+                  Vous pouvez ouvrir le lot {{ suivant.numeroLot }} quand la salle est prête.
+                } @else {
+                  Générez d'abord le planning du lot {{ suivant.numeroLot }} (onglet
+                  « Lots &amp; présence »).
+                }
+              </p>
+            </div>
+            <button
+              type="button"
+              [disabled]="ouvertureEnCours() || !suivant.rotationsGenerees"
+              (click)="ouvrirLotSuivant()"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
+            >
+              {{ ouvertureEnCours() ? '…' : '▶ Ouvrir le lot ' + suivant.numeroLot }}
+            </button>
+          </div>
+        }
+
         <!-- Global progress through the planned circuit -->
         <div class="mt-4">
           <div class="h-1.5 rounded-full bg-gray-200 overflow-hidden">
             <div
               class="h-full rounded-full transition-all duration-1000 ease-linear"
               [class.bg-status-warning]="isEnPause()"
-              [class.bg-status-danger]="overtimeRunning()"
-              [class.bg-brand]="normalRunning()"
+              [class.bg-brand]="!isEnPause()"
               [style.width.%]="globalProgressPct()"
             ></div>
           </div>
@@ -402,37 +452,31 @@ export function resolveLaneState(
                     </a>
                   </div>
                 }
+                <!--
+                  #208 — ce que le responsable a demandé, et RIEN de plus : quel groupe est
+                  en train d'être noté, et « N/M notés ». Plus de compte à rebours par
+                  station : il répondait à « combien de temps reste-t-il ? », question que
+                  personne ne se posait, et il devenait faux dès qu'un évaluateur prenait
+                  son rythme (ADR-0014).
+                -->
                 @case ('live') {
-                  @if (liveSlot(lane); as s) {
+                  @if (stationProg(lane.stationId); as p) {
                     <div class="text-right">
                       <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
-                      <div class="font-semibold text-status-success tabular-nums">
-                        Passage {{ s.ordrePassage }} · fin dans {{ countdown(slotEndMs(s)) }}
+                      <div class="font-semibold text-status-success">
+                        Groupe {{ p.groupeEnCours }} · {{ p.etudiantsNotes }}/{{ p.etudiantsTotal }} notés
+                      </div>
+                      <div class="text-xs text-gray-400 tabular-nums">
+                        {{ p.groupesTermines }}/{{ p.groupesTotal }} groupes bouclés
                       </div>
                     </div>
                   }
                 }
                 @case ('upcoming') {
-                  @if (beforeStart(lane); as next) {
-                    <div class="text-right">
-                      <div class="text-xs text-gray-400 uppercase tracking-wide">À venir</div>
-                      <div class="font-medium text-gray-600 tabular-nums">
-                        Début dans {{ countdown(next.debutMs) }}
-                      </div>
-                    </div>
-                  }
-                }
-                <!--
-                  'enRetard' (#184) : le créneau est dépassé mais les passages ne
-                  sont pas encore validés. Le temps est indicatif et ne bloque
-                  jamais la notation, donc on affiche « Dépassement » en ambre —
-                  jamais le gris « Terminée » qui laisserait croire que c'est fini.
-                -->
-                @case ('enRetard') {
                   <div class="text-right">
-                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
-                    <div class="font-semibold text-amber-700">⏱ Dépassement</div>
-                    <div class="text-xs text-amber-600">créneau écoulé — encore en cours</div>
+                    <div class="text-xs text-gray-400 uppercase tracking-wide">Station</div>
+                    <div class="font-medium text-gray-600">En attente</div>
+                    <div class="text-xs text-gray-400">la vague n'a pas encore été ouverte</div>
                   </div>
                 }
                 @default {
@@ -447,13 +491,6 @@ export function resolveLaneState(
             <!-- Live slot's students (auto-loaded) -->
             @if (liveSlot(lane); as s) {
               <div class="rounded-lg bg-green-50 border border-green-100 px-3 py-2 mb-3">
-                <!-- thin slot progress -->
-                <div class="h-1 rounded-full bg-green-100 overflow-hidden mb-2">
-                  <div
-                    class="h-full bg-status-success transition-all duration-1000 ease-linear"
-                    [style.width.%]="slotProgressPct(s)"
-                  ></div>
-                </div>
                 @if (students()[s.rotationId]; as names) {
                   <p class="text-sm text-gray-700">
                     <span class="text-gray-400">Étudiant(s) :</span>
@@ -479,7 +516,6 @@ export function resolveLaneState(
                   class="h-2 flex-1 rounded-full"
                   [class.bg-gray-200]="slotState(s) === 'upcoming'"
                   [class.bg-status-success]="slotState(s) === 'live'"
-                  [class.bg-status-warning]="slotState(s) === 'enRetard'"
                   [class.bg-brand]="slotState(s) === 'done'"
                   [title]="s.debutLabel + ' · passage ' + s.ordrePassage"
                 ></div>
@@ -512,8 +548,6 @@ export function resolveLaneState(
                         [class.text-gray-500]="slotState(s) === 'upcoming'"
                         [class.bg-status-success]="slotState(s) === 'live'"
                         [class.text-white]="slotState(s) === 'live'"
-                        [class.bg-amber-100]="slotState(s) === 'enRetard'"
-                        [class.text-amber-700]="slotState(s) === 'enRetard'"
                         [class.bg-brand-50]="slotState(s) === 'done'"
                         [class.text-brand-dark]="slotState(s) === 'done'"
                       >
@@ -562,14 +596,18 @@ export class SuiviComponent {
   /** The two-step "Réinitialiser" confirmation is showing. */
   readonly confirmingReset = signal(false);
 
-  /** Ticks every second — drives every clock-derived state in the template. */
-  private readonly now = signal(Date.now());
-
   /**
-   * Effective instant the board was frozen at when paused, captured on the client
-   * at pause time (timezone-proof). Null while running. See class doc.
+   * #208 / #252 — la progression dérivée par le backend. C'est la SOURCE de l'avancement
+   * affiché : statut de station, groupe en cours, « N/M notés », chronomètre de la vague,
+   * alerte « lot terminé » et cible de « Lot suivant ». Le composant n'en recalcule rien.
    */
-  private readonly pauseFrozenMs = signal<number | null>(null);
+  readonly progression = signal<SuiviProgression | null>(null);
+  /** Une ouverture de vague est en cours (bouton « Lot suivant »). */
+  readonly ouvertureEnCours = signal(false);
+
+  // Conservés pour pouvoir recharger les passages seuls (#208) sans refaire tout le load.
+  private readonly stationsCache = signal<StationSummary[]>([]);
+  private readonly evaluateursCache = signal<UserResponse[]>([]);
 
   // Student-name resolution.
   private readonly partById = signal<Map<number, ParticipationSummary>>(new Map());
@@ -621,25 +659,6 @@ export class SuiviComponent {
    * client-captured {@code pauseFrozenMs} stays as a belt-and-braces optimisation
    * for the live session (it skips a parse and is exact even mid-tick).
    */
-  private readonly effectiveNowMs = computed<number | null>(() => {
-    const e = this.exam();
-    const start = this.examStartMs();
-    if (!e || start == null) return null;
-    const totalPauseMs = (e.totalPauseSec ?? 0) * 1000;
-    if (e.enPause) {
-      const frozen = this.pauseFrozenMs();
-      if (frozen != null) return frozen;
-      // Reload-while-paused: reconstruct the freeze from the server clock
-      // (zone-coherent since ADR-0010) — pausedAt minus prior accumulated pauses.
-      if (e.pausedAt) {
-        const pAt = new Date(e.pausedAt.replace(' ', 'T')).getTime();
-        if (!Number.isNaN(pAt)) return pAt - totalPauseMs;
-      }
-      return start;
-    }
-    return start + (this.now() - start - totalPauseMs);
-  });
-
   private readonly lastSlotEndMs = computed(() => {
     let max = 0;
     for (const lane of this.lanes()) {
@@ -649,52 +668,37 @@ export class SuiviComponent {
     return max;
   });
 
+  /**
+   * #208 — progression du circuit, dérivée des GROUPES BOUCLÉS de la vague affichée,
+   * plus jamais de l'horloge. L'ancienne version mesurait (now − début) / (fin − début)
+   * sur le planning : la barre avançait donc toute seule, travail fait ou pas, et
+   * saturait à 100 % dès que la pendule dépassait le plan — le plafond en pixels.
+   */
   readonly globalProgressPct = computed(() => {
-    const start = this.examStartMs();
-    const end = this.lastSlotEndMs();
-    const eff = this.effectiveNowMs();
-    if (start == null || eff == null || end <= start) return 0;
-    return Math.min(100, Math.max(0, ((eff - start) / (end - start)) * 100));
+    const lot = this.progression()?.lotOuvert;
+    if (!lot || lot.groupesTotal === 0) return 0;
+    return Math.min(100, (lot.groupesTermines / lot.groupesTotal) * 100);
   });
 
-  readonly elapsedLabel = computed(() => {
-    const start = this.examStartMs();
-    const eff = this.effectiveNowMs();
-    if (start == null || eff == null) return '00:00';
-    return this.fmtDuration(Math.max(0, eff - start));
-  });
-
-  readonly pauseLabel = computed(() => this.fmtDuration(this.totalPauseSec() * 1000));
   readonly startLabel = computed(() => this.hhmm(this.examStartMs()));
   readonly endLabel = computed(() => this.hhmm(this.lastSlotEndMs() || null));
 
-  /**
-   * Overtime = the effective clock has passed the last créneau's planned end
-   * (the scheduled end of the whole circuit). The exam keeps running; the board
-   * just signals the dépassement in red and unlocks "Terminer". The scheduled end
-   * is derived from the rotation plan (last debutCreneau + dureeStationMin), since
-   * exam-service holds no exam-level duration — the schedule lives in scoring.
-   */
-  readonly isOvertime = computed(() => {
-    const end = this.lastSlotEndMs();
-    const eff = this.effectiveNowMs();
-    return end > 0 && eff != null && eff >= end;
-  });
-  /** Overtime AND running (not frozen by a pause) — drives the red state + Terminer. */
-  readonly overtimeRunning = computed(() => this.isOvertime() && !this.isEnPause());
-  /** Running on schedule (neither paused nor in overtime) — the normal green state. */
-  readonly normalRunning = computed(() => !this.isEnPause() && !this.isOvertime());
-  /** How far past the scheduled end (mm:ss / h:mm:ss). */
-  readonly overtimeLabel = computed(() => {
-    const end = this.lastSlotEndMs();
-    const eff = this.effectiveNowMs();
-    if (end <= 0 || eff == null || eff < end) return '00:00';
-    return this.fmtDuration(eff - end);
-  });
-
   constructor() {
-    // 1 Hz ticker.
-    const timer = setInterval(() => this.now.set(Date.now()), 1000);
+    // #208 — RAFRAÎCHISSEMENT DES DONNÉES, à la place du tic d'horloge.
+    //
+    // Il n'y avait ici qu'un `setInterval(() => this.now.set(Date.now()), 1000)` : un
+    // compteur qui avançait sur des données FIGÉES au chargement. Le tableau ne se
+    // rechargeait jamais — vérifié le 2026-07-21 : une fois toutes les notations finies,
+    // les stations restaient « Dépassement / encore en cours », et seul un F5 les faisait
+    // passer à « Terminée ». Le responsable regardait un chronomètre, pas son examen.
+    //
+    // Supprimer le mauvais intervalle et ajouter le bon est donc le MÊME geste. Le pas est
+    // volontairement lent (5 s) : la progression change au rythme d'actes humains (valider
+    // un groupe, ouvrir une vague), pas à la seconde.
+    //
+    // Pas de WebSocket : `frontend-web` n'a aucune dépendance STOMP/SockJS, et le
+    // `broadcastLotStatus` du backend n'a donc aucun abonné web (vérifié 2026-07-21).
+    const timer = setInterval(() => this.refreshProgression(), 5000);
     this.destroyRef.onDestroy(() => clearInterval(timer));
 
     // (Re)load when the route id resolves.
@@ -729,6 +733,40 @@ export class SuiviComponent {
     this.load(Number(this.id()));
   }
 
+  /**
+   * #208 — recharge la progression seule (léger : une requête, tout dérivé côté serveur).
+   * Appelé par le minuteur de rafraîchissement ET après chaque action du responsable, pour
+   * que le tableau dise la vérité sans exiger un F5.
+   *
+   * <p>Recharge AUSSI les couloirs quand l'avancement d'une station a bougé : les passages
+   * (`lane.slots`) portent le statut stocké, or c'est lui qui colore la frise et l'historique.
+   * Sans cela le bandeau serait à jour et la frise resterait figée — l'incohérence même que
+   * ce ticket supprime.
+   */
+  private refreshProgression(): void {
+    const examId = Number(this.id());
+    if (!Number.isFinite(examId) || this.loading()) return;
+    this.scoring.getProgression(examId).subscribe({
+      next: (p) => {
+        const avant = this.signatureProgression(this.progression());
+        this.progression.set(p);
+        if (this.signatureProgression(p) !== avant) this.reloadLanes();
+      },
+      // Silencieux : un rafraîchissement périodique qui échoue ne doit pas remplacer le
+      // tableau par une erreur. Le prochain passage réessaiera.
+      error: () => {},
+    });
+  }
+
+  /** Empreinte de l'avancement : change dès qu'une station ou la vague progresse. */
+  private signatureProgression(p: SuiviProgression | null): string {
+    if (!p) return '';
+    const st = p.stations
+      .map((s) => `${s.stationId}:${s.statut}:${s.rangEnCours}:${s.etudiantsNotes}`)
+      .join('|');
+    return `${p.lotOuvert?.id ?? '-'}/${p.lotTermine}/${st}`;
+  }
+
   private load(examId: number): void {
     this.loading.set(true);
     this.error.set(false);
@@ -737,9 +775,13 @@ export class SuiviComponent {
       evaluateurs: this.directory.listUsers('EVALUATEUR'),
       participations: this.scoring.listParticipations(examId),
       etudiants: this.scoring.listEtudiants(),
+      // #208 — l'avancement, dérivé côté serveur. Chargé AVEC le reste : sans lui, les
+      // couloirs se rendraient une fraction de seconde sans statut, donc en « à venir ».
+      progression: this.scoring.getProgression(examId),
     }).subscribe({
-      next: ({ stations, evaluateurs, participations, etudiants }) => {
+      next: ({ stations, evaluateurs, participations, etudiants, progression }) => {
         this.indexNames(participations, etudiants);
+        this.progression.set(progression);
         const sorted = [...stations].sort(
           (a, b) => (a.ordre ?? 0) - (b.ordre ?? 0),
         );
@@ -749,6 +791,8 @@ export class SuiviComponent {
           return;
         }
         // Fan out: each station's whole rotation timeline.
+        this.stationsCache.set(sorted);
+        this.evaluateursCache.set(evaluateurs);
         forkJoin(sorted.map((s) => this.scoring.listRotationsByStation(s.id))).subscribe({
           next: (rotationsPerStation) => {
             this.lanes.set(this.buildLanes(sorted, rotationsPerStation, evaluateurs));
@@ -766,6 +810,23 @@ export class SuiviComponent {
         this.error.set(true);
         this.loading.set(false);
       },
+    });
+  }
+
+  /**
+   * #208 — recharge uniquement les passages (statuts stockés), sans repasser par les
+   * stations/évaluateurs/roster déjà en mémoire. Déclenché quand la progression signale
+   * un mouvement, pour que la frise et l'historique suivent le bandeau.
+   */
+  private reloadLanes(): void {
+    const stations = this.stationsCache();
+    const evaluateurs = this.evaluateursCache();
+    if (!stations.length) return;
+    forkJoin(stations.map((s) => this.scoring.listRotationsByStation(s.id))).subscribe({
+      next: (rotationsPerStation) => {
+        this.lanes.set(this.buildLanes(stations, rotationsPerStation, evaluateurs));
+      },
+      error: () => {}, // rafraîchissement silencieux — cf. refreshProgression
     });
   }
 
@@ -818,20 +879,26 @@ export class SuiviComponent {
     });
   }
 
-  // ---- clock-derived per-slot state --------------------------------------
+  // ---- état d'un passage : LU, plus déduit de l'horloge (#208) -------------
 
-  slotEndMs(s: Slot): number {
-    return s.debutMs + this.dureeMs();
-  }
-
+  /**
+   * L'état d'un passage vient de son statut STOCKÉ (#207 l'écrit enfin : `EN_COURS` à
+   * l'ouverture d'un groupe, `TERMINE` à sa validation).
+   *
+   * <p>Avant, cette méthode comparait `effectiveNow` à `debutMs + durée` et retournait
+   * « dépassement » dès que le créneau était passé — y compris sur des passages validés.
+   * C'est exactement ce que Nada a vu le 2026-07-21 : quatre rotations `TERMINE` en base,
+   * quatre badges « dépassement » à l'écran.
+   */
   slotState(s: Slot): SlotState {
-    const eff = this.effectiveNowMs();
-    if (eff == null) return 'upcoming';
-    if (eff < s.debutMs) return 'upcoming';
-    if (eff < this.slotEndMs(s)) return 'live';
-    // Créneau elapsed: 'terminé' only if really validated, else 'dépassement'
-    // (still open — the évaluateur may still be grading). #184.
-    return s.statut === 'TERMINE' ? 'done' : 'enRetard';
+    switch (s.statut) {
+      case 'EN_COURS':
+        return 'live';
+      case 'TERMINE':
+        return 'done';
+      default:
+        return 'upcoming';
+    }
   }
 
   slotStateLabel(s: Slot): string {
@@ -840,8 +907,6 @@ export class SuiviComponent {
         return 'en cours';
       case 'done':
         return 'terminé';
-      case 'enRetard':
-        return 'dépassement';
       default:
         return 'à venir';
     }
@@ -856,7 +921,74 @@ export class SuiviComponent {
    * was already over. Never resolve 'done' from an empty slot set.
    */
   laneState(lane: Lane): LaneState {
-    return resolveLaneState(lane.slots, this.effectiveNowMs(), this.dureeMs());
+    return resolveLaneState(lane.slots, this.stationStatut(lane.stationId));
+  }
+
+  /**
+   * #208 — l'examen peut être clôturé quand **toutes les vagues sont passées** : la vague
+   * affichée est terminée et il n'en reste aucune à ouvrir.
+   *
+   * <p>Remplace l'ancienne garde `overtimeRunning()`, qui n'autorisait « Terminer » qu'en
+   * DÉPASSEMENT — c'est-à-dire précisément l'état que ce ticket supprime. La clôture est
+   * ainsi DÉRIVÉE de l'avancement réel et non d'une heure atteinte : un examen en avance
+   * peut être clôturé, un examen en retard ne l'est pas parce que la pendule le dit.
+   */
+  readonly toutesVaguesTerminees = computed(() => {
+    const p = this.progression();
+    if (!p || !p.lotOuvert) return false;
+    return p.lotSuivant == null && p.lotOuvert.ecouleSec == null;
+  });
+
+  // ---- progression servie par le backend (#208) ---------------------------
+
+  /** La ligne de progression de cette station, si elle appartient à la vague affichée. */
+  stationProg(stationId: number): StationProgression | null {
+    return this.progression()?.stations.find((s) => s.stationId === stationId) ?? null;
+  }
+
+  private stationStatut(stationId: number): RotationStatus | null {
+    return this.stationProg(stationId)?.statut ?? null;
+  }
+
+  /** « 2/4 notés » — la seule statistique par station demandée par le responsable. */
+  notesLabel(stationId: number): string | null {
+    const p = this.stationProg(stationId);
+    return p ? `${p.etudiantsNotes}/${p.etudiantsTotal} notés` : null;
+  }
+
+  /** Chronomètre de la vague en cours. Vide dès qu'elle est terminée — jamais de dépassement. */
+  lotElapsedLabel(): string | null {
+    const sec = this.progression()?.lotOuvert?.ecouleSec;
+    return sec == null ? null : this.hms(sec);
+  }
+
+  private hms(totalSec: number): string {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = Math.floor(totalSec % 60);
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  /** « Lot suivant » — l'avancement lot→lot appartient au responsable (ADR-0014-B). */
+  ouvrirLotSuivant(): void {
+    const suivant = this.progression()?.lotSuivant;
+    if (!suivant || this.ouvertureEnCours()) return;
+    this.ouvertureEnCours.set(true);
+    this.actionError.set(null);
+    this.scoring.ouvrirLot(suivant.id).subscribe({
+      next: () => {
+        this.ouvertureEnCours.set(false);
+        this.reload();
+      },
+      error: (err) => {
+        this.ouvertureEnCours.set(false);
+        // Les refus du backend sont explicites (« Lot 1 toujours en cours : 2 groupe(s)
+        // restent à valider ») — on les montre tels quels plutôt qu'un message générique.
+        this.actionError.set(this.message(err, "Impossible d'ouvrir le lot suivant."));
+      },
+    });
   }
 
   /** Stations with no rotation plan at all — the exam-day recovery signal. */
@@ -874,36 +1006,14 @@ export class SuiviComponent {
       .join(', '),
   );
 
-  /** The slot currently live at this station, if any. */
+  /**
+   * #208 — le passage « en ce moment » d'une station est celui dont le statut STOCKÉ est
+   * EN_COURS. Avant : celui dont le créneau encadrait l'heure courante — d'où des étudiants
+   * affichés « en passage » sur la foi de la pendule, même une fois leur groupe validé.
+   */
   liveSlot(lane: Lane): Slot | null {
-    const eff = this.effectiveNowMs();
-    if (eff == null) return null;
-    return lane.slots.find((s) => eff >= s.debutMs && eff < this.slotEndMs(s)) ?? null;
+    return lane.slots.find((s) => s.statut === 'EN_COURS') ?? null;
   }
-
-  /** If the station hasn't started yet, the first (upcoming) slot — else null. */
-  beforeStart(lane: Lane): Slot | null {
-    const eff = this.effectiveNowMs();
-    const first = lane.slots[0];
-    if (eff == null || !first) return null;
-    return eff < first.debutMs ? first : null;
-  }
-
-  slotProgressPct(s: Slot): number {
-    const eff = this.effectiveNowMs();
-    if (eff == null) return 0;
-    const pct = ((eff - s.debutMs) / this.dureeMs()) * 100;
-    return Math.min(100, Math.max(0, pct));
-  }
-
-  /** Countdown (mm:ss / h:mm:ss) from effective-now to a target instant. */
-  countdown(targetMs: number): string {
-    const eff = this.effectiveNowMs();
-    if (eff == null) return '--:--';
-    return this.fmtDuration(Math.max(0, targetMs - eff));
-  }
-
-  // ---- pause / reprendre --------------------------------------------------
 
   pause(): void {
     if (this.pausing()) return;
@@ -913,8 +1023,6 @@ export class SuiviComponent {
       next: (e) => {
         // Capture the freeze on the client while the exam is still "running" in
         // local state, BEFORE swapping in the paused exam — timezone-proof.
-        this.now.set(Date.now());
-        this.pauseFrozenMs.set(this.effectiveNowMs());
         this.store.exam.set(e);
         this.pausing.set(false);
       },
@@ -931,11 +1039,10 @@ export class SuiviComponent {
     this.actionError.set(null);
     this.examApi.reprendreExamen(Number(this.id())).subscribe({
       next: (e) => {
-        // Resume: drop the freeze; the server has folded the gap into
-        // totalPauseSec, so the running formula continues seamlessly.
-        this.pauseFrozenMs.set(null);
+        // Reprise : plus aucun gel client à lever — le tableau n'affiche plus d'horloge
+        // qui court (#208). On recharge simplement la progression servie.
         this.store.exam.set(e);
-        this.now.set(Date.now());
+        this.refreshProgression();
         this.pausing.set(false);
       },
       error: (err) => {
@@ -1085,16 +1192,6 @@ export class SuiviComponent {
   }
 
   // ---- formatting ---------------------------------------------------------
-
-  private fmtDuration(ms: number): string {
-    const total = Math.floor(ms / 1000);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    const mm = String(m).padStart(2, '0');
-    const ss = String(s).padStart(2, '0');
-    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-  }
 
   private hhmm(ms: number | null): string {
     if (ms == null) return '--:--';

@@ -71,11 +71,16 @@ public class EvaluateurDashboardController {
                 dashboardService.getGroupeDetail(rotationId, extractUserId(jwt))));
     }
 
-    @GetMapping("/rotations/{rotationId}/suivant")
-    public ResponseEntity<ApiResponse<LotDetailResponse>> getGroupeSuivant(
+    /**
+     * #209 — « Groupe suivant » est un ACTE, donc un POST : il ouvre le rang suivant de la
+     * station (EN_COURS + horodatage {@code debutReel}) et le renvoie. Découplé de
+     * {@code /valider}, qui ne fait plus que verrouiller — seul CE clic avance.
+     */
+    @PostMapping("/rotations/{rotationId}/suivant")
+    public ResponseEntity<ApiResponse<LotDetailResponse>> avancerGroupe(
             @PathVariable Long rotationId, @AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(ApiResponse.ok(
-                dashboardService.getGroupeSuivant(rotationId, extractUserId(jwt))));
+                dashboardService.avancerGroupe(rotationId, extractUserId(jwt))));
     }
 
     // Remplace l'appel Flutter cassé vers /rotations/{lotId}/valider

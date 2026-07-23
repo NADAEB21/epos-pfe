@@ -210,6 +210,13 @@ public class SuiviProgressionService {
         if (rotations.stream().anyMatch(r -> r.getStatut() == RotationStatus.EN_COURS)) {
             return RotationStatus.EN_COURS.name();
         }
+        // #209 — mi-vague sans rotation EN_COURS : l'évaluateur a validé un groupe et n'a pas
+        // encore cliqué « Groupe suivant » (valider n'avance plus). La station est ENTRE deux
+        // groupes, pas « en attente d'ouverture » : la lire EN_ATTENTE ferait mentir le
+        // tableau du responsable. groupeEnCours reste null — le front l'affiche comme tel.
+        if (rotations.stream().anyMatch(r -> r.getStatut() == RotationStatus.TERMINE)) {
+            return RotationStatus.EN_COURS.name();
+        }
         return RotationStatus.EN_ATTENTE.name();
     }
 

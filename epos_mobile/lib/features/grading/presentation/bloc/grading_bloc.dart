@@ -399,7 +399,11 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         }
       }
 
-      final tempsRestant = _computeTempsRestant(event.debutCreneau);
+      // #209 — l'ancre du minuteur est le début RÉEL (horodaté par le serveur au premier
+      // accès — l'appel getGroupe ci-dessus vient de le poser si c'était la première fois).
+      // Plus jamais le créneau PLANIFIÉ (event.debutCreneau) : il affichait « 12:51 »
+      // restants sur une station de 2 minutes. Null (vieux serveur) → durée pleine.
+      final tempsRestant = _computeTempsRestant(lot.debutReel);
 
       emit(GradingLoaded(
         rotationId:       event.rotationId,
@@ -632,7 +636,10 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       emit(GradingLoaded(
         rotationId: prochain.id, stationId: current.stationId, grilleId: current.grilleId,
         stationNom: current.stationNom, grille: current.grille, lot: prochain,
-        notations: {}, etudiantsValides: {}, tempsRestant: _dureeStation,
+        // #209 — le serveur vient d'ouvrir ce groupe et de poser son debutReel : le
+        // minuteur repart de la durée pleine, ancré sur ce fait observé.
+        notations: {}, etudiantsValides: {},
+        tempsRestant: _computeTempsRestant(prochain.debutReel),
         lotValide: prochain.valide,
         avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,
       ));

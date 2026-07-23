@@ -155,19 +155,19 @@ class EvaluateurDashboardControllerTest {
     }
 
     // =========================================================================
-    // GET /api/evaluateur/rotations/{rotationId}/suivant
+    // POST /api/evaluateur/rotations/{rotationId}/suivant  (#209 : un ACTE, donc un POST)
     // =========================================================================
     @Nested
-    @DisplayName("GET /api/evaluateur/rotations/{rotationId}/suivant")
+    @DisplayName("POST /api/evaluateur/rotations/{rotationId}/suivant")
     class GetGroupeSuivant {
         @Test
-        @DisplayName("200 - Retourne le prochain groupe planifié pour l'évaluateur")
+        @DisplayName("200 - Avance : ouvre le rang suivant et le retourne")
         void getGroupeSuivant_devraitRetourner200() throws Exception {
             LotDetailResponse resp = LotDetailResponse.builder().id(2L).numero(3).total(4).build();
 
-            when(dashboardService.getGroupeSuivant(1L, EVAL_ID)).thenReturn(resp);
+            when(dashboardService.avancerGroupe(1L, EVAL_ID)).thenReturn(resp);
 
-            mockMvc.perform(get("/api/evaluateur/rotations/1/suivant")
+            mockMvc.perform(post("/api/evaluateur/rotations/1/suivant")
                             .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.id").value(2))
@@ -175,13 +175,13 @@ class EvaluateurDashboardControllerTest {
         }
 
         @Test
-        @DisplayName("404 - Si aucun groupe suivant n'est planifié (dernière rotation)")
+        @DisplayName("404 - Dernier passage de la station : rien à ouvrir")
         void getGroupeSuivant_aucunSuivant_devraitRetourner404() throws Exception {
-            when(dashboardService.getGroupeSuivant(anyLong(), anyLong()))
+            when(dashboardService.avancerGroupe(anyLong(), anyLong()))
                     .thenThrow(new tn.epos.common.exception.ResourceNotFoundException(
-                            "Aucun groupe suivant : c'était la dernière rotation planifiée pour cet évaluateur."));
+                            "Aucun groupe suivant : c'était le dernier passage de cette station pour ce lot."));
 
-            mockMvc.perform(get("/api/evaluateur/rotations/1/suivant")
+            mockMvc.perform(post("/api/evaluateur/rotations/1/suivant")
                             .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
                     .andExpect(status().isNotFound());
         }

@@ -1,22 +1,23 @@
 // integration_test/groupe_suivant_test.dart
 //
-// #248 — LA GARDE DU BOUTON « GROUPE SUIVANT », PILOTÉE DEPUIS L'UI.
+// #248 + #209 — « GROUPE SUIVANT » PILOTÉ DEPUIS L'UI : garde du bouton, navigation
+// par l'ACTE (POST avancer), écran intact, et ANCRE DU MINUTEUR.
 //
-// Ce que le test doit prouver, et pourquoi il faut l'UI pour le prouver :
-// l'ancienne garde était `lot.numero >= lot.total`, c'est-à-dire le numéro du
-// GROUPE courant comparé au nombre de groupes. Le carré latin faisant tourner
-// les groupes, la station 59 reçoit le GROUPE 2 au RANG 1 : la condition était
-// donc vraie exactement à l'envers —
-//   • rang 1 (groupe 2/2) → bouton GRISÉ alors qu'un passage restait ;
-//   • rang 2 (groupe 1/2) → bouton ACTIF alors qu'il n'y avait plus rien, et le
-//     clic remplaçait tout l'écran par une erreur (le builder de l'écran ne rend
-//     que GradingLoaded, donc GradingError laissait un spinner définitif).
+// #248 (garde) : l'ancienne garde `lot.numero >= lot.total` comparait le numéro du
+// GROUPE au nombre de groupes — vraie à l'envers sous le carré latin (bouton grisé au
+// premier passage, actif au dernier où le clic vidait l'écran). Le serveur envoie
+// désormais `groupeSuivantDisponible` ; on mesure l'état ACTIVÉ/DÉSACTIVÉ du widget.
+// (Le cas-piège « groupe 2 au rang 1 » est épinglé par le test unitaire
+// drapeauIndependantDuNumeroDeGroupe — sur cette fixture il vit sur la station de
+// l'AUTRE évaluateur.)
 //
-// Une assertion d'API ne pouvait pas attraper ça : le drapeau serveur peut être
-// juste pendant que le bouton reste faux. C'est l'état ACTIVÉ/DÉSACTIVÉ du
-// widget qui est le défaut, donc c'est lui qu'on mesure.
+// #209 (ancre) : le compte à rebours s'ancrait sur le créneau PLANIFIÉ, précalculé
+// depuis launched_at — vécu par Nada : « 12:51 » restants sur une station de 2 min.
+// Il s'ancre désormais sur `debut_reel`, horodaté par le serveur quand l'évaluateur
+// OUVRE le groupe : le badge doit ouvrir à ~02:00 pile, et repartir à plein après
+// « Groupe suivant » (qui est maintenant un POST : valider ne fait plus avancer).
 //
-// Fixture : examen 33, vague 2, station 59, eval2@epos.tn.
+// Fixture : examen 35 « exam test 2 » (construit par Nada), station 62, eval2@epos.tn.
 // Lancement :
 //   bash integration_test/run_scenario.sh groupe-suivant
 
@@ -25,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:epos_mobile/main.dart' as app;
+import 'package:epos_mobile/features/grading/presentation/widgets/passage_countdown_badge.dart';
 
 List<String> _textesRendus(WidgetTester tester) {
   final out = <String>{};
@@ -78,6 +80,27 @@ bool? _boutonActif(WidgetTester tester) {
 String? _libelleGroupe(WidgetTester tester) {
   for (final t in _textesRendus(tester)) {
     if (RegExp(r'^Lot \d+/\d+$').hasMatch(t)) return t;
+  }
+  return null;
+}
+
+/// Lit le compte à rebours, SCOPÉ au badge (jamais un scan global MM:SS — piège
+/// du 2026-07-20 : l'accueil rend un `heureDebut` statique de la même forme).
+/// Secondes restantes ; négatif si « +MM:SS » (dépassement).
+int? _lireCompteur(WidgetTester tester) {
+  final textes = find.descendant(
+    of: find.byType(PassageCountdownBadge),
+    matching: find.byType(Text),
+  );
+  final re = RegExp(r'^\+?(\d{2}):(\d{2})$');
+  for (final e in textes.evaluate()) {
+    final t = (e.widget as Text).data?.trim();
+    if (t == null) continue;
+    final m = re.firstMatch(t);
+    if (m != null) {
+      final s = int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!);
+      return t.startsWith('+') ? -s : s;
+    }
   }
   return null;
 }
@@ -150,20 +173,30 @@ void main() {
         isTrue,
         reason: 'écran de notation jamais rendu. Textes : ${_textesRendus(tester)}');
 
-    // ── RANG 1 : le piège. Groupe 2/2, et pourtant un passage RESTE. ────────
+    // ── RANG 1 (exam 35, station 62 : groupe 1/2) — bouton ACTIF, un rang 2 existe.
+    // (Le cas-piège « groupe 2 au rang 1 » vit sur la station 63/ev3 ; il reste épinglé
+    // par le test unitaire drapeauIndependantDuNumeroDeGroupe.)
     final libelle1 = _libelleGroupe(tester);
     debugPrint('╣ RANG 1 — libellé : $libelle1');
-    expect(libelle1, 'Lot 2/2',
-        reason: 'fixture inattendue : la station 59 doit recevoir le GROUPE 2 au rang 1 '
-            '(c\'est tout l\'intérêt du cas). Lu : $libelle1');
+    expect(libelle1, 'Lot 1/2',
+        reason: 'fixture inattendue (exam 35, station 62, rang 1 = groupe 1). Lu : $libelle1');
 
     final actif1 = _boutonActif(tester);
-    debugPrint('╣ RANG 1 — « Groupe suivant » actif ? $actif1  '
-        '(ancienne garde numero>=total ⇒ aurait grisé)');
+    debugPrint('╣ RANG 1 — « Groupe suivant » actif ? $actif1');
     expect(actif1, isNotNull, reason: 'bouton « Groupe suivant » absent de l\'écran');
     expect(actif1, isTrue,
-        reason: 'RÉGRESSION #248 : bouton grisé au PREMIER passage alors qu\'un rang 2 '
-            'existe. C\'est le symptôme exact rapporté le 2026-07-21.');
+        reason: 'RÉGRESSION #248 : bouton grisé alors qu\'un rang 2 existe.');
+
+    // ── #209 — L'ANCRE DU MINUTEUR : début RÉEL, plus jamais le créneau planifié.
+    // debut_reel était NULL ; le serveur vient de l'horodater à l'ouverture de l'écran.
+    // Station de 2 min ⇒ le badge doit ouvrir à ~02:00 (référence vécue par Nada : il
+    // affichait « 12:51 » — le planning théorique).
+    final sec1 = _lireCompteur(tester);
+    debugPrint('╣ RANG 1 — compteur à l\'ouverture : ${sec1}s (attendu ]90..120])');
+    expect(sec1, isNotNull, reason: 'badge du minuteur introuvable');
+    expect(sec1! <= 120 && sec1 > 90, isTrue,
+        reason: 'RÉGRESSION #209 : minuteur non ancré sur le début réel — ${sec1}s '
+            'restants sur une station de 2 min (le créneau planifié donnait 12:51).');
 
     // ── le clic doit NAVIGUER, pas détruire l'écran ─────────────────────────
     await tester.tap(_boutonGroupeSuivant());
@@ -185,7 +218,7 @@ void main() {
     final passeAuRang2 = await _attendre(
         tester,
         find.byWidgetPredicate(
-            (w) => w is Text && (w.data ?? '').trim() == 'Lot 1/2'),
+            (w) => w is Text && (w.data ?? '').trim() == 'Lot 2/2'),
         limite: const Duration(seconds: 30));
 
     debugPrint('╣ APRÈS CLIC — libellé : ${_libelleGroupe(tester)}');
@@ -202,15 +235,21 @@ void main() {
         reason: 'le groupe affiché n\'a pas changé — la navigation par RANG n\'a pas eu lieu. '
             'Textes : ${_textesRendus(tester)}');
 
-    // ── RANG 2 : dernier passage. Groupe 1/2 — l'ancienne garde l'aurait ACTIVÉ.
+    // ── RANG 2 : dernier passage (groupe 2/2) — bouton DÉSACTIVÉ. ───────────
     final actif2 = _boutonActif(tester);
-    debugPrint('╣ RANG 2 — « Groupe suivant » actif ? $actif2  '
-        '(ancienne garde numero(1)>=total(2) faux ⇒ aurait activé ⇒ écran vidé)');
+    debugPrint('╣ RANG 2 — « Groupe suivant » actif ? $actif2');
     expect(actif2, isNotNull, reason: 'bouton « Groupe suivant » absent au rang 2');
     expect(actif2, isFalse,
         reason: 'RÉGRESSION #248 : bouton actif au DERNIER passage — c\'est ce clic qui '
             'vidait l\'écran de notation.');
 
-    debugPrint('╣ #248 VÉRIFIÉ : garde alignée sur le RANG aux DEUX extrémités.');
+    // ── #209 — l'avance (POST) vient d'ouvrir CE groupe : minuteur reparti à plein.
+    final sec2 = _lireCompteur(tester);
+    debugPrint('╣ RANG 2 — compteur après l\'avance : ${sec2}s (attendu ]90..120])');
+    expect(sec2 != null && sec2 <= 120 && sec2 > 90, isTrue,
+        reason: 'RÉGRESSION #209 : le groupe fraîchement ouvert n\'ouvre pas à la durée '
+            'pleine (${sec2}s).');
+
+    debugPrint('╣ #248/#209 VÉRIFIÉS : rang aux deux extrémités + ancre du minuteur.');
   });
 }

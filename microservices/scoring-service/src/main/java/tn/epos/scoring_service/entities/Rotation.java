@@ -23,6 +23,15 @@ public class Rotation {
     private Integer ordrePassage;
     private LocalDateTime debutCreneau;
 
+    // #209 — début RÉEL du passage : l'instant où l'ÉVALUATEUR a ouvert ce groupe
+    // (« Poursuivre la notation » / « Groupe suivant »), écrit UNE FOIS. C'est l'ancre du
+    // compte à rebours PLANCHER — `debutCreneau` reste le PLAN affiché, il ne chronomètre
+    // plus rien (constaté : 12:51 restants sur une station de 2 min). Jamais de statut ni
+    // d'action dérivés de ce champ. @Column explicite : précédent `ouvertA` → `ouverta`
+    // (la stratégie de nommage n'examine jamais la dernière lettre).
+    @Column(name = "debut_reel")
+    private LocalDateTime debutReel;
+
     @Enumerated(EnumType.STRING)
     private RotationStatus statut;
 

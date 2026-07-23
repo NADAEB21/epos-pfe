@@ -812,24 +812,20 @@ class EvaluateurDashboardServiceTest {
     }
 
     // =========================================================================
-    // getGroupeSuivant
+    // avancerGroupe (ex-getGroupeSuivant)
     // =========================================================================
 
     @Nested
-    @DisplayName("getGroupeSuivant()")
+    @DisplayName("avancerGroupe()")
     class GetGroupeSuivant {
 
         /**
-         * #248 — la navigation se fait sur le RANG, à cette station et dans ce lot.
-         *
-         * <p>Les deux tests de ce bloc stubbaient auparavant
-         * {@code findFirstByEvaluateurIdAndDebutCreneauAfter…} : ils encodaient la navigation à
-         * l'HORLOGE, non filtrée, que ce ticket retire (#207 avait déjà déplacé
-         * {@code validerGroupe} sur {@code ordrePassage} et laissé ce chemin en arrière). Ils
-         * sont donc réécrits, pas restaurés.
+         * #209 — « Groupe suivant » est L'ACTE d'avancer, découplé de la validation : il
+         * OUVRE le rang suivant (EN_COURS) et l'horodate ({@code debutReel}). La navigation
+         * reste séquencée sur le RANG, bornée à (station, lot) — #248.
          */
         @Test
-        @DisplayName("#248 : retourne le passage de RANG suivant, borné à cette station et ce lot")
+        @DisplayName("#209 : avancer OUVRE le rang suivant (EN_COURS + debutReel) et le renvoie")
         void groupeSuivant_happy() {
             Lot lot = new Lot();
             lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
@@ -848,10 +844,15 @@ class EvaluateurDashboardServiceTest {
             when(studentGroupRepository.findByLotId(5L)).thenReturn(List.of(new StudentGroup(), new StudentGroup()));
             when(rotationAssignmentRepository.findByRotationId(2L)).thenReturn(List.of());
 
-            LotDetailResponse resp = service.getGroupeSuivant(1L, EVAL_ID);
+            LotDetailResponse resp = service.avancerGroupe(1L, EVAL_ID);
 
             assertThat(resp.getId()).isEqualTo(2L);
             assertThat(resp.getNumero()).isEqualTo(2);
+            // #209 — l'acte : le rang suivant est OUVERT et son minuteur démarre MAINTENANT
+            // (fait observé), pas au créneau planifié.
+            assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_COURS);
+            assertThat(suivante.getDebutReel()).isNotNull();
+            assertThat(resp.getDebutReel()).isEqualTo(suivante.getDebutReel());
             // Le créneau ne doit jouer aucun rôle : aucune requête horaire n'est consultée.
             verify(rotationRepository, never())
                     .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(any(), any());
@@ -869,7 +870,7 @@ class EvaluateurDashboardServiceTest {
                     .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
                             STATION_ID, 5L, 2)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.getGroupeSuivant(1L, EVAL_ID))
+            assertThatThrownBy(() -> service.avancerGroupe(1L, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("dernier passage de cette station");
         }
@@ -914,7 +915,7 @@ class EvaluateurDashboardServiceTest {
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
 
-            assertThatThrownBy(() -> service.getGroupeSuivant(1L, EVAL_ID))
+            assertThatThrownBy(() -> service.avancerGroupe(1L, EVAL_ID))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
@@ -923,7 +924,7 @@ class EvaluateurDashboardServiceTest {
         void groupeSuivant_courantIntrouvable() {
             when(rotationRepository.findById(1L)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.getGroupeSuivant(1L, EVAL_ID))
+            assertThatThrownBy(() -> service.avancerGroupe(1L, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }
@@ -1391,16 +1392,16 @@ class EvaluateurDashboardServiceTest {
     class ValiderGroupeLogic {
 
         /**
-         * #207 — le cœur du modèle « avancement stocké ».
-         *
-         * <p>Valider un groupe doit OUVRIR le rang suivant de la même station. Sans cette
-         * écriture, {@code EN_COURS} n'existerait nulle part en base et le tableau de bord
-         * devrait à nouveau déduire l'avancement de l'horloge — exactement le plafond que
-         * #207 retire.
+         * #209 — RÉÉCRIT, pas restauré : la version #207 de ce test exigeait que valider
+         * OUVRE le rang suivant. C'était le couplage qui « déplaçait » l'évaluateur : valider
+         * puis quitter l'écran ⇒ au retour, un AUTRE groupe, grille vide (vécu par Nada).
+         * Règle actée 2026-07-23 : valider = verrouiller, point ; seul le clic explicite
+         * « Groupe suivant » ({@code avancerGroupe}) avance. EN_COURS garde ses écrivains
+         * légitimes : l'ouverture de vague (LotOuvertureService) et l'avance explicite.
          */
         @Test
-        @DisplayName("#207 : valider ouvre le rang suivant de la MÊME station (EN_COURS)")
-        void validerGroupe_ouvreLeRangSuivant() {
+        @DisplayName("#209 : valider VERROUILLE mais n'ouvre PAS le rang suivant")
+        void validerGroupe_nAvancePlus() {
             Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
             Rotation courante = rotationWithLot(1L, lot, 1);
             courante.setOrdrePassage(1);
@@ -1411,45 +1412,15 @@ class EvaluateurDashboardServiceTest {
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of());
-            when(rotationRepository
-                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
-                            STATION_ID, 10L, 1))
-                    .thenReturn(Optional.of(suivante));
             when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
                     .thenReturn(3L);
 
             service.validerGroupe(1L, EVAL_ID);
 
             assertThat(courante.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_COURS);
-            verify(rotationRepository).save(suivante);
-        }
-
-        /**
-         * #207 — dernier rang : il n'y a plus rien à ouvrir. La station s'arrête proprement
-         * au lieu de propager un EN_COURS fantôme.
-         */
-        @Test
-        @DisplayName("#207 : dernier rang validé → aucun rang suivant à ouvrir")
-        void validerGroupe_dernierRang_nOuvreRien() {
-            Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
-            Rotation derniere = rotationWithLot(1L, lot, 4);
-            derniere.setOrdrePassage(4);
-            derniere.setStatut(RotationStatus.EN_COURS);
-
-            when(rotationRepository.findById(1L)).thenReturn(Optional.of(derniere));
-            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of());
-            when(rotationRepository
-                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
-                            STATION_ID, 10L, 4))
-                    .thenReturn(Optional.empty());
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(1L);
-
-            service.validerGroupe(1L, EVAL_ID);
-
-            assertThat(derniere.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            verify(rotationRepository, times(1)).save(any(Rotation.class));
+            // Le rang suivant n'a PAS bougé : il attend le clic de l'évaluateur.
+            assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
+            verify(rotationRepository, never()).save(suivante);
         }
 
         @Test

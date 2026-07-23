@@ -62,21 +62,20 @@ restore_legacy() {
                 ||(SELECT count(*) FROM exam_item_snapshot)||' item(s)';"
 }
 
-# ── fixture VIVANTE — examen 33 (#207 / #248), construite via l'API le 2026-07-21
-# Lot 40 (vague 1) TERMINE · lot 41 (vague 2) OUVERTE par le responsable.
-# Stations 58 (eval 3) et 59 (eval 6 = eval2@epos.tn / Eval@1234).
-# Sur la station 59 la vague 2 place le GROUPE 2 au rang 1 : c'est exactement le
-# cas que l'ancienne garde ratait (#248).
-restore_exam33() {
-  echo ">>> RESTORE (exam 33)"
-  # Ne remet QUE ce que le scénario déplace. La navigation « Groupe suivant » est
-  # en lecture seule côté base : seule la mise au repos du fantôme est à défaire.
-  $PSQL "UPDATE rotation SET statut='EN_COURS'   WHERE id=191;   -- fantôme #249 remis comme trouvé
-         UPDATE rotation SET statut='EN_COURS'   WHERE id=206;
-         UPDATE rotation SET statut='EN_ATTENTE' WHERE id=207;"
+# ── fixture VIVANTE — examen 35 « exam test 2 » (construit PAR NADA le 2026-07-23 ;
+# l'examen 33 du harnais précédent a été balayé par sa reconstruction).
+# Stations 62 (ev6 = eval2@epos.tn) et 63 (ev3). Durée de station : 2 min.
+# ⚠️ Le cas-piège du carré latin (groupe 2 au rang 1) est ici sur la station 63
+# (ev3) alors que la session Chrome persistée est ev2 → le scénario pilote la
+# station 62 (ordre 1 puis 2). Le piège reste épinglé par le test unitaire
+# `groupeSuivant_drapeauIndependantDuNumeroDeGroupe` ; le rôle du E2E est la
+# NAVIGATION (POST avancer), l'écran intact, et l'ANCRE du minuteur (#209).
+restore_exam35() {
+  echo ">>> RESTORE (exam 35 — état laissé par Nada : tout TERMINE)"
+  $PSQL "UPDATE rotation SET statut='TERMINE' WHERE id IN (229,230,231,232);"
   echo ">>> verify:"
-  $PSQL "SELECT '    rot '||r.id||' stn '||r.station_id||' rang '||r.ordre_passage||' -> '||r.statut
-         FROM rotation r WHERE r.id IN (191,205,206,207,208) ORDER BY r.id;"
+  $PSQL "SELECT '    rot '||id||' -> '||statut||' debut_reel '||coalesce(debut_reel::text,'NULL')
+         FROM rotation WHERE id BETWEEN 229 AND 232 ORDER BY id;"
 }
 
 trap 'eval "$RESTORE_FN"' EXIT
@@ -186,24 +185,18 @@ case "$SCENARIO" in
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     VERIFIER_ECRITURE=1
     TARGET=integration_test/grading_save_test.dart ;;
-  groupe-suivant)  # #248 — la garde du bouton « Groupe suivant », vue depuis l'UI
-    # Fixture VIVANTE : examen 33, vague 2, station 59 (eval2). Le carré latin y
-    # place le GROUPE 2 au RANG 1 — donc `numero(2) >= total(2)` était VRAI alors
-    # qu'un passage restait : l'ancienne garde grisait le bouton au PREMIER
-    # passage et l'activait au DERNIER (où le clic vidait l'écran).
-    RESTORE_FN=restore_exam33
-    $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '1 minute' WHERE id=206;
-           UPDATE rotation SET statut='EN_COURS' WHERE id=206;"
-    # ⚠️ Mise au repos d'une session FANTÔME : la rotation 191 (lot 36, examen 1)
-    # est EN_COURS pour ce même évaluateur alors que son examen n'existe plus
-    # (#249). Sans cela l'accueil affiche DEUX cartes « Reprendre la notation »
-    # et le test entrerait dans la mauvaise. Remise à EN_COURS par le restore.
-    $PSQL "UPDATE rotation SET statut='EN_ATTENTE' WHERE id=191;"
+  groupe-suivant)  # #248/#209 — navigation « Groupe suivant » + ancre du minuteur, depuis l'UI
+    # Fixture : examen 35, station 62 (ev2). Rang 1 rouvert, minuteur VIERGE
+    # (debut_reel NULL → le serveur l'horodate au premier accès : le compte à
+    # rebours doit ouvrir à ~02:00 PILE, plus jamais au créneau planifié).
+    RESTORE_FN=restore_exam35
+    $PSQL "UPDATE rotation SET statut='EN_COURS',  debut_reel=NULL WHERE id=229;
+           UPDATE rotation SET statut='EN_ATTENTE', debut_reel=NULL WHERE id=232;"
     echo ">>> état de la fixture :"
     $PSQL "SELECT '    rot '||r.id||' stn '||r.station_id||' rang '||r.ordre_passage
                   ||' groupe '||sg.numero_groupe||' -> '||r.statut
            FROM rotation r JOIN student_group sg ON r.student_group_id=sg.id
-           WHERE r.id IN (206,207) ORDER BY r.id;"
+           WHERE r.id IN (229,232) ORDER BY r.id;"
     TARGET=integration_test/groupe_suivant_test.dart ;;
   smoke)
     TARGET=integration_test/smoke_test.dart ;;

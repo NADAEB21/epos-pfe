@@ -123,9 +123,14 @@ public class SuiviProgressionService {
         //    soustraction faite dans le front afficherait +1:00:00 dès l'ouverture ;
         //  • sur une vague TERMINÉE le compteur doit S'ARRÊTER, sinon il grimpe pendant toute
         //    l'attente entre deux vagues et recrée le « +42:16 et croissant » qu'on supprime.
-        Long ecouleSec = (vagueEnCours && lot.getOuvertA() != null)
-                ? Math.max(0, Duration.between(lot.getOuvertA(), LocalDateTime.now(clock)).getSeconds())
-                : null;
+        // if/else plutôt qu'un ternaire : `cond ? Math.max(…) : null` mélange un `long`
+        // primitif et null dans la même expression conditionnelle — la classe de règle
+        // « unboxing inattendu » que Sonar classe BUG (et qui a fait échouer la QG de la PR).
+        Long ecouleSec = null;
+        if (vagueEnCours && lot.getOuvertA() != null) {
+            ecouleSec = Math.max(0,
+                    Duration.between(lot.getOuvertA(), LocalDateTime.now(clock)).getSeconds());
+        }
 
         return SuiviProgressionResponse.LotEnCours.builder()
                 .id(lot.getId())

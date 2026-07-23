@@ -10,7 +10,14 @@ class ApiConstants {
   ApiConstants._();
 
   /// URL de base de l'API REST (via gateway).
+  ///
+  /// Un `--dart-define=API_BASE_URL=…` explicite GAGNE TOUJOURS — y compris en debug.
+  /// Avant, les branches kDebugMode court-circuitaient le define : impossible de pointer
+  /// un serveur LAN (démo « PC de la faculté » : le téléphone doit viser l'IP du poste,
+  /// pas son propre localhost). Les valeurs debug ne restent que des DÉFAUTS de confort.
   static String get baseUrl {
+    const defined = String.fromEnvironment('API_BASE_URL');
+    if (defined.isNotEmpty) return defined;
     if (kDebugMode) {
       if (kIsWeb) {
         return 'http://localhost:8080/api/v1';
@@ -19,10 +26,7 @@ class ApiConstants {
         return 'http://10.0.2.2:8080/api/v1';
       }
     }
-    return const String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: 'http://localhost:8080/api/v1',
-    );
+    return 'http://localhost:8080/api/v1';
   }
 
   /// URL de base du scoring-service (connexion WebSocket directe).
@@ -34,6 +38,9 @@ class ApiConstants {
   /// Port 8083 = port interne du scoring-service (défini dans docker-compose).
   /// En production : utiliser une variable d'environnement WS_BASE_URL.
   static String get wsBaseUrl {
+    // Même règle que baseUrl : un define explicite gagne, y compris en debug.
+    const defined = String.fromEnvironment('WS_BASE_URL');
+    if (defined.isNotEmpty) return defined;
     if (kDebugMode) {
       if (kIsWeb) {
         // Flutter Web : même machine, port scoring direct
@@ -44,10 +51,7 @@ class ApiConstants {
         return 'http://10.0.2.2:8083';
       }
     }
-    return const String.fromEnvironment(
-      'WS_BASE_URL',
-      defaultValue: 'http://localhost:8083',
-    );
+    return 'http://localhost:8083';
   }
 
   // === Auth ===

@@ -15,6 +15,8 @@ import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,6 +67,8 @@ public class LotOuvertureService {
     private final ILotRepository        lotRepository;
     private final IRotationRepository   rotationRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    /** ADR-0010 — « maintenant » vient du bean, pas de l'horloge système (zone épinglée). */
+    private final Clock                 clock;
 
     // =========================================================================
     // ACTION RESPONSABLE — « Lot suivant »
@@ -186,6 +190,16 @@ public class LotOuvertureService {
                 ouvertes++;
             }
         }
+
+        // #252 — l'ancre du chronomètre de Suivi. C'est le SEUL endroit qui ouvre une vague,
+        // donc le seul qui peut dater ce fait. On l'écrit ici et pas à la génération : générer
+        // n'est plus ouvrir (ADR-0014-B), et un lot généré la veille au soir ne doit pas
+        // compter comme s'il tournait depuis.
+        // ⚠️ Cette écriture, elle, touche bien Lot : contrairement à `statut` (surchargé,
+        // il signifie « présence prise »), `ouvertA` n'a qu'un seul sens et qu'un seul auteur.
+        lot.setOuvertA(LocalDateTime.now(clock));
+        lotRepository.save(lot);
+
         diffuser(lot);
         return ouvertes;
     }

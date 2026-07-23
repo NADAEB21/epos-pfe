@@ -102,4 +102,11 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
      * est un acte humain (ADR-0014-B §1), pas un créneau qui arrive à échéance.
      */
     List<Rotation> findByStudentGroup_Lot_IdAndOrdrePassage(Long lotId, Integer ordrePassage);
+
+    /**
+     * #208 — toutes les rotations d'un lot, tous rangs et toutes stations confondus.
+     * Base du tableau de progression du responsable : la vague entière en une requête,
+     * dont on dérive « quel groupe passe où » et « combien d'étudiants sont notés ».
+     */
+    List<Rotation> findByStudentGroup_Lot_Id(Long lotId);
 }

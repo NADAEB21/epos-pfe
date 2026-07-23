@@ -19,6 +19,7 @@ import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.service.LotAssignmentService;
 import tn.epos.scoring_service.service.LotOuvertureService;
+import tn.epos.scoring_service.service.SuiviProgressionService;
 import tn.epos.scoring_service.service.LotService;
 
 import java.util.List;
@@ -48,6 +49,9 @@ class LotControllerTest {
 
     @MockBean
     private LotOuvertureService lotOuvertureService;
+
+    @MockBean
+    private SuiviProgressionService suiviProgressionService;
 
     private ObjectMapper objectMapper;
     private Lot lot;

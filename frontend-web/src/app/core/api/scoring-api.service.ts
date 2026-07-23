@@ -24,6 +24,7 @@ import {
   RepartitionResult,
   RotationAssignmentSummary,
   RotationSummary,
+  SuiviProgression,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -244,6 +245,36 @@ export class ScoringApiService {
     return this.http
       .get<ApiResponse<number>>(`${this.baseUrl}/rotations/lot/${lotId}/count`)
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #208 / #252 — progression du jour J, dérivée côté serveur
+   * (GET /lots/examens/{id}/progression, RESPONSABLE + ADMIN).
+   *
+   * Renvoie la vague ouverte et son temps écoulé, l'alerte « lot terminé », la vague que
+   * « Lot suivant » ouvrira, et par station le groupe en cours + « N/M notés ».
+   * Le composant Suivi ne dérive plus AUCUN statut de l'horloge : il affiche ceci.
+   */
+  getProgression(examenId: number): Observable<SuiviProgression> {
+    return this.http
+      .get<ApiResponse<SuiviProgression>>(
+        `${this.baseUrl}/lots/examens/${examenId}/progression`,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #207 / ADR-0014-B — « Lot suivant » : le RESPONSABLE ouvre la vague suivante
+   * (POST /lots/{id}/ouvrir). Volontairement fermé à l'évaluateur : un lot est servi
+   * simultanément par toutes les stations, donc l'ouvrir engage la salle entière.
+   *
+   * Refuse (400) tant que la vague précédente n'est pas entièrement validée — garde
+   * mesurée sur l'état des rotations, jamais sur une durée.
+   */
+  ouvrirLot(lotId: number): Observable<void> {
+    return this.http
+      .post<ApiResponse<void>>(`${this.baseUrl}/lots/${lotId}/ouvrir`, null)
+      .pipe(map(() => undefined));
   }
 
   genererRotationsLot(lotId: number): Observable<GenerationResult> {

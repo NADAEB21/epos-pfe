@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'core/network/token_store.dart';
 import 'package:logger/logger.dart';
 
 import 'app.dart';
@@ -46,9 +47,11 @@ void main() async {
     gradingRepository = MockGradingRepository();
   } else {
     debugPrint('⚙️  Mode RÉEL — connexion Spring Boot');
-    const storage = FlutterSecureStorage(
+    // TokenStore : repli mémoire quand le stockage sécurisé est indisponible
+    // (web servi en http://<ip> — WebCrypto absent hors contexte sécurisé).
+    final storage = TokenStore(const FlutterSecureStorage(
       aOptions: AndroidOptions(encryptedSharedPreferences: true),
-    );
+    ));
     final logger = Logger(
       printer: PrettyPrinter(methodCount: 0, errorMethodCount: 5),
     );

@@ -47,17 +47,32 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
 if (-not $ip) { Write-Host 'Aucune IP reseau trouvee - etes-vous connectee au Wi-Fi ?' -ForegroundColor Red; exit 1 }
 Write-Host "IP du serveur (ce poste) : $ip" -ForegroundColor Green
 
-# ── 2. Pare-feu (best effort) ────────────────────────────────────────────────
-try {
-    foreach ($p in 4200, 4300, 8080, 8083) {
-        $name = "EPOS LAN demo $p"
-        if (-not (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $p -Action Allow | Out-Null
-        }
-    }
+# ── 2. Pare-feu ──────────────────────────────────────────────────────────────
+# ⚠️ try/catch PAR RÈGLE avec -ErrorAction Stop : la première version enveloppait la
+# boucle d'un seul try SANS Stop — les erreurs CIM « Access is denied » ne déclenchaient
+# pas le catch et le script affichait « ports ouverts » sur un pare-feu intact (vécu :
+# 4 access-denied suivis d'un message de succès). Un échec ici BLOQUE les téléphones.
+$fwOk = 0; $fwFail = 0
+foreach ($p in 4200, 4300, 8080, 8083) {
+    $name = "EPOS LAN demo $p"
+    if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) { $fwOk++; continue }
+    try {
+        New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $p -Action Allow -ErrorAction Stop | Out-Null
+        $fwOk++
+    } catch { $fwFail++ }
+}
+if ($fwFail -eq 0) {
     Write-Host 'Pare-feu : ports 4200/4300/8080/8083 ouverts.' -ForegroundColor Green
-} catch {
-    Write-Host 'Pare-feu : droits admin refuses. Ouvrez PowerShell en admin et relancez, ou autorisez les ports a la main.' -ForegroundColor Yellow
+} else {
+    Write-Host "Pare-feu : $fwFail regle(s) REFUSEE(S) (droits admin manquants) - les telephones seront bloques." -ForegroundColor Red
+    Write-Host 'Ouverture d une fenetre ADMIN pour poser les regles (cliquez Oui)...' -ForegroundColor Yellow
+    try {
+        Start-Process powershell -Verb RunAs -Wait -ArgumentList '-Command',
+            'foreach($p in 4200,4300,8080,8083){ if(-not (Get-NetFirewallRule -DisplayName ("EPOS LAN demo " + $p) -ErrorAction SilentlyContinue)){ New-NetFirewallRule -DisplayName ("EPOS LAN demo " + $p) -Direction Inbound -Protocol TCP -LocalPort $p -Action Allow } }'
+        Write-Host 'Pare-feu : regles posees via la fenetre admin.' -ForegroundColor Green
+    } catch {
+        Write-Host 'Elevation refusee. La demo ne marchera que sur CE poste tant que les ports ne sont pas ouverts.' -ForegroundColor Red
+    }
 }
 
 # ── 3. Gateway : CORS élargi à l'IP (pour l'app MOBILE servie en web) ────────

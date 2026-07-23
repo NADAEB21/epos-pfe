@@ -16,7 +16,6 @@ import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -123,13 +122,16 @@ public class SuiviProgressionService {
         //    soustraction faite dans le front afficherait +1:00:00 dès l'ouverture ;
         //  • sur une vague TERMINÉE le compteur doit S'ARRÊTER, sinon il grimpe pendant toute
         //    l'attente entre deux vagues et recrée le « +42:16 et croissant » qu'on supprime.
-        // if/else plutôt qu'un ternaire : `cond ? Math.max(…) : null` mélange un `long`
-        // primitif et null dans la même expression conditionnelle — la classe de règle
-        // « unboxing inattendu » que Sonar classe BUG (et qui a fait échouer la QG de la PR).
+        // Durée calculée en types CONSCIENTS du fuseau (règle Sonar S6883, classée BUG, et
+        // elle a raison) : Duration.between(LocalDateTime, LocalDateTime) est aveugle au
+        // fuseau — à cheval sur un changement d'heure, l'écart local ment d'une heure.
+        // `ouvertA` est persisté dans le fuseau du bean Clock (ADR-0010) : on le ré-ancre
+        // dans CE fuseau puis on compare des instants.
         Long ecouleSec = null;
         if (vagueEnCours && lot.getOuvertA() != null) {
-            ecouleSec = Math.max(0,
-                    Duration.between(lot.getOuvertA(), LocalDateTime.now(clock)).getSeconds());
+            ecouleSec = Math.max(0, Duration.between(
+                    lot.getOuvertA().atZone(clock.getZone()).toInstant(),
+                    clock.instant()).getSeconds());
         }
 
         return SuiviProgressionResponse.LotEnCours.builder()

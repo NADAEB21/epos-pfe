@@ -17,6 +17,7 @@ import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.Month;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
@@ -42,7 +43,7 @@ class SuiviProgressionServiceTest {
     private static final Long LOT2 = 41L;
 
     /** Horloge FIXE : la durée écoulée doit être vérifiable à la seconde près. */
-    private static final LocalDateTime MAINTENANT = LocalDateTime.of(2026, 7, 22, 10, 0);
+    private static final LocalDateTime MAINTENANT = LocalDateTime.of(2026, Month.JULY, 22, 10, 0);
 
     @Mock private ILotRepository                lotRepository;
     @Mock private IRotationRepository           rotationRepository;
@@ -107,7 +108,7 @@ class SuiviProgressionServiceTest {
         @Test
         @DisplayName("expose le groupe en cours et « N/M notés » par station, sans aucun dépassement")
         void progression_parStation() {
-            LocalDateTime ouvert = LocalDateTime.of(2026, 7, 22, 9, 0);
+            LocalDateTime ouvert = LocalDateTime.of(2026, Month.JULY, 22, 9, 0);
             Lot l1 = lot(LOT1, 1, ouvert);
             // Station 58 : rang 1 (groupe 1) TERMINE, rang 2 (groupe 2) EN_COURS
             // Station 59 : rang 1 (groupe 2) EN_COURS  ← carré latin : groupe 2 d'abord
@@ -250,11 +251,6 @@ class SuiviProgressionServiceTest {
         }
 
         /**
-         * #252 — une vague ouverte avant la migration V9 n'a pas d'horodatage. On expose null et
-         * le client affiche « — » : inventer une ancre (launched_at, un créneau) reconstruirait
-         * exactement la mesure fausse que ce ticket supprime.
-         */
-        /**
          * #252 — la mesure est SERVEUR. Le navigateur et le bean {@code Clock} ne sont pas dans
          * le même fuseau (conteneur CEST, Clock Africa/Tunis, ADR-0010) : une soustraction faite
          * dans le front afficherait +1:00:00 dès l'ouverture d'une vague.
@@ -296,6 +292,11 @@ class SuiviProgressionServiceTest {
             assertThat(r.isLotTermine()).isTrue();
         }
 
+        /**
+         * #252 — une vague ouverte avant la migration V9 n'a pas d'horodatage. On expose null et
+         * le client affiche « — » : inventer une ancre (launched_at, un créneau) reconstruirait
+         * exactement la mesure fausse que ce ticket supprime.
+         */
         @Test
         @DisplayName("vague ouverte avant V9 : ouvertA null, aucune ancre inventée")
         void ouvertA_nullSansRattrapage() {

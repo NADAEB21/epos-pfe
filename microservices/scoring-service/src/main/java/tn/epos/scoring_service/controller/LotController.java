@@ -103,6 +103,13 @@ public class LotController {
      * 404 lot inconnu ; 400 présence non prise, planning non généré, lot déjà ouvert, ou
      * vague précédente inachevée.
      */
+    @PostMapping("/{id}/ouvrir")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<Void>> ouvrirLot(@PathVariable Long id) {
+        lotOuvertureService.ouvrirLot(id);
+        return ResponseEntity.ok(ApiResponse.ok("Lot ouvert : les étudiants peuvent être évalués."));
+    }
+
     /**
      * #208 / #252 — tableau de progression du responsable pendant l'épreuve.
      *
@@ -118,13 +125,6 @@ public class LotController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<SuiviProgressionResponse>> progression(@PathVariable Long examenId) {
         return ResponseEntity.ok(ApiResponse.ok(suiviProgressionService.getProgression(examenId)));
-    }
-
-    @PostMapping("/{id}/ouvrir")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Void>> ouvrirLot(@PathVariable Long id) {
-        lotOuvertureService.ouvrirLot(id);
-        return ResponseEntity.ok(ApiResponse.ok("Lot ouvert : les étudiants peuvent être évalués."));
     }
 
     /**

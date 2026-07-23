@@ -21,6 +21,7 @@ import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.Month;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
@@ -51,7 +52,7 @@ class LotOuvertureServiceTest {
     private static final Long LOT_2   = 32L;
 
     /** #252 — horloge FIXE : l'horodatage d'ouverture doit être vérifiable à la valeur près. */
-    private static final LocalDateTime T0 = LocalDateTime.of(2026, 7, 22, 9, 30);
+    private static final LocalDateTime T0 = LocalDateTime.of(2026, Month.JULY, 22, 9, 30);
 
     @Mock private ILotRepository        lotRepository;
     @Mock private IRotationRepository   rotationRepository;

@@ -24,6 +24,12 @@ public class ExamenParticipation {
 
     private Boolean est_present;
 
+    // #256 — numéro de ligne du fichier Excel importé : L'ordre officiel du listing,
+    // persisté à l'import (et rafraîchi si le fichier est réimporté). La répartition
+    // en lots ET la constitution des groupes trient dessus — plus jamais sur id, qui
+    // ne coïncidait avec le fichier que par chance. NULL = ajout manuel hors fichier.
+    private Integer ordre_import;
+
     @Column(length = 500)
     private String commentaire;
 

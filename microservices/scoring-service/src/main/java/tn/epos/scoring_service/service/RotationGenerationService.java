@@ -93,9 +93,14 @@ public class RotationGenerationService {
         // Étudiants présents du lot
         List<ExamenParticipation> lotParticipations =
                 participationRepository.findByLotId(lotId);
+        // #256 — même clé de tri que la répartition (ordre du listing importé, ajouts
+        // manuels après) : sans cela, le listing du lot et celui des groupes divergent.
         List<ExamenParticipation> present = lotParticipations.stream()
                 .filter(p -> !Boolean.FALSE.equals(p.getEst_present()))
-                .sorted(Comparator.comparing(ExamenParticipation::getId))
+                .sorted(Comparator
+                        .comparing(ExamenParticipation::getOrdre_import,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(ExamenParticipation::getId))
                 .toList();
         int n       = present.size();
         int absents = lotParticipations.size() - n;

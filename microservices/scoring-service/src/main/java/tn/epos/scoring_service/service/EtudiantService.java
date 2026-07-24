@@ -88,6 +88,11 @@ public class EtudiantService {
                 }
 
                 if (participationRepository.existsByExamenAndEtudiant(examenId, etudiant.getId())) {
+                    // #256 — même déjà inscrit, on RAFRAÎCHIT sa position : si l'enseignant
+                    // réimporte un fichier corrigé, c'est le NOUVEAU listing qui fait foi.
+                    final int ligneCourante = ligne;
+                    participationRepository.findByEtudiantIdAndExamenId(etudiant.getId(), examenId)
+                            .ifPresent(pp -> { pp.setOrdre_import(ligneCourante); participationRepository.save(pp); });
                     alreadyEnrolled++;
                     results.add(ImportRowResult.of(ligne, row, "ALREADY_ENROLLED",
                             "Déjà inscrit à cet examen."));
@@ -97,6 +102,9 @@ public class EtudiantService {
                 ExamenParticipation p = new ExamenParticipation();
                 p.setExamen_id(examenId);
                 p.setEtudiant(etudiant);
+                // #256 — l'ordre du fichier EST l'ordre officiel du listing : persisté ici,
+                // au seul endroit qui le connaît. La répartition en lots trie dessus.
+                p.setOrdre_import(ligne);
                 participationRepository.save(p);
 
                 enrolled++;

@@ -78,8 +78,13 @@ public class LotAssignmentService {
         int capacite = exam.nbEtudiantsParStation() != null ? exam.nbEtudiantsParStation() : DEFAULT_CAPACITE;
         int lotSize = k * capacite;
 
+        // #256 — l'ordre du LISTING importé, pas l'ordre technique d'insertion : les
+        // ajouts manuels (ordre_import NULL) passent APRÈS le fichier, à ordre d'ajout.
         List<ExamenParticipation> enrolled = participationRepository.findByExamenId(examenId).stream()
-                .sorted(Comparator.comparing(ExamenParticipation::getId))
+                .sorted(Comparator
+                        .comparing(ExamenParticipation::getOrdre_import,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(ExamenParticipation::getId))
                 .toList();
         int n = enrolled.size();
         if (n == 0) {
@@ -89,19 +94,19 @@ public class LotAssignmentService {
         // Re-runnable: detach participations + drop any prior lots/plan first.
         wipeLots(examenId);
 
-        // #164 : nombre de vagues inchangé (ceil(n / lotSize)), MAIS répartition
-        // équilibrée au lieu du remplissage glouton qui laissait un dernier lot
-        // maigre (ex. 15 étudiants, lotSize 12 → 12 + 3). On calcule une base
-        // (n / nbLots) et les `reste` premiers lots reçoivent un étudiant de plus :
-        // les tailles ne diffèrent jamais de plus de 1 (15,K=3,cap=4 → 8 + 7, jamais
-        // 12 + 3). base + 1 ≤ lotSize est garanti car nbLots = ceil(n / lotSize).
+        // #256 — remplissage SÉQUENTIEL par blocs pleins, dernier lot = le reste.
+        // RENVERSE #164 en connaissance de cause (décision encadrant, 2026-07-22,
+        // confirmée par Nada le 2026-07-24) : la faculté veut que les lots SUIVENT le
+        // listing — lot 1 = les lotSize premières lignes, etc. — et un dernier lot de
+        // 3 est PRÉFÉRÉ à des tailles 18/17/19 : c'est la place de repli naturelle
+        // d'un retardataire ou d'un excusé. #164 égalisait la charge des stations ;
+        // l'usage réel privilégie un listing lisible. Ne pas « re-corriger » vers
+        // l'équilibrage : le test d'époque a été réécrit avec cette raison.
         int nbLots = (int) Math.ceil((double) n / lotSize);
-        int base = n / nbLots;
-        int reste = n % nbLots;
         List<RepartitionResult.LotInfo> details = new ArrayList<>();
         int curseur = 0;
         for (int m = 0; m < nbLots; m++) {
-            int taille = base + (m < reste ? 1 : 0);
+            int taille = Math.min(lotSize, n - curseur);
             int from = curseur;
             int to = curseur + taille;
             curseur = to;

@@ -91,47 +91,75 @@ class LotAssignmentServiceTest {
     @DisplayName("Répartition en lots (CONFIGURE)")
     class Repartition {
 
+        /**
+         * #256 — RÉÉCRIT, pas restauré : la version #164 de ce test exigeait l'ÉQUILIBRAGE
+         * (54 → 4×11 + 1×10). Décision encadrant (2026-07-22, confirmée par Nada le
+         * 2026-07-24) : les lots SUIVENT le listing, blocs pleins, dernier lot = le reste.
+         * #164 égalisait la charge des stations ; l'usage réel veut un listing lisible et
+         * un petit dernier lot comme place de repli (retardataire/excusé). Ne pas
+         * « re-corriger » vers l'équilibrage.
+         */
         @Test
-        @DisplayName("K=3, cap=4 → lotSize 12 ; 54 inscrits → 5 lots équilibrés (4×11 + 1×10)")
+        @DisplayName("#256 : K=3, cap=4 → lotSize 12 ; 54 inscrits → 4×12 + 1×6 (séquentiel)")
         void repartit_54en5lots() {
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
             when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(54));
 
             RepartitionResult r = service.repartir(EXAM_ID);
 
-            // #164 : même nombre de lots (ceil(54/12)=5) mais tailles équilibrées
-            // (base 10 + 4 lots à +1) plutôt que 4×12 + 1×6.
-            assertThat(r.lotSize()).isEqualTo(12);   // capacité max par lot, inchangée
+            assertThat(r.lotSize()).isEqualTo(12);
             assertThat(r.lots()).isEqualTo(5);
             assertThat(r.etudiantsRepartis()).isEqualTo(54);
             assertThat(r.details()).hasSize(5);
-            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 11);
-            assertThat(r.details().get(4).taille()).isEqualTo(10);
+            assertThat(r.details().subList(0, 4)).allMatch(d -> d.taille() == 12);  // blocs PLEINS
+            assertThat(r.details().get(4).taille()).isEqualTo(6);                    // le reste
             assertThat(r.details().get(0).numeroLot()).isEqualTo(1);
         }
 
+        /**
+         * #256 — LE cas que l'encadrant a tranché : 15 inscrits, lotSize 12. #164 refusait
+         * « 12 + 3 » ; c'est désormais exactement ce qui est VOULU (« le dernier lot peut
+         * n'avoir que 3 étudiants, c'est mieux que 18/17/19 » — la place de repli).
+         */
         @Test
-        @DisplayName("#164 équilibrage : K=3, cap=4, 15 inscrits → 2 lots 8/7 (jamais 12/3)")
-        void repartit_equilibre_15en2lots() {
+        @DisplayName("#256 : 15 inscrits, lotSize 12 → 12 + 3 (le petit dernier lot est VOULU)")
+        void repartit_sequentiel_15en2lots() {
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
             when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(enrolled(15));
 
             RepartitionResult r = service.repartir(EXAM_ID);
 
-            // nbLots = ceil(15/12) = 2. Glouton aurait donné 12 + 3 ; l'équilibrage
-            // donne 8 + 7 : les tailles ne diffèrent jamais de plus de 1.
             assertThat(r.lots()).isEqualTo(2);
-            assertThat(r.etudiantsRepartis()).isEqualTo(15);
-            assertThat(r.details()).hasSize(2);
-            assertThat(r.details().get(0).taille()).isEqualTo(8);
-            assertThat(r.details().get(1).taille()).isEqualTo(7);
-            // aucun lot ne dépasse la capacité max (lotSize=12) et l'écart est ≤ 1
-            int max = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).max().orElseThrow();
-            int min = r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).min().orElseThrow();
-            assertThat(max - min).isLessThanOrEqualTo(1);
-            assertThat(max).isLessThanOrEqualTo(12);
-            // somme des tailles = effectif total (aucun étudiant perdu ni dupliqué)
+            assertThat(r.details().get(0).taille()).isEqualTo(12);
+            assertThat(r.details().get(1).taille()).isEqualTo(3);
             assertThat(r.details().stream().mapToInt(RepartitionResult.LotInfo::taille).sum()).isEqualTo(15);
+        }
+
+        /**
+         * #256 — la SOURCE de l'ordre : le listing importé (ordre_import), jamais l'id
+         * technique. Ici les ids sont à REBOURS du fichier : le lot 1 doit contenir les
+         * premières LIGNES du fichier, pas les premiers ids. Les ajouts manuels
+         * (ordre_import null) passent après le fichier.
+         */
+        @Test
+        @DisplayName("#256 : le lot 1 suit l'ordre du FICHIER, pas l'ordre des ids ; ajouts manuels après")
+        void repartit_suitLOrdreDuListing() {
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 1, 2)); // lotSize 2
+            List<ExamenParticipation> inscrits = new ArrayList<>();
+            // id 1 = DERNIÈRE ligne du fichier ; id 3 = première ; id 2 = ajout manuel (null)
+            ExamenParticipation a = new ExamenParticipation(); a.setId(1L); a.setOrdre_import(3);
+            ExamenParticipation b = new ExamenParticipation(); b.setId(2L); b.setOrdre_import(null);
+            ExamenParticipation c = new ExamenParticipation(); c.setId(3L); c.setOrdre_import(1);
+            inscrits.add(a); inscrits.add(b); inscrits.add(c);
+            when(participationRepository.findByExamenId(EXAM_ID)).thenReturn(inscrits);
+
+            service.repartir(EXAM_ID);
+
+            // lot 1 (taille 2) = lignes 1 et 3 du fichier (ids 3 puis 1) ; l'ajout manuel
+            // (id 2) tombe dans le lot 2.
+            assertThat(c.getLot().getNumeroLot()).isEqualTo(1);
+            assertThat(a.getLot().getNumeroLot()).isEqualTo(1);
+            assertThat(b.getLot().getNumeroLot()).isEqualTo(2);
         }
 
         @Test

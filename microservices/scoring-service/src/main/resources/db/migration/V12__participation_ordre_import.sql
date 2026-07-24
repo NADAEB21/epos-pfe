@@ -1,0 +1,16 @@
+-- =============================================================
+-- V12 — L'ordre du LISTING devient une donnée (#256, demande encadrant)
+--
+-- La faculté importe un fichier Excel dont l'ordre des lignes EST l'ordre
+-- officiel (chez eux : alphabétique — mais c'est LEUR affaire ; l'app ne re-trie
+-- pas). La répartition en lots doit suivre ce listing : lot 1 = les lotSize
+-- premières lignes, lot 2 = les suivantes, dernier lot = le reste (un dernier
+-- lot de 3 est VOULU — c'est la place de repli d'un retardataire/excusé ;
+-- renverse #164 en connaissance de cause, cf. issue #256).
+--
+-- Jusqu'ici l'ordre reposait sur participation.id — juste après UN import
+-- unique, faux dès qu'on retire puis réajoute un étudiant. On persiste donc le
+-- numéro de ligne du fichier au moment de l'import. NULL = ajouté à la main
+-- (hors fichier) → classé après le listing, à ordre d'ajout.
+-- =============================================================
+ALTER TABLE examen_participations ADD COLUMN ordre_import INT;

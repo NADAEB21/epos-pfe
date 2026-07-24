@@ -187,6 +187,32 @@ class RotationGenerationServiceTest {
          * d'{@code EN_COURS} au niveau lot. Que la PREMIÈRE vague s'ouvre bien toute seule est
          * vérifié là-bas ({@code LotOuvertureServiceTest}), pas ici.
          */
+        /**
+         * #256 — le prix assumé du remplissage séquentiel : le dernier lot peut être
+         * MINUSCULE (n = lotSize+1 → dernier lot d'1 étudiant). Le carré latin crée quand
+         * même K groupes (K-1 vides) et K×K rotations : ce test épingle que la génération
+         * SURVIT — l'étudiant unique visite ses K stations (K assignments), les groupes
+         * vides produisent des rotations sans assignment, aucun plantage. C'est le
+         * comportement explicite voulu (l'encadrant préfère un petit dernier lot), pas un
+         * accident à « corriger ».
+         */
+        @Test
+        @DisplayName("#256 : dernier lot d'UN étudiant → la génération survit (K-1 groupes vides)")
+        void genere_survitAUnLotDUnSeulEtudiant() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(1, 0));
+
+            var r = service.generateForLot(LOT_ID);
+
+            assertThat(r.rotations()).isEqualTo(9);      // K×K, groupes vides compris
+            assertThat(r.assignments()).isEqualTo(3);    // l'unique étudiant visite ses 3 stations
+            assertThat(r.etudiantsPresents()).isEqualTo(1);
+            assertThat(savedRotations).hasSize(9)
+                    .allMatch(rot -> rot.getStatut() == RotationStatus.EN_ATTENTE);
+        }
+
         @Test
         @DisplayName("ADR-0014-B : la génération planifie (tout EN_ATTENTE) et délègue l'ouverture")
         void genere_neDemarreAucuneRotationEtDelegueLOuverture() {

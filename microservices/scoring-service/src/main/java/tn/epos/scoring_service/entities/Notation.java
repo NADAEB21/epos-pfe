@@ -35,6 +35,13 @@ public class Notation {
 
     private Boolean verouillee;
 
+    // #212 — commentaire d'évaluation PAR (participation, station). Vivait sur
+    // ExamenParticipation, ligne partagée entre les N stations : la dernière
+    // validation écrasait les autres — et la valeur n'était jamais renvoyée au
+    // mobile. Ici, à côté de score_final/verouillee, il est par-station et rejoué.
+    @Column(name = "commentaire")
+    private String commentaire;
+
     // Lien 1-à-1 avec l'affectation de la rotation
     @OneToOne
     @JoinColumn(name = "assignment_id")

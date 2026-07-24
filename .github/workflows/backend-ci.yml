@@ -6,8 +6,12 @@ name: EPOS Backend CI
 on:
   push:
     branches: [ main, develop ]
+  # PRs : AUCUN filtre de base — les PRs EMPILÉES (base = une autre branche de
+  # feature, obligatoire quand une migration V(n+1) s'appuie sur une V(n) non
+  # fusionnée, cf. #261→#262) passaient sinon SOUS le pipeline : le filtre
+  # `branches:` compare la branche de BASE, et le recibliage post-fusion est un
+  # événement `edited` qui ne déclenche rien non plus.
   pull_request:
-    branches: [ main, develop ]
 
 jobs:
   # -----------------------------------------------------------------------

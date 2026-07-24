@@ -1417,8 +1417,15 @@ class EvaluateurDashboardServiceTest {
             verify(participationRepository).save(p);
         }
 
+        /**
+         * #212 (dernier volet) — RÉÉCRIT, pas restauré : l'ancienne version affirmait
+         * l'écriture sur la PARTICIPATION — c'est-à-dire le clobber lui-même (une ligne
+         * partagée entre N stations, la dernière validation écrasait les autres, comme
+         * jadis est_present et note). Le commentaire vit désormais sur la Notation,
+         * par (participation, station), et la participation n'est plus touchée.
+         */
         @Test
-        @DisplayName("Le commentaire est toujours enregistré sur la participation, présent ou absent")
+        @DisplayName("#212 : le commentaire vit sur la NOTATION (par station), plus sur la participation")
         void validerEtudiant_commentaireEnregistre() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
@@ -1436,7 +1443,46 @@ class EvaluateurDashboardServiceTest {
             req.setCommentaire("Bonne manipulation");
             service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
 
-            assertThat(p.getCommentaire()).isEqualTo("Bonne manipulation");
+            assertThat(n.getCommentaire()).isEqualTo("Bonne manipulation");
+            assertThat(p.getCommentaire()).isNull();   // la ligne partagée n'est PLUS écrite
+        }
+
+        /**
+         * #212 — LE test du clobber : deux stations, deux commentaires. Sous l'ancien
+         * modèle, la validation de la station B écrasait le commentaire de la station A
+         * sur la ligne partagée. Ici chacun survit sur SA notation.
+         */
+        @Test
+        @DisplayName("#212 : deux stations → deux commentaires, aucun n'écrase l'autre")
+        void validerEtudiant_commentairesParStationNeSEcrasentPas() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment raA = new RotationAssignment(); raA.setId(55L);
+            RotationAssignment raB = new RotationAssignment(); raB.setId(56L);
+            Notation nA = new Notation(); nA.setId(10L);
+            Notation nB = new Notation(); nB.setId(11L);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(raA));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, 99L))
+                    .thenReturn(Optional.of(raB));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(nA));
+            when(notationRepository.findByAssignmentId(56L)).thenReturn(Optional.of(nB));
+
+            ValiderEtudiantRequest reqA = new ValiderEtudiantRequest();
+            reqA.setAbsent(false); reqA.setGrilleId(1L);
+            reqA.setCommentaire("Station A : geste précis");
+            service.validerEtudiant(1L, STATION_ID, EVAL_ID, reqA);
+
+            ValiderEtudiantRequest reqB = new ValiderEtudiantRequest();
+            reqB.setAbsent(false); reqB.setGrilleId(2L);
+            reqB.setCommentaire("Station B : dosage hésitant");
+            service.validerEtudiant(1L, 99L, EVAL_ID, reqB);
+
+            assertThat(nA.getCommentaire()).isEqualTo("Station A : geste précis");
+            assertThat(nB.getCommentaire()).isEqualTo("Station B : dosage hésitant");
+            assertThat(p.getCommentaire()).isNull();
         }
 
         @Test

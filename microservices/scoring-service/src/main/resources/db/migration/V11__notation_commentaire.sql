@@ -1,0 +1,16 @@
+-- =============================================================
+-- V11 — Le commentaire d'évaluation devient PAR STATION (#212, dernier volet)
+--
+-- ExamenParticipation n'a qu'UNE ligne par (étudiant, examen), mais un étudiant
+-- passe N stations : écrire le commentaire de la validation sur cette ligne
+-- partagée faisait gagner « la dernière station » (clobber #212 — même défaut
+-- déjà réparé pour est_present → RotationAssignment.presence_confirmee et pour
+-- note → agrégat). Pire : la valeur n'était jamais renvoyée au mobile
+-- (LotDetailResponse.commentaire restait vide) — écrite pour être perdue.
+--
+-- Nouvelle maison : Notation, l'enregistrement par (participation, station) où
+-- vivent déjà score_final et verouillee. participation.commentaire cesse d'être
+-- écrit (colonne laissée en place, dormante — pas de backfill possible : la
+-- donnée d'origine est déjà écrasée).
+-- =============================================================
+ALTER TABLE notations ADD COLUMN commentaire TEXT;

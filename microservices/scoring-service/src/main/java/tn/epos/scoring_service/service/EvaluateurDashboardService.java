@@ -244,13 +244,19 @@ public class EvaluateurDashboardService {
                 .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
                 .map(a -> {
                     ExamenParticipation p = a.getParticipation();
+                    // #212 — une seule lecture de la Notation par assignment : sert le verrou
+                    // ET le commentaire (désormais par-station, et enfin REJOUÉ au client —
+                    // ce champ de réponse existait depuis le début sans jamais être rempli).
+                    Optional<Notation> notation = notationRepository.findByAssignmentId(a.getId());
                     return LotDetailResponse.EtudiantLotResponse.builder()
                             .id(p.getEtudiant().getId())
                             .nom(p.getEtudiant().getNom())
                             .prenom(p.getEtudiant().getPrenom())
                             // #FIX : présence par ROTATION (assignment), plus par participation
                             .absent(!Boolean.TRUE.equals(a.getPresenceConfirmee()))
-                            .verrouille(isNotationVerrouillée(a.getId()))
+                            .verrouille(notation.map(n -> Boolean.TRUE.equals(n.getVerouillee()))
+                                    .orElse(false))
+                            .commentaire(notation.map(Notation::getCommentaire).orElse(null))
                             .notationItems(loadNotationItems(a.getId()))
                             .build();
                 })
@@ -338,6 +344,12 @@ public class EvaluateurDashboardService {
             notationItemRepository.deleteAll(notationItemRepository.findByNotationId(notation.getId()));
             notation.setScore_final(0.0f);
         }
+        // #212 (dernier volet) — le commentaire suit le même chemin que la présence : il
+        // concerne CETTE station, donc il vit sur Notation (l'enregistrement par
+        // (participation, station)), plus jamais sur la ligne partagée ExamenParticipation
+        // où « la dernière station gagnait ». En prime il est enfin REJOUÉ au mobile
+        // (EtudiantLotResponse.commentaire, jamais rempli jusqu'ici).
+        notation.setCommentaire(request.getCommentaire());
         notation.setVerouillee(true);
         notationRepository.save(notation);
 
@@ -351,7 +363,6 @@ public class EvaluateurDashboardService {
         assignment.setPresenceConfirmee(!request.isAbsent());
         rotationAssignmentRepository.save(assignment);
 
-        participation.setCommentaire(request.getCommentaire());
         // #212 — note AGRÉGÉE cross-station. ExamenParticipation n'a qu'UNE colonne
         // note, mais un étudiant passe N stations (N Notation.score_final). Écrire
         // ici le score d'UNE station y écrasait celui des autres (clobber #212, la
@@ -660,8 +671,4 @@ public class EvaluateurDashboardService {
         return notationRepository.save(n);
     }
 
-    private boolean isNotationVerrouillée(Long assignmentId) {
-        return notationRepository.findByAssignmentId(assignmentId)
-                .map(n -> Boolean.TRUE.equals(n.getVerouillee())).orElse(false);
-    }
 }

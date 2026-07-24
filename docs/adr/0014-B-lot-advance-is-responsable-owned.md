@@ -168,10 +168,16 @@ belongs to the **responsable**, who is the only actor with the whole circuit in 
 
 - **Créneaux are still clock-authored.** `debutCreneau` is precomputed at generation from
   `launched_at` (`RotationGenerationService:142-147`, `:180`), assuming zero drift and no real
-  break. This ADR removes the *auto-open* ceiling at lot level; it does **not** resolve manual
-  station start, real inter-lot breaks, or drift. **Do not conclude floor/ceiling is settled.**
+  break. This ADR removes the *auto-open* ceiling at lot level; it does **not** resolve
+  real inter-lot breaks or drift. **Do not conclude floor/ceiling is settled.**
   The clock keeps its FLOOR role (the student's assigned duration, the mobile countdown) and must
   never regain a CEILING role (ADR-0014 §3, `feedback_dont_fix_the_clock_delete_it`).
+  **2026-07-23 update — one slice of "manual station start" IS now decided (Nada, #209):** the
+  floor countdown anchors on `rotation.debut_reel` (V10), stamped when the **évaluateur** first
+  opens the group — never on the planned créneau (which showed « 12:51 » remaining on a 2-minute
+  station) and never on the responsable's lot opening. In the same decision, **valider was
+  decoupled from advancing**: valider locks, only the explicit « Groupe suivant »
+  (`avancerGroupe`, POST) opens the next rank. `debutCreneau` survives as PLAN display only.
 - **Web WebSocket support** (§5) — separate decision if real-time push is ever wanted on Suivi.
 - **`Lot.jour` / multi-day** — unchanged from ADR-0014-A §5; a lot's *day* is PLAN, its *opening*
   is the responsable act decided here. The two compose without interaction.

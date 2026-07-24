@@ -155,30 +155,57 @@ public class EvaluateurDashboardService {
 // renvoyait toujours le même, bloquant la notation dès le 2e groupe.
 // =========================================================================
 
-    @Transactional(readOnly = true)
+    /**
+     * #209 — ouvrir l'écran d'un groupe DÉMARRE son minuteur : premier accès du propriétaire
+     * à une rotation EN_COURS ⇒ {@code debutReel} est horodaté (une fois). C'est le
+     * « Poursuivre la notation » de Nada — le plancher s'ancre sur un fait observé, plus
+     * jamais sur le créneau planifié (constaté : « 12:51 » restants sur une station de 2 min).
+     */
+    @Transactional
     public LotDetailResponse getGroupeDetail(Long rotationId, Long evaluateurId) {
         Rotation rotation = rotationRepository.findById(rotationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(rotation, evaluateurId);
+        marquerDebutReel(rotation);
         return toGroupeDetailResponse(rotation);
     }
 
-    @Transactional(readOnly = true)
-    public LotDetailResponse getGroupeSuivant(Long rotationId, Long evaluateurId) {
+    /**
+     * #209 — « Groupe suivant » est désormais L'ACTE D'AVANCER, découplé de la validation :
+     * il ouvre le rang suivant ({@code EN_COURS} + {@code debutReel}) et le renvoie.
+     * Auparavant c'était {@code validerGroupe} qui ouvrait le rang suivant — verrouiller et
+     * avancer étaient soudés, si bien qu'un évaluateur qui validait puis quittait l'écran se
+     * retrouvait « déplacé » au groupe suivant à son retour (grille vide — vécu par Nada).
+     * Règle : seul le clic explicite « Groupe suivant » avance.
+     */
+    @Transactional
+    public LotDetailResponse avancerGroupe(Long rotationId, Long evaluateurId) {
         Rotation courante = rotationRepository.findById(rotationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(courante, evaluateurId);
 
         // #248 — séquencé sur ordrePassage et borné à (cette station, ce lot), exactement comme
-        // validerGroupe. Auparavant : findFirstByEvaluateurIdAndDebutCreneauAfter…, c'est-à-dire
-        // l'HORLOGE et sans aucun filtre — deux défauts. #207 avait déplacé validerGroupe sur
-        // ordrePassage mais laissé ce chemin-ci sur debutCreneau : la même fonctionnalité
-        // séquençait donc de deux façons selon le bouton utilisé. Et faute de filtre, la requête
-        // pouvait renvoyer la rotation d'un AUTRE examen du même évaluateur.
+        // la garde du bouton. L'horloge ne séquence rien.
         Rotation suivante = rotationSuivante(courante)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Aucun groupe suivant : c'était le dernier passage de cette station pour ce lot."));
+
+        if (suivante.getStatut() == RotationStatus.EN_ATTENTE) {
+            suivante.setStatut(RotationStatus.EN_COURS);
+            log.info("Station {} : groupe suivant (rotation {}, rang {}) ouvert par l'évaluateur.",
+                    suivante.getStationId(), suivante.getId(), suivante.getOrdrePassage());
+        }
+        marquerDebutReel(suivante);
+        rotationRepository.save(suivante);
         return toGroupeDetailResponse(suivante);
+    }
+
+    /** Écrit {@code debutReel} UNE fois, seulement sur une rotation réellement EN_COURS. */
+    private void marquerDebutReel(Rotation rotation) {
+        if (rotation.getStatut() == RotationStatus.EN_COURS && rotation.getDebutReel() == null) {
+            rotation.setDebutReel(LocalDateTime.now(clock));
+            rotationRepository.save(rotation);
+        }
     }
 
     /**
@@ -238,6 +265,8 @@ public class EvaluateurDashboardService {
                 // fait tourner les groupes, donc « je suis le groupe K » ne veut pas dire « je
                 // suis le dernier passage de cette station ».
                 .groupeSuivantDisponible(rotationSuivante(rotation).isPresent())
+                // #209 — l'ancre OBSERVÉE du minuteur plancher (jamais le créneau planifié).
+                .debutReel(rotation.getDebutReel())
                 .etudiants(etudiants)
                 .build();
     }
@@ -402,22 +431,13 @@ public class EvaluateurDashboardService {
         Lot lot = rotation.getStudentGroup() != null ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) return;
 
-        // #207 — « Groupe suivant » : valider ouvre explicitement le rang suivant DE CETTE
-        // STATION. C'est ce qui remplace la déduction d'horloge — sans cette écriture,
-        // EN_COURS n'existerait nulle part en base et le tableau de bord devrait à nouveau
-        // deviner. Séquencé sur ordrePassage, pas sur debutCreneau : l'horloge ne décide
-        // plus de l'avancement (ADR-0014). Les stations avancent indépendamment.
-        rotationSuivante(rotation)
-                .ifPresent(suivante -> {
-                    if (suivante.getStatut() != RotationStatus.TERMINE) {
-                        suivante.setStatut(RotationStatus.EN_COURS);
-                        rotationRepository.save(suivante);
-                        log.info("Station {} : groupe suivant (rotation {}, rang {}) ouvert.",
-                                rotation.getStationId(), suivante.getId(), suivante.getOrdrePassage());
-                    }
-                });
-
-        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard : groupe suivant dispo
+        // #209 — valider N'AVANCE PLUS. La version #207 ouvrait ici le rang suivant :
+        // verrouiller et avancer étaient soudés, donc un évaluateur qui validait puis
+        // quittait l'écran retrouvait à son retour un AUTRE groupe, grille vide (vécu par
+        // Nada). Règle : valider = verrouiller, point ; seul le clic explicite « Groupe
+        // suivant » ({@link #avancerGroupe}) ouvre le rang suivant. L'évaluateur reste
+        // maître du rythme — y compris celui de ne pas encore avancer.
+        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard
 
         if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lot.getId(), RotationStatus.TERMINE) == 0) {
             lot.setStatut(LotStatus.TERMINE);
@@ -491,7 +511,16 @@ public class EvaluateurDashboardService {
         RotationStatus statut = rotation.getStatut();
         if (statut == null) return "A_VENIR";
         return switch (statut) {
-            case TERMINE   -> STATUT_TERMINEE;
+            // #209 — garde anti-impasse du découplage valider/avancer : un groupe validé
+            // dont le RANG SUIVANT n'a pas encore été ouvert reste la session EN_COURS de
+            // l'évaluateur. Sans cela, valider puis quitter l'écran laissait l'accueil sans
+            // aucune carte active — l'évaluateur ne pouvait plus atteindre « Groupe
+            // suivant » (le bouton vit dans l'écran de notation). Il revient donc LÀ OÙ IL
+            // ÉTAIT : le récapitulatif verrouillé du groupe validé, d'où il avance.
+            // Dès que le rang suivant est ouvert (EN_COURS), ce groupe redevient TERMINEE.
+            case TERMINE   -> rotationSuivante(rotation)
+                    .filter(s -> s.getStatut() == RotationStatus.EN_ATTENTE)
+                    .isPresent() ? "EN_COURS" : STATUT_TERMINEE;
             case EN_COURS  -> "EN_COURS";
             case EN_ATTENTE -> "A_VENIR";
         };

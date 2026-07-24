@@ -166,6 +166,32 @@ class SuiviProgressionServiceTest {
             assertThat(r.isLotTermine()).isFalse();
         }
 
+        /**
+         * #209 — MI-VAGUE : l'évaluateur a validé un groupe et n'a pas encore cliqué
+         * « Groupe suivant » (valider n'avance plus). Aucune rotation EN_COURS à la station,
+         * mais elle n'est PAS « en attente d'ouverture » : statut EN_COURS, groupeEnCours
+         * null — le front rend « Entre deux groupes ». Lire EN_ATTENTE mentirait au
+         * responsable (vérifié live avant d'être épinglé ici).
+         */
+        @Test
+        @DisplayName("#209 : validé-pas-avancé → station EN_COURS avec groupeEnCours null (entre deux groupes)")
+        void station_entreDeuxGroupes() {
+            Lot l1 = lot(LOT1, 1, MAINTENANT.minusMinutes(5));
+            lient(l1, List.of(
+                    rot(201L, 58L, 1, 1, RotationStatus.TERMINE),
+                    rot(204L, 58L, 2, 2, RotationStatus.EN_ATTENTE)));
+            when(lotRepository.findByExamenId(EXAM)).thenReturn(List.of(l1));
+            assignments(201L, 2, 2);
+            assignments(204L, 2, 0);
+
+            SuiviProgressionResponse r = service.getProgression(EXAM);
+
+            var s58 = r.getStations().get(0);
+            assertThat(s58.getStatut()).isEqualTo("EN_COURS");
+            assertThat(s58.getGroupeEnCours()).isNull();
+            assertThat(s58.getGroupesTermines()).isEqualTo(1);
+        }
+
         /** Un groupe n'est fini que lorsqu'il a bouclé TOUTES les stations. */
         @Test
         @DisplayName("un groupe validé sur une seule station n'est pas compté comme terminé")

@@ -464,7 +464,13 @@ export function resolveLaneState(
                     <div class="text-right">
                       <div class="text-xs text-gray-400 uppercase tracking-wide">En ce moment</div>
                       <div class="font-semibold text-status-success">
-                        Groupe {{ p.groupeEnCours }} · {{ p.etudiantsNotes }}/{{ p.etudiantsTotal }} notés
+                        <!-- #209 — groupeEnCours null = validé, pas encore avancé : ENTRE deux
+                             groupes (valider n'avance plus ; l'évaluateur clique quand il veut). -->
+                        @if (p.groupeEnCours != null) {
+                          Groupe {{ p.groupeEnCours }} · {{ p.etudiantsNotes }}/{{ p.etudiantsTotal }} notés
+                        } @else {
+                          Entre deux groupes · {{ p.etudiantsNotes }}/{{ p.etudiantsTotal }} notés
+                        }
                       </div>
                       <div class="text-xs text-gray-400 tabular-nums">
                         {{ p.groupesTermines }}/{{ p.groupesTotal }} groupes bouclés

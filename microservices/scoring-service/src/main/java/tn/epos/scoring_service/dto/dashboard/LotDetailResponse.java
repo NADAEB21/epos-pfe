@@ -49,6 +49,15 @@ public class LotDetailResponse {
      */
     private boolean           groupeSuivantDisponible;
 
+    /**
+     * #209 — début RÉEL du passage : l'instant où l'évaluateur a ouvert ce groupe, horodaté
+     * côté serveur (write-once). C'est l'ancre du compte à rebours PLANCHER du mobile —
+     * {@code debutCreneau} est un horaire PLANIFIÉ et ne chronomètre plus rien (constaté :
+     * « 12:51 » restants sur une station de 2 minutes). Rouge « +MM:SS » en dépassement :
+     * un avertissement, jamais un blocage.
+     */
+    private java.time.LocalDateTime debutReel;
+
     private List<EtudiantLotResponse> etudiants;
 
     @Getter @Builder @NoArgsConstructor @AllArgsConstructor

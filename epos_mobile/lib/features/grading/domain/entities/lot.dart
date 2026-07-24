@@ -19,6 +19,13 @@ class Lot extends Equatable {
   /// premier passage et l'activait au dernier.
   final bool groupeSuivantDisponible;
 
+  /// #209 — début RÉEL du passage, horodaté par le serveur quand l'évaluateur ouvre le
+  /// groupe. C'est l'ancre du compte à rebours PLANCHER : `debutCreneau` est un horaire
+  /// PLANIFIÉ et affichait « 12:51 » restants sur une station de 2 minutes. Null tant que
+  /// le groupe n'a jamais été ouvert. Rouge « +MM:SS » en dépassement — un avertissement,
+  /// jamais un blocage (rappel exprès de Nada : indicateur, pas plafond).
+  final DateTime? debutReel;
+
   const Lot({
     required this.id,
     required this.numero,
@@ -26,11 +33,12 @@ class Lot extends Equatable {
     required this.etudiants,
     this.valide = false,
     this.groupeSuivantDisponible = false,
+    this.debutReel,
   });
 
   String get label => 'Lot $numero/$total';
 
   @override
   List<Object?> get props =>
-      [id, numero, total, etudiants, valide, groupeSuivantDisponible];
+      [id, numero, total, etudiants, valide, groupeSuivantDisponible, debutReel];
 }

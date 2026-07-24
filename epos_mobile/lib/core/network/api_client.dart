@@ -4,7 +4,7 @@
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'token_store.dart';
 import 'package:logger/logger.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
@@ -12,14 +12,14 @@ import '../constants/api_constants.dart';
 
 class ApiClient {
   late final Dio _dio;
-  final FlutterSecureStorage _storage;
+  final TokenStore _storage;
   final Logger _logger;
 
   static const String _accessTokenKey  = 'access_token';
   static const String _refreshTokenKey = 'refresh_token';
 
   ApiClient({
-    required FlutterSecureStorage storage,
+    required TokenStore storage,
     required Logger logger,
   })  : _storage = storage,
         _logger = logger {
@@ -80,7 +80,7 @@ class ApiClient {
 // Intercepteur JWT
 // ─────────────────────────────────────────────────────────────────────────────
 class _JwtInterceptor extends Interceptor {
-  final FlutterSecureStorage _storage;
+  final TokenStore _storage;
   final Dio    _dio;
   final Logger _logger;
 

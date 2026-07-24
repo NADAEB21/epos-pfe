@@ -188,6 +188,7 @@ class LotModel extends Lot {
     required super.etudiants,
     super.valide,
     super.groupeSuivantDisponible,
+    super.debutReel,
   });
 
   /// Réponse JSON de GET /evaluateur/stations/{id}/lots/{num} :
@@ -214,6 +215,11 @@ class LotModel extends Lot {
       // en arrière) ; se tromper dans l'autre renvoie l'évaluateur sur une rotation
       // inexistante et efface son écran de notation.
       groupeSuivantDisponible: json['groupeSuivantDisponible'] as bool? ?? false,
+      // #209 — LocalDateTime serveur « yyyy-MM-ddTHH:mm:ss » (fuseau du Clock backend) ;
+      // parsé naïf comme debutCreneau : le clockOffset du bloc compense l'écart d'horloge.
+      debutReel: json['debutReel'] != null
+          ? DateTime.tryParse(json['debutReel'] as String)
+          : null,
       etudiants: etudiants,
     );
   }

@@ -57,7 +57,9 @@ class GradingRepositoryImpl implements GradingRepository {
   @override
   Future<Lot> getGroupeSuivant(int rotationId) async {
   try {
-    final response = await _apiClient.get(ApiConstants.groupeSuivant(rotationId));
+    // #209 — POST : « Groupe suivant » est l'ACTE d'avancer (ouvre le rang suivant côté
+    // serveur + démarre son minuteur). Valider ne fait plus avancer.
+    final response = await _apiClient.post(ApiConstants.groupeSuivant(rotationId));
     final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
     return LotModel.fromJson(data);
   } on DioException catch (e) {

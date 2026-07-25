@@ -352,6 +352,20 @@ export interface GenerationResult {
 }
 
 /**
+ * Result of POST /lots/{lotId}/presence-et-demarrer (#185 — « Présence &
+ * démarrer », the conductor's single act: presence + rotation generation in one
+ * transaction; the wave opening stays delegated to ADR-0014-B).
+ */
+export interface DemarrageResult {
+  lotId: number;
+  presents: number;
+  absents: number;
+  rotations: number;
+  assignments: number;
+  avertissement: string | null;
+}
+
+/**
  * Live status of a single rotation. PERSISTED value is always EN_ATTENTE — the
  * generator hard-sets it (RotationGenerationService) and nothing on the backend
  * ever flips it (the mobile évaluateur app that would is unbuilt). So the Suivi

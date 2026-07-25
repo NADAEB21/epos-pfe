@@ -6,6 +6,7 @@ import { ApiResponse } from '../auth/auth.models';
 import {
   CreateEtudiantRequest,
   CreateParticipationRequest,
+  DemarrageResult,
   EtudiantSummary,
   ExamenResult,
   GenerationResult,
@@ -275,6 +276,21 @@ export class ScoringApiService {
     return this.http
       .post<ApiResponse<void>>(`${this.baseUrl}/lots/${lotId}/ouvrir`, null)
       .pipe(map(() => undefined));
+  }
+
+  /**
+   * #185 — « Présence & démarrer » : presence (everyone present unless `absents`
+   * given) + rotation generation for the lot, in ONE backend transaction. The
+   * wave opening stays ADR-0014-B's business: first wave auto-opens, later
+   * waves wait for the responsable's gated « Ouvrir le lot N ».
+   */
+  presenceEtDemarrer(lotId: number, absents: number[] = []): Observable<DemarrageResult> {
+    return this.http
+      .post<ApiResponse<DemarrageResult>>(
+        `${this.baseUrl}/lots/${lotId}/presence-et-demarrer`,
+        { absents },
+      )
+      .pipe(map((r) => r.data));
   }
 
   genererRotationsLot(lotId: number): Observable<GenerationResult> {

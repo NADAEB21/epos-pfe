@@ -10,6 +10,7 @@ import {
   LotSummary,
   ParticipationSummary,
 } from '../../core/api/models';
+import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 /** Backend defaults (RotationGenerationService): start 09:00, 15 min/station. */
 const DEFAULT_HEURE_DEBUT = '09:00';
@@ -19,7 +20,9 @@ const DEFAULT_DUREE_MIN = 15;
 interface Convocation {
   participationId: number;
   lotNumero: number;
-  /** Derived wave arrival time (HH:mm) — see waveStartMinutes(). */
+  /** #147 — the day the student's lot runs (yyyy-MM-dd; lot.jour ?? dateExamen). */
+  jour: string | null;
+  /** Derived wave arrival time (HH:mm), restarting at heureDebut on each day. */
   reportTime: string;
   nom: string;
   prenom: string;
@@ -125,7 +128,11 @@ interface Convocation {
                 </div>
                 <div class="text-right">
                   <p class="text-xs text-gray-400">Date</p>
-                  <p class="text-sm font-medium text-gray-900">{{ exam()?.dateExamen | date: 'dd/MM/yyyy' }}</p>
+                  <!-- #147 — the STUDENT'S day: their lot's jour when the cohort
+                       is spread over several days, else the exam's own date. -->
+                  <p class="text-sm font-medium text-gray-900">
+                    {{ (c.jour ?? exam()?.dateExamen) | date: 'dd/MM/yyyy' }}
+                  </p>
                 </div>
               </div>
               <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
@@ -160,6 +167,7 @@ interface Convocation {
 export class ConvocationsComponent {
   private readonly examApi = inject(ExamApiService);
   private readonly scoring = inject(ScoringApiService);
+  private readonly store = inject(ExamenWorkspaceStore);
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
@@ -229,25 +237,37 @@ export class ConvocationsComponent {
   ): void {
     const nameById = new Map<number, EtudiantSummary>();
     for (const e of etudiants) nameById.set(e.id, e);
-    const lotNumById = new Map<number, number>();
-    for (const l of lots) if (l.numeroLot != null) lotNumById.set(l.id, l.numeroLot);
+    const lotById = new Map<number, LotSummary>();
+    for (const l of lots) lotById.set(l.id, l);
 
     const baseMin = this.parseHeure(exam.heureDebut);
     const duree = exam.dureeStationMin ?? DEFAULT_DUREE_MIN;
 
+    // #147 — arrival windows restart at heureDebut on EACH day: a lot scheduled
+    // on day 2 queues behind the other lots of ITS day, never behind day 1's.
+    const rangParJour = new Map<string, number>();
+    const rangDuLot = new Map<number, number>();
+    for (const l of [...lots].sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0))) {
+      const day = l.jour ?? exam.dateExamen ?? '';
+      const rang = rangParJour.get(day) ?? 0;
+      rangParJour.set(day, rang + 1);
+      rangDuLot.set(l.id, rang);
+    }
+
     let unassigned = 0;
     const out: Convocation[] = [];
     for (const p of participations) {
-      const lotNumero = p.lotId != null ? lotNumById.get(p.lotId) : undefined;
-      if (lotNumero == null) {
+      const lot = p.lotId != null ? lotById.get(p.lotId) : undefined;
+      if (lot?.numeroLot == null) {
         unassigned++;
         continue;
       }
       const e = p.etudiantId != null ? nameById.get(p.etudiantId) : undefined;
-      const waveStart = baseMin + (lotNumero - 1) * k * duree;
+      const waveStart = baseMin + (rangDuLot.get(lot.id) ?? 0) * k * duree;
       out.push({
         participationId: p.id,
-        lotNumero,
+        lotNumero: lot.numeroLot,
+        jour: lot.jour,
         reportTime: this.formatMin(waveStart),
         nom: e?.nom ?? '',
         prenom: e?.prenom ?? '',
@@ -291,14 +311,25 @@ export class ConvocationsComponent {
     window.addEventListener('afterprint', cleanup);
     body.classList.add('printing-convocations');
     window.print();
+    // #185 — tell the stepper the Convocations step is handled.
+    this.store.marquerConvocationsFaites();
   }
 
   /** Client-side CSV of all convocations — no backend round-trip. */
   exportCsv(): void {
-    const header = ['Lot', 'Heure', 'Nom', 'Prenom', 'Numero inscription'];
+    const header = ['Lot', 'Date', 'Heure', 'Nom', 'Prenom', 'Numero inscription'];
     const lines = this.convocations().map((c) =>
-      [c.lotNumero, c.reportTime, c.nom, c.prenom, c.numeroInscription ?? ''].map((x) => this.csvCell(x)).join(','),
+      [
+        c.lotNumero,
+        c.jour ?? this.exam()?.dateExamen ?? '',
+        c.reportTime,
+        c.nom,
+        c.prenom,
+        c.numeroInscription ?? '',
+      ].map((x) => this.csvCell(x)).join(','),
     );
+    // #185 — tell the stepper the Convocations step is handled.
+    this.store.marquerConvocationsFaites();
     const csv = [header.map((h) => this.csvCell(h)).join(','), ...lines].join('\r\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);

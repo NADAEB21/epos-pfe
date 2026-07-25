@@ -70,7 +70,9 @@ const TABS_DONE: WorkspaceTab[] = [
         </div>
       </header>
 
-      <!-- #185 — guided preparation stepper (setup phase only) -->
+      <!-- #185 — guided preparation stepper (setup phase only). Every step is a
+           plain link (Contrôle: navigate back and forth freely); done/current
+           are guidance, never gates. -->
       @if (isSetup()) {
         <section class="rounded-xl bg-white border border-gray-200 shadow-card px-5 py-4 mb-5">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -79,9 +81,20 @@ const TABS_DONE: WorkspaceTab[] = [
               <span class="text-xs text-gray-400">Vérification…</span>
             } @else {
               @if (nextStep(); as n) {
-                <a [routerLink]="[n.segment]" class="text-xs font-medium text-brand hover:underline">
-                  Prochaine étape : {{ n.label }} &rarr;
-                </a>
+                <span class="flex items-center gap-3">
+                  <a [routerLink]="[n.segment]" class="text-xs font-medium text-brand hover:underline">
+                    Prochaine étape : {{ n.label }}@if (n.optional) { (optionnelle)} &rarr;
+                  </a>
+                  @if (nextStepSkippable()) {
+                    <button
+                      type="button"
+                      (click)="passerConvocations()"
+                      class="text-xs text-gray-500 hover:text-gray-800 underline"
+                    >
+                      Passer au lancement
+                    </button>
+                  }
+                </span>
               } @else {
                 <span class="text-xs font-medium text-status-success">Préparation complète</span>
               }
@@ -92,35 +105,27 @@ const TABS_DONE: WorkspaceTab[] = [
             <ol class="flex flex-wrap items-center gap-y-2 mt-3">
               @for (s of steps(); track s.key; let i = $index; let last = $last) {
                 <li class="flex items-center">
-                  @if (s.unlocked || s.done) {
-                    <a
-                      [routerLink]="[s.segment]"
-                      [title]="s.hint"
-                      class="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-gray-50"
-                    >
-                      <span
-                        class="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold"
-                        [class.bg-status-success]="s.done"
-                        [class.text-white]="s.done || s.current"
-                        [class.bg-brand]="!s.done && s.current"
-                        [class.bg-gray-200]="!s.done && !s.current"
-                        [class.text-gray-600]="!s.done && !s.current"
-                      >{{ s.done ? '✓' : i + 1 }}</span>
-                      <span
-                        class="text-xs whitespace-nowrap"
-                        [class.text-brand]="s.current"
-                        [class.font-semibold]="s.current"
-                        [class.text-gray-700]="!s.current"
-                      >{{ s.label }}@if (s.optional) {<span class="text-gray-400 font-normal"> (opt.)</span>}</span>
-                    </a>
-                  } @else {
-                    <div [title]="s.hint" class="flex items-center gap-1.5 px-1.5 py-1 cursor-not-allowed">
-                      <span
-                        class="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold bg-gray-100 text-gray-300"
-                      >{{ i + 1 }}</span>
-                      <span class="text-xs text-gray-300 whitespace-nowrap">{{ s.label }}@if (s.optional) {<span> (opt.)</span>}</span>
-                    </div>
-                  }
+                  <a
+                    [routerLink]="[s.segment]"
+                    [title]="s.hint"
+                    class="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-gray-50"
+                  >
+                    <span
+                      class="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold"
+                      [class.bg-status-success]="s.done"
+                      [class.text-white]="s.done || s.current"
+                      [class.bg-brand]="!s.done && s.current"
+                      [class.bg-gray-200]="!s.done && !s.current"
+                      [class.text-gray-500]="!s.done && !s.current"
+                    >{{ s.done ? '✓' : i + 1 }}</span>
+                    <span
+                      class="text-xs whitespace-nowrap"
+                      [class.text-brand]="s.current"
+                      [class.font-semibold]="s.current"
+                      [class.text-gray-700]="s.done && !s.current"
+                      [class.text-gray-500]="!s.done && !s.current"
+                    >{{ s.label }}@if (s.optional) {<span class="text-gray-400 font-normal"> (optionnelle)</span>}</span>
+                  </a>
                   @if (!last) {
                     <span class="w-3 h-px bg-gray-200 mx-0.5 shrink-0"></span>
                   }
@@ -177,6 +182,7 @@ export class ExamenWorkspaceComponent {
   readonly isSetup = this.store.isSetup;
   readonly steps = this.store.prepSteps;
   readonly nextStep = this.store.nextStep;
+  readonly nextStepSkippable = this.store.nextStepSkippable;
   readonly prepLoading = this.store.prepLoading;
   readonly prepError = this.store.prepError;
 
@@ -220,5 +226,10 @@ export class ExamenWorkspaceComponent {
 
   reloadPrep(): void {
     this.store.reloadPrep();
+  }
+
+  /** Skip the optional Convocations step — the suggestion moves to the launch. */
+  passerConvocations(): void {
+    this.store.marquerConvocationsFaites();
   }
 }

@@ -9,9 +9,10 @@ import { ExamenWorkspaceStore } from './examen-workspace.store';
  * while the exam is in the setup phase (BROUILLON / CONFIGURE); the parent's
  * status-aware tab list drops it once the exam is EN_COURS.
  *
- * Drives the lifecycle one legal edge at a time:
- *   BROUILLON  → "Finaliser la configuration" → CONFIGURE  (locks the setup)
- *   CONFIGURE  → "Lancer l'examen"            → EN_COURS   (day-of trigger)
+ * ONE action: « Lancer l'examen » (#185 rework — « Finaliser la configuration »
+ * confused the person this screen is for and no longer exists as a user act;
+ * the BROUILLON→CONFIGURE edge happens silently in the Lots tab, or is chained
+ * defensively inside the launch click, see submit()).
  *
  * Why the readiness gate lives client-side: the backend changerStatut only
  * validates the state-machine edge — it will flip a CONFIGURE exam to EN_COURS
@@ -23,7 +24,7 @@ import { ExamenWorkspaceStore } from './examen-workspace.store';
  *
  * #185: the checklist itself (stations / roster / lots / day-gate / PDF) is
  * DERIVED IN THE STORE, shared with the workspace's preparation stepper — one
- * source, no drift. This component only renders it and drives the transition.
+ * source, no drift. This component only renders it and drives the launch.
  */
 @Component({
   selector: 'app-lancement',
@@ -57,8 +58,11 @@ import { ExamenWorkspaceStore } from './examen-workspace.store';
     } @else {
       <!-- Intro -->
       <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
-        <h2 class="font-semibold text-gray-900 mb-1">{{ action().title }}</h2>
-        <p class="text-sm text-gray-500">{{ action().intro }}</p>
+        <h2 class="font-semibold text-gray-900 mb-1">Lancer l'examen</h2>
+        <p class="text-sm text-gray-500">
+          Démarrez l'examen le jour J. Une fois lancé, les évaluateurs notent les étudiants
+          en direct depuis l'application mobile, et vous suivez la progression en direct.
+        </p>
       </section>
 
       <!-- Pre-flight checklist -->
@@ -96,45 +100,16 @@ import { ExamenWorkspaceStore } from './examen-workspace.store';
         </ul>
       </section>
 
-      <!-- Lots: répartis at CONFIGURE, generated per-lot on exam day -->
-      @if (isLaunch()) {
-        <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
-          <h3 class="font-semibold text-gray-900 mb-2">Lots</h3>
-          <p class="text-sm text-gray-500 mb-3">
-            Les étudiants sont répartis en lots (vagues) avant le lancement, pour qu'ils connaissent
-            leur horaire d'arrivée. Les rotations de chaque lot se génèrent le jour J, à l'arrivée
-            de la vague, depuis l'onglet Lots.
-          </p>
-          <a
-            [routerLink]="['../lots']"
-            class="inline-flex items-center px-4 py-2 rounded-lg border border-brand text-brand text-sm font-medium hover:bg-brand-50 transition-colors"
-          >
-            {{ lotsCount() > 0 ? 'Voir les lots' : 'Répartir en lots' }}
-          </a>
-        </section>
-      }
-
       <!-- Action -->
-      <section
-        class="rounded-xl border p-5"
-        [class.bg-white]="!isLaunch()"
-        [class.border-gray-200]="!isLaunch()"
-        [class.shadow-card]="!isLaunch()"
-        [class.bg-brand-50]="isLaunch()"
-        [class.border-brand]="isLaunch()"
-      >
+      <section class="rounded-xl border p-5 bg-brand-50 border-brand">
         @if (blockersRemaining() > 0) {
           <p class="text-sm text-gray-600 mb-3">
             Completez les {{ blockersRemaining() }} verification(s) bloquante(s) ci-dessus avant de continuer.
           </p>
-        } @else if (isLaunch()) {
+        } @else {
           <p class="text-sm text-gray-700 mb-3">
             Tout est pret. Le lancement notifie les evaluateurs : ils pourront noter les
             etudiants depuis l'application mobile. <span class="font-medium">Cette action est irreversible.</span>
-          </p>
-        } @else {
-          <p class="text-sm text-gray-700 mb-3">
-            La configuration est complete. Vous pourrez lancer l'examen le jour J depuis cet onglet.
           </p>
         }
 
@@ -147,22 +122,18 @@ import { ExamenWorkspaceStore } from './examen-workspace.store';
             type="button"
             [disabled]="blockersRemaining() > 0 || submitting()"
             (click)="confirming.set(true); submitError.set(null)"
-            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            [class.bg-brand]="!isLaunch()"
-            [class.bg-status-success]="isLaunch()"
+            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-success transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {{ action().cta }}
+            Lancer l'examen
           </button>
         } @else {
           <div class="flex flex-wrap items-center gap-3">
-            <span class="text-sm font-medium text-gray-800">{{ action().confirm }}</span>
+            <span class="text-sm font-medium text-gray-800">Confirmer le lancement de l'examen ?</span>
             <button
               type="button"
               [disabled]="submitting()"
               (click)="submit()"
-              class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50"
-              [class.bg-brand]="!isLaunch()"
-              [class.bg-status-success]="isLaunch()"
+              class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-success transition-colors disabled:opacity-50"
             >
               {{ submitting() ? 'En cours…' : 'Confirmer' }}
             </button>
@@ -189,13 +160,12 @@ export class LancementComponent {
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
 
-  // Everything the gate reads is store-derived (#185): exam status, the
-  // pre-flight checklist and the lot count all come from the shared source
-  // feeding the workspace stepper.
+  // Everything the gate reads is store-derived (#185): exam status and the
+  // pre-flight checklist come from the shared source feeding the workspace
+  // stepper.
   readonly statut = computed<StatutExamen | null>(() => this.store.exam()?.statut ?? null);
   readonly checks = this.store.checks;
   readonly blockersRemaining = this.store.blockersRemaining;
-  readonly lotsCount = this.store.lotsCount;
 
   readonly loading = computed(() => this.store.loading() || this.store.prepLoading());
   readonly error = computed(() => this.store.error() || this.store.prepError());
@@ -213,55 +183,50 @@ export class LancementComponent {
     this.store.reload();
   }
 
-  /** True when the next edge is the irreversible CONFIGURE → EN_COURS launch. */
-  readonly isLaunch = computed(() => this.statut() === 'CONFIGURE');
-
-  readonly action = computed(() => {
-    if (this.isLaunch()) {
-      return {
-        title: "Lancer l'examen",
-        intro:
-          "Demarrez l'examen le jour J. Une fois lance, les evaluateurs notent les etudiants en direct depuis l'application mobile.",
-        cta: "Lancer l'examen",
-        confirm: "Confirmer le lancement de l'examen ?",
-      };
-    }
-    return {
-      title: 'Finaliser la configuration',
-      intro:
-        'Verrouillez la configuration des stations, grilles et evaluateurs. Vous pourrez ensuite lancer l\'examen le jour J.',
-      cta: 'Finaliser la configuration',
-      confirm: 'Finaliser la configuration ?',
-    };
-  });
-
   // ---- transition ---------------------------------------------------------
 
+  /**
+   * The ONLY action this tab offers is launching (#185 rework, Nada 2026-07-25):
+   * « Finaliser la configuration » no longer exists as a user act anywhere. The
+   * state machine still requires BROUILLON → CONFIGURE → EN_COURS, so when the
+   * exam somehow reaches launch day still BROUILLON (lots normally finalise it
+   * silently), both edges are chained inside this one click.
+   */
   submit(): void {
     const examId = Number(this.id());
-    const target: StatutExamen = this.isLaunch() ? 'EN_COURS' : 'CONFIGURE';
-    const wasLaunch = this.isLaunch();
     this.submitting.set(true);
     this.submitError.set(null);
-    this.examApi.changerStatut(examId, target).subscribe({
-      next: () => {
-        this.submitting.set(false);
-        this.confirming.set(false);
-        // Refresh the shared exam (+ prep data via the store) so the parent's
-        // tabs, lifecycle bar and stepper all react. On the CONFIGURE edge the
-        // roster/lots checks turn blocking simply because statut changed.
-        this.store.reload();
-        if (wasLaunch) {
-          // Exam is live now — the Lancement tab is gone; send the responsable to suivi.
+
+    const lancer = () =>
+      this.examApi.changerStatut(examId, 'EN_COURS').subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.confirming.set(false);
+          // Refresh the shared exam (+ prep data) so the parent's tabs,
+          // lifecycle bar and stepper all react, then hand over to the live board.
+          this.store.reload();
           this.router.navigate(['../suivi'], { relativeTo: this.route });
-        }
-      },
-      error: () => {
-        this.submitting.set(false);
-        this.submitError.set(
-          "Echec du changement de statut. Verifiez votre connexion puis reessayez.",
-        );
-      },
-    });
+        },
+        error: () => {
+          this.submitting.set(false);
+          this.submitError.set(
+            "Echec du lancement. Verifiez votre connexion puis reessayez.",
+          );
+        },
+      });
+
+    if (this.statut() === 'BROUILLON') {
+      this.examApi.changerStatut(examId, 'CONFIGURE').subscribe({
+        next: () => lancer(),
+        error: () => {
+          this.submitting.set(false);
+          this.submitError.set(
+            "Echec du lancement. Verifiez votre connexion puis reessayez.",
+          );
+        },
+      });
+      return;
+    }
+    lancer();
   }
 }

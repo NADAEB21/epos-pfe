@@ -17,35 +17,31 @@ export type PrepStepKey =
   | 'examen'
   | 'stations'
   | 'etudiants'
-  | 'finalisation'
   | 'lots'
-  | 'jours'
   | 'convocations'
   | 'lancement';
 
 /**
- * One step of the preparation stepper (#185). The step ORDER is Nada's spec —
- * créer l'examen → stations & grilles → étudiants → générer les lots →
- * (optionnel) plusieurs jours → convocations → lancer — with one addition the
- * real state machine imposes: « Finaliser la configuration » sits between
- * étudiants and lots, because répartition is gated to CONFIGURE (backend +
- * Lots tab both refuse it at BROUILLON — the very constraint #185 complains
- * was only discoverable by failing). `tracked` steps have an observable
- * done-state; annex steps (jours, convocations) are deliverables with no
- * persisted "done" and never gate the chain.
+ * One step of the preparation stepper (#185, reworked on Nada's test feedback
+ * 2026-07-25). The chain is the teacher's mental model, verbatim: créer →
+ * stations & grilles → étudiants → générer les lots → convocations (optionnelle,
+ * skippable) → lancer. The BROUILLON→CONFIGURE transition is NOT a step — the
+ * word « Finaliser » confused the one person this screen is for; the Lots tab
+ * performs it silently inside « Générer les lots » (see LotsComponent.repartir).
+ *
+ * <p>Every step is ALWAYS navigable (Contrôle: the teacher may import students
+ * before creating stations if they wish) — `done`/`current` are pure guidance,
+ * never gates. The real gates live where they always did: on the actions
+ * (backend + per-tab buttons), with explanatory refusals.
  */
 export interface PrepStep {
   key: PrepStepKey;
   label: string;
   /** Workspace tab segment the step deep-links to. */
   segment: string;
-  /** False for annex steps whose completion is not observable server-side. */
-  tracked: boolean;
   optional: boolean;
   done: boolean;
-  /** Sequential unlock — a required step opens once the previous one is done. */
-  unlocked: boolean;
-  /** The single next required action (at most one step is current). */
+  /** The suggested next action (at most one step is current). */
   current: boolean;
   hint: string;
 }
@@ -83,13 +79,40 @@ export class ExamenWorkspaceStore {
   readonly prepLoading = signal(true);
   readonly prepError = signal(false);
 
+  /**
+   * #185 — the Convocations step is optional-but-real: « done » means the
+   * teacher either printed/exported the slips (ConvocationsComponent reports it)
+   * or explicitly skipped the step from the stepper. Persisted per exam in
+   * localStorage — it is a UI acknowledgement, not domain data.
+   */
+  readonly convocationsFaites = signal(false);
+
   /** Tracks the exam currently loaded, so reload() needs no argument. */
   private currentId: number | null = null;
+
+  private convocationsKey(id: number): string {
+    return `epos.examen.${id}.convocations-faites`;
+  }
+
+  marquerConvocationsFaites(): void {
+    if (this.currentId == null) return;
+    this.convocationsFaites.set(true);
+    try {
+      localStorage.setItem(this.convocationsKey(this.currentId), '1');
+    } catch {
+      // Storage unavailable (private mode…) — the in-session signal still holds.
+    }
+  }
 
   load(id: number): void {
     this.currentId = id;
     this.loading.set(true);
     this.error.set(false);
+    try {
+      this.convocationsFaites.set(localStorage.getItem(this.convocationsKey(id)) === '1');
+    } catch {
+      this.convocationsFaites.set(false);
+    }
     this.examApi.getExamen(id).subscribe({
       next: (e) => {
         this.exam.set(e);
@@ -161,9 +184,6 @@ export class ExamenWorkspaceStore {
     () => this.stations().filter((s) => !s.hasGrille).length,
   );
 
-  /** Roster is a hard requirement only for the launch edge, not for finalising. */
-  private readonly rosterBlocks = computed(() => this.statut() === 'CONFIGURE');
-
   private readonly dateExamen = computed(() => this.exam()?.dateExamen ?? null);
   /** #147 — launch is allowed on ANY of the exam's lot-days (multi-day). For a
    *  single-day exam (no lot carries a `jour`) this reduces to the exam's own
@@ -183,7 +203,11 @@ export class ExamenWorkspaceStore {
     return d && m && y ? `${d}/${m}/${y}` : iso;
   }
 
-  /** Lancement pre-flight checklist — same base signals as the stepper. */
+  /**
+   * Lancement pre-flight checklist — same base signals as the stepper. Every
+   * check is blocking (the only action left on the tab is the launch itself;
+   * « Finaliser » no longer exists as a user act), except the soft PDF one.
+   */
   readonly checks = computed<PreflightCheck[]>(() => {
     const n = this.stations().length;
     const hasStations = n > 0;
@@ -215,13 +239,11 @@ export class ExamenWorkspaceStore {
       {
         label: 'Etudiants inscrits',
         ok: this.rosterCount() > 0,
-        blocking: this.rosterBlocks(),
+        blocking: true,
         hint:
           this.rosterCount() > 0
             ? `${this.rosterCount()} etudiant(s)`
-            : this.rosterBlocks()
-              ? 'Aucun etudiant inscrit — requis pour lancer'
-              : 'A inscrire avant le jour J',
+            : 'Aucun etudiant inscrit — requis pour lancer',
       },
       {
         // The pre-flight that replaces #130's "rotations generated": rotations
@@ -229,21 +251,18 @@ export class ExamenWorkspaceStore {
         // waves are partitioned, not that the circuit exists.
         label: 'Lots repartis',
         ok: this.lotsCount() > 0,
-        blocking: this.rosterBlocks(),
+        blocking: true,
         hint:
           this.lotsCount() > 0
             ? `${this.lotsCount()} lot(s)`
-            : this.rosterBlocks()
-              ? 'Repartissez les etudiants en lots (onglet Lots) — requis pour lancer'
-              : 'A repartir avant le jour J',
+            : 'Repartissez les etudiants en lots (onglet Lots) — requis pour lancer',
       },
       {
-        // Day-of gate: a CONFIGURE exam can only be launched on one of its
-        // lot-days (#147 multi-day; single-day = the exam's own date). Blocking
-        // for the launch edge only; never blocks "Finaliser la configuration".
+        // Day-of gate: launch is only allowed on one of the exam's lot-days
+        // (#147 multi-day; single-day = the exam's own date).
         label: "Jour de l'examen",
         ok: this.canLaunchDay(),
-        blocking: this.rosterBlocks(),
+        blocking: true,
         hint: this.canLaunchDay()
           ? "C'est un jour d'examen"
           : this.dateHint() ?? 'A lancer le jour J',
@@ -260,7 +279,12 @@ export class ExamenWorkspaceStore {
     () => this.checks().filter((c) => c.blocking && !c.ok).length,
   );
 
-  /** The guided preparation path (#185) — order is Nada's spec, verbatim. */
+  /**
+   * The guided preparation path (#185, order = the teacher's mental model).
+   * The BROUILLON→CONFIGURE transition is invisible: « Générer les lots »
+   * performs it silently (LotsComponent), « Lancer l'examen » chains it
+   * defensively (LancementComponent). No step ever mentions it.
+   */
   readonly prepSteps = computed<PrepStep[]>(() => {
     const e = this.exam();
     if (!e) return [];
@@ -272,7 +296,9 @@ export class ExamenWorkspaceStore {
     const rosterOk = roster > 0;
     const lotsN = this.lotsCount();
     const lotsOk = lotsN > 0;
-    const finaliseOk = e.statut !== 'BROUILLON';
+    const joursDistincts = new Set(this.lots().map((l) => l.jour).filter(Boolean)).size;
+    const convocationsOk = this.convocationsFaites();
+    const lanceOk = !this.isSetup();
 
     const stationsHint =
       n === 0
@@ -283,15 +309,21 @@ export class ExamenWorkspaceStore {
             ? `${sansGrille} station(s) sans grille`
             : `${n} station(s) prête(s)`;
 
+    const lotsHint = !lotsOk
+      ? rosterOk
+        ? 'Répartissez les étudiants en vagues — un clic dans l’onglet Lots'
+        : 'Inscrivez d’abord des étudiants, puis répartissez-les en vagues'
+      : joursDistincts > 0
+        ? `${lotsN} lot(s) répartis sur plusieurs jours`
+        : `${lotsN} lot(s) répartis · étalables sur plusieurs jours (champ « Jour » de chaque lot)`;
+
     const steps: PrepStep[] = [
       {
         key: 'examen',
         label: "Créer l'examen",
         segment: 'vue-ensemble',
-        tracked: true,
         optional: false,
         done: true,
-        unlocked: true,
         current: false,
         hint: 'Nom, date et paramètres du circuit',
       },
@@ -299,10 +331,8 @@ export class ExamenWorkspaceStore {
         key: 'stations',
         label: 'Stations & grilles',
         segment: 'stations-grilles',
-        tracked: true,
         optional: false,
         done: stationsOk,
-        unlocked: true,
         current: false,
         hint: stationsHint,
       },
@@ -310,91 +340,63 @@ export class ExamenWorkspaceStore {
         key: 'etudiants',
         label: 'Étudiants',
         segment: 'etudiants',
-        tracked: true,
         optional: false,
         done: rosterOk,
-        unlocked: stationsOk,
         current: false,
         hint: rosterOk ? `${roster} étudiant(s) inscrit(s)` : 'Importez la liste (CSV / Excel)',
       },
       {
-        // The state machine's own gate: répartition only exists at CONFIGURE,
-        // so finalising is a REQUIRED step of the path, not an afterthought.
-        key: 'finalisation',
-        label: 'Finaliser la configuration',
-        segment: 'lancement',
-        tracked: true,
-        optional: false,
-        done: finaliseOk,
-        unlocked: stationsOk && rosterOk,
-        current: false,
-        hint: finaliseOk
-          ? 'Configuration verrouillée'
-          : 'Verrouillez stations, grilles et étudiants pour débloquer les lots',
-      },
-      {
+        // Also home of the multi-day option (#147): each lot card carries a
+        // « Jour » field once the lots exist — per-lot data lives with the lots.
         key: 'lots',
         label: 'Générer les lots',
         segment: 'lots',
-        tracked: true,
         optional: false,
         done: lotsOk,
-        unlocked: finaliseOk,
         current: false,
-        hint: lotsOk ? `${lotsN} lot(s) répartis` : 'Répartissez les étudiants en vagues',
+        hint: lotsHint,
       },
       {
-        // #147 — Lot.jour exists server-side but has no editing UI yet; the
-        // step stays visible (Nada's list) and honest about being unavailable.
-        key: 'jours',
-        label: 'Plusieurs jours',
-        segment: 'lots',
-        tracked: false,
-        optional: true,
-        done: false,
-        unlocked: false,
-        current: false,
-        hint: 'Optionnel — répartir les lots sur plusieurs jours (bientôt disponible)',
-      },
-      {
-        // #227 — printable slips work; emailing is data-blocked (no student
-        // email). Annex step: a print run is not observable, so no done-state.
+        // #227 — printable slips; emailing stays data-blocked (no student
+        // email). Optional but a REAL step: done = printed/exported, or
+        // explicitly skipped from the stepper.
         key: 'convocations',
         label: 'Convocations',
         segment: 'convocations',
-        tracked: false,
         optional: true,
-        done: false,
-        unlocked: lotsOk,
+        done: convocationsOk,
         current: false,
         hint: lotsOk
-          ? 'Imprimables — envoi par email indisponible (emails étudiants manquants)'
+          ? 'Imprimez ou exportez les convocations — ou passez cette étape'
           : 'Disponibles une fois les lots répartis',
       },
       {
-        // The bridge into the day-of conductor (slice 3): during setup this is
-        // never done, so the "next step" line ends on it once all else is ✓.
         key: 'lancement',
         label: "Lancer l'examen",
         segment: 'lancement',
-        tracked: true,
         optional: false,
-        done: !this.isSetup(),
-        unlocked: finaliseOk && lotsOk,
+        done: lanceOk,
         current: false,
-        hint: !finaliseOk || !lotsOk
-          ? 'Se débloque une fois les lots répartis'
+        hint: !lotsOk
+          ? 'Dernière étape — une fois les lots répartis'
           : this.canLaunchDay()
             ? "Prêt — lancez l'examen"
             : 'Prêt — lancement le jour J',
       },
     ];
 
-    const cur = steps.find((s) => s.tracked && !s.done);
+    const cur = steps.find((s) => !s.done);
     if (cur) cur.current = true;
     return steps;
   });
 
-  /** The single next required action — the #185 "next step" affordance. */
+  /** The single suggested next action — the #185 "next step" affordance. */
   readonly nextStep = computed(() => this.prepSteps().find((s) => s.current) ?? null);
+
+  /**
+   * True while the suggested next step is the optional Convocations one — the
+   * stepper then also offers « Passer au lancement » (skip), per Nada's spec:
+   * optional, but genuinely the next step until decided.
+   */
+  readonly nextStepSkippable = computed(() => this.nextStep()?.key === 'convocations');
 }

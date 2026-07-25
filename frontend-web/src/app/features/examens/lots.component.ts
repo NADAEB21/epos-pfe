@@ -26,7 +26,9 @@ interface LotView {
   numeroLot: number;
   statut: LotSummary['statut'];
   members: LotMember[];
-  /** Back-to-back wave start: heureDebut + (numeroLot-1)·K·dureeStationMin. */
+  /** #147 — the day this lot runs (yyyy-MM-dd); null = the exam's own date. */
+  jour: string | null;
+  /** Back-to-back wave start WITHIN the lot's day: heureDebut + rank·K·durée. */
   arrivee: string | null;
 }
 
@@ -78,15 +80,16 @@ interface LotView {
           Un lot est une vague d'étudiants qui parcourent le circuit ensemble à un horaire donné.
           Taille d'un lot : {{ stationCount() }} station(s) × {{ capacite() }} =
           <span class="font-medium text-gray-700">{{ lotSize() }}</span> étudiants.
-          @if (isConfigure()) {
+          @if (isSetupPhase()) {
             Les étudiants connaissent leur lot et leur horaire d'arrivée à l'avance ; les rotations
             sont générées le jour J, lot par lot.
           }
         </p>
       </section>
 
-      <!-- CONFIGURE: répartition -->
-      @if (isConfigure()) {
+      <!-- Setup phase: répartition (#185 — reachable from BROUILLON: the required
+           CONFIGURE transition happens silently inside the click) -->
+      @if (isSetupPhase()) {
         <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
           <div class="flex items-center justify-between gap-4 mb-3">
             <h3 class="font-semibold text-gray-900">Répartition</h3>
@@ -148,8 +151,41 @@ interface LotView {
               </div>
               <p class="text-sm text-gray-500 mb-3">
                 {{ lot.members.length }} étudiant(s)@if (lot.arrivee) { · arrivée prévue
-                <span class="font-medium text-gray-700">{{ lot.arrivee }}</span>}.
+                <span class="font-medium text-gray-700">
+                  @if (lot.jour) {le {{ frDate(lot.jour) }} à }{{ lot.arrivee }}</span>}.
               </p>
+
+              <!-- #147 — multi-jour : le jour de passage se règle ICI, sur le lot
+                   (donnée par-lot), pendant la configuration. Vide = jour unique
+                   de l'examen. Le jour J du lancement lit déjà ces valeurs. -->
+              @if (isConfigure()) {
+                <div class="flex flex-wrap items-center gap-2 mb-3 text-sm">
+                  <label class="text-gray-500" [for]="'jour-' + lot.id">Jour de passage :</label>
+                  <input
+                    type="date"
+                    [id]="'jour-' + lot.id"
+                    [value]="lot.jour ?? ''"
+                    (change)="changerJour(lot, $event)"
+                    [disabled]="busy() || jourSavingLot() === lot.id"
+                    class="rounded-lg border border-gray-200 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                  />
+                  @if (jourSavingLot() === lot.id) {
+                    <span class="text-xs text-gray-400">Enregistrement…</span>
+                  } @else if (!lot.jour) {
+                    <span class="text-xs text-gray-400">
+                      vide = jour de l'examen ({{ frDate(dateExamen()) }})
+                    </span>
+                  } @else {
+                    <button
+                      type="button"
+                      (click)="effacerJour(lot)"
+                      class="text-xs text-gray-500 hover:text-gray-800 underline"
+                    >
+                      Revenir au jour de l'examen
+                    </button>
+                  }
+                </div>
+              }
 
               <!-- EN_COURS: presence + generation -->
               @if (isEnCours()) {
@@ -288,7 +324,7 @@ interface LotView {
             </section>
           }
         </div>
-      } @else if (!isConfigure()) {
+      } @else if (!isSetupPhase()) {
         <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
           <p class="text-gray-700 mb-1">Aucun lot pour cet examen.</p>
           <p class="text-sm text-gray-500">Les lots se répartissent en phase de configuration.</p>
@@ -337,7 +373,15 @@ export class LotsComponent {
 
   readonly statut = computed(() => this.store.exam()?.statut ?? null);
   readonly isConfigure = computed(() => this.statut() === 'CONFIGURE');
+  /** #185 — répartition is offered through the whole setup phase; a BROUILLON
+   *  exam is finalised silently inside the click (see repartir). */
+  readonly isSetupPhase = computed(
+    () => this.statut() === 'BROUILLON' || this.statut() === 'CONFIGURE',
+  );
   readonly isEnCours = computed(() => this.statut() === 'EN_COURS');
+  readonly dateExamen = computed(() => this.store.exam()?.dateExamen ?? null);
+  /** #147 — lot id whose « Jour » change is being saved. */
+  readonly jourSavingLot = signal<number | null>(null);
 
   readonly capacite = computed(() => this.store.exam()?.nbEtudiantsParStation ?? 4);
   readonly lotSize = computed(() => Math.max(1, this.stationCount()) * this.capacite());
@@ -351,29 +395,38 @@ export class LotsComponent {
       if (p.lotId == null) continue;
       (partsByLot.get(p.lotId) ?? partsByLot.set(p.lotId, []).get(p.lotId)!).push(p);
     }
-    return [...this.lots()]
-      .sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0))
-      .map((lot) => {
-        const members = (partsByLot.get(lot.id) ?? [])
-          .map((p) => {
-            const e = p.etudiantId != null ? names.get(p.etudiantId) : undefined;
-            return {
-              participationId: p.id,
-              nom: e?.nom ?? '',
-              prenom: e?.prenom ?? '',
-              numeroInscription: e?.numero_inscription ?? null,
-              present: p.est_present,
-            };
-          })
-          .sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
-        return {
-          id: lot.id,
-          numeroLot: lot.numeroLot ?? 0,
-          statut: lot.statut,
-          members,
-          arrivee: this.arrivee(lot.numeroLot ?? 1),
-        };
-      });
+    // #147 — arrival windows restart at heureDebut on EACH day: waves queue
+    // back-to-back within their own day, never across days (a lot scheduled
+    // tomorrow does not inherit today's accumulated offset).
+    const sorted = [...this.lots()].sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0));
+    const rangParJour = new Map<string, number>();
+
+    return sorted.map((lot) => {
+      const day = lot.jour ?? this.dateExamen() ?? '';
+      const rang = rangParJour.get(day) ?? 0;
+      rangParJour.set(day, rang + 1);
+
+      const members = (partsByLot.get(lot.id) ?? [])
+        .map((p) => {
+          const e = p.etudiantId != null ? names.get(p.etudiantId) : undefined;
+          return {
+            participationId: p.id,
+            nom: e?.nom ?? '',
+            prenom: e?.prenom ?? '',
+            numeroInscription: e?.numero_inscription ?? null,
+            present: p.est_present,
+          };
+        })
+        .sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
+      return {
+        id: lot.id,
+        numeroLot: lot.numeroLot ?? 0,
+        statut: lot.statut,
+        members,
+        jour: lot.jour,
+        arrivee: this.arrivee(rang),
+      };
+    });
   });
 
   constructor() {
@@ -467,6 +520,28 @@ export class LotsComponent {
     if (this.busy() || this.rosterCount() === 0) return;
     this.repartitionning.set(true);
     this.actionError.set(null);
+
+    // #185 — the backend gates répartition to CONFIGURE, but « Finaliser la
+    // configuration » proved too cryptic to be a step of the teacher's path
+    // (Nada, 2026-07-25). So the transition happens HERE, silently, inside the
+    // one act the teacher actually means: generating the lots.
+    if (this.statut() === 'BROUILLON') {
+      this.examApi.changerStatut(examId, 'CONFIGURE').subscribe({
+        next: (e) => {
+          this.store.exam.set(e); // parent header/tabs/steps react at once
+          this.doRepartir(examId);
+        },
+        error: (err) => {
+          this.repartitionning.set(false);
+          this.actionError.set(this.message(err, 'Répartition impossible.'));
+        },
+      });
+      return;
+    }
+    this.doRepartir(examId);
+  }
+
+  private doRepartir(examId: number): void {
     this.scoring.repartirLots(examId).subscribe({
       next: () => {
         this.repartitionning.set(false);
@@ -479,6 +554,43 @@ export class LotsComponent {
         this.actionError.set(this.message(err, 'Répartition impossible.'));
       },
     });
+  }
+
+  // ---- #147: jour de passage d'un lot (multi-jour) -------------------------
+
+  changerJour(lot: LotView, event: Event): void {
+    const value = (event.target as HTMLInputElement).value; // '' when cleared
+    this.saveJour(lot, value === '' ? null : value);
+  }
+
+  effacerJour(lot: LotView): void {
+    this.saveJour(lot, null);
+  }
+
+  private saveJour(lot: LotView, jour: string | null): void {
+    if (this.jourSavingLot() != null) return;
+    this.jourSavingLot.set(lot.id);
+    this.clearLotError(lot.id);
+    this.scoring.changerJourLot(lot.id, jour).subscribe({
+      next: (updated) => {
+        this.jourSavingLot.set(null);
+        this.lots.update((list) =>
+          list.map((l) => (l.id === lot.id ? { ...l, jour: updated.jour } : l)),
+        );
+        // The launch day-gate + stepper hints read lot days — keep them honest.
+        this.store.reloadPrep();
+      },
+      error: (err) => {
+        this.jourSavingLot.set(null);
+        this.setLotError(lot.id, this.message(err, 'Changement de jour impossible.'));
+      },
+    });
+  }
+
+  frDate(iso: string | null): string {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return d && m && y ? `${d}/${m}/${y}` : iso;
   }
 
   // ---- CONFIGURE: manual single-student lot move (#165) ------------------
@@ -601,8 +713,8 @@ export class LotsComponent {
 
   // ---- helpers ------------------------------------------------------------
 
-  /** Back-to-back wave start: heureDebut + (numeroLot-1)·K·dureeStationMin → HH:mm. */
-  private arrivee(numeroLot: number): string | null {
+  /** Back-to-back wave start: heureDebut + rangDansLeJour·K·dureeStationMin → HH:mm. */
+  private arrivee(rangDansLeJour: number): string | null {
     const e = this.store.exam();
     const heure = e?.heureDebut;
     const duree = e?.dureeStationMin;
@@ -610,7 +722,7 @@ export class LotsComponent {
     if (!heure || !duree || k === 0) return null;
     const [h, m] = heure.split(':').map(Number);
     if (Number.isNaN(h) || Number.isNaN(m)) return null;
-    const total = h * 60 + m + (numeroLot - 1) * k * duree;
+    const total = h * 60 + m + rangDansLeJour * k * duree;
     const hh = Math.floor((total % (24 * 60)) / 60);
     const mm = total % 60;
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;

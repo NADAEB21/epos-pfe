@@ -279,6 +279,17 @@ export class ScoringApiService {
   }
 
   /**
+   * #147 — set (or clear, with `null`) the day a lot runs on. PATCH-only
+   * endpoint: the generic lot PUT cannot express "clear" (its null means
+   * "leave untouched", #215). CONFIGURE-gated server-side.
+   */
+  changerJourLot(lotId: number, jour: string | null): Observable<LotSummary> {
+    return this.http
+      .patch<ApiResponse<LotSummary>>(`${this.baseUrl}/lots/${lotId}/jour`, { jour })
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * #185 — « Présence & démarrer » : presence (everyone present unless `absents`
    * given) + rotation generation for the lot, in ONE backend transaction. The
    * wave opening stays ADR-0014-B's business: first wave auto-opens, later

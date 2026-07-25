@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.scoring_service.dto.ChangerJourRequest;
 import tn.epos.scoring_service.dto.LotDTO; // New Import
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.dto.dashboard.SuiviProgressionResponse;
@@ -141,5 +142,21 @@ public class LotController {
             @PathVariable Long targetLotId, @PathVariable Long participationId) {
         ParticipationDTO dto = lotAssignmentService.deplacerEtudiant(targetLotId, participationId);
         return ResponseEntity.ok(ApiResponse.ok("Étudiant déplacé", dto));
+    }
+
+    /**
+     * #147 / ADR-0014-A §5 — fixe (ou efface : {@code {"jour": null}}) le jour de
+     * passage d'un lot, pour étaler une cohorte sur plusieurs jours. RESP/ADMIN,
+     * CONFIGURE-only (même fenêtre que la répartition). Le PUT générique ne
+     * convient pas : sa sémantique PATCH (#215) ignore un {@code jour} null, donc
+     * ne sait pas RE-attacher un lot au jour unique de l'examen.
+     */
+    @PatchMapping("/{id}/jour")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<LotDTO>> changerJour(
+            @PathVariable Long id, @RequestBody ChangerJourRequest body) {
+        LotDTO dto = lotAssignmentService.changerJour(id, body.jour());
+        return ResponseEntity.ok(ApiResponse.ok(
+                body.jour() == null ? "Lot rattaché au jour de l'examen" : "Jour du lot mis à jour", dto));
     }
 }

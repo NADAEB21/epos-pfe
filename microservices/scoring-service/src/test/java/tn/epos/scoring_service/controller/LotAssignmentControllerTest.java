@@ -15,6 +15,7 @@ import tn.epos.scoring_service.dto.PresenceBulkRequest;
 import tn.epos.scoring_service.dto.PresenceResult;
 import tn.epos.scoring_service.dto.RepartitionResult;
 import tn.epos.scoring_service.service.LotAssignmentService;
+import tn.epos.scoring_service.service.LotDemarrageService;
 
 import java.util.List;
 
@@ -37,6 +38,9 @@ class LotAssignmentControllerTest {
 
     @MockBean
     private LotAssignmentService lotAssignmentService;
+
+    @MockBean
+    private LotDemarrageService lotDemarrageService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 

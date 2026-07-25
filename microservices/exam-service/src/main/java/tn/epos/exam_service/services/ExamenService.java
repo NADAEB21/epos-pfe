@@ -37,6 +37,13 @@ public interface ExamenService {
     /** Changer le statut d'un examen (BROUILLON → CONFIGURE → EN_COURS...) */
     ExamenResponse changerStatut(Long id, StatutExamen nouveauStatut);
 
+    /**
+     * #265 — les examens EN_COURS qui partagent des évaluateurs avec celui-ci.
+     * Alimente la ligne « Évaluateurs disponibles » du pre-flight de Lancement ;
+     * la garde autoritaire reste {@link #changerStatut} (refus au lancement).
+     */
+    java.util.List<tn.epos.exam_service.dto.response.ConflitEvaluateurResponse> listerConflitsEvaluateurs(Long id);
+
     /** Mettre en pause un examen EN_COURS (ADR-0009 ; le statut reste EN_COURS) */
     ExamenResponse mettreEnPause(Long id);
 

@@ -207,26 +207,33 @@ export class LancementComponent {
           this.store.reload();
           this.router.navigate(['../suivi'], { relativeTo: this.route });
         },
-        error: () => {
-          this.submitting.set(false);
-          this.submitError.set(
-            "Echec du lancement. Verifiez votre connexion puis reessayez.",
-          );
-        },
+        error: (err) => this.echec(err),
       });
 
     if (this.statut() === 'BROUILLON') {
       this.examApi.changerStatut(examId, 'CONFIGURE').subscribe({
         next: () => lancer(),
-        error: () => {
-          this.submitting.set(false);
-          this.submitError.set(
-            "Echec du lancement. Verifiez votre connexion puis reessayez.",
-          );
-        },
+        error: (err) => this.echec(err),
       });
       return;
     }
     lancer();
+  }
+
+  /**
+   * Backend refusals (#265 évaluateurs déjà engagés, pause, transition…) are
+   * explanatory and name what to do — show them verbatim (Robustesse), and only
+   * fall back to the generic network line when there is no message.
+   */
+  private echec(err: { error?: { message?: unknown } }): void {
+    this.submitting.set(false);
+    // Refresh the pre-flight: the refusal may reflect a state change (e.g. a
+    // conflicting exam launched since the page loaded).
+    this.store.reloadPrep();
+    this.submitError.set(
+      typeof err?.error?.message === 'string' && err.error.message
+        ? err.error.message
+        : 'Echec du lancement. Verifiez votre connexion puis reessayez.',
+    );
   }
 }

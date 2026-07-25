@@ -352,6 +352,17 @@ export interface GenerationResult {
 }
 
 /**
+ * #265 — one EN_COURS exam sharing évaluateurs with the exam being prepared
+ * (GET /examens/{id}/conflits-evaluateurs). Non-empty = launching would
+ * double-book a human across two rooms; the backend refuses it at changerStatut.
+ */
+export interface ConflitEvaluateur {
+  examenId: number;
+  examenNom: string;
+  evaluateurIds: number[];
+}
+
+/**
  * Result of POST /lots/{lotId}/presence-et-demarrer (#185 — « Présence &
  * démarrer », the conductor's single act: presence + rotation generation in one
  * transaction; the wave opening stays delegated to ADR-0014-B).

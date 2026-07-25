@@ -2,7 +2,13 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { ExamenResponse, LotSummary, StationSummary, StatutExamen } from '../../core/api/models';
+import {
+  ConflitEvaluateur,
+  ExamenResponse,
+  LotSummary,
+  StationSummary,
+  StatutExamen,
+} from '../../core/api/models';
 import { isFutureDate, isLaunchDay } from '../../core/api/exam-status';
 
 export interface PreflightCheck {
@@ -76,6 +82,8 @@ export class ExamenWorkspaceStore {
   readonly stations = signal<StationSummary[]>([]);
   readonly rosterCount = signal(0);
   readonly lots = signal<LotSummary[]>([]);
+  /** #265 — EN_COURS exams holding évaluateurs this exam also needs. */
+  readonly conflitsEvaluateurs = signal<ConflitEvaluateur[]>([]);
   readonly prepLoading = signal(true);
   readonly prepError = signal(false);
 
@@ -150,11 +158,13 @@ export class ExamenWorkspaceStore {
       stations: this.examApi.listStations(id),
       participations: this.scoring.listParticipations(id),
       lots: this.scoring.listLots(id),
+      conflits: this.examApi.listConflitsEvaluateurs(id),
     }).subscribe({
-      next: ({ stations, participations, lots }) => {
+      next: ({ stations, participations, lots, conflits }) => {
         this.stations.set(stations);
         this.rosterCount.set(participations.length);
         this.lots.set(lots);
+        this.conflitsEvaluateurs.set(conflits);
         this.prepLoading.set(false);
       },
       error: () => {
@@ -266,6 +276,19 @@ export class ExamenWorkspaceStore {
         hint: this.canLaunchDay()
           ? "C'est un jour d'examen"
           : this.dateHint() ?? 'A lancer le jour J',
+      },
+      {
+        // #265 — a human cannot hold stations in two live exams at once. The
+        // backend refuses the launch; this row says it BEFORE the click.
+        label: 'Evaluateurs disponibles',
+        ok: this.conflitsEvaluateurs().length === 0,
+        blocking: true,
+        hint:
+          this.conflitsEvaluateurs().length === 0
+            ? undefined
+            : this.conflitsEvaluateurs()
+                .map((c) => `${c.evaluateurIds.length} évaluateur(s) déjà engagé(s) dans « ${c.examenNom} » (en cours)`)
+                .join(' · '),
       },
       {
         label: 'Sujet PDF importe',

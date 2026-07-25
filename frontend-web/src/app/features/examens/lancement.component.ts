@@ -1,19 +1,8 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { StationSummary, StatutExamen } from '../../core/api/models';
-import { isLaunchDay, isFutureDate } from '../../core/api/exam-status';
+import { StatutExamen } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
-
-interface PreflightCheck {
-  label: string;
-  ok: boolean;
-  /** A blocking check must be green before the lifecycle action is allowed. */
-  blocking: boolean;
-  hint?: string;
-}
 
 /**
  * Lancement tab — the responsable's pre-flight + launch control. Only reachable
@@ -24,17 +13,17 @@ interface PreflightCheck {
  *   BROUILLON  → "Finaliser la configuration" → CONFIGURE  (locks the setup)
  *   CONFIGURE  → "Lancer l'examen"            → EN_COURS   (day-of trigger)
  *
- * Why the readiness gate lives here, not on the server: the backend
- * changerStatut only validates the state-machine edge — it will flip a CONFIGURE
- * exam to EN_COURS with zero évaluateurs, no grilles and an empty roster. Until a
- * backend pre-launch validation endpoint exists, this client-side gate is the
- * only thing stopping a misconfigured launch that would strand the mobile
- * évaluateurs on exam day. Blocking checks disable the action; the soft check
- * (sujet PDF) only warns.
+ * Why the readiness gate lives client-side: the backend changerStatut only
+ * validates the state-machine edge — it will flip a CONFIGURE exam to EN_COURS
+ * with zero évaluateurs, no grilles and an empty roster. Until a backend
+ * pre-launch validation endpoint exists, this client-side gate is the only thing
+ * stopping a misconfigured launch that would strand the mobile évaluateurs on
+ * exam day. Blocking checks disable the action; the soft check (sujet PDF) only
+ * warns.
  *
- * Reads exam status from the route-scoped store so the launch reactively updates
- * the parent's tabs + lifecycle bar via store.reload(); stations + roster are
- * fetched here since they're specific to this gate.
+ * #185: the checklist itself (stations / roster / lots / day-gate / PDF) is
+ * DERIVED IN THE STORE, shared with the workspace's preparation stepper — one
+ * source, no drift. This component only renders it and drives the transition.
  */
 @Component({
   selector: 'app-lancement',
@@ -193,7 +182,6 @@ interface PreflightCheck {
 })
 export class LancementComponent {
   private readonly examApi = inject(ExamApiService);
-  private readonly scoring = inject(ScoringApiService);
   private readonly store = inject(ExamenWorkspaceStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -201,171 +189,29 @@ export class LancementComponent {
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
   readonly id = input.required<string>();
 
-  // Exam status comes from the shared store (the parent already loaded it);
-  // stations + roster are this gate's own concern.
+  // Everything the gate reads is store-derived (#185): exam status, the
+  // pre-flight checklist and the lot count all come from the shared source
+  // feeding the workspace stepper.
   readonly statut = computed<StatutExamen | null>(() => this.store.exam()?.statut ?? null);
-  private readonly hasPdf = computed(() => this.store.exam()?.hasPdfSujet ?? false);
+  readonly checks = this.store.checks;
+  readonly blockersRemaining = this.store.blockersRemaining;
+  readonly lotsCount = this.store.lotsCount;
 
-  private readonly stations = signal<StationSummary[]>([]);
-  private readonly rosterCount = signal(0);
-  readonly lotsCount = signal(0);
-  private readonly localLoading = signal(true);
-  private readonly localError = signal(false);
-
-  readonly loading = computed(() => this.store.loading() || this.localLoading());
-  readonly error = computed(() => this.store.error() || this.localError());
+  readonly loading = computed(() => this.store.loading() || this.store.prepLoading());
+  readonly error = computed(() => this.store.error() || this.store.prepError());
 
   readonly confirming = signal(false);
   readonly submitting = signal(false);
   readonly submitError = signal<string | null>(null);
 
   constructor() {
-    effect(() => {
-      const examId = Number(this.id());
-      if (!Number.isFinite(examId)) {
-        this.localError.set(true);
-        this.localLoading.set(false);
-        return;
-      }
-      this.load(examId);
-    }, { allowSignalWrites: true });
+    // Fresh gate on tab entry — a mutation elsewhere may have been missed.
+    this.store.reloadPrep();
   }
 
   reload(): void {
     this.store.reload();
-    this.load(Number(this.id()));
   }
-
-  private load(examId: number): void {
-    this.localLoading.set(true);
-    this.localError.set(false);
-    this.confirming.set(false);
-    forkJoin({
-      stations: this.examApi.listStations(examId),
-      participations: this.scoring.listParticipations(examId),
-      lots: this.scoring.listLots(examId),
-    }).subscribe({
-      next: ({ stations, participations, lots }) => {
-        this.stations.set(stations);
-        this.rosterCount.set(participations.length);
-        this.lotsCount.set(lots.length);
-        this.lotJours.set(lots.map((l) => l.jour)); // #147 — lot-days for the launch gate
-        this.localLoading.set(false);
-      },
-      error: () => {
-        this.localError.set(true);
-        this.localLoading.set(false);
-      },
-    });
-  }
-
-  // ---- pre-flight ---------------------------------------------------------
-
-  private readonly sansEvaluateur = computed(
-    () => this.stations().filter((s) => (s.evaluateurIds?.length ?? 0) === 0).length,
-  );
-  private readonly sansGrille = computed(
-    () => this.stations().filter((s) => !s.hasGrille).length,
-  );
-
-  /** Roster is a hard requirement only for the launch edge, not for finalising. */
-  private readonly rosterBlocks = computed(() => this.statut() === 'CONFIGURE');
-
-  private readonly dateExamen = computed(() => this.store.exam()?.dateExamen ?? null);
-  private readonly lotJours = signal<(string | null)[]>([]);
-  /** #147 — launch is allowed on ANY of the exam's lot-days (multi-day). For a
-   *  single-day exam (no lot carries a `jour`) this reduces to the exam's own
-   *  date (jour J). */
-  private readonly canLaunchDay = computed(() => isLaunchDay(this.dateExamen(), this.lotJours()));
-  /** Hint shown on the date check when today is not (yet) a launch day. */
-  private readonly dateHint = computed<string | undefined>(() => {
-    const d = this.dateExamen();
-    if (!d || this.canLaunchDay()) return undefined;
-    return isFutureDate(d)
-      ? `Lancement possible le jour J (${this.frDate(d)})`
-      : 'Date dépassée — modifiez la date de l’examen pour le relancer';
-  });
-
-  private frDate(iso: string): string {
-    const [y, m, d] = iso.split('-');
-    return d && m && y ? `${d}/${m}/${y}` : iso;
-  }
-
-  readonly checks = computed<PreflightCheck[]>(() => {
-    const n = this.stations().length;
-    const hasStations = n > 0;
-    return [
-      {
-        label: 'Stations definies',
-        ok: hasStations,
-        blocking: true,
-        hint: hasStations ? `${n} station(s)` : 'Aucune station definie',
-      },
-      {
-        label: 'Un evaluateur par station',
-        ok: hasStations && this.sansEvaluateur() === 0,
-        blocking: true,
-        hint:
-          hasStations && this.sansEvaluateur() > 0
-            ? `${this.sansEvaluateur()} station(s) sans evaluateur`
-            : undefined,
-      },
-      {
-        label: 'Une grille par station',
-        ok: hasStations && this.sansGrille() === 0,
-        blocking: true,
-        hint:
-          hasStations && this.sansGrille() > 0
-            ? `${this.sansGrille()} station(s) sans grille`
-            : undefined,
-      },
-      {
-        label: 'Etudiants inscrits',
-        ok: this.rosterCount() > 0,
-        blocking: this.rosterBlocks(),
-        hint:
-          this.rosterCount() > 0
-            ? `${this.rosterCount()} etudiant(s)`
-            : this.rosterBlocks()
-              ? 'Aucun etudiant inscrit — requis pour lancer'
-              : 'A inscrire avant le jour J',
-      },
-      {
-        // The pre-flight that replaces #130's "rotations generated": rotations
-        // are now built per-lot on exam day, so the launch gate is that the
-        // waves are partitioned, not that the circuit exists.
-        label: 'Lots repartis',
-        ok: this.lotsCount() > 0,
-        blocking: this.rosterBlocks(),
-        hint:
-          this.lotsCount() > 0
-            ? `${this.lotsCount()} lot(s)`
-            : this.rosterBlocks()
-              ? 'Repartissez les etudiants en lots (onglet Lots) — requis pour lancer'
-              : 'A repartir avant le jour J',
-      },
-      {
-        // Day-of gate: a CONFIGURE exam can only be launched on one of its
-        // lot-days (#147 multi-day; single-day = the exam's own date). Blocking
-        // for the launch edge only; never blocks "Finaliser la configuration".
-        label: "Jour de l'examen",
-        ok: this.canLaunchDay(),
-        blocking: this.rosterBlocks(),
-        hint: this.canLaunchDay()
-          ? "C'est un jour d'examen"
-          : this.dateHint() ?? 'A lancer le jour J',
-      },
-      {
-        label: 'Sujet PDF importe',
-        ok: this.hasPdf(),
-        blocking: false,
-      },
-    ];
-  });
-
-  readonly blockersRemaining = computed(
-    () => this.checks().filter((c) => c.blocking && !c.ok).length,
-  );
 
   /** True when the next edge is the irreversible CONFIGURE → EN_COURS launch. */
   readonly isLaunch = computed(() => this.statut() === 'CONFIGURE');
@@ -401,14 +247,13 @@ export class LancementComponent {
       next: () => {
         this.submitting.set(false);
         this.confirming.set(false);
-        // Refresh the shared exam so the parent's tabs + lifecycle bar react.
+        // Refresh the shared exam (+ prep data via the store) so the parent's
+        // tabs, lifecycle bar and stepper all react. On the CONFIGURE edge the
+        // roster/lots checks turn blocking simply because statut changed.
         this.store.reload();
         if (wasLaunch) {
           // Exam is live now — the Lancement tab is gone; send the responsable to suivi.
           this.router.navigate(['../suivi'], { relativeTo: this.route });
-        } else {
-          // Now CONFIGURE — refresh local gate (roster becomes blocking).
-          this.load(examId);
         }
       },
       error: () => {

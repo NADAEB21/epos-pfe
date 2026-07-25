@@ -472,6 +472,7 @@ export class LotsComponent {
         this.repartitionning.set(false);
         this.genByLot.set({});
         this.load(examId);
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
       error: (err) => {
         this.repartitionning.set(false);

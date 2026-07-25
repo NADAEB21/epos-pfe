@@ -70,6 +70,76 @@ const TABS_DONE: WorkspaceTab[] = [
         </div>
       </header>
 
+      <!-- #185 — guided preparation stepper (setup phase only) -->
+      @if (isSetup()) {
+        <section class="rounded-xl bg-white border border-gray-200 shadow-card px-5 py-4 mb-5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-gray-900">Préparation de l'examen</h2>
+            @if (prepLoading()) {
+              <span class="text-xs text-gray-400">Vérification…</span>
+            } @else {
+              @if (nextStep(); as n) {
+                <a [routerLink]="[n.segment]" class="text-xs font-medium text-brand hover:underline">
+                  Prochaine étape : {{ n.label }} &rarr;
+                </a>
+              } @else {
+                <span class="text-xs font-medium text-status-success">Préparation complète</span>
+              }
+            }
+          </div>
+
+          @if (!prepLoading()) {
+            <ol class="flex flex-wrap items-center gap-y-2 mt-3">
+              @for (s of steps(); track s.key; let i = $index; let last = $last) {
+                <li class="flex items-center">
+                  @if (s.unlocked || s.done) {
+                    <a
+                      [routerLink]="[s.segment]"
+                      [title]="s.hint"
+                      class="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-gray-50"
+                    >
+                      <span
+                        class="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold"
+                        [class.bg-status-success]="s.done"
+                        [class.text-white]="s.done || s.current"
+                        [class.bg-brand]="!s.done && s.current"
+                        [class.bg-gray-200]="!s.done && !s.current"
+                        [class.text-gray-600]="!s.done && !s.current"
+                      >{{ s.done ? '✓' : i + 1 }}</span>
+                      <span
+                        class="text-xs whitespace-nowrap"
+                        [class.text-brand]="s.current"
+                        [class.font-semibold]="s.current"
+                        [class.text-gray-700]="!s.current"
+                      >{{ s.label }}@if (s.optional) {<span class="text-gray-400 font-normal"> (opt.)</span>}</span>
+                    </a>
+                  } @else {
+                    <div [title]="s.hint" class="flex items-center gap-1.5 px-1.5 py-1 cursor-not-allowed">
+                      <span
+                        class="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold bg-gray-100 text-gray-300"
+                      >{{ i + 1 }}</span>
+                      <span class="text-xs text-gray-300 whitespace-nowrap">{{ s.label }}@if (s.optional) {<span> (opt.)</span>}</span>
+                    </div>
+                  }
+                  @if (!last) {
+                    <span class="w-3 h-px bg-gray-200 mx-0.5 shrink-0"></span>
+                  }
+                </li>
+              }
+            </ol>
+            @if (nextStep(); as n) {
+              <p class="text-xs text-gray-500 mt-2">{{ n.hint }}</p>
+            }
+            @if (prepError()) {
+              <p class="text-xs text-status-danger mt-2">
+                Impossible de vérifier l'état de préparation.
+                <button type="button" (click)="reloadPrep()" class="underline hover:text-status-danger">Réessayer</button>
+              </p>
+            }
+          }
+        </section>
+      }
+
       <!-- Status-aware tabs -->
       <nav class="flex flex-wrap gap-1 border-b border-gray-200 mb-6">
         @for (tab of tabs(); track tab.segment) {
@@ -101,6 +171,14 @@ export class ExamenWorkspaceComponent {
   readonly exam = this.store.exam;
   readonly loading = this.store.loading;
   readonly error = this.store.error;
+
+  // #185 — preparation stepper state, derived in the store (same source as the
+  // Lancement pre-flight, so the two surfaces cannot drift).
+  readonly isSetup = this.store.isSetup;
+  readonly steps = this.store.prepSteps;
+  readonly nextStep = this.store.nextStep;
+  readonly prepLoading = this.store.prepLoading;
+  readonly prepError = this.store.prepError;
 
   readonly tabs = computed<WorkspaceTab[]>(() => {
     const e = this.exam();
@@ -138,5 +216,9 @@ export class ExamenWorkspaceComponent {
 
   isReached(current: StatutExamen, step: StatutExamen): boolean {
     return LIFECYCLE.indexOf(step) <= LIFECYCLE.indexOf(current);
+  }
+
+  reloadPrep(): void {
+    this.store.reloadPrep();
   }
 }

@@ -525,6 +525,7 @@ export class StationsGrillesComponent {
           this.creating.set(false);
           this.showCreate.set(false);
           this.stations.update((list) => [...list, created]);
+          this.store.reloadPrep(); // #185 — tick the workspace stepper
         },
         error: (err: HttpErrorResponse) => {
           this.creating.set(false);
@@ -604,6 +605,7 @@ export class StationsGrillesComponent {
         // recomputed ordre on the survivors is reflected.
         this.stations.update((list) => list.filter((x) => x.id !== s.id));
         this.refetchStations();
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
       error: () => {
         this.deletingId.set(null);
@@ -691,6 +693,7 @@ export class StationsGrillesComponent {
         // server is the source of truth for the bound list.
         this.replaceStation(s.id, { evaluateurIds: updated.evaluateurIds ?? nextIds });
         this.savingId.set(null);
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
       error: (err: HttpErrorResponse) => {
         // #163: a 409 carries the conflicting station name — surface it verbatim
@@ -718,6 +721,7 @@ export class StationsGrillesComponent {
    *  it onto the row so hasGrille-driven UI (toggle label) stays in sync. */
   onGrilleExistence(s: StationSummary, exists: boolean): void {
     this.replaceStation(s.id, { hasGrille: exists });
+    this.store.reloadPrep(); // #185 — tick the workspace stepper
   }
 
   // ---- labels -------------------------------------------------------------

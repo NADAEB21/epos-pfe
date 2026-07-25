@@ -1037,6 +1037,7 @@ export class EtudiantsComponent {
         this.directory.set(etudiants);
         this.lots.set(lots);
         this.rows.set(this.buildRows(participations, etudiants));
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
     });
   }
@@ -1076,6 +1077,7 @@ export class EtudiantsComponent {
         this.removingId.set(null);
         this.confirmRemoveId.set(null);
         this.rows.update((list) => list.filter((x) => x.participationId !== r.participationId));
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
       error: (err: HttpErrorResponse) => {
         this.removingId.set(null);
@@ -1105,6 +1107,7 @@ export class EtudiantsComponent {
         (a, b) => (a.nom || '').localeCompare(b.nom || '') || (a.prenom || '').localeCompare(b.prenom || ''),
       ),
     );
+    this.store.reloadPrep(); // #185 — tick the workspace stepper
   }
 
   private httpMessage(err: HttpErrorResponse): string {

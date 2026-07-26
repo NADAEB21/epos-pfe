@@ -222,6 +222,20 @@ class GradingLoaded extends GradingState {
   /// rebours affiché par l'UI doit être figé (voir _startTimer).
   final bool enPause;
 
+  /// #248 — l'évaluateur a terminé le DERNIER passage de sa station pour ce lot.
+  /// Ce n'est pas une erreur mais l'issue nominale : sous ADR-0014-B, la vague
+  /// suivante est ouverte par le RESPONSABLE, pas par l'évaluateur. L'écran doit
+  /// donc afficher une attente explicite, jamais un cul-de-sac.
+  final bool vagueTerminee;
+
+  /// #248 — message d'erreur NON fatal, affiché par-dessus l'écran de notation.
+  /// Transitoire, comme [messageSucces] : effacé au prochain copyWith.
+  ///
+  /// Existe parce que le builder de l'écran ne rend que [GradingLoaded] : émettre
+  /// un GradingError remplaçait toute la page par un spinner nu dont on ne
+  /// revenait qu'en quittant l'écran.
+  final String? messageErreur;
+
   const GradingLoaded({
     required this.rotationId,
     required this.stationId,
@@ -238,6 +252,8 @@ class GradingLoaded extends GradingState {
     this.wsScores     = const {},
     this.avertissementLeadSec = 0,
     this.enPause = false,
+    this.vagueTerminee = false,
+    this.messageErreur,
   });
 
   // ── Calculs de score ──────────────────────────
@@ -276,6 +292,8 @@ class GradingLoaded extends GradingState {
     Map<int, double>?      wsScores,
     int?                   avertissementLeadSec,
     bool?                  enPause,
+    bool?                  vagueTerminee,
+    String?                messageErreur,
   }) =>
       GradingLoaded(
         rotationId:             rotationId       ?? this.rotationId,
@@ -293,6 +311,9 @@ class GradingLoaded extends GradingState {
         wsScores:               wsScores  ?? this.wsScores,
         avertissementLeadSec:   avertissementLeadSec ?? this.avertissementLeadSec,
         enPause:                enPause ?? this.enPause,
+        vagueTerminee:          vagueTerminee ?? this.vagueTerminee,
+        // transitoire, comme messageSucces : non repris s'il n'est pas passé
+        messageErreur:          messageErreur,
       );
 
   @override
@@ -300,7 +321,7 @@ class GradingLoaded extends GradingState {
     rotationId, stationId, grilleId, stationNom, grille, lot,
     notations, etudiantsValides, tempsRestant,
     lotEnCoursDeValidation, messageSucces, lotValide, wsScores,
-    avertissementLeadSec, enPause,
+    avertissementLeadSec, enPause, vagueTerminee, messageErreur,
   ];
 }
 
@@ -378,7 +399,11 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         }
       }
 
-      final tempsRestant = _computeTempsRestant(event.debutCreneau);
+      // #209 — l'ancre du minuteur est le début RÉEL (horodaté par le serveur au premier
+      // accès — l'appel getGroupe ci-dessus vient de le poser si c'était la première fois).
+      // Plus jamais le créneau PLANIFIÉ (event.debutCreneau) : il affichait « 12:51 »
+      // restants sur une station de 2 minutes. Null (vieux serveur) → durée pleine.
+      final tempsRestant = _computeTempsRestant(lot.debutReel);
 
       emit(GradingLoaded(
         rotationId:       event.rotationId,
@@ -574,6 +599,12 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       await _repository.validerGroupe(current.rotationId);   // ← FIX
       emit(current.copyWith(
         lotEnCoursDeValidation: false, lotValide: true, messageSucces: 'Groupe validé !',
+        // #248 — c'est ICI que la vague se termine du point de vue de l'évaluateur :
+        // il vient de valider son DERNIER passage à cette station. Le poser dans
+        // _onGroupeSuivant ne suffisait pas — ce chemin est justement injoignable quand
+        // il n'y a plus de suivant, puisque le bouton est alors désactivé : la bannière
+        // n'aurait jamais pu s'afficher.
+        vagueTerminee: !current.lot.groupeSuivantDisponible,
       ));
     } catch (_) {
       emit(current.copyWith(lotEnCoursDeValidation: false));
@@ -587,19 +618,40 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       ) async {
     final current = state;
     if (current is! GradingLoaded) return;
-    emit(GradingLoading());
+
+    // #248 — la fin de la vague n'est PAS une erreur. C'est l'issue nominale : sous
+    // ADR-0014-B, le lot suivant est ouvert par le RESPONSABLE. On affiche donc une
+    // attente explicite au lieu d'aller demander une rotation qui n'existe pas.
+    if (!current.lot.groupeSuivantDisponible) {
+      emit(current.copyWith(vagueTerminee: true));
+      return;
+    }
+
+    // Pas de GradingLoading ici : le builder de l'écran ne rend que GradingLoaded, donc
+    // toute autre émission remplace la page par un spinner nu. On désactive les boutons
+    // le temps de l'appel, sans démonter l'écran.
+    emit(current.copyWith(lotEnCoursDeValidation: true));
     try {
       final prochain = await _repository.getGroupeSuivant(current.rotationId);
       emit(GradingLoaded(
         rotationId: prochain.id, stationId: current.stationId, grilleId: current.grilleId,
         stationNom: current.stationNom, grille: current.grille, lot: prochain,
-        notations: {}, etudiantsValides: {}, tempsRestant: _dureeStation,
+        // #209 — le serveur vient d'ouvrir ce groupe et de poser son debutReel : le
+        // minuteur repart de la durée pleine, ancré sur ce fait observé.
+        notations: {}, etudiantsValides: {},
+        tempsRestant: _computeTempsRestant(prochain.debutReel),
         lotValide: prochain.valide,
         avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,
       ));
       _startTimer();
     } catch (e) {
-    emit(GradingError('Aucun groupe suivant disponible : $e'));
+      // Panne réseau, 403, etc. : on garde l'écran et ses notes à l'affichage. Émettre
+      // GradingError laissait un spinner définitif (le refresh renvoyait à l'accueil,
+      // notes saisies à l'écran perdues de vue) — c'est le symptôme rapporté en #248.
+      emit(current.copyWith(
+        lotEnCoursDeValidation: false,
+        messageErreur: 'Impossible de charger le groupe suivant : $e',
+      ));
     }
   }
 
@@ -629,6 +681,10 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
           total:     current.lot.total,
           etudiants: etudiants,
           valide:    current.lot.valide,
+          // #248 — à reporter : une substitution d'étudiant ne change pas l'existence
+          // d'un passage suivant. L'omettre retombait sur le défaut `false` et grisait
+          // « Groupe suivant » pour le reste de la séance.
+          groupeSuivantDisponible: current.lot.groupeSuivantDisponible,
         ),
       ));
     } catch (e) {

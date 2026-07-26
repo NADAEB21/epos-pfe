@@ -167,6 +167,15 @@ class GradingScreen extends StatelessWidget {
                      behavior:        SnackBarBehavior.floating,
                    ));
                  }
+                 // #248 — erreur NON fatale : l'écran de notation reste affiché (et les
+                 // notes avec lui), le message passe en surimpression.
+                 if (state is GradingLoaded && state.messageErreur != null) {
+                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                     content:         Text(state.messageErreur!),
+                     backgroundColor: AppTheme.scoreRed,
+                     behavior:        SnackBarBehavior.floating,
+                   ));
+                 }
                },
                builder: (context, state) {
                  if (state is GradingLoaded) {
@@ -618,6 +627,37 @@ class _GradingFooter extends StatelessWidget {
 
           const SizedBox(height: 15),
 
+          // ── #248 — Fin de vague : attente explicite, pas un cul-de-sac ──────
+          // Sous ADR-0014-B l'avancement lot→lot appartient au responsable : quand
+          // l'évaluateur a fini le dernier passage de sa station, il n'a pas « plus
+          // rien à faire », il ATTEND quelqu'un. Le dire est ce qui distingue une
+          // attente normale d'un écran mort (cf. #238).
+          if (state.vagueTerminee)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.accent),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.hourglass_top, size: 18, color: AppTheme.accent),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Vague terminée pour cette station. '
+                        'En attente de l’ouverture du lot suivant par le responsable.',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── Boutons Valider lot / Lot suivant ──────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -643,9 +683,16 @@ class _GradingFooter extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: state.lot.numero >= state.lot.total
+                    // #248 — actif si et seulement si le BACKEND annonce un passage
+                    // suivant à cette station pour ce lot (calculé sur ordrePassage).
+                    // L'ancienne garde `lot.numero >= lot.total` comparait le numéro du
+                    // GROUPE au nombre de groupes : le carré latin faisant tourner les
+                    // groupes, elle était vraie à l'envers — grisée au premier passage,
+                    // active au dernier, où le clic effaçait l'écran.
+                    onPressed: (!state.lot.groupeSuivantDisponible ||
+                                state.lotEnCoursDeValidation)
                         ? null
-                        : () => _confirmerLotSuivant(context),
+                        : () => _confirmerGroupeSuivant(context),
                     icon:  const Icon(Icons.arrow_forward, size: 18),
                     label: const Text('Groupe suivant'),
                     style: ElevatedButton.styleFrom(
@@ -698,7 +745,7 @@ class _GradingFooter extends StatelessWidget {
     }
   }
 
-  void _confirmerLotSuivant(BuildContext context) {
+  void _confirmerGroupeSuivant(BuildContext context) {
     if (!state.tousLesEtudiantsValides) {
       showDialog(
         context: context,

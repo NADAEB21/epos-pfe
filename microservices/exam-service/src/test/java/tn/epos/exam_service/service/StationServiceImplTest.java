@@ -1,6 +1,7 @@
 package tn.epos.exam_service.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -533,6 +534,52 @@ class StationServiceImplTest {
             assertThatThrownBy(() -> stationService.supprimer(1L))
                     .isInstanceOf(AccessDeniedException.class);
             verify(stationRepository, never()).delete(any());
+        }
+    }
+
+    // ================================================================
+    // FINDING #3 (session 20) — évaluateur inexistant accepté
+    // ================================================================
+
+    @Nested
+    @DisplayName("affecterEvaluateurs() — intégrité de la référence évaluateur")
+    class AffecterEvaluateursIntegrite {
+
+        /**
+         * VÉRIFIÉ EN LIVE le 2026-07-19 sur la pile réelle :
+         * {@code PATCH /api/v1/stations/1/evaluateurs} avec le corps {@code [999]}
+         * (aucun utilisateur 999 en base) renvoie <b>HTTP 200</b> et persiste
+         * {@code station_evaluateurs.evaluateur_id = 999}.
+         *
+         * <p>Origine : {@code StationServiceImpl.affecterEvaluateurs} valide la
+         * station, le périmètre matière, la mutabilité de l'examen et l'unicité
+         * inter-stations (#163) — mais <b>jamais l'existence de l'utilisateur</b>
+         * ni son rôle. {@code station_evaluateurs.evaluateur_id} est une FK
+         * <i>logique</i> inter-bases (pas de contrainte SQL, précédent assumé),
+         * donc rien ne rattrape l'erreur en aval.
+         *
+         * <p>Conséquence observée en base : les stations 6/7/8 de l'examen 2
+         * pointent vers les évaluateurs 4/5/6, <b>qui n'existent pas</b>
+         * ({@code auth_db.users} ne contient que 1, 2, 3) — d'où le
+         * « Évaluateur : non assigné » vu côté web, qui n'est PAS une absence
+         * d'affectation mais une référence pendante.
+         *
+         * <p>@Disabled volontaire : ce test échoue sur `develop` et casserait
+         * `mvn test` pour toute l'équipe. <b>Le retrait de cette annotation est
+         * le critère d'acceptation du correctif</b> (appel auth-service pour
+         * valider id + rôle EVALUATEUR, ou contrainte équivalente).
+         */
+        @Test
+        @Disabled("FINDING #3 — échoue sur develop : aucune validation d'existence "
+                + "de l'évaluateur. Retirer @Disabled quand la validation est implémentée.")
+        @DisplayName("Doit refuser un évaluateur inexistant (échoue aujourd'hui : accepté en 200)")
+        void affecterEvaluateurs_utilisateurInexistant_devraitRefuser() {
+            when(stationRepository.findById(1L)).thenReturn(Optional.of(station));
+
+            // 999 n'existe pas dans auth_db.
+            assertThatThrownBy(() -> stationService.affecterEvaluateurs(1L, List.of(999L)))
+                    .isInstanceOf(BusinessException.class);
+            verify(stationRepository, never()).save(any());
         }
     }
 }

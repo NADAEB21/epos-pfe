@@ -352,6 +352,31 @@ export interface GenerationResult {
 }
 
 /**
+ * #265 — one EN_COURS exam sharing évaluateurs with the exam being prepared
+ * (GET /examens/{id}/conflits-evaluateurs). Non-empty = launching would
+ * double-book a human across two rooms; the backend refuses it at changerStatut.
+ */
+export interface ConflitEvaluateur {
+  examenId: number;
+  examenNom: string;
+  evaluateurIds: number[];
+}
+
+/**
+ * Result of POST /lots/{lotId}/presence-et-demarrer (#185 — « Présence &
+ * démarrer », the conductor's single act: presence + rotation generation in one
+ * transaction; the wave opening stays delegated to ADR-0014-B).
+ */
+export interface DemarrageResult {
+  lotId: number;
+  presents: number;
+  absents: number;
+  rotations: number;
+  assignments: number;
+  avertissement: string | null;
+}
+
+/**
  * Live status of a single rotation. PERSISTED value is always EN_ATTENTE — the
  * generator hard-sets it (RotationGenerationService) and nothing on the backend
  * ever flips it (the mobile évaluateur app that would is unbuilt). So the Suivi
@@ -376,6 +401,72 @@ export interface RotationSummary {
   debutCreneau: string; // "yyyy-MM-ddTHH:mm:ss" (LocalDateTime)
   statut: RotationStatus;
   studentGroupId: number | null;
+}
+
+/**
+ * #208 / #252 — progression du Suivi, DÉRIVÉE PAR LE SERVEUR
+ * (GET /lots/examens/{id}/progression).
+ *
+ * <p><b>Le front ne recalcule rien de tout ceci.</b> C'est justement en re-déduisant l'état
+ * depuis `Date.now()` que ce tableau affichait « dépassement — créneau écoulé, encore en cours »
+ * sur des rotations qui étaient `TERMINE` en base. Le statut d'une station se LIT ici.
+ *
+ * <p>Il n'existe volontairement <b>aucune valeur « dépassement »</b> dans ce contrat : ce n'était
+ * pas un état mais une opinion de l'horloge sur un travail qu'elle ne voyait pas (ADR-0014).
+ */
+export interface SuiviProgression {
+  examenId: number;
+  /** La vague affichée : celle en cours, ou celle qui vient de finir. Null avant toute ouverture. */
+  lotOuvert: LotEnCoursProgression | null;
+  /** Alerte responsable : la vague est finie ET une suivante attend (ADR-0014-B). */
+  lotTermine: boolean;
+  /** La vague que « Lot suivant » ouvrira ; null s'il n'en reste aucune. */
+  lotSuivant: LotSuivantProgression | null;
+  stations: StationProgression[];
+}
+
+export interface LotEnCoursProgression {
+  id: number;
+  numeroLot: number;
+  /** Instant d'ouverture réel. Null pour une vague ouverte avant la migration V9. */
+  ouvertA: string | null;
+  /**
+   * #252 — secondes écoulées depuis l'ouverture, **calculées par le serveur**.
+   *
+   * <p>⚠️ Ne JAMAIS recalculer ceci dans le navigateur. Le conteneur tourne en CEST (UTC+2),
+   * le `Clock` applicatif est épinglé Africa/Tunis (UTC+1, ADR-0010) et le poste suit sa
+   * propre heure : un `Date.now() - ouvertA` afficherait **+1:00:00 dès l'ouverture d'une
+   * vague** (mesuré : serveur 47:31 vs soustraction locale 1h47).
+   *
+   * <p>⚠️ `null` dès que la vague est TERMINÉE — le compteur s'arrête. Le laisser courir
+   * pendant l'attente entre deux vagues recréerait le « +42:16 et croissant » que #243/#252
+   * suppriment : le plafond, sous un autre nom.
+   */
+  ecouleSec: number | null;
+  groupesTermines: number;
+  groupesTotal: number;
+}
+
+export interface LotSuivantProgression {
+  id: number;
+  numeroLot: number;
+  /** Faux tant que le planning du lot n'est pas généré : le bouton doit le dire, pas échouer. */
+  rotationsGenerees: boolean;
+}
+
+export interface StationProgression {
+  stationId: number;
+  evaluateurId: number | null;
+  /** Groupe actuellement noté ; null si la station a fini sa vague. */
+  groupeEnCours: number | null;
+  rangEnCours: number | null;
+  /** « 2/4 notés » — la seule statistique demandée par le responsable. */
+  etudiantsNotes: number;
+  etudiantsTotal: number;
+  groupesTermines: number;
+  groupesTotal: number;
+  /** `EN_ATTENTE` | `EN_COURS` | `TERMINE` — lu, jamais calculé depuis l'heure. */
+  statut: RotationStatus;
 }
 
 /**

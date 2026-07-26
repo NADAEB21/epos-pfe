@@ -91,7 +91,13 @@ dev_dependencies:
   injectable_generator: ^2.4.2
 
   # === Tests ===
-  bloc_test: ^9.1.7
+  # DEMO LAN 2026-07-23 — neutralisé TEMPORAIREMENT : après une mise à jour du SDK
+  # Flutter, flutter_test épingle test_api 0.7.11 et le solveur conclut
+  # « freezed ^2.5.2 incompatible avec bloc_test ^9.1.7 » (via analyzer). bloc_test ne
+  # sert QUE les tests unitaires — l'app n'en a pas besoin pour tourner. À réactiver
+  # (et résoudre proprement : bump bloc_test/freezed ensemble) avant de relancer
+  # `flutter test` sur les suites bloc. Suivi dans NEXT_SESSION.md.
+  # bloc_test: ^9.1.7
   mocktail: ^1.0.4            # Mocking pour les tests unitaires
 
 

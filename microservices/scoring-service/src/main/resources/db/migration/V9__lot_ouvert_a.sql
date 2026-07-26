@@ -1,0 +1,31 @@
+-- =============================================================
+-- V9 — Horodatage d'OUVERTURE d'un lot (ADR-0014-B, issues #252 / #243)
+--
+-- Le bandeau de Suivi mesurait le temps depuis `examens.launched_at`, qui ne
+-- connaît que le PREMIER lot : dès la fin de la vague 1, l'examen passait en
+-- « dépassement » et y restait pour toujours (+42:16 et croissant, mesuré sur
+-- l'examen 31), alors que rien d'anormal ne s'était produit — la vague suivante
+-- n'était simplement pas encore ouverte.
+--
+-- Modèle (Nada, 2026-07-21) : la durée configurée est ce que reçoit CHAQUE LOT,
+-- pas l'examen entier. Le chronomètre doit donc repartir de zéro à l'ouverture
+-- de chaque vague. Il faut pour cela un fait OBSERVÉ :
+--   • `launched_at` ne vaut que pour la première vague ;
+--   • `rotation.debut_creneau` est un horaire PRÉVU (calculé à la génération),
+--     pas le moment où la vague a réellement commencé.
+--
+-- D'où cette colonne, écrite au seul endroit qui ouvre une vague
+-- (LotOuvertureService, ADR-0014-B) : un lot est ouvert par le responsable, une
+-- fois, explicitement.
+--
+-- NULL = vague jamais ouverte. Pas de backfill : les lots existants n'ont
+-- aucune date d'ouverture connue, et en inventer une (launched_at, un créneau)
+-- reconstruirait exactement la mesure fausse que ce ticket supprime. Un lot
+-- déjà ouvert avant cette migration affichera donc « — » plutôt qu'un chiffre
+-- faux, ce qui est le comportement voulu.
+--
+-- ⚠️ C'est une mesure d'AFFICHAGE, informative. Rien ne doit en être dérivé :
+-- ni statut, ni visibilité, ni action bloquée. Un état « dépassement » construit
+-- dessus recréerait le PLAFOND qu'ADR-0014 retire, en habits d'affichage.
+-- =============================================================
+ALTER TABLE lot ADD COLUMN ouvert_a TIMESTAMP;

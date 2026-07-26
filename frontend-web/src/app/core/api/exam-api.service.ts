@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
+  ConflitEvaluateur,
   CreateExamenRequest,
   ExamenResponse,
   GrilleDetail,
@@ -56,6 +57,17 @@ export class ExamApiService {
     return this.http
       .get<ApiResponse<ExamenResponse>>(`${this.baseUrl}/${id}`)
       .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #265 — the EN_COURS exams currently holding évaluateurs this exam also
+   * needs. Feeds the « Évaluateurs disponibles » pre-flight row; the
+   * authoritative refusal stays in changerStatut server-side.
+   */
+  listConflitsEvaluateurs(id: number): Observable<ConflitEvaluateur[]> {
+    return this.http
+      .get<ApiResponse<ConflitEvaluateur[]>>(`${this.baseUrl}/${id}/conflits-evaluateurs`)
+      .pipe(map((r) => r.data ?? []));
   }
 
   /**

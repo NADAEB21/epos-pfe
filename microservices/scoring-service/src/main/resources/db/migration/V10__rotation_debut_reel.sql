@@ -1,0 +1,24 @@
+-- =============================================================
+-- V10 — Début RÉEL d'un passage (#209, décision Nada 2026-07-23)
+--
+-- Le compte à rebours de l'évaluateur s'ancrait sur `debut_creneau`, un horaire
+-- PRÉVU, précalculé à la génération depuis `launched_at` (chaque rang décalé de
+-- durée+battement). Résultat constaté en test réel : « 12:51 » puis « 09:24 »
+-- restants sur une station de 2 minutes — le planning théorique n'a rien à voir
+-- avec le moment où l'évaluateur commence réellement.
+--
+-- Décision : le minuteur démarre quand l'ÉVALUATEUR ouvre le groupe (« Poursuivre
+-- la notation »), pas quand le responsable ouvre le lot, et jamais sur un horaire
+-- calculé. Cette colonne enregistre ce fait observé — écrite UNE FOIS, au premier
+-- accès du propriétaire à une rotation EN_COURS, ou à l'ouverture explicite du
+-- rang suivant (« Groupe suivant »).
+--
+-- ⚠️ PLANCHER, jamais plafond (rappel exprès de Nada) : ce champ ne sert qu'au
+-- compte à rebours indicatif (rouge « +MM:SS » en dépassement, pour prévenir,
+-- jamais pour bloquer). Aucun statut, aucune visibilité, aucune action ne doit
+-- jamais en être dérivé.
+--
+-- NULL = passage jamais ouvert par son évaluateur. Pas de rattrapage : inventer
+-- une ancre (debut_creneau…) recréerait la mesure fausse qu'on supprime.
+-- =============================================================
+ALTER TABLE rotation ADD COLUMN debut_reel TIMESTAMP;

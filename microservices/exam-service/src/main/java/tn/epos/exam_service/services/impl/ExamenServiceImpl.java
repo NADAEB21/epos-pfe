@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.ConflitEvaluateurResponse;
 import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
@@ -167,6 +168,25 @@ public class ExamenServiceImpl implements ExamenService {
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
 
+        // #265 — un évaluateur est un humain : engagé dans la salle d'un examen
+        // EN_COURS, il ne peut pas servir une station d'un second examen lancé en
+        // parallèle (le Suivi du second attendrait sa vague indéfiniment). Examens
+        // simultanés à évaluateurs DISJOINTS : permis — c'est le partage qui bloque.
+        if (nouveauStatut == StatutExamen.EN_COURS) {
+            List<ConflitEvaluateurResponse> conflits = calculerConflitsEvaluateurs(examen);
+            if (!conflits.isEmpty()) {
+                ConflitEvaluateurResponse c = conflits.get(0);
+                throw new BusinessException(String.format(
+                        "Lancement impossible : %d évaluateur(s) (id %s) sont déjà engagés dans "
+                                + "l'examen « %s » actuellement en cours. Attendez sa fin ou "
+                                + "affectez d'autres évaluateurs à vos stations.",
+                        c.getEvaluateurIds().size(),
+                        c.getEvaluateurIds().stream().map(String::valueOf)
+                                .collect(Collectors.joining(", ")),
+                        c.getExamenNom()));
+            }
+        }
+
         // Ne pas clôturer un examen figé en pause : le temps effectif est gelé, donc
         // le "dépassement" (gate de fin côté Suivi) ne peut pas avancer. On force la
         // reprise avant la fin pour un état terminal cohérent (enPause=false).
@@ -188,6 +208,53 @@ public class ExamenServiceImpl implements ExamenService {
 
         log.info("Examen {} : statut changé {} → {}", id, examen.getStatut(), nouveauStatut);
         return toResponse(examenRepository.save(examen), false);
+    }
+
+    /**
+     * #265 — les examens EN_COURS qui retiennent des évaluateurs dont cet examen a
+     * besoin. Sert la ligne « Évaluateurs disponibles » du pre-flight (#185 : la
+     * pré-condition s'affiche AVANT le clic) ; {@link #changerStatut} reste la
+     * garde autoritaire — l'état est instantané, seul le refus au lancement fait foi.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<ConflitEvaluateurResponse> listerConflitsEvaluateurs(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+        return calculerConflitsEvaluateurs(examen);
+    }
+
+    /**
+     * Intersection des évaluateurs de cet examen avec ceux de chaque AUTRE examen
+     * EN_COURS. Le contrôle #163 (un évaluateur = une station) s'arrête aux bords
+     * d'un examen ; celui-ci couvre le travers inter-examens : un humain ne tient
+     * pas deux salles à la fois.
+     */
+    private List<ConflitEvaluateurResponse> calculerConflitsEvaluateurs(Examen examen) {
+        Set<Long> demandes = examen.getStations().stream()
+                .flatMap(s -> s.getEvaluateurIds().stream())
+                .collect(Collectors.toSet());
+        if (demandes.isEmpty()) {
+            return List.of();
+        }
+
+        return examenRepository.findAllByStatut(StatutExamen.EN_COURS).stream()
+                .filter(autre -> !autre.getId().equals(examen.getId()))
+                .map(autre -> {
+                    List<Long> partages = autre.getStations().stream()
+                            .flatMap(s -> s.getEvaluateurIds().stream())
+                            .filter(demandes::contains)
+                            .distinct()
+                            .sorted()
+                            .toList();
+                    return ConflitEvaluateurResponse.builder()
+                            .examenId(autre.getId())
+                            .examenNom(autre.getNom())
+                            .evaluateurIds(partages)
+                            .build();
+                })
+                .filter(c -> !c.getEvaluateurIds().isEmpty())
+                .toList();
     }
 
     @Override

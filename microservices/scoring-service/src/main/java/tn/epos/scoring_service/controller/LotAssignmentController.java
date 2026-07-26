@@ -14,7 +14,9 @@ import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.PresenceBulkRequest;
 import tn.epos.scoring_service.dto.PresenceResult;
 import tn.epos.scoring_service.dto.RepartitionResult;
+import tn.epos.scoring_service.dto.DemarrageResult;
 import tn.epos.scoring_service.service.LotAssignmentService;
+import tn.epos.scoring_service.service.LotDemarrageService;
 
 /**
  * Two-phase lot workflow endpoints. Mounted under {@code /api/lots} so the
@@ -35,6 +37,7 @@ import tn.epos.scoring_service.service.LotAssignmentService;
 public class LotAssignmentController {
 
     private final LotAssignmentService lotAssignmentService;
+    private final LotDemarrageService  lotDemarrageService;
 
     @PostMapping("/examens/{examenId}/repartir")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
@@ -42,6 +45,22 @@ public class LotAssignmentController {
         RepartitionResult result = lotAssignmentService.repartir(examenId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Étudiants répartis en lots", result));
+    }
+
+    /**
+     * #185 — « Présence & démarrer » : LE bouton du conducteur jour J. Présence (absents en
+     * option) + génération des rotations en UNE transaction ; l'ouverture de vague reste
+     * déléguée à ADR-0014-B (première vague auto, suivantes via « Ouvrir le lot N »).
+     * Si la génération refuse (garde #188, examen non lancé…), la présence est annulée avec
+     * elle — jamais d'état intermédiaire à comprendre.
+     */
+    @PostMapping("/{lotId}/presence-et-demarrer")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<DemarrageResult>> presenceEtDemarrer(@PathVariable Long lotId,
+            @RequestBody(required = false) PresenceBulkRequest body) {
+        DemarrageResult result = lotDemarrageService.presenceEtDemarrer(
+                lotId, body == null ? null : body.absents());
+        return ResponseEntity.ok(ApiResponse.ok("Lot démarré : présence enregistrée, circuit généré.", result));
     }
 
     @PatchMapping("/{lotId}/presence")

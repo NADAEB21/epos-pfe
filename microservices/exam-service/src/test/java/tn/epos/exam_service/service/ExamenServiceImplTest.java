@@ -432,6 +432,97 @@ class ExamenServiceImplTest {
         }
     }
 
+    // #265 — CONFLITS D'ÉVALUATEURS INTER-EXAMENS
+
+    @Nested
+    @DisplayName("#265 — évaluateurs partagés avec un autre examen EN_COURS")
+    class ConflitsEvaluateurs {
+
+        private Examen examAvecEvals(long id, String nom, StatutExamen statut, List<Long>... evalsParStation) {
+            Examen e = Examen.builder()
+                    .id(id).nom(nom).matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(statut)
+                    .build();
+            int ordre = 1;
+            for (List<Long> evals : evalsParStation) {
+                e.getStations().add(Station.builder()
+                        .id(id * 100 + ordre).nom("St" + ordre).ordre(ordre++)
+                        .evaluateurIds(new java.util.ArrayList<>(evals))
+                        .build());
+            }
+            return e;
+        }
+
+        @Test
+        @DisplayName("Lancement REFUSÉ : un autre examen EN_COURS partage un évaluateur")
+        void lancement_refuse_siEvaluateurPartage() {
+            Examen aLancer = examAvecEvals(1L, "Examen B", StatutExamen.CONFIGURE, List.of(3L), List.of(6L));
+            Examen enCours = examAvecEvals(2L, "Examen A", StatutExamen.EN_COURS, List.of(3L), List.of(9L));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(aLancer));
+            when(examenRepository.findAllByStatut(StatutExamen.EN_COURS)).thenReturn(List.of(enCours));
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.EN_COURS))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Examen A")
+                    .hasMessageContaining("déjà engagés");
+            verify(examenRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Lancement PERMIS : examens simultanés à évaluateurs disjoints")
+        void lancement_permis_siEvaluateursDisjoints() {
+            Examen aLancer = examAvecEvals(1L, "Examen B", StatutExamen.CONFIGURE, List.of(3L));
+            Examen enCours = examAvecEvals(2L, "Examen A", StatutExamen.EN_COURS, List.of(9L));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(aLancer));
+            when(examenRepository.findAllByStatut(StatutExamen.EN_COURS)).thenReturn(List.of(enCours));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+        }
+
+        @Test
+        @DisplayName("Sans évaluateur affecté, aucune requête inter-examens n'est faite")
+        void lancement_sansEvaluateurs_neScannePas() {
+            Examen aLancer = examAvecEvals(1L, "Examen B", StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(aLancer));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            verify(examenRepository, never()).findAllByStatut(any());
+        }
+
+        @Test
+        @DisplayName("listerConflitsEvaluateurs : renvoie les évaluateurs partagés, nommés par examen")
+        void listerConflits_renvoieLesPartages() {
+            Examen mien = examAvecEvals(1L, "Examen B", StatutExamen.CONFIGURE, List.of(3L, 6L));
+            Examen autre = examAvecEvals(2L, "Examen A", StatutExamen.EN_COURS, List.of(6L), List.of(3L));
+            Examen disjoint = examAvecEvals(4L, "Examen C", StatutExamen.EN_COURS, List.of(9L));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(mien));
+            when(examenRepository.findAllByStatut(StatutExamen.EN_COURS))
+                    .thenReturn(List.of(autre, disjoint));
+
+            var conflits = examenService.listerConflitsEvaluateurs(1L);
+
+            assertThat(conflits).hasSize(1);
+            assertThat(conflits.get(0).getExamenNom()).isEqualTo("Examen A");
+            assertThat(conflits.get(0).getEvaluateurIds()).containsExactly(3L, 6L);
+        }
+
+        @Test
+        @DisplayName("L'examen ne se voit jamais en conflit avec lui-même")
+        void listerConflits_ignoreSoiMeme() {
+            Examen mien = examAvecEvals(1L, "Examen B", StatutExamen.EN_COURS, List.of(3L));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(mien));
+            when(examenRepository.findAllByStatut(StatutExamen.EN_COURS)).thenReturn(List.of(mien));
+
+            assertThat(examenService.listerConflitsEvaluateurs(1L)).isEmpty();
+        }
+    }
+
     // SUPPRIMER
 
     @Nested

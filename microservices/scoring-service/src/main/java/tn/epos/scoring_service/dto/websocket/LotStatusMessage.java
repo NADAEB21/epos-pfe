@@ -12,8 +12,11 @@ import lombok.Getter;
  *   <li>App Flutter ({@code WebSocketService.onLotStatusUpdate}) — met à jour
  *       {@code GradingLoaded.lotValide} en temps réel, ce qui désactive les
  *       boutons de saisie et affiche le récapitulatif.</li>
- *   <li>Dashboard Angular — met à jour l'indicateur de progression par station
- *       dans le tableau de supervision (BF5.1).</li>
+ *   <li><s>Dashboard Angular</s> — <b>PAS de consommateur web à ce jour</b> (vérifié
+ *       2026-07-21) : {@code frontend-web} n'a aucune dépendance STOMP/SockJS et aucune
+ *       référence à {@code /topic/} dans {@code src}. L'alerte « lot terminé » du
+ *       responsable (#208) se dérive donc de la lecture REST, pas de ce message —
+ *       cf. ADR-0014-B §5. Ne pas re-planifier #208 en supposant ce canal disponible.</li>
  * </ul>
  *
  * <p>Format JSON émis :
@@ -30,6 +33,15 @@ import lombok.Getter;
 @Getter
 @Builder
 public class LotStatusMessage {
+
+    /**
+     * Destination STOMP, à formater avec le {@code lotId}. Définie ICI et pas dans
+     * chaque service émetteur : deux copies d'une même destination « qui doivent rester
+     * identiques » ont déjà divergé ailleurs dans ce service (cf. le doublon
+     * {@code NotationReajustementService} / {@code EvaluateurDashboardService}).
+     * Le client Flutter en tient le miroir — {@code api_constants.dart:110}.
+     */
+    public static final String TOPIC = "/topic/lots/%d/status";
 
     /** Identifiant du lot dont le statut a changé. */
     private final Long   lotId;

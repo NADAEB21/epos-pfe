@@ -17,6 +17,7 @@ import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
+import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.entities.StudentGroup;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
@@ -53,6 +54,7 @@ class RotationGenerationServiceTest {
     @Mock private IRotationRepository rotationRepository;
     @Mock private IRotationAssignmentRepository assignmentRepository;
     @Mock private INotationRepository notationRepository;
+    @Mock private LotOuvertureService lotOuvertureService;
 
     @InjectMocks private RotationGenerationService service;
 
@@ -172,6 +174,65 @@ class RotationGenerationServiceTest {
             assertThat(r.avertissement()).isNull();
 
             verify(studentGroupRepository, org.mockito.Mockito.times(3)).save(any(StudentGroup.class));
+        }
+
+        /**
+         * ADR-0014-B — <b>générer un lot ne l'ouvre pas.</b> La version précédente de ce test
+         * exigeait le rang 1 {@code EN_COURS} dès la génération ; c'était le défaut lui-même :
+         * générer le lot N+1 pendant que le lot N tournait ouvrait une seconde vague, et la
+         * même station affichait deux groupes en cours à la fois.
+         *
+         * <p>Ouvrir une vague engage toutes les stations à la fois : c'est une décision de
+         * responsable, déléguée à {@code LotOuvertureService}, qui reste le seul écrivain
+         * d'{@code EN_COURS} au niveau lot. Que la PREMIÈRE vague s'ouvre bien toute seule est
+         * vérifié là-bas ({@code LotOuvertureServiceTest}), pas ici.
+         */
+        /**
+         * #256 — le prix assumé du remplissage séquentiel : le dernier lot peut être
+         * MINUSCULE (n = lotSize+1 → dernier lot d'1 étudiant). Le carré latin crée quand
+         * même K groupes (K-1 vides) et K×K rotations : ce test épingle que la génération
+         * SURVIT — l'étudiant unique visite ses K stations (K assignments), les groupes
+         * vides produisent des rotations sans assignment, aucun plantage. C'est le
+         * comportement explicite voulu (l'encadrant préfère un petit dernier lot), pas un
+         * accident à « corriger ».
+         */
+        @Test
+        @DisplayName("#256 : dernier lot d'UN étudiant → la génération survit (K-1 groupes vides)")
+        void genere_survitAUnLotDUnSeulEtudiant() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(1, 0));
+
+            var r = service.generateForLot(LOT_ID);
+
+            assertThat(r.rotations()).isEqualTo(9);      // K×K, groupes vides compris
+            assertThat(r.assignments()).isEqualTo(3);    // l'unique étudiant visite ses 3 stations
+            assertThat(r.etudiantsPresents()).isEqualTo(1);
+            assertThat(savedRotations).hasSize(9)
+                    .allMatch(rot -> rot.getStatut() == RotationStatus.EN_ATTENTE);
+        }
+
+        @Test
+        @DisplayName("ADR-0014-B : la génération planifie (tout EN_ATTENTE) et délègue l'ouverture")
+        void genere_neDemarreAucuneRotationEtDelegueLOuverture() {
+            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
+                    exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
+            when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
+
+            service.generateForLot(LOT_ID);
+
+            // ADR-0014-B — GÉNÉRER n'est plus OUVRIR. L'assertion précédente exigeait ici le
+            // rang 1 EN_COURS : c'était exactement le défaut. Générer le lot N+1 pendant que le
+            // lot N tourne ouvrait une seconde vague concurrente sur les mêmes stations. La
+            // génération ne fait donc plus que planifier ; ouvrir est un acte à part.
+            assertThat(savedRotations)
+                    .isNotEmpty()
+                    .allMatch(r -> r.getStatut() == RotationStatus.EN_ATTENTE);
+
+            // …et la décision d'ouvrir (ou non) est déléguée au seul écrivain d'EN_COURS.
+            verify(lotOuvertureService).ouvrirSiPremiereVague(any(Lot.class));
         }
 
         @Test

@@ -12,9 +12,25 @@ PSQL_EXAM="docker exec epos-postgres psql -U admin -d exam_db -qtc"
 SCENARIO="${1:-}"
 
 # ── fixture d'origine — lot 28 / exam 2 / eval3 station 5 ────────────────────
+#
+# ⛔ 2026-07-21 — CETTE FIXTURE EST MORTE POUR MOITIÉ. La table `exam_db.examens`
+# a été vidée : l'examen 2 N'EXISTE PLUS (0 examen, 0 station côté exam-service).
+# Les rotations 141-156 subsistent dans scoring_db, mais en ORPHELINES (#249) :
+# tout scénario qui s'appuie dessus teste désormais une session fantôme, pas un
+# examen. Les scénarios historiques ci-dessous sont donc à considérer comme
+# NON FIABLES tant qu'ils n'ont pas été repointés.
+# La fixture vivante est l'**examen 33** (voir restore_exam33 / scénario
+# `groupe-suivant`), reconstruite via l'API le 2026-07-21.
 EXAM_SERVICE_STOPPED=0
-restore() {
-  echo ">>> RESTORE"
+
+# Restore par défaut (fixture historique). Les scénarios qui touchent une autre
+# fixture posent RESTORE_FN pour ne pas écrire dans un jeu de données qui n'est
+# pas le leur — sans quoi le trap EXIT « restaure » l'examen 2 après un test qui
+# n'y a jamais touché, et masque l'état réel.
+RESTORE_FN=restore_legacy
+
+restore_legacy() {
+  echo ">>> RESTORE (fixture historique — exam 2 / lot 28)"
   if [ "$EXAM_SERVICE_STOPPED" = "1" ]; then
     echo "    relance exam-service"
     docker start epos-exam-service > /dev/null
@@ -45,14 +61,45 @@ restore() {
   $PSQL "SELECT '    snapshot restant: '||(SELECT count(*) FROM exam_station_snapshot)||' station(s), '
                 ||(SELECT count(*) FROM exam_item_snapshot)||' item(s)';"
 }
-trap restore EXIT
+
+# ── fixture VIVANTE — examen 35 « exam test 2 » (construit PAR NADA le 2026-07-23 ;
+# l'examen 33 du harnais précédent a été balayé par sa reconstruction).
+# Stations 62 (ev6 = eval2@epos.tn) et 63 (ev3). Durée de station : 2 min.
+# ⚠️ Le cas-piège du carré latin (groupe 2 au rang 1) est ici sur la station 63
+# (ev3) alors que la session Chrome persistée est ev2 → le scénario pilote la
+# station 62 (ordre 1 puis 2). Le piège reste épinglé par le test unitaire
+# `groupeSuivant_drapeauIndependantDuNumeroDeGroupe` ; le rôle du E2E est la
+# NAVIGATION (POST avancer), l'écran intact, et l'ANCRE du minuteur (#209).
+restore_exam35() {
+  echo ">>> RESTORE (exam 35 — état laissé par Nada : tout TERMINE)"
+  $PSQL "UPDATE rotation SET statut='TERMINE' WHERE id IN (229,230,231,232);"
+  echo ">>> verify:"
+  $PSQL "SELECT '    rot '||id||' -> '||statut||' debut_reel '||coalesce(debut_reel::text,'NULL')
+         FROM rotation WHERE id BETWEEN 229 AND 232 ORDER BY id;"
+}
+
+trap 'eval "$RESTORE_FN"' EXIT
 
 # ── fixtures par scénario ───────────────────────────────────────────────────
 # NB: toujours via (now() AT TIME ZONE 'Africa/Tunis') — le Clock backend est
 # épinglé Africa/Tunis (UTC+1) alors que l'hôte dev est UTC+2. Utiliser l'heure
 # murale de l'hôte produit un faux 'A_VENIR'.
+#
+# ⚠️ #207 — DEUX RÉGLAGES DISTINCTS, ne pas les confondre :
+#   • statut='EN_COURS'  → rend la session JOIGNABLE. C'est désormais la SEULE
+#     chose qui l'ouvre : le dashboard lit l'état stocké et ne déduit plus rien
+#     de l'heure. Avant #207, poser debut_creneau dans la fenêtre suffisait.
+#   • debut_creneau      → ancre le COMPTE À REBOURS (le PLANCHER). Toujours
+#     nécessaire, et c'est ce que les assertions de minuteur mesurent.
+# Poser l'un sans l'autre donne un faux échec : bon minuteur / session fermée,
+# ou session ouverte / minuteur ancré n'importe où.
 case "$SCENARIO" in
-  S2-1-derive)   # fenêtre dépassée, rotation toujours EN_ATTENTE
+  S2-1-derive)   # ⛔ OBSOLÈTE depuis #207 — l'impasse « A » ne peut plus se produire.
+    # Ce scénario reproduisait la dérive au-delà de duree+GRACE, qui retirait la
+    # session toute seule. Ce plafond est supprimé : une rotation EN_COURS le
+    # reste quelle que soit l'heure (assertion backend
+    # EvaluateurDashboardServiceTest#statut_enCours_survitALaDerive). Laissé pour
+    # la trace ; sa cible dead_end_test.dart n'a de toute façon jamais été écrite.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '46 minutes' WHERE id=141;"
     TARGET=integration_test/dead_end_test.dart ;;
   S2-2-entre-groupes)  # groupe 1 terminé en avance, groupe 2 pas encore dû
@@ -61,9 +108,11 @@ case "$SCENARIO" in
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/dead_end_test.dart ;;
   timer-anchor)  # finding #1 — passage commencé il y a 6 min, station de 15 min
-    # 6 min < 45 min (duree+GRACE) ⇒ la session reste EN_COURS et joignable :
-    # on teste le MINUTEUR, pas l'impasse #238. Il doit rester ~9 min.
+    # La session est joignable parce qu'elle est STOCKÉE EN_COURS (#207) — la
+    # règle « 6 min < 45 min (duree+GRACE) » qui figurait ici n'existe plus.
+    # On teste le MINUTEUR, pas l'impasse #238 : il doit rester ~9 min.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/timer_anchor_test.dart ;;
   S1-nominal)    # une session réellement en cours
@@ -77,6 +126,7 @@ case "$SCENARIO" in
     # (« après le premier succès, une panne est sans effet ») plutôt que la fenêtre
     # étroite d'avant-première-matérialisation.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     echo ">>> chauffage du snapshot (exam-service UP)"
     TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
@@ -91,10 +141,12 @@ case "$SCENARIO" in
     EXAM_SERVICE_STOPPED=1
     TARGET=integration_test/render_audit_test.dart ;;
   grading-nominal)  # session 22 — l'écran de NOTATION, jamais piloté jusqu'ici
-    # Passage commencé il y a 6 min sur une station de 15 min : la session reste
-    # EN_COURS (6 < 15+30 de GRACE) donc joignable, et le minuteur doit ouvrir
-    # vers ~9 min. Avec le `;` de #239 il ouvrait à 15:00.
+    # Passage commencé il y a 6 min sur une station de 15 min. La session est
+    # joignable parce qu'elle est STOCKÉE EN_COURS (#207, plus de fenêtre de
+    # grâce), et le minuteur doit ouvrir vers ~9 min : c'est debut_creneau, le
+    # PLANCHER, qui l'ancre. Avec le `;` de #239 il ouvrait à 15:00.
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     TARGET=integration_test/grading_screen_test.dart ;;
   grading-outage)   # session 22 — LE PAYOFF d'ADR-0015, vu depuis l'UI
@@ -104,6 +156,7 @@ case "$SCENARIO" in
     # ferait tout dégrader — on perdrait la promesse à vérifier (« la station
     # déjà figée reste notable pendant la panne »).
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     echo ">>> chauffage du snapshot (exam-service UP)"
     TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
@@ -128,13 +181,27 @@ case "$SCENARIO" in
     # Même fenêtre que grading-nominal. La différence est ce qu'on prouve :
     # non pas « l'écran s'affiche » mais « la note traverse l'UI et PERSISTE ».
     $PSQL "UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') - interval '6 minutes'  WHERE id=141;
+           UPDATE rotation SET statut='EN_COURS' WHERE id=141;   -- #207 : ce qui OUVRE la session
            UPDATE rotation SET debut_creneau=(now() AT TIME ZONE 'Africa/Tunis') + interval '20 minutes' WHERE id=148;"
     VERIFIER_ECRITURE=1
     TARGET=integration_test/grading_save_test.dart ;;
+  groupe-suivant)  # #248/#209 — navigation « Groupe suivant » + ancre du minuteur, depuis l'UI
+    # Fixture : examen 35, station 62 (ev2). Rang 1 rouvert, minuteur VIERGE
+    # (debut_reel NULL → le serveur l'horodate au premier accès : le compte à
+    # rebours doit ouvrir à ~02:00 PILE, plus jamais au créneau planifié).
+    RESTORE_FN=restore_exam35
+    $PSQL "UPDATE rotation SET statut='EN_COURS',  debut_reel=NULL WHERE id=229;
+           UPDATE rotation SET statut='EN_ATTENTE', debut_reel=NULL WHERE id=232;"
+    echo ">>> état de la fixture :"
+    $PSQL "SELECT '    rot '||r.id||' stn '||r.station_id||' rang '||r.ordre_passage
+                  ||' groupe '||sg.numero_groupe||' -> '||r.statut
+           FROM rotation r JOIN student_group sg ON r.student_group_id=sg.id
+           WHERE r.id IN (229,232) ORDER BY r.id;"
+    TARGET=integration_test/groupe_suivant_test.dart ;;
   smoke)
     TARGET=integration_test/smoke_test.dart ;;
   *)
-    echo "usage: run_scenario.sh {smoke|S1-nominal|S2-1-derive|S2-2-entre-groupes|timer-anchor|render-audit|grading-nominal|grading-outage}"; exit 1 ;;
+    echo "usage: run_scenario.sh {smoke|S1-nominal|S2-1-derive|S2-2-entre-groupes|timer-anchor|render-audit|grading-nominal|grading-outage|grading-save|groupe-suivant}"; exit 1 ;;
 esac
 
 echo ">>> fixture posée pour $SCENARIO ; lancement de $TARGET"

@@ -32,4 +32,8 @@ public interface ExamenRepository extends JpaRepository<Examen, Long> {
     // Charger examen avec ses stations en une seule requête (évite N+1)
     @Query("SELECT e FROM Examen e LEFT JOIN FETCH e.stations WHERE e.id = :id")
     java.util.Optional<Examen> findByIdWithStations(@Param("id") Long id);
+
+    // #265 — tous les examens d'un statut, non paginé (garde de lancement :
+    // l'ensemble des examens EN_COURS d'une faculté est petit par nature)
+    java.util.List<Examen> findAllByStatut(StatutExamen statut);
 }

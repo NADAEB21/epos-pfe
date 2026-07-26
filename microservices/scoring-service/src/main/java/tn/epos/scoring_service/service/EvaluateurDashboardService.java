@@ -66,10 +66,11 @@ public class EvaluateurDashboardService {
     private static final String            LOG_ETUDIANT_STATION = " station=";
 
     private static final int DUREE_STATION_MIN = 15;
-    private static final int GRACE_PERIOD_MIN  = 30;
 
     private static final String TOPIC_SCORES = "/topic/stations/%d/scores";
-    private static final String TOPIC_LOT    = "/topic/lots/%d/status";
+    // ADR-0014-B — destination unique, définie sur le DTO : deux copies de la même
+    // destination « à garder identiques » ont déjà divergé ailleurs dans ce service.
+    private static final String TOPIC_LOT    = LotStatusMessage.TOPIC;
 
     // =========================================================================
     // 1. DASHBOARD COMPLET
@@ -154,25 +155,72 @@ public class EvaluateurDashboardService {
 // renvoyait toujours le même, bloquant la notation dès le 2e groupe.
 // =========================================================================
 
-    @Transactional(readOnly = true)
+    /**
+     * #209 — ouvrir l'écran d'un groupe DÉMARRE son minuteur : premier accès du propriétaire
+     * à une rotation EN_COURS ⇒ {@code debutReel} est horodaté (une fois). C'est le
+     * « Poursuivre la notation » de Nada — le plancher s'ancre sur un fait observé, plus
+     * jamais sur le créneau planifié (constaté : « 12:51 » restants sur une station de 2 min).
+     */
+    @Transactional
     public LotDetailResponse getGroupeDetail(Long rotationId, Long evaluateurId) {
         Rotation rotation = rotationRepository.findById(rotationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(rotation, evaluateurId);
+        marquerDebutReel(rotation);
         return toGroupeDetailResponse(rotation);
     }
 
-    @Transactional(readOnly = true)
-    public LotDetailResponse getGroupeSuivant(Long rotationId, Long evaluateurId) {
+    /**
+     * #209 — « Groupe suivant » est désormais L'ACTE D'AVANCER, découplé de la validation :
+     * il ouvre le rang suivant ({@code EN_COURS} + {@code debutReel}) et le renvoie.
+     * Auparavant c'était {@code validerGroupe} qui ouvrait le rang suivant — verrouiller et
+     * avancer étaient soudés, si bien qu'un évaluateur qui validait puis quittait l'écran se
+     * retrouvait « déplacé » au groupe suivant à son retour (grille vide — vécu par Nada).
+     * Règle : seul le clic explicite « Groupe suivant » avance.
+     */
+    @Transactional
+    public LotDetailResponse avancerGroupe(Long rotationId, Long evaluateurId) {
         Rotation courante = rotationRepository.findById(rotationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(courante, evaluateurId);
-        Rotation suivante = rotationRepository
-                .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(
-                        evaluateurId, courante.getDebutCreneau())
+
+        // #248 — séquencé sur ordrePassage et borné à (cette station, ce lot), exactement comme
+        // la garde du bouton. L'horloge ne séquence rien.
+        Rotation suivante = rotationSuivante(courante)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Aucun groupe suivant : c'était la dernière rotation planifiée pour cet évaluateur."));
+                        "Aucun groupe suivant : c'était le dernier passage de cette station pour ce lot."));
+
+        if (suivante.getStatut() == RotationStatus.EN_ATTENTE) {
+            suivante.setStatut(RotationStatus.EN_COURS);
+            log.info("Station {} : groupe suivant (rotation {}, rang {}) ouvert par l'évaluateur.",
+                    suivante.getStationId(), suivante.getId(), suivante.getOrdrePassage());
+        }
+        marquerDebutReel(suivante);
+        rotationRepository.save(suivante);
         return toGroupeDetailResponse(suivante);
+    }
+
+    /** Écrit {@code debutReel} UNE fois, seulement sur une rotation réellement EN_COURS. */
+    private void marquerDebutReel(Rotation rotation) {
+        if (rotation.getStatut() == RotationStatus.EN_COURS && rotation.getDebutReel() == null) {
+            rotation.setDebutReel(LocalDateTime.now(clock));
+            rotationRepository.save(rotation);
+        }
+    }
+
+    /**
+     * #248 — LE passage suivant : même station, même lot, rang immédiatement supérieur.
+     * Source unique pour {@code getGroupeSuivant}, pour le drapeau
+     * {@code groupeSuivantDisponible} envoyé au client, et pour l'ouverture faite par
+     * {@code validerGroupe} — afin que le bouton, la navigation et l'écriture ne puissent
+     * plus diverger.
+     */
+    private Optional<Rotation> rotationSuivante(Rotation courante) {
+        Lot lot = (courante.getStudentGroup() != null) ? courante.getStudentGroup().getLot() : null;
+        if (lot == null) return Optional.empty();
+        return rotationRepository
+                .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                        courante.getStationId(), lot.getId(), courante.getOrdrePassage());
     }
 
     private void verifierProprietaire(Rotation rotation, Long evaluateurId) {
@@ -196,13 +244,19 @@ public class EvaluateurDashboardService {
                 .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
                 .map(a -> {
                     ExamenParticipation p = a.getParticipation();
+                    // #212 — une seule lecture de la Notation par assignment : sert le verrou
+                    // ET le commentaire (désormais par-station, et enfin REJOUÉ au client —
+                    // ce champ de réponse existait depuis le début sans jamais être rempli).
+                    Optional<Notation> notation = notationRepository.findByAssignmentId(a.getId());
                     return LotDetailResponse.EtudiantLotResponse.builder()
                             .id(p.getEtudiant().getId())
                             .nom(p.getEtudiant().getNom())
                             .prenom(p.getEtudiant().getPrenom())
                             // #FIX : présence par ROTATION (assignment), plus par participation
                             .absent(!Boolean.TRUE.equals(a.getPresenceConfirmee()))
-                            .verrouille(isNotationVerrouillée(a.getId()))
+                            .verrouille(notation.map(n -> Boolean.TRUE.equals(n.getVerouillee()))
+                                    .orElse(false))
+                            .commentaire(notation.map(Notation::getCommentaire).orElse(null))
                             .notationItems(loadNotationItems(a.getId()))
                             .build();
                 })
@@ -213,6 +267,12 @@ public class EvaluateurDashboardService {
                 .numero(numeroGroupe)                // numéro du GROUPE (1..K), pas du lot
                 .total(totalGroupes)                 // nombre total de groupes du lot
                 .valide(rotation.getStatut() == RotationStatus.TERMINE)
+                // #248 — le client ne doit PAS redéduire ceci de numero/total : le carré latin
+                // fait tourner les groupes, donc « je suis le groupe K » ne veut pas dire « je
+                // suis le dernier passage de cette station ».
+                .groupeSuivantDisponible(rotationSuivante(rotation).isPresent())
+                // #209 — l'ancre OBSERVÉE du minuteur plancher (jamais le créneau planifié).
+                .debutReel(rotation.getDebutReel())
                 .etudiants(etudiants)
                 .build();
     }
@@ -284,6 +344,12 @@ public class EvaluateurDashboardService {
             notationItemRepository.deleteAll(notationItemRepository.findByNotationId(notation.getId()));
             notation.setScore_final(0.0f);
         }
+        // #212 (dernier volet) — le commentaire suit le même chemin que la présence : il
+        // concerne CETTE station, donc il vit sur Notation (l'enregistrement par
+        // (participation, station)), plus jamais sur la ligne partagée ExamenParticipation
+        // où « la dernière station gagnait ». En prime il est enfin REJOUÉ au mobile
+        // (EtudiantLotResponse.commentaire, jamais rempli jusqu'ici).
+        notation.setCommentaire(request.getCommentaire());
         notation.setVerouillee(true);
         notationRepository.save(notation);
 
@@ -297,7 +363,6 @@ public class EvaluateurDashboardService {
         assignment.setPresenceConfirmee(!request.isAbsent());
         rotationAssignmentRepository.save(assignment);
 
-        participation.setCommentaire(request.getCommentaire());
         // #212 — note AGRÉGÉE cross-station. ExamenParticipation n'a qu'UNE colonne
         // note, mais un étudiant passe N stations (N Notation.score_final). Écrire
         // ici le score d'UNE station y écrasait celui des autres (clobber #212, la
@@ -377,7 +442,13 @@ public class EvaluateurDashboardService {
         Lot lot = rotation.getStudentGroup() != null ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) return;
 
-        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard : groupe suivant dispo
+        // #209 — valider N'AVANCE PLUS. La version #207 ouvrait ici le rang suivant :
+        // verrouiller et avancer étaient soudés, donc un évaluateur qui validait puis
+        // quittait l'écran retrouvait à son retour un AUTRE groupe, grille vide (vécu par
+        // Nada). Règle : valider = verrouiller, point ; seul le clic explicite « Groupe
+        // suivant » ({@link #avancerGroupe}) ouvre le rang suivant. L'évaluateur reste
+        // maître du rythme — y compris celui de ne pas encore avancer.
+        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard
 
         if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lot.getId(), RotationStatus.TERMINE) == 0) {
             lot.setStatut(LotStatus.TERMINE);
@@ -399,9 +470,8 @@ public class EvaluateurDashboardService {
                 .filter(r -> r.getDebutCreneau() != null && r.getStationId() != null)
                 .map(rotation -> {
                     ExamServiceClient.ExamTiming timing = timingFor(rotation, timingByExam);
-                    LocalDateTime maintenant = effectiveNow(timing, rawNow);
                     int dureeMin = dureeMinFor(timing);
-                    String statut = resolveSessionStatut(rotation, maintenant, dureeMin);
+                    String statut = resolveSessionStatut(rotation);
                     Lot lotLie = resolverLotDepuisRotation(rotation, lotsParId);
 
                     return SessionResponse.builder()
@@ -433,13 +503,38 @@ public class EvaluateurDashboardService {
                 .collect(Collectors.toList());
     }
 
-    private String resolveSessionStatut(Rotation rotation, LocalDateTime maintenant, int dureeMin) {
-        if (rotation.getStatut() == RotationStatus.TERMINE) return STATUT_TERMINEE;
-        LocalDateTime debut = rotation.getDebutCreneau();
-        LocalDateTime finReelle = debut.plusMinutes((long) dureeMin + GRACE_PERIOD_MIN);
-        if (maintenant.isBefore(debut)) return "A_VENIR";
-        if (!maintenant.isAfter(finReelle)) return "EN_COURS";
-        return STATUT_TERMINEE;
+    /**
+     * #207 / ADR-0014 — l'avancement est lu, plus déduit.
+     *
+     * <p>L'ancienne version calculait {@code debutCreneau + duree + 30 min de grâce} et
+     * retirait d'office la session passé ce délai. C'était un <b>PLAFOND</b> : un examen qui
+     * dérive de plus de 45 min voyait toutes ses sessions basculer TERMINEE alors que
+     * personne n'avait rien validé, et l'évaluateur se retrouvait devant un tableau mort
+     * (#238). Le statut vient désormais de la seule source qui sait où en est réellement la
+     * salle : l'état persisté de la rotation, écrit à la génération (rang 1) puis à chaque
+     * « Groupe suivant ».
+     *
+     * <p>L'horloge garde son rôle de <b>PLANCHER</b> ailleurs — {@code debutPrevu} et
+     * {@code dureeStationMin} alimentent toujours le compte à rebours mobile, qui garantit à
+     * l'étudiant le temps qui lui est dû. Elle ne décide simplement plus de la fin.
+     */
+    private String resolveSessionStatut(Rotation rotation) {
+        RotationStatus statut = rotation.getStatut();
+        if (statut == null) return "A_VENIR";
+        return switch (statut) {
+            // #209 — garde anti-impasse du découplage valider/avancer : un groupe validé
+            // dont le RANG SUIVANT n'a pas encore été ouvert reste la session EN_COURS de
+            // l'évaluateur. Sans cela, valider puis quitter l'écran laissait l'accueil sans
+            // aucune carte active — l'évaluateur ne pouvait plus atteindre « Groupe
+            // suivant » (le bouton vit dans l'écran de notation). Il revient donc LÀ OÙ IL
+            // ÉTAIT : le récapitulatif verrouillé du groupe validé, d'où il avance.
+            // Dès que le rang suivant est ouvert (EN_COURS), ce groupe redevient TERMINEE.
+            case TERMINE   -> rotationSuivante(rotation)
+                    .filter(s -> s.getStatut() == RotationStatus.EN_ATTENTE)
+                    .isPresent() ? "EN_COURS" : STATUT_TERMINEE;
+            case EN_COURS  -> "EN_COURS";
+            case EN_ATTENTE -> "A_VENIR";
+        };
     }
 
     private int sessionStatutOrdre(String statut) {
@@ -448,10 +543,6 @@ public class EvaluateurDashboardService {
             case "A_VENIR"  -> 1;
             default         -> 2;
         };
-    }
-
-    private LocalDateTime effectiveNow(ExamServiceClient.ExamTiming timing, LocalDateTime rawNow) {
-        return rawNow.minusSeconds(pauseSeconds(timing, rawNow));
     }
 
     private long pauseSeconds(ExamServiceClient.ExamTiming timing, LocalDateTime rawNow) {
@@ -495,18 +586,22 @@ public class EvaluateurDashboardService {
         return rotations.stream()
                 .filter(r -> r.getDebutCreneau() != null && r.getDebutCreneau().toLocalDate().equals(rawNow.toLocalDate()))
                 .map(r -> {
-                    ExamServiceClient.ExamTiming t = timingFor(r, timingByExam);
                     return PlanningCellResponse.builder()
                             .heure(r.getDebutCreneau().format(TIME_FMT))
                             .lotNumero(r.getStudentGroup() != null ? r.getStudentGroup().getLot().getNumeroLot() : 0)
-                            .statut(mapRotationStatutToPlanningStatut(r, effectiveNow(t, rawNow), dureeMinFor(t))).build();
+                            .statut(mapRotationStatutToPlanningStatut(r)).build();
                 }).collect(Collectors.toList());
     }
 
-    private String mapRotationStatutToPlanningStatut(Rotation r, LocalDateTime m, int d) {
-        if (r.getStatut() == RotationStatus.TERMINE) return "TERMINE";
-        LocalDateTime fin = r.getDebutCreneau().plusMinutes((long) d + GRACE_PERIOD_MIN);
-        return m.isBefore(r.getDebutCreneau()) || !m.isAfter(fin) ? "A_VENIR" : "TERMINE";
+    /**
+     * #207 — même plafond d'horloge que {@link #resolveSessionStatut}, retiré de la même façon.
+     *
+     * <p>La cellule de planning est binaire côté client ({@code CellStatus} ne connaît que
+     * TERMINE / A_VENIR / AUCUN, sans EN_COURS) : un groupe en cours reste donc affiché
+     * « à venir » tant qu'il n'est pas validé, ce qui était déjà le contrat.
+     */
+    private String mapRotationStatutToPlanningStatut(Rotation r) {
+        return r.getStatut() == RotationStatus.TERMINE ? "TERMINE" : "A_VENIR";
     }
 
     /**
@@ -576,8 +671,4 @@ public class EvaluateurDashboardService {
         return notationRepository.save(n);
     }
 
-    private boolean isNotationVerrouillée(Long assignmentId) {
-        return notationRepository.findByAssignmentId(assignmentId)
-                .map(n -> Boolean.TRUE.equals(n.getVerouillee())).orElse(false);
-    }
 }

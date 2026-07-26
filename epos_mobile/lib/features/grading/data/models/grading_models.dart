@@ -187,6 +187,8 @@ class LotModel extends Lot {
     required super.total,
     required super.etudiants,
     super.valide,
+    super.groupeSuivantDisponible,
+    super.debutReel,
   });
 
   /// Réponse JSON de GET /evaluateur/stations/{id}/lots/{num} :
@@ -208,6 +210,16 @@ class LotModel extends Lot {
       numero:    _toInt(json['numero']),
       total:     _toInt(json['total']),
       valide:    json['valide'] as bool? ?? false,
+      // #248 — défaut `false` : en l'absence d'information, on n'annonce PAS un passage
+      // suivant. Se tromper dans ce sens grise un bouton utile (récupérable d'un retour
+      // en arrière) ; se tromper dans l'autre renvoie l'évaluateur sur une rotation
+      // inexistante et efface son écran de notation.
+      groupeSuivantDisponible: json['groupeSuivantDisponible'] as bool? ?? false,
+      // #209 — LocalDateTime serveur « yyyy-MM-ddTHH:mm:ss » (fuseau du Clock backend) ;
+      // parsé naïf comme debutCreneau : le clockOffset du bloc compense l'écart d'horloge.
+      debutReel: json['debutReel'] != null
+          ? DateTime.tryParse(json['debutReel'] as String)
+          : null,
       etudiants: etudiants,
     );
   }

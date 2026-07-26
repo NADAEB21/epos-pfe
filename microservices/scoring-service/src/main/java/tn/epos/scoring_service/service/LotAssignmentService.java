@@ -8,6 +8,7 @@ import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.dto.LotDTO;
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.dto.PresenceResult;
 import tn.epos.scoring_service.dto.RepartitionResult;
@@ -19,6 +20,7 @@ import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -195,6 +197,35 @@ public class LotAssignmentService {
     private void recomputeTailleLot(Lot lot) {
         lot.setTailleLot(participationRepository.findByLotId(lot.getId()).size());
         lotRepository.save(lot);
+    }
+
+    /**
+     * #147 / ADR-0014-A §5 — assigns (or clears) the day a lot runs on. {@code null}
+     * explicitly re-attaches the lot to the exam's own {@code dateExamen} — the
+     * single-day default — which the PATCH-semantics of {@code PUT /api/lots/{id}}
+     * cannot express (a null there means "leave untouched", #215).
+     *
+     * <p>Gated to CONFIGURE like répartition and déplacement: the day is a plan-phase
+     * promise printed on convocations; once the exam is launched the launch day-gate
+     * has already consumed it.
+     */
+    @Transactional
+    public LotDTO changerJour(Long lotId, LocalDate jour) {
+        Lot lot = lotRepository.findById(lotId)
+                .orElseThrow(() -> new ResourceNotFoundException("Lot non trouvé avec l'id : " + lotId));
+
+        ExamGenerationView exam = examServiceClient.getExamForGeneration(lot.getExamenId());
+        if (!"CONFIGURE".equals(exam.statut())) {
+            throw new BusinessException(
+                    "Le jour d'un lot ne se modifie qu'au statut CONFIGURE (statut actuel : "
+                            + exam.statut() + ").");
+        }
+
+        lot.setJour(jour);
+        Lot saved = lotRepository.save(lot);
+        log.info("Lot {} (examen {}) : jour {} .", lotId, lot.getExamenId(),
+                jour == null ? "réinitialisé au jour de l'examen" : "fixé au " + jour);
+        return LotDTO.fromEntity(saved);
     }
 
     /**

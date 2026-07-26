@@ -6,6 +6,7 @@ import { ApiResponse } from '../auth/auth.models';
 import {
   CreateEtudiantRequest,
   CreateParticipationRequest,
+  DemarrageResult,
   EtudiantSummary,
   ExamenResult,
   GenerationResult,
@@ -275,6 +276,32 @@ export class ScoringApiService {
     return this.http
       .post<ApiResponse<void>>(`${this.baseUrl}/lots/${lotId}/ouvrir`, null)
       .pipe(map(() => undefined));
+  }
+
+  /**
+   * #147 — set (or clear, with `null`) the day a lot runs on. PATCH-only
+   * endpoint: the generic lot PUT cannot express "clear" (its null means
+   * "leave untouched", #215). CONFIGURE-gated server-side.
+   */
+  changerJourLot(lotId: number, jour: string | null): Observable<LotSummary> {
+    return this.http
+      .patch<ApiResponse<LotSummary>>(`${this.baseUrl}/lots/${lotId}/jour`, { jour })
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #185 — « Présence & démarrer » : presence (everyone present unless `absents`
+   * given) + rotation generation for the lot, in ONE backend transaction. The
+   * wave opening stays ADR-0014-B's business: first wave auto-opens, later
+   * waves wait for the responsable's gated « Ouvrir le lot N ».
+   */
+  presenceEtDemarrer(lotId: number, absents: number[] = []): Observable<DemarrageResult> {
+    return this.http
+      .post<ApiResponse<DemarrageResult>>(
+        `${this.baseUrl}/lots/${lotId}/presence-et-demarrer`,
+        { absents },
+      )
+      .pipe(map((r) => r.data));
   }
 
   genererRotationsLot(lotId: number): Observable<GenerationResult> {

@@ -241,6 +241,11 @@ export function resolveLaneState(
             @if (actionError()) {
               <span role="alert" class="text-sm text-status-danger">{{ actionError() }}</span>
             }
+            @if (demarrageInfo()) {
+              <!-- #185 — l'avertissement (capacité…) du dernier « Présence & démarrer »
+                   survit au rechargement du tableau : il concerne la vague qui tourne. -->
+              <span role="status" class="text-sm text-amber-700">⚠ {{ demarrageInfo() }}</span>
+            }
             @if (isEnPause()) {
               <button
                 type="button"
@@ -352,19 +357,37 @@ export function resolveLaneState(
                 @if (suivant.rotationsGenerees) {
                   Vous pouvez ouvrir le lot {{ suivant.numeroLot }} quand la salle est prête.
                 } @else {
-                  Générez d'abord le planning du lot {{ suivant.numeroLot }} (onglet
-                  « Lots &amp; présence »).
+                  <!-- #185 — le conducteur : présence + circuit en un clic, ici même,
+                       au lieu d'un renvoi vers un onglet à deviner. -->
+                  Quand les étudiants du lot {{ suivant.numeroLot }} sont là : « Présence &amp;
+                  démarrer » enregistre la présence (tous présents) et construit son circuit.
+                  Des absents ?
+                  <a [routerLink]="['../lots']" class="text-brand hover:underline">Gérer la présence en détail</a>.
                 }
               </p>
+              @if (demarrageError()) {
+                <p role="alert" class="text-sm text-status-danger mt-1">{{ demarrageError() }}</p>
+              }
             </div>
-            <button
-              type="button"
-              [disabled]="ouvertureEnCours() || !suivant.rotationsGenerees"
-              (click)="ouvrirLotSuivant()"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
-            >
-              {{ ouvertureEnCours() ? '…' : '▶ Ouvrir le lot ' + suivant.numeroLot }}
-            </button>
+            @if (!suivant.rotationsGenerees) {
+              <button
+                type="button"
+                [disabled]="demarrageEnCours()"
+                (click)="demarrerLot(suivant.id)"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
+              >
+                {{ demarrageEnCours() ? '…' : '✓ Présence & démarrer le lot ' + suivant.numeroLot }}
+              </button>
+            } @else {
+              <button
+                type="button"
+                [disabled]="ouvertureEnCours()"
+                (click)="ouvrirLotSuivant()"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
+              >
+                {{ ouvertureEnCours() ? '…' : '▶ Ouvrir le lot ' + suivant.numeroLot }}
+              </button>
+            }
           </div>
         }
 
@@ -386,11 +409,55 @@ export function resolveLaneState(
       </section>
 
       <!--
+        #185 — LE CONDUCTEUR, premier lot. L'examen est lancé, aucune vague n'a
+        encore tourné : au lieu de l'alarme « stations sans rotations » (exacte
+        mais anxiogène et muette sur QUOI FAIRE), un panneau qui nomme l'acte :
+        présence + circuit + ouverture de la première vague, en un clic, ici.
+      -->
+      @if (conducteurPremierLot(); as lot) {
+        <section
+          role="status"
+          class="rounded-xl bg-brand-50 border border-brand shadow-card p-5 mb-6"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 class="font-semibold text-brand-dark">
+                Lot {{ lot.numeroLot }} — prêt à démarrer
+              </h2>
+              <p class="text-sm text-gray-600 mt-1">
+                Quand les étudiants du lot {{ lot.numeroLot }} sont dans la salle : un clic
+                enregistre la présence (tous présents), construit le circuit et ouvre la
+                première vague.
+              </p>
+              <p class="text-xs text-gray-500 mt-1">
+                Des absents ?
+                <a [routerLink]="['../lots']" class="text-brand hover:underline">Gérer la présence en détail</a>
+                (onglet Lots &amp; présence), puis générez-y les rotations.
+              </p>
+              @if (demarrageError()) {
+                <p role="alert" class="text-sm text-status-danger mt-2">{{ demarrageError() }}</p>
+              }
+            </div>
+            <button
+              type="button"
+              [disabled]="demarrageEnCours()"
+              (click)="demarrerLot(lot.id)"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50 shrink-0"
+            >
+              {{ demarrageEnCours() ? '…' : '▶ Présence & démarrer' }}
+            </button>
+          </div>
+        </section>
+      }
+
+      <!--
         Missing-rotations alarm. The exam is live but one or more stations have no
         rotation plan — nothing will ever run there. This is recoverable (rotations
         can still be generated while EN_COURS), so say so and link to the fix.
+        #185 — hidden while the first-lot conductor is showing: same fact, but the
+        conductor SAYS THE ACT instead of describing the hole.
       -->
-      @if (hasMissingRotations()) {
+      @if (hasMissingRotations() && !conducteurPremierLot()) {
         <section
           role="alert"
           class="rounded-xl bg-amber-50 border border-amber-300 shadow-card p-5 mb-6"
@@ -441,16 +508,27 @@ export function resolveLaneState(
               -->
               @switch (laneState(lane)) {
                 @case ('sansRotations') {
-                  <div class="text-right">
-                    <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
-                    <div class="font-semibold text-amber-700">⚠ Aucune rotation générée</div>
-                    <a
-                      [routerLink]="['../lots']"
-                      class="text-xs text-brand hover:underline"
-                    >
-                      Générer les rotations
-                    </a>
-                  </div>
+                  <!-- #185 — pendant que le conducteur « Présence & démarrer » est affiché,
+                       une station sans plan n'est pas une anomalie : c'est l'état normal
+                       d'avant le démarrage. L'alarme ambre ne vaut que hors conducteur. -->
+                  @if (conducteurPremierLot()) {
+                    <div class="text-right">
+                      <div class="text-xs text-gray-400 uppercase tracking-wide">Station</div>
+                      <div class="font-medium text-gray-600">En attente</div>
+                      <div class="text-xs text-gray-400">le lot n'a pas encore démarré</div>
+                    </div>
+                  } @else {
+                    <div class="text-right">
+                      <div class="text-xs text-amber-600 uppercase tracking-wide">Station</div>
+                      <div class="font-semibold text-amber-700">⚠ Aucune rotation générée</div>
+                      <a
+                        [routerLink]="['../lots']"
+                        class="text-xs text-brand hover:underline"
+                      >
+                        Générer les rotations
+                      </a>
+                    </div>
+                  }
                 }
                 <!--
                   #208 — ce que le responsable a demandé, et RIEN de plus : quel groupe est
@@ -508,7 +586,7 @@ export function resolveLaneState(
               </div>
             }
 
-            @if (laneState(lane) === 'sansRotations') {
+            @if (laneState(lane) === 'sansRotations' && !conducteurPremierLot()) {
               <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
                 Cette station n'a aucun passage planifié. Les rotations n'ont pas été générées pour
                 les lots de cet examen.
@@ -610,6 +688,26 @@ export class SuiviComponent {
   readonly progression = signal<SuiviProgression | null>(null);
   /** Une ouverture de vague est en cours (bouton « Lot suivant »). */
   readonly ouvertureEnCours = signal(false);
+
+  // ---- #185 — le conducteur « Présence & démarrer » ------------------------
+  /** L'acte combiné présence + génération est en vol. */
+  readonly demarrageEnCours = signal(false);
+  /** Refus du backend, montré tel quel (déjà nominatif et actionnable). */
+  readonly demarrageError = signal<string | null>(null);
+  /** Avertissement non bloquant (capacité…) du dernier démarrage réussi. */
+  readonly demarrageInfo = signal<string | null>(null);
+
+  /**
+   * #185 — le premier lot à démarrer : l'examen est lancé mais AUCUNE vague n'a
+   * encore tourné, et le prochain lot n'a pas de circuit. C'est l'état d'entrée
+   * du jour J — le conducteur y remplace l'alarme « stations sans rotations ».
+   */
+  readonly conducteurPremierLot = computed(() => {
+    const p = this.progression();
+    if (!p || p.lotOuvert != null) return null;
+    const s = p.lotSuivant;
+    return s && !s.rotationsGenerees ? s : null;
+  });
 
   // Conservés pour pouvoir recharger les passages seuls (#208) sans refaire tout le load.
   private readonly stationsCache = signal<StationSummary[]>([]);
@@ -975,6 +1073,33 @@ export class SuiviComponent {
     const mm = String(m).padStart(2, '0');
     const ss = String(s).padStart(2, '0');
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  /**
+   * #185 — « Présence & démarrer » : présence (tous présents) + génération du circuit en
+   * une transaction backend ({@code LotDemarrageService}). Première vague de l'examen ⇒
+   * elle s'ouvre d'elle-même (ADR-0014-B) ; vague suivante ⇒ « Ouvrir le lot N » reste
+   * l'acte d'ouverture, gardé sur l'état des rotations. Les absents s'enregistrent dans
+   * l'onglet Lots & présence — ce bouton est le chemin rapide « tout le monde est là ».
+   */
+  demarrerLot(lotId: number): void {
+    if (this.demarrageEnCours()) return;
+    this.demarrageEnCours.set(true);
+    this.demarrageError.set(null);
+    this.demarrageInfo.set(null);
+    this.scoring.presenceEtDemarrer(lotId).subscribe({
+      next: (r) => {
+        this.demarrageEnCours.set(false);
+        this.demarrageInfo.set(r.avertissement);
+        this.reload();
+      },
+      error: (err) => {
+        this.demarrageEnCours.set(false);
+        // Refus transactionnel : présence annulée avec la génération — le message
+        // du backend dit quoi faire, on le montre tel quel.
+        this.demarrageError.set(this.message(err, 'Démarrage du lot impossible.'));
+      },
+    });
   }
 
   /** « Lot suivant » — l'avancement lot→lot appartient au responsable (ADR-0014-B). */

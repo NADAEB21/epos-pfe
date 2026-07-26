@@ -421,4 +421,69 @@ class LotAssignmentServiceTest {
             verify(participationRepository, never()).findByLotId(any());
         }
     }
+
+    @Nested
+    @DisplayName("#147 — Jour d'un lot (multi-jour, CONFIGURE)")
+    class Jour {
+
+        private Lot lot(long id) {
+            Lot l = new Lot();
+            l.setId(id);
+            l.setExamenId(EXAM_ID);
+            l.setNumeroLot((int) id);
+            l.setStatut(LotStatus.EN_ATTENTE);
+            return l;
+        }
+
+        @Test
+        @DisplayName("Fixe le jour d'un lot (CONFIGURE)")
+        void fixeLeJour() {
+            Lot l = lot(7L);
+            when(lotRepository.findById(7L)).thenReturn(Optional.of(l));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+
+            var dto = service.changerJour(7L, LocalDate.of(2026, 6, 21));
+
+            assertThat(dto.jour()).isEqualTo(LocalDate.of(2026, 6, 21));
+            assertThat(l.getJour()).isEqualTo(LocalDate.of(2026, 6, 21));
+            verify(lotRepository, atLeastOnce()).save(l);
+        }
+
+        @Test
+        @DisplayName("jour null = effacement EXPLICITE → retour au jour unique de l'examen")
+        void nullEfface() {
+            Lot l = lot(7L);
+            l.setJour(LocalDate.of(2026, 6, 21));
+            when(lotRepository.findById(7L)).thenReturn(Optional.of(l));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("CONFIGURE", 3, 4));
+
+            var dto = service.changerJour(7L, null);
+
+            assertThat(dto.jour()).isNull();
+            assertThat(l.getJour()).isNull();
+        }
+
+        @Test
+        @DisplayName("Hors CONFIGURE → BusinessException, rien n'est écrit")
+        void rejetteHorsConfigure() {
+            Lot l = lot(7L);
+            when(lotRepository.findById(7L)).thenReturn(Optional.of(l));
+            when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(exam("EN_COURS", 3, 4));
+
+            assertThatThrownBy(() -> service.changerJour(7L, LocalDate.of(2026, 6, 21)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("CONFIGURE");
+            assertThat(l.getJour()).isNull();
+            verify(lotRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Lot inconnu → ResourceNotFoundException (404)")
+        void lotInconnu() {
+            when(lotRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.changerJour(99L, null))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
 }

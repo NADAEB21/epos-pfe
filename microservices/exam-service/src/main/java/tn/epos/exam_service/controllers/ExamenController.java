@@ -100,6 +100,19 @@ public class ExamenController {
         );
     }
 
+    /**
+     * #265 — pre-flight du Lancement : quels examens EN_COURS retiennent déjà des
+     * évaluateurs de CET examen ? Liste vide = feu vert. La garde autoritaire est
+     * dans changerStatut (l'état est instantané, seul le refus au lancement fait foi).
+     */
+    @GetMapping("/{id}/conflits-evaluateurs")
+    @Operation(summary = "Conflits d'évaluateurs avec les examens en cours",
+            description = "Examens EN_COURS partageant au moins un évaluateur avec cet examen (#265)")
+    public ResponseEntity<ApiResponse<java.util.List<tn.epos.exam_service.dto.response.ConflitEvaluateurResponse>>> conflitsEvaluateurs(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(examenService.listerConflitsEvaluateurs(id)));
+    }
+
     @PatchMapping("/{id}/statut")
     @Operation(summary = "Changer le statut d'un examen",
             description = "Transitions valides : BROUILLON→CONFIGURE→EN_COURS→TERMINE→ARCHIVE")

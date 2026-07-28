@@ -15,49 +15,7 @@ const ROLE_LABELS: Record<RoleType, string> = {
   selector: 'app-topbar',
   standalone: true,
   imports: [CommonModule],
-  template: `
-    <header class="h-16 px-6 flex items-center justify-end bg-surface border-b border-gray-200 relative">
-      <button
-        type="button"
-        (click)="toggleMenu()"
-        class="flex items-center gap-3 group focus:outline-none"
-      >
-        <div class="text-right">
-          <div class="text-sm font-medium text-gray-900">Dr. {{ displayName() }}</div>
-          <div class="text-xs text-gray-500">{{ roleLabel() }}</div>
-        </div>
-        <div
-          class="w-10 h-10 rounded-full bg-brand text-white flex items-center justify-center text-sm font-semibold group-hover:bg-brand-dark transition-colors"
-        >
-          {{ initials() }}
-        </div>
-      </button>
-
-      @if (menuOpen()) {
-        <div class="fixed inset-0 z-10" (click)="closeMenu()"></div>
-        <div
-          class="absolute right-6 top-14 z-20 w-56 rounded-lg bg-white shadow-lg border border-gray-200 py-1"
-        >
-          <button
-            type="button"
-            class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed"
-            disabled
-          >
-            Mon profil
-            <span class="block text-xs text-gray-400">À venir</span>
-          </button>
-          <div class="border-t border-gray-100 my-1"></div>
-          <button
-            type="button"
-            (click)="logout()"
-            class="w-full text-left px-4 py-2 text-sm text-status-danger hover:bg-red-50"
-          >
-            Déconnexion
-          </button>
-        </div>
-      }
-    </header>
-  `,
+  templateUrl: './topbar.component.html',
 })
 export class TopbarComponent {
   private readonly auth = inject(AuthService);

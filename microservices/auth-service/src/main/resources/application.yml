@@ -123,6 +123,17 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    # #255 — spring-boot-starter-mail ajoute un health indicator qui OUVRE une
+    # connexion SMTP à chaque sonde. La messagerie est désactivée par défaut
+    # (app.mail.enabled=false), donc la sonde échoue, /actuator/health renvoie
+    # 503, et le conteneur reste marqué « unhealthy » en permanence — alors que
+    # le service fonctionne parfaitement. docker-compose refuse alors de démarrer
+    # ce qui en dépend, et l'état du stack ment au premier coup d'œil.
+    # La santé de l'auth ne doit pas dépendre d'un SMTP qu'on a volontairement
+    # éteint : l'envoi d'e-mails n'est pas sur le chemin critique du login.
+    mail:
+      enabled: false
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging:

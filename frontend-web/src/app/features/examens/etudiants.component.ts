@@ -21,6 +21,9 @@ interface RosterRow {
   nom: string;
   prenom: string;
   numeroInscription: string | null;
+  email: string | null; // #227 Added
+  /** #256 — position in the imported sheet; null for hand-added students. */
+  ordreImport: number | null;
   numEchantillon: string | null;
   present: boolean | null;
   note: number | null;
@@ -33,6 +36,7 @@ interface ImportDraftRow {
   nom: string;
   prenom: string;
   numero_inscription: string;
+  email: string; // #227 Added
   valid: boolean;
   issue: string | null;
 }
@@ -49,7 +53,7 @@ function normHeader(h: unknown): string {
   return (h ?? '')
     .toString()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
 }
@@ -67,33 +71,33 @@ const NUM_HEADERS = new Set([
   'cin',
 ]);
 
+/** #227 Accepted header spellings for email. */
+const EMAIL_HEADERS = new Set(['email', 'mail', 'courriel', 'adresseemail', 'contact']);
+
 /**
- * Étudiants tab — the per-exam roster + authoring. A student isn't tied to an
- * exam directly; the only link is scoring-service's ExamenParticipation, so the
- * roster of exam X is its participations (filtered server-side via ?examenId)
- * joined to the global student directory by etudiantId.
+ * #256 — the roster is shown in the ORDER OF THE IMPORTED SHEET, never
+ * alphabetically. The supervisor ruled the file's row order is the official
+ * listing order, and the « # » column here reads as a position: sorting by name
+ * while numbering 1..N told the teacher that D227-08 was student #1. The
+ * convocations screen already orders this way, so this is also what keeps the
+ * two views telling the same story.
  *
- * Authoring (gated on editable() — BROUILLON/CONFIGURE, mirroring stations/grilles):
- *   • Ajouter un nouvel étudiant — 2-step: POST /etudiants (global directory),
- *     then POST /participations to enrol. A student can exist without being
- *     enrolled, so the two calls are distinct.
- *   • Ajouter un étudiant existant — pick from the directory (minus those already
- *     enrolled) → POST /participations only.
- *   • Retirer — DELETE /participations/{id} (the enrolment only; the student
- *     stays in the directory).
- *
- * Backend holes guarded here client-side (verified against EtudiantService /
- * ExamenParticipationService — neither enforces these):
- *   • numero_inscription is NOT unique server-side → the add-new form blocks a
- *     numéro already in the directory and points to the existing-student path.
- *   • no duplicate-(examen,étudiant) guard → the existing-student picker excludes
- *     anyone already on the roster.
- *   • no exam-status gate on scoring → editable() is the only thing stopping a
- *     roster edit once EN_COURS (UX parity with the other tabs, not server-enforced).
- *
- * Présence / note / num_echantillon stay read-only here — they belong to exam day
- * and orchestration, not roster authoring.
+ * Hand-added students carry no position and sort LAST, matching
+ * LotAssignmentService's own rule (a bare `?? 0` would put them first).
  */
+function compareListing(
+  a: { ordreImport: number | null; nom: string; prenom: string },
+  b: { ordreImport: number | null; nom: string; prenom: string },
+): number {
+  const ra = a.ordreImport ?? Number.MAX_SAFE_INTEGER;
+  const rb = b.ordreImport ?? Number.MAX_SAFE_INTEGER;
+  return (
+    ra - rb ||
+    (a.nom || '').localeCompare(b.nom || '') ||
+    (a.prenom || '').localeCompare(b.prenom || '')
+  );
+}
+
 @Component({
   selector: 'app-etudiants',
   standalone: true,
@@ -105,9 +109,15 @@ const NUM_HEADERS = new Set([
         <div class="h-64 rounded-xl bg-gray-200"></div>
       </div>
     } @else if (error()) {
-      <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
-        <p class="text-gray-700 mb-1">Impossible de charger la liste des etudiants.</p>
-        <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+      <div
+        class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card"
+      >
+        <p class="text-gray-700 mb-1">
+          Impossible de charger la liste des etudiants.
+        </p>
+        <p class="text-sm text-gray-500 mb-4">
+          Verifiez votre connexion puis reessayez.
+        </p>
         <button
           type="button"
           (click)="reload()"
@@ -154,47 +164,86 @@ const NUM_HEADERS = new Set([
               novalidate
               class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
             >
-              <div class="text-sm font-semibold text-gray-900">Nouvel etudiant</div>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div class="text-sm font-semibold text-gray-900">
+                Nouvel etudiant
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
-                  <label class="block text-xs font-medium text-gray-700 mb-1">Prenom</label>
+                  <label class="block text-xs font-medium text-gray-700 mb-1"
+                    >Prenom</label
+                  >
                   <input
                     type="text"
                     formControlName="prenom"
                     maxlength="100"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                   />
-                  @if (newForm.controls.prenom.touched && newForm.controls.prenom.invalid) {
-                    <p class="text-xs text-status-danger mt-1">Le prenom est obligatoire.</p>
+                  @if (
+                    newForm.controls.prenom.touched &&
+                    newForm.controls.prenom.invalid
+                  ) {
+                    <p class="text-xs text-status-danger mt-1">
+                      Le prenom est obligatoire.
+                    </p>
                   }
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-gray-700 mb-1">Nom</label>
+                  <label class="block text-xs font-medium text-gray-700 mb-1"
+                    >Nom</label
+                  >
                   <input
                     type="text"
                     formControlName="nom"
                     maxlength="100"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                   />
-                  @if (newForm.controls.nom.touched && newForm.controls.nom.invalid) {
-                    <p class="text-xs text-status-danger mt-1">Le nom est obligatoire.</p>
+                  @if (
+                    newForm.controls.nom.touched && newForm.controls.nom.invalid
+                  ) {
+                    <p class="text-xs text-status-danger mt-1">
+                      Le nom est obligatoire.
+                    </p>
                   }
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-gray-700 mb-1">N&deg; inscription</label>
+                  <label class="block text-xs font-medium text-gray-700 mb-1"
+                    >N&deg; inscription</label
+                  >
                   <input
                     type="text"
                     formControlName="numeroInscription"
                     maxlength="50"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                   />
-                  @if (newForm.controls.numeroInscription.touched && newForm.controls.numeroInscription.invalid) {
-                    <p class="text-xs text-status-danger mt-1">Le numero est obligatoire.</p>
+                  @if (
+                    newForm.controls.numeroInscription.touched &&
+                    newForm.controls.numeroInscription.invalid
+                  ) {
+                    <p class="text-xs text-status-danger mt-1">
+                      Le numero est obligatoire.
+                    </p>
+                  }
+                </div>
+                <!-- #227 Added Email Input -->
+                <div>
+                  <label class="block text-xs font-medium text-gray-700 mb-1"
+                    >Email (optionnel)</label
+                  >
+                  <input
+                    type="email"
+                    formControlName="email"
+                    maxlength="255"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                  />
+                  @if (newForm.controls.email.touched && newForm.controls.email.invalid) {
+                    <p class="text-xs text-status-danger mt-1">Email invalide.</p>
                   }
                 </div>
               </div>
               @if (addError()) {
-                <p role="alert" class="text-xs text-status-danger">{{ addError() }}</p>
+                <p role="alert" class="text-xs text-status-danger">
+                  {{ addError() }}
+                </p>
               }
               <div class="flex items-center justify-end gap-2">
                 <button
@@ -217,9 +266,13 @@ const NUM_HEADERS = new Set([
 
           <!-- Enrol an existing student from the directory -->
           @if (mode() === 'existing') {
-            <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-3">
+            <div
+              class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-3"
+            >
               <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-semibold text-gray-900">Ajouter un etudiant existant</div>
+                <div class="text-sm font-semibold text-gray-900">
+                  Ajouter un etudiant existant
+                </div>
                 <button
                   type="button"
                   (click)="cancelAdd()"
@@ -236,9 +289,13 @@ const NUM_HEADERS = new Set([
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
               />
               @if (addError()) {
-                <p role="alert" class="text-xs text-status-danger">{{ addError() }}</p>
+                <p role="alert" class="text-xs text-status-danger">
+                  {{ addError() }}
+                </p>
               }
-              <div class="max-h-64 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
+              <div
+                class="max-h-64 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50"
+              >
                 @for (e of filteredAvailable(); track e.id) {
                   <button
                     type="button"
@@ -246,10 +303,14 @@ const NUM_HEADERS = new Set([
                     (click)="enrolExisting(e)"
                     class="w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-surface disabled:opacity-50"
                   >
-                    <span class="text-gray-800">{{ e.prenom }} {{ e.nom }}</span>
+                    <span class="text-gray-800"
+                      >{{ e.prenom }} {{ e.nom }}</span
+                    >
                     <span class="text-xs text-gray-400">
                       {{ e.numero_inscription || '—' }}
-                      @if (enrollingId() === e.id) { <span class="text-gray-400">· …</span> }
+                      @if (enrollingId() === e.id) {
+                        <span class="text-gray-400">· …</span>
+                      }
                     </span>
                   </button>
                 } @empty {
@@ -263,15 +324,17 @@ const NUM_HEADERS = new Set([
                 }
               </div>
               <p class="text-xs text-gray-400">
-                Le repertoire est partage entre toutes les matieres (pas de filtre par matiere cote
-                scoring — #86).
+                Le repertoire est partage entre toutes les matieres (pas de
+                filtre par matiere cote scoring — #86).
               </p>
             </div>
           }
 
           <!-- Bulk import from CSV / Excel -->
           @if (mode() === 'import') {
-            <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4">
+            <div
+              class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+            >
               <div class="flex items-center justify-between gap-3">
                 <div class="text-sm font-semibold text-gray-900">
                   Importer des etudiants (CSV / Excel)
@@ -294,54 +357,85 @@ const NUM_HEADERS = new Set([
                     class="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-brand file:text-white hover:file:bg-brand-dark"
                   />
                   <p class="text-xs text-gray-400 mt-2">
-                    Colonnes attendues : <b>nom</b>, <b>prenom</b>, <b>numero_inscription</b>.
-                    Sans ligne d'entete, l'ordre suppose est : nom, prenom, numero.
+                    Colonnes attendues : <b>nom</b>, <b>prenom</b>,
+                    <b>numero_inscription</b>, <b>email</b> (optionnel).
                   </p>
                 </div>
                 @if (importFileName()) {
-                  <p class="text-xs text-gray-500">Fichier : {{ importFileName() }}</p>
+                  <p class="text-xs text-gray-500">
+                    Fichier : {{ importFileName() }}
+                  </p>
                 }
               }
 
               @if (importError()) {
-                <p role="alert" class="text-xs text-status-danger">{{ importError() }}</p>
+                <p role="alert" class="text-xs text-status-danger">
+                  {{ importError() }}
+                </p>
               }
 
               <!-- preview before POST -->
               @if (importPreview(); as preview) {
                 @if (preview.length === 0) {
-                  <p class="text-sm text-gray-500">Aucune ligne detectee dans le fichier.</p>
+                  <p class="text-sm text-gray-500">
+                    Aucune ligne detectee dans le fichier.
+                  </p>
                 } @else {
                   <div class="text-xs text-gray-600">
                     {{ preview.length }} ligne(s) —
-                    <span class="text-status-success">{{ importValidCount() }} valide(s)</span>
+                    <span class="text-status-success"
+                      >{{ importValidCount() }} valide(s)</span
+                    >
                     @if (importInvalidCount() > 0) {
-                      , <span class="text-status-danger">{{ importInvalidCount() }} ignoree(s)</span>
+                      ,
+                      <span class="text-status-danger"
+                        >{{ importInvalidCount() }} ignoree(s)</span
+                      >
                     }
                   </div>
-                  <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-100">
+                  <div
+                    class="max-h-72 overflow-y-auto rounded-lg border border-gray-100"
+                  >
                     <table class="w-full text-sm">
                       <thead>
-                        <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+                        <tr
+                          class="text-left text-xs text-gray-400 border-b border-gray-100"
+                        >
                           <th class="px-3 py-2 w-8">#</th>
                           <th class="px-3 py-2">Prenom</th>
                           <th class="px-3 py-2">Nom</th>
                           <th class="px-3 py-2">N&deg; inscription</th>
+                          <th class="px-3 py-2">Email</th>
                           <th class="px-3 py-2">Etat</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-gray-50">
                         @for (r of preview; track r.ligne) {
                           <tr class="hover:bg-surface">
-                            <td class="px-3 py-1.5 text-gray-400">{{ r.ligne }}</td>
-                            <td class="px-3 py-1.5 text-gray-700">{{ r.prenom || '—' }}</td>
-                            <td class="px-3 py-1.5 text-gray-700">{{ r.nom || '—' }}</td>
-                            <td class="px-3 py-1.5 text-gray-600">{{ r.numero_inscription || '—' }}</td>
+                            <td class="px-3 py-1.5 text-gray-400">
+                              {{ r.ligne }}
+                            </td>
+                            <td class="px-3 py-1.5 text-gray-700">
+                              {{ r.prenom || '—' }}
+                            </td>
+                            <td class="px-3 py-1.5 text-gray-700">
+                              {{ r.nom || '—' }}
+                            </td>
+                            <td class="px-3 py-1.5 text-gray-600">
+                              {{ r.numero_inscription || '—' }}
+                            </td>
+                            <td class="px-3 py-1.5 text-gray-600">
+                              {{ r.email || '—' }}
+                            </td>
                             <td class="px-3 py-1.5">
                               @if (r.valid) {
-                                <span class="text-xs text-status-success">OK</span>
+                                <span class="text-xs text-status-success"
+                                  >OK</span
+                                >
                               } @else {
-                                <span class="text-xs text-status-danger">{{ r.issue }}</span>
+                                <span class="text-xs text-status-danger">{{
+                                  r.issue
+                                }}</span>
                               }
                             </td>
                           </tr>
@@ -363,7 +457,11 @@ const NUM_HEADERS = new Set([
                       (click)="submitImport()"
                       class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {{ importing() ? 'Import…' : 'Importer ' + importValidCount() + ' etudiant(s)' }}
+                      {{
+                        importing()
+                          ? 'Import…'
+                          : 'Importer ' + importValidCount() + ' etudiant(s)'
+                      }}
                     </button>
                   </div>
                 }
@@ -372,19 +470,48 @@ const NUM_HEADERS = new Set([
               <!-- per-row result after POST -->
               @if (importResult(); as res) {
                 <div class="space-y-3">
-                  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                    <span class="font-semibold text-gray-900">{{ res.total }} ligne(s)</span>
-                    <span class="text-status-success">{{ res.created }} cree(s)</span>
-                    <span class="text-status-success">{{ res.enrolled }} inscrit(s)</span>
-                    <span class="text-gray-500">{{ res.alreadyEnrolled }} deja inscrit(s)</span>
+                  <div
+                    class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+                  >
+                    <span class="font-semibold text-gray-900"
+                      >{{ res.total }} ligne(s)</span
+                    >
+                    <span class="text-status-success"
+                      >{{ res.created }} cree(s)</span
+                    >
+                    <span class="text-status-success"
+                      >{{ res.enrolled }} inscrit(s)</span
+                    >
+                    <span class="text-gray-500"
+                      >{{ res.alreadyEnrolled }} deja inscrit(s)</span
+                    >
                     @if (res.errors > 0) {
-                      <span class="text-status-danger">{{ res.errors }} erreur(s)</span>
+                      <span class="text-status-danger"
+                        >{{ res.errors }} erreur(s)</span
+                      >
                     }
                   </div>
-                  <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-100">
+                  <!-- #227 — a re-import done purely to add addresses lands every
+                       row on « déjà inscrit », so the four counters above read
+                       like a no-op. Say what actually changed. -->
+                  @if (res.emailsRenseignes > 0) {
+                    <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                      {{ res.emailsRenseignes }} adresse(s) e-mail renseignée(s) ou mise(s) à jour.
+                    </p>
+                  } @else if (res.alreadyEnrolled === res.total && res.total > 0) {
+                    <p class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      Tous les étudiants du fichier étaient déjà inscrits et aucune adresse e-mail
+                      n'a changé — rien n'a été modifié.
+                    </p>
+                  }
+                  <div
+                    class="max-h-72 overflow-y-auto rounded-lg border border-gray-100"
+                  >
                     <table class="w-full text-sm">
                       <thead>
-                        <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+                        <tr
+                          class="text-left text-xs text-gray-400 border-b border-gray-100"
+                        >
                           <th class="px-3 py-2 w-8">#</th>
                           <th class="px-3 py-2">Etudiant</th>
                           <th class="px-3 py-2">N&deg; inscription</th>
@@ -394,21 +521,33 @@ const NUM_HEADERS = new Set([
                       <tbody class="divide-y divide-gray-50">
                         @for (r of res.rows; track r.ligne) {
                           <tr class="hover:bg-surface">
-                            <td class="px-3 py-1.5 text-gray-400">{{ r.ligne }}</td>
+                            <td class="px-3 py-1.5 text-gray-400">
+                              {{ r.ligne }}
+                            </td>
                             <td class="px-3 py-1.5 text-gray-700">
                               {{ r.prenom || '' }} {{ r.nom || '' }}
                             </td>
-                            <td class="px-3 py-1.5 text-gray-600">{{ r.numero_inscription || '—' }}</td>
+                            <td class="px-3 py-1.5 text-gray-600">
+                              {{ r.numero_inscription || '—' }}
+                            </td>
                             <td class="px-3 py-1.5">
                               @if (r.statut === 'ERROR') {
-                                <span class="text-xs text-status-danger">{{ statutLabel(r.statut) }}</span>
+                                <span class="text-xs text-status-danger">{{
+                                  statutLabel(r.statut)
+                                }}</span>
                               } @else if (r.statut === 'ALREADY_ENROLLED') {
-                                <span class="text-xs text-gray-500">{{ statutLabel(r.statut) }}</span>
+                                <span class="text-xs text-gray-500">{{
+                                  statutLabel(r.statut)
+                                }}</span>
                               } @else {
-                                <span class="text-xs text-status-success">{{ statutLabel(r.statut) }}</span>
+                                <span class="text-xs text-status-success">{{
+                                  statutLabel(r.statut)
+                                }}</span>
                               }
                               @if (r.message && r.statut === 'ERROR') {
-                                <span class="text-xs text-gray-400"> · {{ r.message }}</span>
+                                <span class="text-xs text-gray-400">
+                                  · {{ r.message }}</span
+                                >
                               }
                             </td>
                           </tr>
@@ -433,23 +572,33 @@ const NUM_HEADERS = new Set([
       }
 
       @if (rows().length === 0) {
-        <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+        <div
+          class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card"
+        >
           <p class="text-gray-700 mb-1">Aucun etudiant inscrit a cet examen.</p>
           <p class="text-sm text-gray-500">
             @if (editable()) {
-              Ajoutez un nouvel etudiant ou inscrivez-en un depuis le repertoire pour commencer.
+              Ajoutez un nouvel etudiant ou inscrivez-en un depuis le repertoire
+              pour commencer.
             } @else {
               La liste des inscrits apparaitra ici.
             }
           </p>
         </div>
       } @else {
+        @if (emailError()) {
+          <p role="alert" class="mb-3 text-xs text-status-danger">{{ emailError() }}</p>
+        }
         <!-- summary -->
         <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-sm">
-          <span class="text-gray-900 font-semibold">{{ rows().length }} etudiant(s)</span>
+          <span class="text-gray-900 font-semibold"
+            >{{ rows().length }} etudiant(s)</span
+          >
           @if (showDayOf()) {
             @if (presentsCount() > 0) {
-              <span class="text-gray-500">{{ presentsCount() }} present(s)</span>
+              <span class="text-gray-500"
+                >{{ presentsCount() }} present(s)</span
+              >
             }
             @if (absentsCount() > 0) {
               <span class="text-gray-500">{{ absentsCount() }} absent(s)</span>
@@ -493,13 +642,19 @@ const NUM_HEADERS = new Set([
           </select>
         </div>
 
-        <div class="rounded-xl bg-white border border-gray-200 shadow-card overflow-hidden">
+        <div
+          class="rounded-xl bg-white border border-gray-200 shadow-card overflow-hidden"
+        >
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+              <tr
+                class="text-left text-xs text-gray-400 border-b border-gray-100"
+              >
                 <th class="px-4 py-2.5 font-medium w-8">#</th>
                 <th class="px-4 py-2.5 font-medium">Etudiant</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
+                <!-- #227 Added Column -->
+                <th class="px-4 py-2.5 font-medium">Email</th>
                 <th class="px-4 py-2.5 font-medium">N&deg; echantillon</th>
                 <th class="px-4 py-2.5 font-medium">Lot</th>
                 @if (showDayOf()) {
@@ -512,19 +667,87 @@ const NUM_HEADERS = new Set([
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
-              @for (r of filteredRows(); track r.participationId; let i = $index) {
+              @for (
+                r of filteredRows();
+                track r.participationId;
+                let i = $index
+              ) {
                 <tr class="hover:bg-surface">
                   <td class="px-4 py-2.5 text-gray-400">{{ i + 1 }}</td>
-                  <td class="px-4 py-2.5 text-gray-800 font-medium">{{ displayName(r) }}</td>
-                  <td class="px-4 py-2.5 text-gray-600">{{ r.numeroInscription || '—' }}</td>
-                  <td class="px-4 py-2.5 text-gray-600">{{ r.numEchantillon || '—' }}</td>
-                  <td class="px-4 py-2.5 text-gray-600">{{ lotLabel(r.lotId) }}</td>
+                  <td class="px-4 py-2.5 text-gray-800 font-medium">
+                    {{ displayName(r) }}
+                  </td>
+                  <td class="px-4 py-2.5 text-gray-600">
+                    {{ r.numeroInscription || '—' }}
+                  </td>
+                  <!-- #227 — editable in place. Fixing one address must not cost
+                       a whole roster re-import (charge de travail), and a typo
+                       needs a correction path at all (gestion des erreurs). -->
+                  <td class="px-4 py-2.5 text-gray-600">
+                    @if (emailEditId() === r.etudiantId) {
+                      <div class="flex items-center gap-1">
+                        <input
+                          type="email"
+                          [value]="emailDraft()"
+                          (input)="emailDraft.set($any($event.target).value)"
+                          (keydown.enter)="saveEmail(r)"
+                          (keydown.escape)="cancelEmailEdit()"
+                          placeholder="prenom.nom@etu.tn"
+                          maxlength="255"
+                          class="w-52 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+                          autofocus
+                        />
+                        <button
+                          type="button"
+                          (click)="saveEmail(r)"
+                          [disabled]="savingEmailId() === r.etudiantId"
+                          class="px-2 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-dark disabled:opacity-50"
+                        >
+                          {{ savingEmailId() === r.etudiantId ? '…' : 'OK' }}
+                        </button>
+                        <button
+                          type="button"
+                          (click)="cancelEmailEdit()"
+                          class="px-2 py-1 rounded-lg border border-gray-300 text-xs text-gray-600 hover:bg-gray-50"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    } @else if (editable()) {
+                      <button
+                        type="button"
+                        (click)="startEmailEdit(r)"
+                        [class]="
+                          r.email
+                            ? 'text-left hover:underline decoration-dotted text-gray-600'
+                            : 'text-left hover:underline decoration-dotted text-amber-700 font-medium'
+                        "
+                        [title]="r.email ? 'Modifier l\\'adresse' : 'Ajouter une adresse e-mail'"
+                      >
+                        {{ r.email || 'Ajouter…' }}
+                      </button>
+                    } @else {
+                      {{ r.email || '—' }}
+                    }
+                  </td>
+                  <td class="px-4 py-2.5 text-gray-600">
+                    {{ r.numEchantillon || '—' }}
+                  </td>
+                  <td class="px-4 py-2.5 text-gray-600">
+                    {{ lotLabel(r.lotId) }}
+                  </td>
                   @if (showDayOf()) {
                     <td class="px-4 py-2.5">
                       @if (r.present === true) {
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white">Present</span>
+                        <span
+                          class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white"
+                          >Present</span
+                        >
                       } @else if (r.present === false) {
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger">Absent</span>
+                        <span
+                          class="text-xs px-2 py-0.5 rounded-full bg-status-danger/10 text-status-danger"
+                          >Absent</span
+                        >
                       } @else {
                         <span class="text-xs text-gray-400">—</span>
                       }
@@ -543,7 +766,11 @@ const NUM_HEADERS = new Set([
                             (click)="confirmRemove(r)"
                             class="px-2 py-1 rounded-lg bg-status-danger text-white text-xs font-medium hover:opacity-90 disabled:opacity-40"
                           >
-                            {{ removingId() === r.participationId ? '…' : 'Retirer' }}
+                            {{
+                              removingId() === r.participationId
+                                ? '…'
+                                : 'Retirer'
+                            }}
                           </button>
                           <button
                             type="button"
@@ -568,7 +795,10 @@ const NUM_HEADERS = new Set([
                 </tr>
               } @empty {
                 <tr>
-                  <td [attr.colspan]="colspan()" class="px-4 py-6 text-center text-sm text-gray-400">
+                  <td
+                    [attr.colspan]="colspan()"
+                    class="px-4 py-6 text-center text-sm text-gray-400"
+                  >
                     Aucun etudiant ne correspond aux filtres.
                   </td>
                 </tr>
@@ -583,7 +813,8 @@ const NUM_HEADERS = new Set([
 
         <p class="text-xs text-gray-400 mt-3">
           @if (showDayOf()) {
-            Presence, note et numero d'echantillon se remplissent le jour de l'examen — non editables ici.
+            Presence, note et numero d'echantillon se remplissent le jour de
+            l'examen — non editables ici.
           } @else {
             La presence et les notes apparaitront ici une fois l'examen lance.
           }
@@ -634,7 +865,7 @@ export class EtudiantsComponent {
     const pres = this.presenceFilter();
     const lot = this.lotFilter();
     return this.rows().filter((r) => {
-      if (q && !`${r.prenom} ${r.nom} ${r.numeroInscription ?? ''}`.toLowerCase().includes(q)) {
+      if (q && !`${r.prenom} ${r.nom} ${r.numeroInscription ?? ''} ${r.email ?? ''}`.toLowerCase().includes(q)) {
         return false;
       }
       if (pres === 'present' && r.present !== true) return false;
@@ -671,7 +902,7 @@ export class EtudiantsComponent {
 
   /** Visible column count, for the "no match" row's colspan. */
   readonly colspan = computed(
-    () => 5 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 1 : 0),
+    () => 6 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 1 : 0),
   );
 
   readonly presentsCount = computed(() => this.rows().filter((r) => r.present === true).length);
@@ -685,6 +916,14 @@ export class EtudiantsComponent {
   readonly search = signal('');
 
   readonly confirmRemoveId = signal<number | null>(null);
+
+  // ---- #227 inline e-mail edit ---------------------------------------------
+  /** etudiantId whose address is being edited (keyed on the STUDENT, not the
+   *  participation: the address belongs to the directory record). */
+  readonly emailEditId = signal<number | null>(null);
+  readonly emailDraft = signal('');
+  readonly savingEmailId = signal<number | null>(null);
+  readonly emailError = signal<string | null>(null);
   readonly removingId = signal<number | null>(null);
   readonly removeError = signal<string | null>(null);
 
@@ -708,6 +947,7 @@ export class EtudiantsComponent {
     prenom: ['', [Validators.required, Validators.maxLength(100)]],
     nom: ['', [Validators.required, Validators.maxLength(100)]],
     numeroInscription: ['', [Validators.required, Validators.maxLength(50)]],
+    email: ['', [Validators.email, Validators.maxLength(255)]], // #227 Added
   });
 
   /** etudiantIds already on this exam's roster, for the existing-student filter. */
@@ -786,19 +1026,68 @@ export class EtudiantsComponent {
           nom: e?.nom ?? '',
           prenom: e?.prenom ?? '',
           numeroInscription: e?.numero_inscription ?? null,
+          email: e?.email ?? null, // #227 Added
+          ordreImport: p.ordre_import ?? null,
           numEchantillon: p.num_echantillon,
           present: p.est_present,
           note: p.note,
           lotId: p.lotId,
         };
       })
-      .sort((a, b) => (a.nom || '').localeCompare(b.nom || '') || (a.prenom || '').localeCompare(b.prenom || ''));
+      .sort(compareListing);
+  }
+
+  // ---- #227 inline e-mail edit --------------------------------------------
+
+  startEmailEdit(r: RosterRow): void {
+    if (r.etudiantId == null) return;
+    this.emailError.set(null);
+    this.emailDraft.set(r.email ?? '');
+    this.emailEditId.set(r.etudiantId);
+  }
+
+  cancelEmailEdit(): void {
+    this.emailEditId.set(null);
+    this.emailDraft.set('');
+    this.emailError.set(null);
+  }
+
+  /**
+   * Patches ONLY the address (PUT accepts a partial body — see #215). An empty
+   * value is a deliberate erase, which is why we don't block it: a wrong address
+   * is worse than none, so the teacher must be able to take one back out.
+   */
+  saveEmail(r: RosterRow): void {
+    if (r.etudiantId == null) return;
+    const value = this.emailDraft().trim();
+    if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      this.emailError.set('Adresse e-mail invalide.');
+      return;
+    }
+    const etudiantId = r.etudiantId;
+    this.savingEmailId.set(etudiantId);
+    this.emailError.set(null);
+    this.scoring.updateEtudiant(etudiantId, { email: value }).subscribe({
+      next: () => {
+        // Patch every row of this student in place — the same person can appear
+        // once here, but the directory record is shared, so keep them coherent.
+        this.rows.update((list) =>
+          list.map((row) => (row.etudiantId === etudiantId ? { ...row, email: value || null } : row)),
+        );
+        this.savingEmailId.set(null);
+        this.cancelEmailEdit();
+      },
+      error: () => {
+        this.savingEmailId.set(null);
+        this.emailError.set("Échec de l'enregistrement de l'adresse.");
+      },
+    });
   }
 
   // ---- add-new (2-step) ---------------------------------------------------
 
   openAddNew(): void {
-    this.newForm.reset({ prenom: '', nom: '', numeroInscription: '' });
+    this.newForm.reset({ prenom: '', nom: '', numeroInscription: '', email: '' });
     this.addError.set(null);
     this.mode.set('new');
   }
@@ -835,7 +1124,12 @@ export class EtudiantsComponent {
     this.addError.set(null);
     const examId = Number(this.id());
     this.scoring
-      .createEtudiant({ prenom: raw.prenom.trim(), nom: raw.nom.trim(), numero_inscription: numero })
+      .createEtudiant({ 
+        prenom: raw.prenom.trim(), 
+        nom: raw.nom.trim(), 
+        numero_inscription: numero, 
+        email: raw.email.trim() // #227 Added
+      })
       .subscribe({
         next: (student) => {
           // Student now exists in the directory regardless of what happens next.
@@ -967,6 +1261,7 @@ export class EtudiantsComponent {
     let iNom = header.indexOf('nom');
     let iPrenom = header.indexOf('prenom');
     let iNum = header.findIndex((h) => NUM_HEADERS.has(h));
+    let iEmail = header.findIndex((h) => EMAIL_HEADERS.has(h)); // #227 Added
 
     let dataRows: unknown[][];
     if (iNum >= 0 || iNom >= 0) {
@@ -975,6 +1270,7 @@ export class EtudiantsComponent {
       iNom = 0;
       iPrenom = 1;
       iNum = 2; // no header → positional fallback
+      iEmail = 3; // #227 Assume 4th column
       dataRows = clean;
     }
 
@@ -985,6 +1281,7 @@ export class EtudiantsComponent {
       const nom = cell(row, iNom);
       const prenom = cell(row, iPrenom);
       const numero = cell(row, iNum);
+      const email = cell(row, iEmail); // #227 Added
       const valid = !!numero && !!nom;
       let issue: string | null = null;
       if (!valid) {
@@ -992,7 +1289,7 @@ export class EtudiantsComponent {
         else if (!numero) issue = 'Numero manquant';
         else issue = 'Nom manquant';
       }
-      return { ligne: idx + 1, nom, prenom, numero_inscription: numero, valid, issue };
+      return { ligne: idx + 1, nom, prenom, numero_inscription: numero, email, valid, issue };
     });
   }
 
@@ -1004,6 +1301,7 @@ export class EtudiantsComponent {
       nom: r.nom,
       prenom: r.prenom,
       numero_inscription: r.numero_inscription,
+      email: r.email // #227 Added
     }));
     if (rows.length === 0) {
       this.importError.set('Aucune ligne a importer.');
@@ -1097,16 +1395,14 @@ export class EtudiantsComponent {
       nom: e.nom ?? '',
       prenom: e.prenom ?? '',
       numeroInscription: e.numero_inscription ?? null,
+      email: e.email ?? null, // #227 Added
+      ordreImport: null, // ajout manuel — passe après le fichier (#256)
       numEchantillon: p.num_echantillon,
       present: p.est_present,
       note: p.note,
       lotId: p.lotId,
     };
-    this.rows.update((list) =>
-      [...list, row].sort(
-        (a, b) => (a.nom || '').localeCompare(b.nom || '') || (a.prenom || '').localeCompare(b.prenom || ''),
-      ),
-    );
+    this.rows.update((list) => [...list, row].sort(compareListing));
     this.store.reloadPrep(); // #185 — tick the workspace stepper
   }
 

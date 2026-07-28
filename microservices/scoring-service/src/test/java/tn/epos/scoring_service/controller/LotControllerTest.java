@@ -223,14 +223,17 @@ class LotControllerTest {
         @Test
         @DisplayName("200 - Étudiant déplacé, renvoie la participation avec son nouveau lotId")
         void deplacer_devraitRetourner200() throws Exception {
-            ParticipationDTO dto = new ParticipationDTO(3L, 10L, "E-3", null, null, 7L, 2L);
+            ParticipationDTO dto = new ParticipationDTO(3L, 10L, "E-3", null, null, 7L, 2L, 5);
             when(lotAssignmentService.deplacerEtudiant(2L, 3L)).thenReturn(dto);
 
             mockMvc.perform(patch("/api/lots/2/etudiants/3"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.id").value(3))
-                    .andExpect(jsonPath("$.data.lotId").value(2));
+                    .andExpect(jsonPath("$.data.lotId").value(2))
+                    // #256/#227 — la position du listing survit à la sérialisation :
+                    // c'est elle qui ordonne les convocations envoyées aux étudiants.
+                    .andExpect(jsonPath("$.data.ordre_import").value(5));
 
             verify(lotAssignmentService, times(1)).deplacerEtudiant(2L, 3L);
         }

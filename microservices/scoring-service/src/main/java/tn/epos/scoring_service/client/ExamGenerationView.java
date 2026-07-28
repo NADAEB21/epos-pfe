@@ -14,6 +14,8 @@ import java.util.List;
  */
 public record ExamGenerationView(
         Long examenId,
+        /** #227 — l'intitulé, pour le corps de la convocation envoyée à l'étudiant. */
+        String nom,
         LocalDate dateExamen,
         LocalTime heureDebut,
         LocalDateTime launchedAt,

@@ -33,6 +33,12 @@ public class ExamenParticipation {
     @Column(length = 500)
     private String commentaire;
 
+    // #227 — quand la convocation de cet étudiant a été envoyée par e-mail.
+    // NULL = jamais envoyée. Explicitement nommée : "convocationEnvoyeeA" se
+    // serait mappée en "convocationenvoyeea" (le piège ouvertA→ouverta, #208).
+    @Column(name = "convocation_envoyee_a")
+    private java.time.LocalDateTime convocation_envoyee_a;
+
     // Relation avec Etudiant (le 1 du côté Etudiant et 0..* ici)
     @ManyToOne
     @JoinColumn(name = "etudiant_id")

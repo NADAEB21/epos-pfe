@@ -455,6 +455,7 @@ public class ExamServiceClient {
 
         return new ExamGenerationView(
                 data.path("id").asLong(),
+                data.path("nom").asText(null),
                 data.path("dateExamen").isTextual() ? LocalDate.parse(data.path("dateExamen").asText()) : null,
                 data.path("heureDebut").isTextual() ? LocalTime.parse(data.path("heureDebut").asText()) : null,
                 parseLaunchedAt(data.path("launchedAt")),

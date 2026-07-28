@@ -1,5 +1,5 @@
 import { resolveLaneState, Slot } from './suivi.component';
-import { RotationStatus } from '../../core/api/models';
+import { RotationStatus } from '../../../core/api/models';
 
 /**
  * resolveLaneState — réécrit pour #208, pas restauré.

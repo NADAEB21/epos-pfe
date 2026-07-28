@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { ExamenResponse, StatutExamen } from '../../core/api/models';
-import { LIFECYCLE, statutDisplayLabel } from '../../core/api/exam-status';
+import { ExamenResponse, StatutExamen } from '../../../core/api/models';
+import { LIFECYCLE, statutDisplayLabel } from '../../../core/api/exam-status';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 interface WorkspaceTab {

@@ -2,10 +2,10 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { EnvoiConvocationsResult, ExamenResponse } from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
+import { EnvoiConvocationsResult, ExamenResponse } from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /** Default when a station count is missing — display only, never a schedule. */
 const DEFAULT_DUREE_MIN = 15;

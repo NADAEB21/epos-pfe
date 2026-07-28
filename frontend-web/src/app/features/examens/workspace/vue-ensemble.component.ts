@@ -3,8 +3,8 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ExamenResponse, StationSummary, TypeStation } from '../../core/api/models';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ExamenResponse, StationSummary, TypeStation } from '../../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
 type ReadinessState = 'ok' | 'todo' | 'unknown';

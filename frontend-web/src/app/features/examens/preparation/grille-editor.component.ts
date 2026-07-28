@@ -2,8 +2,8 @@ import { Component, computed, effect, inject, input, output, signal } from '@ang
 import { NgTemplateOutlet } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { GrilleDetail, GrilleItem, GrilleTemplate, TypeItem } from '../../core/api/models';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { GrilleDetail, GrilleItem, GrilleTemplate, TypeItem } from '../../../core/api/models';
 
 const TYPE_ITEM_LABELS: Record<TypeItem, string> = {
   BINAIRE: 'Binaire',

@@ -4,15 +4,15 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import * as XLSX from 'xlsx';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   EtudiantSummary,
   ImportEtudiantRow,
   ImportResult,
   LotSummary,
   ParticipationSummary,
-} from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+} from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /** A participation joined to its student — one roster row. */
 interface RosterRow {

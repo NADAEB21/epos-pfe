@@ -1,8 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { StatutExamen } from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { StatutExamen } from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /**
  * Lancement tab — the responsable's pre-flight + launch control. Only reachable

@@ -9,9 +9,9 @@ import {
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
-import { DirectoryApiService } from '../../core/api/directory-api.service';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
+import { DirectoryApiService } from '../../../core/api/directory-api.service';
 import {
   EtudiantSummary,
   ParticipationSummary,
@@ -21,8 +21,8 @@ import {
   StationSummary,
   SuiviProgression,
   UserResponse,
-} from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+} from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /** One créneau slot at a station — a group's scheduled visit. */
 export interface Slot {

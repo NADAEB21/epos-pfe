@@ -1,15 +1,15 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   EtudiantSummary,
   GenerationResult,
   LotSummary,
   ParticipationSummary,
-} from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+} from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /** One student inside a lot, joined to the directory + carrying live present-state. */
 interface LotMember {

@@ -1,13 +1,13 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { forkJoin } from 'rxjs';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   EtudiantSummary,
   ParticipationSummary,
   Reclamation,
   ReclamationStatus,
-} from '../../core/api/models';
+} from '../../../core/api/models';
 
 /** One enrolled student, resolved to a display label for the file-complaint picker. */
 interface ParticipationOption {

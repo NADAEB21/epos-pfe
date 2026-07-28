@@ -1,8 +1,8 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { forkJoin, of } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   ExamenResult,
   GrilleDetail,
@@ -11,8 +11,8 @@ import {
   NotationItemSummary,
   ParticipationSummary,
   StationSummary,
-} from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+} from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 import { ReclamationsPanelComponent } from './reclamations-panel.component';
 
 /** A station column header — name + ordre + the grille's noteMax denominator. */

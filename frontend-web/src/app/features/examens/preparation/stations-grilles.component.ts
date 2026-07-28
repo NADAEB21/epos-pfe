@@ -3,10 +3,10 @@ import { input } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { DirectoryApiService } from '../../core/api/directory-api.service';
-import { StationSummary, TypeStation, UserResponse } from '../../core/api/models';
-import { ExamenWorkspaceStore } from './examen-workspace.store';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { DirectoryApiService } from '../../../core/api/directory-api.service';
+import { StationSummary, TypeStation, UserResponse } from '../../../core/api/models';
+import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 import { GrilleEditorComponent } from './grille-editor.component';
 
 const TYPE_LABELS: Record<TypeStation, string> = {

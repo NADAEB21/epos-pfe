@@ -2,7 +2,7 @@ package tn.epos.scoring_service.service.email;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.dto.ConvocationDTO;
 
 import java.util.Collections;
@@ -22,7 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * s'affiche jamais quand rien n'est parti.
  */
 @Slf4j
-@Component
+@Service
 @ConditionalOnProperty(name = "app.mail.enabled", havingValue = "false", matchIfMissing = true)
 public class StubConvocationEmailService implements ConvocationEmailService {
 

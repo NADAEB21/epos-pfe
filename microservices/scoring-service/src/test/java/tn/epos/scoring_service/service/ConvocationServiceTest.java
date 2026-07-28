@@ -20,6 +20,7 @@ import tn.epos.scoring_service.service.email.ConvocationEmailService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Month;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -43,8 +44,8 @@ import static org.mockito.Mockito.*;
 class ConvocationServiceTest {
 
     private static final Long EXAM = 50L;
-    private static final LocalDate JOUR1 = LocalDate.of(2026, 7, 28);
-    private static final LocalDate JOUR2 = LocalDate.of(2026, 7, 29);
+    private static final LocalDate JOUR1 = LocalDate.of(2026, Month.JULY, 28);
+    private static final LocalDate JOUR2 = LocalDate.of(2026, Month.JULY, 29);
 
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private ExamServiceClient examServiceClient;

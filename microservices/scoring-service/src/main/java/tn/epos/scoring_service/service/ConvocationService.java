@@ -83,23 +83,9 @@ public class ConvocationService {
             if (lot == null || lot.getNumeroLot() == null) {
                 continue; // pas encore réparti → pas de vague → pas de convocation
             }
-            Etudiant e = p.getEtudiant();
             int rang = rangParLot.getOrDefault(lot.getId(), 0);
             LocalTime heure = heureDebut.plusMinutes((long) rang * nbStations * dureeStation);
-
-            out.add(new ConvocationDTO(
-                    p.getId(),
-                    e == null ? null : e.getId(),
-                    e == null ? null : e.getNom(),
-                    e == null ? null : e.getPrenom(),
-                    e == null ? null : e.getNumero_inscription(),
-                    e == null ? null : e.getEmail(),
-                    p.getOrdre_import(),
-                    lot.getId(),
-                    lot.getNumeroLot(),
-                    jourDuLot(lot, exam.dateExamen()),
-                    String.format("%02d:%02d", heure.getHour(), heure.getMinute()),
-                    p.getConvocation_envoyee_a()));
+            out.add(versConvocation(p, lot, heure, exam.dateExamen()));
         }
 
         out.sort(Comparator
@@ -109,6 +95,25 @@ public class ConvocationService {
                 .thenComparing(c -> c.nom() == null ? "" : c.nom())
                 .thenComparing(c -> c.prenom() == null ? "" : c.prenom()));
         return out;
+    }
+
+    /** Projette une participation + sa vague en convocation. */
+    private ConvocationDTO versConvocation(ExamenParticipation p, Lot lot, LocalTime heure,
+                                           LocalDate dateExamen) {
+        Etudiant e = p.getEtudiant();
+        return new ConvocationDTO(
+                p.getId(),
+                e == null ? null : e.getId(),
+                e == null ? null : e.getNom(),
+                e == null ? null : e.getPrenom(),
+                e == null ? null : e.getNumero_inscription(),
+                e == null ? null : e.getEmail(),
+                p.getOrdre_import(),
+                lot.getId(),
+                lot.getNumeroLot(),
+                jourDuLot(lot, dateExamen),
+                String.format("%02d:%02d", heure.getHour(), heure.getMinute()),
+                p.getConvocation_envoyee_a());
     }
 
     /**

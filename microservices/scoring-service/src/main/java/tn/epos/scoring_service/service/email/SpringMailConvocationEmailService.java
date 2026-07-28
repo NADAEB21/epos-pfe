@@ -5,7 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.dto.ConvocationDTO;
 
 import java.time.format.DateTimeFormatter;
@@ -23,7 +23,7 @@ import java.time.format.DateTimeFormatter;
  * l'ordre de passage par station est tiré sur place, après l'appel.
  */
 @Slf4j
-@Component
+@Service
 @ConditionalOnProperty(name = "app.mail.enabled", havingValue = "true")
 public class SpringMailConvocationEmailService implements ConvocationEmailService {
 

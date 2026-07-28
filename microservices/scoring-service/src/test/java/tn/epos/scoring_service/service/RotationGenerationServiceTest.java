@@ -128,7 +128,8 @@ class RotationGenerationServiceTest {
                     10L + i, i + 1, List.of(1000L + i)));
         }
         return new ExamGenerationView(
-                EXAM_ID, date, heure, launchedAt, duree, battement, capacite, statut, stations);
+                EXAM_ID, "Examen test", date, heure, launchedAt, duree, battement, capacite,
+                statut, stations);
     }
 
     private List<ExamenParticipation> participations(int present, int absent) {

@@ -69,6 +69,16 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- #227 — envoi des convocations aux étudiants. Le même starter que
+             l'auth-service (mot de passe oublié) : on réutilise sa forme
+             EmailService + Stub/SpringMail plutôt que d'inventer un second
+             modèle d'envoi. Le scoring possède le roster et les lots, donc
+             c'est lui qui sait QUOI envoyer et À QUI. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- BF6.1 — WebSocket STOMP pour la synchronisation temps réel.
              Permet au backend de pusher les mises à jour de scores vers
              le dashboard Angular et l'app Flutter via /topic/stations/{id}/scores. -->

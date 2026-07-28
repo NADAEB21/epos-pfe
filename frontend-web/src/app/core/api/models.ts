@@ -210,6 +210,7 @@ export interface EtudiantSummary {
   nom?: string;
   prenom?: string;
   numero_inscription?: string;
+  email?: string;
 }
 
 /**
@@ -224,6 +225,7 @@ export interface CreateEtudiantRequest {
   nom: string;
   prenom: string;
   numero_inscription: string;
+  email?: string;
 }
 
 /**
@@ -235,6 +237,7 @@ export interface ImportEtudiantRow {
   nom: string;
   prenom: string;
   numero_inscription: string;
+  email: string;
 }
 
 /** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
@@ -257,7 +260,76 @@ export interface ImportResult {
   enrolled: number;
   alreadyEnrolled: number;
   errors: number;
+  /**
+   * #227 — addresses this file actually filled in. Sits OUTSIDE the four-way
+   * partition and does not sum into `total`: re-importing the roster just to add
+   * the missing e-mails puts every row on `alreadyEnrolled`, which otherwise
+   * reads exactly like "nothing happened".
+   */
+  emailsRenseignes: number;
   rows: ImportRowResult[];
+}
+
+/**
+ * Body for PUT /etudiants/{id}. Every field is optional and the backend reads
+ * ABSENT as "leave unchanged" — so `{ email }` alone patches only the address.
+ * An EMPTY STRING is the explicit "erase this". Never send fields you don't mean
+ * to write (#215).
+ */
+/**
+ * One convocation, DERIVED SERVER-SIDE (#227). The arrival time used to be
+ * computed in the Angular component; the e-mail sender needs the same rule, and
+ * two implementations of one business rule in two languages drift. The backend
+ * owns it now and this is the read model — never recompute `heureConvocation`
+ * here, or the screen and the student's e-mail can disagree.
+ */
+export interface Convocation {
+  participationId: number;
+  etudiantId: number | null;
+  nom: string | null;
+  prenom: string | null;
+  numero_inscription: string | null;
+  email: string | null;
+  ordre_import: number | null;
+  lotId: number | null;
+  lotNumero: number | null;
+  /** yyyy-MM-dd — the student's own day (lot.jour, else the exam date). */
+  jour: string | null;
+  /** "HH:mm" — when to show up. */
+  heureConvocation: string | null;
+  /** ISO instant, or null if this student's convocation was never sent. */
+  convocationEnvoyeeA: string | null;
+}
+
+/** Per-student outcome of a send. `statut`: ENVOYE | SANS_ADRESSE | ECHEC. */
+export interface EnvoiLigne {
+  participationId: number;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  statut: 'ENVOYE' | 'SANS_ADRESSE' | 'ECHEC';
+  message: string | null;
+}
+
+/**
+ * Outcome of sending an exam's convocations. `simule` is true when the mail
+ * transport is off (the DEFAULT) — nothing actually left, and the UI must say
+ * so rather than claim success.
+ */
+export interface EnvoiConvocationsResult {
+  total: number;
+  envoyes: number;
+  sansAdresse: number;
+  echecs: number;
+  simule: boolean;
+  lignes: EnvoiLigne[];
+}
+
+export interface UpdateEtudiantRequest {
+  nom?: string;
+  prenom?: string;
+  numero_inscription?: string;
+  email?: string;
 }
 
 /**
@@ -291,6 +363,12 @@ export interface ParticipationSummary {
   est_present: boolean | null;
   etudiantId: number | null;
   lotId: number | null;
+  /**
+   * #256/#227 — 1-based position in the imported roster sheet. The supervisor
+   * ruled the sheet's row order IS the official listing order, and convocations
+   * are that listing. `null` for students added by hand, who sort last.
+   */
+  ordre_import?: number | null;
 }
 
 /**

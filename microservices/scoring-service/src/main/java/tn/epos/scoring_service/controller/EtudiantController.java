@@ -52,7 +52,7 @@ public class EtudiantController {
         entity.setNom(dto.nom());
         entity.setPrenom(dto.prenom());
         entity.setNumero_inscription(dto.numero_inscription());
-
+        entity.setEmail(dto.email());
         EtudiantDTO saved = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(entity));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Étudiant créé avec succès", saved));
@@ -74,18 +74,37 @@ public class EtudiantController {
         return ResponseEntity.ok(ApiResponse.ok("Import terminé", result));
     }
 
+    /**
+     * Partial update of a directory record.
+     *
+     * <p><b>Contract: {@code null} means "not supplied", never "erase".</b> A field
+     * absent from the body is left untouched. This is deliberate — the blunt
+     * "copy every field off the DTO" version silently wiped whatever the caller
+     * omitted (#215), and the e-mail column is exactly the kind of field a
+     * narrow caller (the convocations quick-fix, the inline roster edit) sends
+     * on its own.
+     *
+     * <p>Clearing a value is still possible and stays explicit: send an
+     * <b>empty string</b>. So {@code null} = leave alone, {@code ""} = erase.
+     */
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    // FIX: Change parameter from Etudiant to EtudiantDTO
     public ResponseEntity<ApiResponse<EtudiantDTO>> updateEtudiant(@PathVariable Long id,
             @RequestBody EtudiantDTO dto) {
         return etudiantService.getEtudiantById(id)
                 .map(existing -> {
-                    // Update only the fields we allow
-                    existing.setNom(dto.nom());
-                    existing.setPrenom(dto.prenom());
-                    existing.setNumero_inscription(dto.numero_inscription());
-
+                    if (dto.nom() != null) {
+                        existing.setNom(dto.nom());
+                    }
+                    if (dto.prenom() != null) {
+                        existing.setPrenom(dto.prenom());
+                    }
+                    if (dto.numero_inscription() != null) {
+                        existing.setNumero_inscription(dto.numero_inscription());
+                    }
+                    if (dto.email() != null) {
+                        existing.setEmail(dto.email().trim());
+                    }
                     EtudiantDTO updated = EtudiantDTO.fromEntity(etudiantService.saveEtudiant(existing));
                     return ResponseEntity.ok(ApiResponse.ok("Mise à jour réussie", updated));
                 })

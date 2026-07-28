@@ -4,29 +4,34 @@ import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../core/api/exam-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
-import {
-  EtudiantSummary,
-  ExamenResponse,
-  LotSummary,
-  ParticipationSummary,
-} from '../../core/api/models';
+import { EnvoiConvocationsResult, ExamenResponse } from '../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
-/** Backend defaults (RotationGenerationService): start 09:00, 15 min/station. */
-const DEFAULT_HEURE_DEBUT = '09:00';
+/** Default when a station count is missing — display only, never a schedule. */
 const DEFAULT_DUREE_MIN = 15;
 
-/** One printable convocation slip for a single enrolled student. */
+/**
+ * One printable slip. A VIEW of the backend's ConvocationDTO — every field here
+ * is read from the API, none is derived locally (#227).
+ */
 interface Convocation {
   participationId: number;
+  /** #227 — the directory record, needed to patch a missing address in place. */
+  etudiantId: number | null;
   lotNumero: number;
   /** #147 — the day the student's lot runs (yyyy-MM-dd; lot.jour ?? dateExamen). */
   jour: string | null;
-  /** Derived wave arrival time (HH:mm), restarting at heureDebut on each day. */
+  /** Wave arrival time (HH:mm) as computed BY THE BACKEND — see ConvocationService. */
   reportTime: string;
   nom: string;
   prenom: string;
   numeroInscription: string | null;
+  /** #227 — the student's address, or null when the roster never carried one. */
+  email: string | null;
+  /** #256 — position in the imported sheet; null for hand-added students. */
+  ordreImport: number | null;
+  /** #227 — when this student's convocation was e-mailed; null = never. */
+  envoyeeA: string | null;
 }
 
 /**
@@ -45,9 +50,22 @@ interface Convocation {
  * within-wave station order is assigned on the day (depends on présence), so it
  * is intentionally not promised here.
  *
- * <p><b>DATA-BLOCKED (ADR-0011).</b> No salle on Lot/Station and no email on
- * Etudiant, so convocations cannot carry a room or be emailed — they are
- * print/CSV deliverables for hand distribution. Flagged in the UI.
+ * <p><b>Order (#256).</b> Slips are ordered by lot, then by the student's
+ * position in the imported sheet (`ordre_import`), never alphabetically. The
+ * supervisor ruled the sheet's row order IS the official listing order, and the
+ * convocation is that listing. Hand-added students (`ordre_import` null) sort
+ * last within their lot, by name.
+ *
+ * <p><b>Venue is deliberately absent (ADR-0014-A §4).</b> A convocation carries
+ * the lot + the day ONLY, never a room. The venue field was considered and
+ * rejected as having no consumer — its absence is a decision, not a gap.
+ *
+ * <p><b>Sending is not built yet (#227).</b> `Etudiant.email` now exists and is
+ * surfaced here, so the CSV is a working mail-merge source. There is still no
+ * convocation sender: auth-service's `EmailService` exposes only
+ * `sendPasswordResetEmail` and ships disabled (`MAIL_ENABLED:false`). Until one
+ * exists these stay print/CSV deliverables — and the UI says so honestly,
+ * including how many students have no address at all.
  */
 @Component({
   selector: 'app-convocations',
@@ -72,6 +90,25 @@ interface Convocation {
         </div>
         @if (convocations().length > 0) {
           <div class="flex gap-2">
+            <!-- #227 — envoi. Désactivé s'il n'y a personne à joindre : proposer
+                 « Envoyer » à 0 destinataire ne peut que décevoir. -->
+            <button
+              type="button"
+              (click)="envoyer()"
+              [disabled]="envoiEnCours() || avecEmailCount() === 0"
+              class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+              [title]="
+                avecEmailCount() === 0
+                  ? 'Aucun étudiant n\\'a d\\'adresse e-mail'
+                  : 'Envoyer la convocation aux ' + avecEmailCount() + ' étudiant(s) joignable(s)'
+              "
+            >
+              {{
+                envoiEnCours()
+                  ? 'Envoi…'
+                  : 'Envoyer par e-mail (' + avecEmailCount() + ')'
+              }}
+            </button>
             <button
               type="button"
               (click)="print()"
@@ -90,14 +127,128 @@ interface Convocation {
         }
       </div>
 
-      <!-- Data-gap disclosure -->
-      <div class="no-print mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        <p class="font-medium">Données disponibles à ce stade</p>
+      <!-- #227 — e-mail coverage. The responsable must know BEFORE distributing
+           how many students they cannot reach; a silent gap reads as "everyone
+           was convoked". -->
+      @if (convocations().length > 0) {
+        @if (sansEmailCount() === 0) {
+          <div class="no-print mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+            <strong>{{ avecEmailCount() }} étudiant(s)</strong> ont une adresse e-mail — le fichier
+            CSV peut servir de source de publipostage.
+          </div>
+        } @else {
+          <!-- #227 — the fix lives WHERE the problem is discovered. Sending the
+               teacher to another tab to re-upload a spreadsheet just to type an
+               address they already know was the wrong answer: they know it, so
+               let them type it here. -->
+          <div class="no-print mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p class="font-medium">
+              {{ sansEmailCount() }} étudiant(s) sur {{ convocations().length }} n'ont pas
+              d'adresse e-mail
+            </p>
+            <p class="mt-1">
+              Leur convocation devra être remise en main propre. Vous pouvez saisir leur adresse
+              ici :
+            </p>
+
+            <ul class="mt-3 space-y-2">
+              @for (c of sansEmail(); track c.participationId) {
+                <li class="flex flex-wrap items-center gap-2">
+                  <span class="min-w-44 font-medium text-gray-800">
+                    {{ c.prenom }} {{ c.nom }}
+                  </span>
+                  <span class="text-xs text-amber-700/70">Lot {{ c.lotNumero }}</span>
+                  <input
+                    type="email"
+                    [value]="draftFor(c.etudiantId)"
+                    (input)="setDraft(c.etudiantId, $any($event.target).value)"
+                    (keydown.enter)="saveEmail(c)"
+                    placeholder="prenom.nom@etu.tn"
+                    maxlength="255"
+                    class="w-60 rounded-lg border border-amber-300 bg-white px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <button
+                    type="button"
+                    (click)="saveEmail(c)"
+                    [disabled]="savingId() === c.etudiantId || !draftFor(c.etudiantId).trim()"
+                    class="px-2.5 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {{ savingId() === c.etudiantId ? '…' : 'Enregistrer' }}
+                  </button>
+                </li>
+              }
+            </ul>
+
+            @if (saveError()) {
+              <p role="alert" class="mt-2 text-xs text-status-danger">{{ saveError() }}</p>
+            }
+            <p class="mt-3 text-xs text-amber-700/80">
+              Pour en saisir beaucoup d'un coup, ajoutez une colonne <b>email</b> au fichier et
+              réimportez-le depuis l'onglet
+              <a [routerLink]="['../etudiants']" class="underline hover:no-underline">Étudiants</a>.
+            </p>
+          </div>
+        }
+      }
+
+      <!-- #227 — bilan d'envoi. Jamais un « envoyé ! » global : le responsable
+           doit voir qui est parti, qui ne l'est pas, et si quoi que ce soit est
+           réellement parti (la messagerie est coupée par défaut). -->
+      @if (envoiResult(); as env) {
+        <div
+          class="no-print mb-4 rounded-lg border px-4 py-3 text-sm"
+          [class]="
+            env.simule
+              ? 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-blue-200 bg-blue-50 text-blue-800'
+              : env.echecs > 0
+                ? 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-amber-200 bg-amber-50 text-amber-800'
+                : 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-emerald-200 bg-emerald-50 text-emerald-800'
+          "
+        >
+          @if (env.simule) {
+            <!-- #227 — le responsable ne PEUT PAS activer l'envoi lui-même (c'est
+                 une config serveur). Lui montrer « MAIL_ENABLED=true » et « SMTP »
+                 lui donnait du vocabulaire d'informaticien pour un problème qu'il
+                 ne peut pas résoudre. On lui dit ce que ÇA change pour lui, et à
+                 qui s'adresser. -->
+            <p class="font-medium">Aucun e-mail n'a été envoyé.</p>
+            <p class="mt-1">
+              L'envoi par e-mail n'est pas encore activé sur ce serveur.
+              <strong>Imprimez les convocations</strong> pour les distribuer.
+            </p>
+          } @else {
+            <p class="font-medium">
+              {{ env.envoyes }} convocation(s) envoyée(s) par e-mail.
+            </p>
+          }
+          @if (env.sansAdresse > 0) {
+            <p class="mt-1">
+              {{ env.sansAdresse }} étudiant(s) sans adresse — à convoquer en main propre.
+            </p>
+          }
+          @if (env.echecs > 0) {
+            <p class="mt-1 font-medium">{{ env.echecs }} échec(s) :</p>
+            <ul class="mt-1 list-disc pl-5">
+              @for (l of echecs(); track l.participationId) {
+                <li>{{ l.prenom }} {{ l.nom }} ({{ l.email }}) — {{ l.message }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+      @if (envoiError()) {
+        <p role="alert" class="no-print mb-4 text-sm text-status-danger">{{ envoiError() }}</p>
+      }
+
+      <!-- What this document does and does not promise -->
+      <div class="no-print mb-5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+        <p class="font-medium text-gray-700">Contenu de la convocation</p>
         <p class="mt-1">
-          L'heure indiquée est l'<strong>heure de convocation du lot</strong> (heure de début de
-          l'examen + décalage de la vague), calculée comme le jour J. La salle et l'ordre de
-          passage par station ne sont pas encore connus ; l'envoi par e-mail n'est pas disponible
-          (pas d'adresse étudiant). Convocations à imprimer / distribuer.
+          Chaque convocation porte le <strong>lot</strong>, le <strong>jour</strong> et
+          l'<strong>heure de convocation du lot</strong> (début de l'examen + décalage de la vague),
+          calculée comme le jour J. L'ordre de passage par station est attribué sur place, après
+          l'appel — il n'est donc pas promis ici. L'<strong>envoi automatique par e-mail n'existe
+          pas encore</strong> : imprimez les convocations ou exportez le CSV.
         </p>
       </div>
 
@@ -157,6 +308,14 @@ interface Convocation {
                 Présentez-vous 15 minutes avant l'heure indiquée. L'ordre de passage par station
                 vous sera communiqué sur place.
               </p>
+              <!-- #227 — screen-only: the slip the student receives must not
+                   carry their own address, but the responsable needs to see at
+                   a glance who has to be handed one in person. -->
+              @if (!c.email) {
+                <p class="no-print mt-2 text-xs font-medium text-amber-700">
+                  Pas d'adresse e-mail &middot; à remettre en main propre
+                </p>
+              }
             </article>
           }
         </div>
@@ -181,6 +340,111 @@ export class ConvocationsComponent {
 
   readonly lotCount = computed(() => new Set(this.convocations().map((c) => c.lotNumero)).size);
   readonly circuitDureeMin = computed(() => this.stationCount() * this.dureeMin());
+
+  /** #227 — how many convoked students can actually be reached by e-mail. */
+  readonly avecEmailCount = computed(
+    () => this.convocations().filter((c) => !!c.email?.trim()).length,
+  );
+  readonly sansEmailCount = computed(() => this.convocations().length - this.avecEmailCount());
+
+  /** #227 — the students the responsable cannot reach, in listing order. */
+  readonly sansEmail = computed(() =>
+    this.convocations().filter((c) => !c.email?.trim() && c.etudiantId != null),
+  );
+
+  // ---- #227 envoi ----------------------------------------------------------
+  readonly envoiEnCours = signal(false);
+  readonly envoiResult = signal<EnvoiConvocationsResult | null>(null);
+  readonly envoiError = signal<string | null>(null);
+
+  readonly echecs = computed(() => this.envoiResult()?.lignes.filter((l) => l.statut === 'ECHEC') ?? []);
+
+  /** How many already received theirs — drives the re-send warning. */
+  readonly dejaEnvoyeesCount = computed(() => this.convocations().filter((c) => !!c.envoyeeA).length);
+
+  /**
+   * Sends to every reachable student.
+   *
+   * <p>Re-sending is CONFIRMED, never silent: the second click would put a
+   * duplicate convocation in a student's inbox, and the responsable can't take
+   * that back. The stored send date is what lets us ask the question at all.
+   */
+  envoyer(): void {
+    const deja = this.dejaEnvoyeesCount();
+    if (deja > 0) {
+      const ok = window.confirm(
+        `${deja} étudiant(s) ont déjà reçu leur convocation.\n\n` +
+          `Renvoyer enverra un nouvel e-mail à tous les étudiants joignables, y compris eux. Continuer ?`,
+      );
+      if (!ok) return;
+    }
+    this.envoiEnCours.set(true);
+    this.envoiError.set(null);
+    this.envoiResult.set(null);
+    this.scoring.envoyerConvocations(Number(this.id())).subscribe({
+      next: (res) => {
+        this.envoiResult.set(res);
+        this.envoiEnCours.set(false);
+        // Re-read: the send stamped convocationEnvoyeeA, and that timestamp is
+        // what guards the NEXT click.
+        this.load(Number(this.id()));
+        this.store.marquerConvocationsFaites();
+      },
+      error: () => {
+        this.envoiEnCours.set(false);
+        this.envoiError.set("Échec de l'envoi des convocations. Réessayez.");
+      },
+    });
+  }
+
+  /** Per-student drafts for the quick-fix inputs, keyed by etudiantId. */
+  private readonly drafts = signal<Record<number, string>>({});
+  readonly savingId = signal<number | null>(null);
+  readonly saveError = signal<string | null>(null);
+
+  draftFor(etudiantId: number | null): string {
+    return etudiantId == null ? '' : (this.drafts()[etudiantId] ?? '');
+  }
+
+  setDraft(etudiantId: number | null, value: string): void {
+    if (etudiantId == null) return;
+    this.drafts.update((d) => ({ ...d, [etudiantId]: value }));
+  }
+
+  /**
+   * Saves one address from the convocations screen itself. Patches ONLY the
+   * e-mail (partial PUT, #215) and updates the local list, so the amber block
+   * shrinks by one row and the coverage counts move immediately — no reload, no
+   * trip through the Étudiants tab.
+   */
+  saveEmail(c: Convocation): void {
+    const etudiantId = c.etudiantId;
+    if (etudiantId == null) return;
+    const value = this.draftFor(etudiantId).trim();
+    if (!value) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      this.saveError.set(`Adresse invalide pour ${c.prenom} ${c.nom}.`);
+      return;
+    }
+    this.savingId.set(etudiantId);
+    this.saveError.set(null);
+    this.scoring.updateEtudiant(etudiantId, { email: value }).subscribe({
+      next: () => {
+        this.convocations.update((list) =>
+          list.map((x) => (x.etudiantId === etudiantId ? { ...x, email: value } : x)),
+        );
+        this.drafts.update((d) => {
+          const { [etudiantId]: _removed, ...rest } = d;
+          return rest;
+        });
+        this.savingId.set(null);
+      },
+      error: () => {
+        this.savingId.set(null);
+        this.saveError.set(`Échec de l'enregistrement pour ${c.prenom} ${c.nom}.`);
+      },
+    });
+  }
 
   private dureeMin(): number {
     return this.exam()?.dureeStationMin ?? DEFAULT_DUREE_MIN;
@@ -207,14 +471,33 @@ export class ConvocationsComponent {
     forkJoin({
       exam: this.examApi.getExamen(examId),
       stations: this.examApi.listStations(examId),
+      convocations: this.scoring.listConvocations(examId),
       participations: this.scoring.listParticipations(examId),
-      etudiants: this.scoring.listEtudiants(),
-      lots: this.scoring.listLots(examId),
     }).subscribe({
-      next: ({ exam, stations, participations, etudiants, lots }) => {
+      next: ({ exam, stations, convocations, participations }) => {
         this.exam.set(exam);
         this.stationCount.set(stations.length);
-        this.build(exam, stations.length, participations, etudiants, lots);
+        // #227 — the slips come from the backend already derived (lot, jour,
+        // heure, listing order). Nothing is recomputed here; the sender uses the
+        // very same objects, so the screen cannot drift from the e-mail.
+        this.convocations.set(
+          convocations.map((c) => ({
+            participationId: c.participationId,
+            etudiantId: c.etudiantId,
+            lotNumero: c.lotNumero ?? 0,
+            jour: c.jour,
+            reportTime: c.heureConvocation ?? '—',
+            nom: c.nom ?? '',
+            prenom: c.prenom ?? '',
+            numeroInscription: c.numero_inscription,
+            email: c.email,
+            ordreImport: c.ordre_import,
+            envoyeeA: c.convocationEnvoyeeA,
+          })),
+        );
+        // Enrolled students the backend left out (no lot yet ⇒ no wave ⇒ no
+        // arrival time to promise). Counted so the responsable knows they exist.
+        this.unassignedCount.set(Math.max(0, participations.length - convocations.length));
         this.loading.set(false);
       },
       error: () => {
@@ -224,82 +507,6 @@ export class ConvocationsComponent {
     });
   }
 
-  /**
-   * Joins the roster to names + lots and derives each slip's report time.
-   * Wave start mirrors RotationGenerationService: heureDebut + (numeroLot−1)·K·durée.
-   */
-  private build(
-    exam: ExamenResponse,
-    k: number,
-    participations: ParticipationSummary[],
-    etudiants: EtudiantSummary[],
-    lots: LotSummary[],
-  ): void {
-    const nameById = new Map<number, EtudiantSummary>();
-    for (const e of etudiants) nameById.set(e.id, e);
-    const lotById = new Map<number, LotSummary>();
-    for (const l of lots) lotById.set(l.id, l);
-
-    const baseMin = this.parseHeure(exam.heureDebut);
-    const duree = exam.dureeStationMin ?? DEFAULT_DUREE_MIN;
-
-    // #147 — arrival windows restart at heureDebut on EACH day: a lot scheduled
-    // on day 2 queues behind the other lots of ITS day, never behind day 1's.
-    const rangParJour = new Map<string, number>();
-    const rangDuLot = new Map<number, number>();
-    for (const l of [...lots].sort((a, b) => (a.numeroLot ?? 0) - (b.numeroLot ?? 0))) {
-      const day = l.jour ?? exam.dateExamen ?? '';
-      const rang = rangParJour.get(day) ?? 0;
-      rangParJour.set(day, rang + 1);
-      rangDuLot.set(l.id, rang);
-    }
-
-    let unassigned = 0;
-    const out: Convocation[] = [];
-    for (const p of participations) {
-      const lot = p.lotId != null ? lotById.get(p.lotId) : undefined;
-      if (lot?.numeroLot == null) {
-        unassigned++;
-        continue;
-      }
-      const e = p.etudiantId != null ? nameById.get(p.etudiantId) : undefined;
-      const waveStart = baseMin + (rangDuLot.get(lot.id) ?? 0) * k * duree;
-      out.push({
-        participationId: p.id,
-        lotNumero: lot.numeroLot,
-        jour: lot.jour,
-        reportTime: this.formatMin(waveStart),
-        nom: e?.nom ?? '',
-        prenom: e?.prenom ?? '',
-        numeroInscription: e?.numero_inscription ?? null,
-      });
-    }
-
-    out.sort(
-      (a, b) =>
-        a.lotNumero - b.lotNumero ||
-        (a.nom || '').localeCompare(b.nom || '') ||
-        (a.prenom || '').localeCompare(b.prenom || ''),
-    );
-    this.convocations.set(out);
-    this.unassignedCount.set(unassigned);
-  }
-
-  /** "HH:mm" → minutes since midnight; falls back to the backend default 09:00. */
-  private parseHeure(heure: string | null): number {
-    const src = heure ?? DEFAULT_HEURE_DEBUT;
-    const [h, m] = src.split(':').map((x) => Number(x));
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return this.parseHeure(DEFAULT_HEURE_DEBUT);
-    return h * 60 + m;
-  }
-
-  /** Minutes since midnight → "HH:mm" (wraps defensively at 24h). */
-  private formatMin(total: number): string {
-    const t = ((total % 1440) + 1440) % 1440;
-    const h = Math.floor(t / 60);
-    const m = t % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  }
 
   /** Print only the convocation sheet (global print rule keys off this body class). */
   print(): void {
@@ -317,7 +524,9 @@ export class ConvocationsComponent {
 
   /** Client-side CSV of all convocations — no backend round-trip. */
   exportCsv(): void {
-    const header = ['Lot', 'Date', 'Heure', 'Nom', 'Prenom', 'Numero inscription'];
+    // #227 — Email last so the file drops straight into a mail-merge. Rows keep
+    // the #256 listing order set in build(); never re-sort here.
+    const header = ['Lot', 'Date', 'Heure', 'Nom', 'Prenom', 'Numero inscription', 'Email'];
     const lines = this.convocations().map((c) =>
       [
         c.lotNumero,
@@ -326,6 +535,7 @@ export class ConvocationsComponent {
         c.nom,
         c.prenom,
         c.numeroInscription ?? '',
+        c.email ?? '',
       ].map((x) => this.csvCell(x)).join(','),
     );
     // #185 — tell the stepper the Convocations step is handled.

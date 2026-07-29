@@ -1153,8 +1153,8 @@ class EvaluateurDashboardServiceTest {
             when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
                     .thenReturn(false); // il ne tient pas cette station
 
-            assertThatThrownBy(() -> service.saisirNotation(
-                    new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f), INTRUS))
+            SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f);
+            assertThatThrownBy(() -> service.saisirNotation(req, INTRUS))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("pas affecté à la station");
 
@@ -1169,8 +1169,8 @@ class EvaluateurDashboardServiceTest {
             when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
                     .thenReturn(false);
 
-            assertThatThrownBy(() -> service.validerEtudiant(
-                    1L, STATION_ID, INTRUS, new ValiderEtudiantRequest()))
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, INTRUS, req))
                     .isInstanceOf(AccessDeniedException.class);
         }
 

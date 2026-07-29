@@ -328,6 +328,12 @@ public class EvaluateurDashboardService {
             newItem.setNotation(notation);
             notationItemRepository.save(newItem);
         }
+        // #213 — on ENREGISTRE l'auteur au lieu de le déduire de la rotation.
+        // La déduction désignait le propriétaire de la station, donc la mauvaise
+        // personne dès que quelqu'un d'autre écrivait.
+        notation.setSaisiPar(evaluateurId);
+        notationRepository.save(notation);
+
         recalculerScoreFinal(notation);
         broadcastScore(notation, request.getStationId());
     }
@@ -351,6 +357,13 @@ public class EvaluateurDashboardService {
         // (EtudiantLotResponse.commentaire, jamais rempli jusqu'ici).
         notation.setCommentaire(request.getCommentaire());
         notation.setVerouillee(true);
+        // #213 — qui verrouille est une décision, pas une déduction : c'est
+        // l'acte qui rend la note définitive côté évaluateur (ADR-0013).
+        notation.setVerrouillePar(evaluateurId);
+        if (notation.getSaisiPar() == null) {
+            // Validation d'un étudiant noté absent : aucune saisie n'a précédé.
+            notation.setSaisiPar(evaluateurId);
+        }
         notationRepository.save(notation);
 
         // #FIX multi-station : l'absence saisie ici concerne CETTE station
@@ -431,6 +444,7 @@ public class EvaluateurDashboardService {
             notationRepository.findByAssignmentId(a.getId()).ifPresent(n -> {
                 if (!Boolean.TRUE.equals(n.getVerouillee())) {
                     n.setVerouillee(true);
+                    n.setVerrouillePar(evaluateurId); // #213 — même ici : le filet a un auteur
                     notationRepository.save(n);
                 }
             });

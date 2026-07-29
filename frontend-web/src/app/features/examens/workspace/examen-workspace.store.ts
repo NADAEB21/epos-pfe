@@ -1,15 +1,15 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
-import { ExamApiService } from '../../core/api/exam-api.service';
-import { ScoringApiService } from '../../core/api/scoring-api.service';
+import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   ConflitEvaluateur,
   ExamenResponse,
   LotSummary,
   StationSummary,
   StatutExamen,
-} from '../../core/api/models';
-import { isFutureDate, isLaunchDay } from '../../core/api/exam-status';
+} from '../../../core/api/models';
+import { isFutureDate, isLaunchDay } from '../../../core/api/exam-status';
 
 export interface PreflightCheck {
   label: string;

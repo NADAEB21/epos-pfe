@@ -1,0 +1,249 @@
+@if (loading()) {
+  <div class="h-24 rounded-xl bg-gray-200 animate-pulse"></div>
+} @else if (error()) {
+  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <p class="text-gray-700">Impossible de charger les convocations.</p>
+  </div>
+} @else {
+  <!-- Toolbar (hidden when printing) -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4 no-print">
+    <div>
+      <h2 class="text-lg font-semibold text-gray-900">Convocations</h2>
+      <p class="text-sm text-gray-500">
+        {{ convocations().length }} étudiant(s) répartis &middot; {{ lotCount() }} lot(s)
+        &middot; circuit ≈ {{ circuitDureeMin() }} min
+      </p>
+    </div>
+    @if (convocations().length > 0) {
+      <div class="flex gap-2">
+        <!-- #227 — envoi. Désactivé s'il n'y a personne à joindre : proposer
+             « Envoyer » à 0 destinataire ne peut que décevoir. -->
+        <button
+          type="button"
+          (click)="envoyer()"
+          [disabled]="envoiEnCours() || avecEmailCount() === 0"
+          class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+          [title]="
+            avecEmailCount() === 0
+              ? 'Aucun étudiant n\'a d\'adresse e-mail'
+              : 'Envoyer la convocation aux ' + avecEmailCount() + ' étudiant(s) joignable(s)'
+          "
+        >
+          {{
+            envoiEnCours()
+              ? 'Envoi…'
+              : 'Envoyer par e-mail (' + avecEmailCount() + ')'
+          }}
+        </button>
+        <button
+          type="button"
+          (click)="print()"
+          class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+        >
+          Imprimer / PDF
+        </button>
+        <button
+          type="button"
+          (click)="exportCsv()"
+          class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Exporter (CSV)
+        </button>
+      </div>
+    }
+  </div>
+
+  <!-- #227 — e-mail coverage. The responsable must know BEFORE distributing
+       how many students they cannot reach; a silent gap reads as "everyone
+       was convoked". -->
+  @if (convocations().length > 0) {
+    @if (sansEmailCount() === 0) {
+      <div class="no-print mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+        <strong>{{ avecEmailCount() }} étudiant(s)</strong> ont une adresse e-mail — le fichier
+        CSV peut servir de source de publipostage.
+      </div>
+    } @else {
+      <!-- #227 — the fix lives WHERE the problem is discovered. Sending the
+           teacher to another tab to re-upload a spreadsheet just to type an
+           address they already know was the wrong answer: they know it, so
+           let them type it here. -->
+      <div class="no-print mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <p class="font-medium">
+          {{ sansEmailCount() }} étudiant(s) sur {{ convocations().length }} n'ont pas
+          d'adresse e-mail
+        </p>
+        <p class="mt-1">
+          Leur convocation devra être remise en main propre. Vous pouvez saisir leur adresse
+          ici :
+        </p>
+
+        <ul class="mt-3 space-y-2">
+          @for (c of sansEmail(); track c.participationId) {
+            <li class="flex flex-wrap items-center gap-2">
+              <span class="min-w-44 font-medium text-gray-800">
+                {{ c.prenom }} {{ c.nom }}
+              </span>
+              <span class="text-xs text-amber-700/70">Lot {{ c.lotNumero }}</span>
+              <input
+                type="email"
+                [value]="draftFor(c.etudiantId)"
+                (input)="setDraft(c.etudiantId, $any($event.target).value)"
+                (keydown.enter)="saveEmail(c)"
+                placeholder="prenom.nom@etu.tn"
+                maxlength="255"
+                class="w-60 rounded-lg border border-amber-300 bg-white px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <button
+                type="button"
+                (click)="saveEmail(c)"
+                [disabled]="savingId() === c.etudiantId || !draftFor(c.etudiantId).trim()"
+                class="px-2.5 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {{ savingId() === c.etudiantId ? '…' : 'Enregistrer' }}
+              </button>
+            </li>
+          }
+        </ul>
+
+        @if (saveError()) {
+          <p role="alert" class="mt-2 text-xs text-status-danger">{{ saveError() }}</p>
+        }
+        <p class="mt-3 text-xs text-amber-700/80">
+          Pour en saisir beaucoup d'un coup, ajoutez une colonne <b>email</b> au fichier et
+          réimportez-le depuis l'onglet
+          <a [routerLink]="['../etudiants']" class="underline hover:no-underline">Étudiants</a>.
+        </p>
+      </div>
+    }
+  }
+
+  <!-- #227 — bilan d'envoi. Jamais un « envoyé ! » global : le responsable
+       doit voir qui est parti, qui ne l'est pas, et si quoi que ce soit est
+       réellement parti (la messagerie est coupée par défaut). -->
+  @if (envoiResult(); as env) {
+    <div
+      class="no-print mb-4 rounded-lg border px-4 py-3 text-sm"
+      [class]="
+        env.simule
+          ? 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-blue-200 bg-blue-50 text-blue-800'
+          : env.echecs > 0
+            ? 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-amber-200 bg-amber-50 text-amber-800'
+            : 'no-print mb-4 rounded-lg border px-4 py-3 text-sm border-emerald-200 bg-emerald-50 text-emerald-800'
+      "
+    >
+      @if (env.simule) {
+        <!-- #227 — le responsable ne PEUT PAS activer l'envoi lui-même (c'est
+             une config serveur). Lui montrer « MAIL_ENABLED=true » et « SMTP »
+             lui donnait du vocabulaire d'informaticien pour un problème qu'il
+             ne peut pas résoudre. On lui dit ce que ÇA change pour lui, et à
+             qui s'adresser. -->
+        <p class="font-medium">Aucun e-mail n'a été envoyé.</p>
+        <p class="mt-1">
+          L'envoi par e-mail n'est pas encore activé sur ce serveur.
+          <strong>Imprimez les convocations</strong> pour les distribuer.
+        </p>
+      } @else {
+        <p class="font-medium">
+          {{ env.envoyes }} convocation(s) envoyée(s) par e-mail.
+        </p>
+      }
+      @if (env.sansAdresse > 0) {
+        <p class="mt-1">
+          {{ env.sansAdresse }} étudiant(s) sans adresse — à convoquer en main propre.
+        </p>
+      }
+      @if (env.echecs > 0) {
+        <p class="mt-1 font-medium">{{ env.echecs }} échec(s) :</p>
+        <ul class="mt-1 list-disc pl-5">
+          @for (l of echecs(); track l.participationId) {
+            <li>{{ l.prenom }} {{ l.nom }} ({{ l.email }}) — {{ l.message }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+  @if (envoiError()) {
+    <p role="alert" class="no-print mb-4 text-sm text-status-danger">{{ envoiError() }}</p>
+  }
+
+  <!-- What this document does and does not promise -->
+  <div class="no-print mb-5 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+    <p class="font-medium text-gray-700">Contenu de la convocation</p>
+    <p class="mt-1">
+      Chaque convocation porte le <strong>lot</strong>, le <strong>jour</strong> et
+      l'<strong>heure de convocation du lot</strong> (début de l'examen + décalage de la vague),
+      calculée comme le jour J. L'ordre de passage par station est attribué sur place, après
+      l'appel — il n'est donc pas promis ici. L'<strong>envoi automatique par e-mail n'existe
+      pas encore</strong> : imprimez les convocations ou exportez le CSV.
+    </p>
+  </div>
+
+  @if (convocations().length === 0) {
+    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card no-print">
+      <p class="text-gray-700 mb-1">Aucun lot réparti.</p>
+      <p class="text-sm text-gray-500 mb-3">
+        Répartissez d'abord les étudiants en lots pour générer leurs convocations.
+      </p>
+      <a [routerLink]="['../lots']" class="text-sm text-brand hover:underline">Aller aux lots &rarr;</a>
+    </div>
+  } @else {
+    @if (unassignedCount() > 0) {
+      <div class="no-print mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-600">
+        {{ unassignedCount() }} étudiant(s) non encore répartis — sans convocation.
+        Relancez la répartition après les avoir inscrits.
+      </div>
+    }
+
+    <!-- Print sheet: one slip per student -->
+    <div id="convocation-print">
+      @for (c of convocations(); track c.participationId) {
+        <article class="convocation-card rounded-xl border border-gray-200 bg-white p-6 shadow-card mb-4">
+          <div class="flex items-start justify-between border-b border-gray-100 pb-3 mb-3">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Convocation à l'examen</p>
+              <h3 class="text-lg font-semibold text-gray-900">{{ exam()?.nom }}</h3>
+            </div>
+            <div class="text-right">
+              <p class="text-xs text-gray-400">Date</p>
+              <!-- #147 — the STUDENT'S day: their lot's jour when the cohort
+                   is spread over several days, else the exam's own date. -->
+              <p class="text-sm font-medium text-gray-900">
+                {{ (c.jour ?? exam()?.dateExamen) | date: 'dd/MM/yyyy' }}
+              </p>
+            </div>
+          </div>
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <div>
+              <dt class="text-gray-400">Étudiant</dt>
+              <dd class="font-medium text-gray-900">{{ c.prenom }} {{ c.nom }}</dd>
+            </div>
+            <div>
+              <dt class="text-gray-400">N° d'inscription</dt>
+              <dd class="font-medium text-gray-900">{{ c.numeroInscription ?? '—' }}</dd>
+            </div>
+            <div>
+              <dt class="text-gray-400">Lot (vague)</dt>
+              <dd class="font-medium text-gray-900">Lot {{ c.lotNumero }}</dd>
+            </div>
+            <div>
+              <dt class="text-gray-400">Heure de convocation</dt>
+              <dd class="font-semibold text-brand-dark">{{ c.reportTime }}</dd>
+            </div>
+          </dl>
+          <p class="mt-4 text-xs text-gray-400">
+            Présentez-vous 15 minutes avant l'heure indiquée. L'ordre de passage par station
+            vous sera communiqué sur place.
+          </p>
+          <!-- #227 — screen-only: the slip the student receives must not
+               carry their own address, but the responsable needs to see at
+               a glance who has to be handed one in person. -->
+          @if (!c.email) {
+            <p class="no-print mt-2 text-xs font-medium text-amber-700">
+              Pas d'adresse e-mail &middot; à remettre en main propre
+            </p>
+          }
+        </article>
+      }
+    </div>
+  }
+}

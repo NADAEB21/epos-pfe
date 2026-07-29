@@ -13,6 +13,35 @@
   `ExamenServiceImpl.changerStatut`, `validerTransitionStatut`,
   `EvaluateurDashboardService.buildDashboard`, `suivi.component.ts`.
 
+## ⚠️ Correction (2026-07-29, Nada) — le web APPLIQUE DÉJÀ cette règle. Danger surestimé.
+
+Nada : *« doesn't the current code already justify : the close exam option only shows after all
+teachers have finished grading ? »* — **oui, et ça change le diagnostic.**
+
+`suivi.component.html:109` place tout le bloc « Terminer l'examen » **à l'intérieur** de
+`@if (toutesVaguesTerminees())` : le bouton n'est même pas rendu avant, et une confirmation en deux
+temps s'y ajoute. `toutesVaguesTerminees` (`suivi.component.ts:534-538`) vaut
+`lotSuivant == null && lotOuvert.ecouleSec == null` — plus aucun lot à faire tourner, et la vague
+ouverte est terminée.
+
+**C'est exactement la règle proposée en §1 ci-dessous**, subtilité multi-lots comprise. Le web
+l'avait déjà.
+
+Deux conséquences, à assumer :
+
+1. **Le scénario alarmant de cette ADR — « un clic malheureux à 11h, trois étudiants non notés, gèle
+   l'examen » — n'est PAS atteignable par l'interface.** Un responsable réel ne peut pas clôturer
+   trop tôt. Il fallait le dire.
+2. **Mes preuves de #235/#236 passent par l'API en direct** (`PATCH /examens/53/statut`), un chemin
+   qu'un responsable n'emprunte jamais. Elles établissent que **le backend ne garde rien** — pas que
+   le produit est cassé. Frapper les endpoints reste la bonne discipline, mais cela démontre l'état
+   de l'API, pas celui du parcours réel.
+
+**Ce qui reste ouvert est donc étroit** : la règle vit dans le composant Angular et nulle part côté
+serveur. C'est un défaut de défense en profondeur — un second client (le mobile), un script, ou une
+régression du gabarit la contournent. Réel, à corriger, **mais pas critique pour faire passer un
+examen** : d'où le classement en phase de raffinement (décision Nada, 2026-07-29).
+
 ## Context
 
 ### Today, closure is a hand-set flag — the last one with authority

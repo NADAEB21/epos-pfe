@@ -88,6 +88,13 @@ class EvaluateurDashboardServiceTest {
                     }
                     return item.weigh(inv.getArgument(2));
                 });
+        // #213 — le garde d'écriture exige que l'évaluateur tienne la station.
+        // EVAL_ID tient STATION_ID dans toute cette classe : c'est le cas NORMAL,
+        // et sans ce stub chaque test de notation échouerait sur le garde au lieu
+        // de tester ce qu'il prétend tester. Les tests du garde lui-même stubent
+        // explicitement l'absence de rotation.
+        lenient().when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, STATION_ID))
+                .thenReturn(true);
     }
 
     // ─── shared helpers ──────────────────────────────────────────────────────
@@ -1100,9 +1107,13 @@ class EvaluateurDashboardServiceTest {
          * au 3). Une traçabilité fausse est pire qu'absente — elle accuse.
          */
         @Test
-        @DisplayName("#213 — la note retient QUI l'a saisie, même si ce n'est pas le titulaire de la station")
+        @DisplayName("#213/ADR-0017 — la note retient QUI l'a saisie : après suppléance, c'est le REMPLAÇANT")
         void saisirNotation_devraitEnregistrerLAuteurReel() {
-            final Long AUTRE_EVALUATEUR = 999L; // pas le titulaire de STATION_ID
+            // Le remplaçant : la suppléance lui a réaffecté la rotation, il passe donc
+            // le garde. Sans cet enregistrement, sa note serait attribuée au partant.
+            final Long REMPLACANT = 999L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(REMPLACANT, STATION_ID))
+                    .thenReturn(true);
             ExamenParticipation p = participation(1L); p.setId(100L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(200L);
             Notation n = new Notation(); n.setId(1L); n.setGrilleId(1L); n.setVerouillee(false);
@@ -1118,10 +1129,49 @@ class EvaluateurDashboardServiceTest {
                     .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
 
             service.saisirNotation(
-                    new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f), AUTRE_EVALUATEUR);
+                    new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f), REMPLACANT);
 
             // Le fait, pas la déduction : c'est bien l'appelant qui est retenu.
-            assertThat(n.getSaisiPar()).isEqualTo(AUTRE_EVALUATEUR);
+            assertThat(n.getSaisiPar()).isEqualTo(REMPLACANT);
+        }
+
+        /**
+         * #213 — LE trou : reproduit en direct avant correctif (l'évaluateur 6 a
+         * noté 9.5 sur la station 87, qui appartient au 3, HTTP 200).
+         *
+         * <p>Un garde existait pourtant — {@code createAssignment} exige une
+         * rotation (évaluateur, station) — mais uniquement sur le chemin FROID,
+         * emprunté seulement si l'assignment n'existe pas encore. Or
+         * {@code presence-et-demarrer} les crée tous au démarrage du lot : en
+         * conditions réelles il ne tournait jamais. D'où un garde explicite en
+         * tête de méthode, avant toute résolution.
+         */
+        @Test
+        @DisplayName("#213 — noter sur la station d'un AUTRE évaluateur est refusé")
+        void saisirNotation_surStationDAutrui_devraitEtreRefuse() {
+            final Long INTRUS = 6L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
+                    .thenReturn(false); // il ne tient pas cette station
+
+            SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f);
+            assertThatThrownBy(() -> service.saisirNotation(req, INTRUS))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("pas affecté à la station");
+
+            // Rien n'a été écrit : le garde tombe AVANT toute résolution.
+            verifyNoInteractions(notationItemRepository);
+        }
+
+        @Test
+        @DisplayName("#213 — verrouiller la note d'un étudiant sur la station d'autrui est refusé")
+        void validerEtudiant_surStationDAutrui_devraitEtreRefuse() {
+            final Long INTRUS = 6L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
+                    .thenReturn(false);
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, INTRUS, req))
+                    .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
@@ -1494,6 +1544,11 @@ class EvaluateurDashboardServiceTest {
             RotationAssignment raB = new RotationAssignment(); raB.setId(56L);
             Notation nA = new Notation(); nA.setId(10L);
             Notation nB = new Notation(); nB.setId(11L);
+
+            // #213 — ce test valide sur DEUX stations : l'évaluateur doit tenir les
+            // deux, sinon le garde d'écriture tombe sur la seconde (station 99).
+            when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, 99L))
+                    .thenReturn(true);
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));

@@ -229,6 +229,35 @@ public class EvaluateurDashboardService {
         }
     }
 
+    /**
+     * #213 — garde du chemin d'ÉCRITURE : on ne note que sur SA station.
+     *
+     * <p>Le garde existait déjà, mais sur le mauvais chemin :
+     * {@code createAssignment} exige une rotation {@code (évaluateur, station)}
+     * et lève sinon — sauf qu'il ne s'exécute que si l'assignment n'existe pas
+     * encore. Or {@code presence-et-demarrer} les crée tous au démarrage du lot.
+     * En conditions réelles le chemin froid n'est donc JAMAIS emprunté, et le
+     * contrôle ne tournait jamais. Prouvé en direct : l'évaluateur 6 a noté 9.5
+     * sur la station 87, qui appartient au 3.
+     *
+     * <p><b>Le prédicat est « avoir une rotation sur cette station », pas
+     * l'égalité avec un titulaire.</b> Une station peut compter PLUSIEURS
+     * évaluateurs (l'affectation est une liste), donc une égalité stricte
+     * refuserait un co-titulaire légitime. C'est aussi ce qui rend le garde
+     * compatible avec la suppléance (ADR-0017) : celle-ci réaffecte
+     * {@code rotation.evaluateurId}, donc le remplaçant passe le garde
+     * immédiatement, sans traitement particulier.
+     */
+    private void verifierAffectationStation(Long evaluateurId, Long stationId) {
+        if (!rotationRepository.existsByEvaluateurIdAndStationId(evaluateurId, stationId)) {
+            throw new AccessDeniedException(
+                    "Vous n'êtes pas affecté à la station " + stationId
+                            + " : la notation d'un étudiant appartient à l'évaluateur qui tient la "
+                            + "station. En cas de remplacement, le responsable doit d'abord vous "
+                            + "affecter à cette station (ADR-0017).");
+        }
+    }
+
     private LotDetailResponse toGroupeDetailResponse(Rotation rotation) {
         Lot lot = (rotation.getStudentGroup() != null) ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) {
@@ -291,6 +320,9 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
+        // #213 — on ne note que sur SA station. Voir verifierAffectationStation :
+        // le contrôle existant ne vivait que sur le chemin froid, jamais emprunté.
+        verifierAffectationStation(evaluateurId, request.getStationId());
         ExamenParticipation participation = resolverParticipation(request.getEtudiantId(), request.getStationId());
 
         // ADR-0015 — garde feuille LOCALE et INCONDITIONNELLE. L'ancienne version interrogeait
@@ -339,6 +371,9 @@ public class EvaluateurDashboardService {
     }
 
     public void validerEtudiant(Long etudiantId, Long stationId, Long evaluateurId, ValiderEtudiantRequest request) {
+        // #213 — verrouiller la note d'un étudiant est une écriture, et la plus
+        // définitive : même garde que la saisie.
+        verifierAffectationStation(evaluateurId, stationId);
         ExamenParticipation participation = resolverParticipation(etudiantId, stationId);
         RotationAssignment assignment = rotationAssignmentRepository
                 .findByParticipationIdAndStationId(participation.getId(), stationId)

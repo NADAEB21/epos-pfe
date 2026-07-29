@@ -1,7 +1,8 @@
 # ADR 0017: Évaluateur substitution — one real case, and it is responsable-owned
 
 - **Date:** 2026-07-29
-- **Status:** **Proposed** — §Decision 3 (who inherits the group in progress) needs Nada's yes.
+- **Status:** **Accepted** (2026-07-29, Nada — §3 ratified: the substitute inherits the group
+  **currently in progress**, on the reasoning that someone must finish a half-graded group).
 - **Deciders:** Nada (lead architect).
 - **Related:** **ADR-0014-B** (organisational acts belong to the responsable — the ownership
   argument reused here), **ADR-0016** (derived closure — substitution must not make an exam
@@ -75,10 +76,10 @@ in-app recovery. The guard and this ADR must land together.
    Rotations of that station that are **not `TERMINE`** move to the substitute. Rotations already
    `TERMINE` **keep their original évaluateur** — history is not rewritten.
 
-   ⚠️ **Needs Nada's yes:** does the substitute inherit the group **currently in progress**
-   (`EN_COURS`), or only the ones not yet started? Inheriting is the realistic reading — a teacher
-   who leaves mid-group leaves a half-graded group behind, and someone must finish it. Not
-   inheriting would strand exactly the students the substitution exists to serve.
+   **Ratified 2026-07-29 (Nada):** the substitute **inherits the group currently in progress**
+   (`EN_COURS`), not merely the ones not yet started. A teacher who leaves mid-group leaves a
+   half-graded group behind and someone must finish it; not inheriting would strand exactly the
+   students the substitution exists to serve.
 
 4. **Grades already entered keep their author.** They carry `notations.saisi_par` (V15, #213), so a
    handover cannot repaint the departed évaluateur's work as the substitute's. **This is why

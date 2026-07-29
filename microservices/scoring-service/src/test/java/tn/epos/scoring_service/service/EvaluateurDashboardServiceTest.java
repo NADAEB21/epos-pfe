@@ -1090,6 +1090,40 @@ class EvaluateurDashboardServiceTest {
             verify(notationItemRepository).save(any(NotationItem.class));
         }
 
+        /**
+         * #213 — l'auteur doit être ENREGISTRÉ, pas déduit.
+         *
+         * <p>Avant, « qui a noté ? » se lisait sur {@code rotation.evaluateur_id},
+         * donc sur le propriétaire de la station : toute saisie faite par
+         * quelqu'un d'autre était attribuée au mauvais évaluateur. Reproduit en
+         * direct sur l'examen 53 (note 9.5 saisie par l'évaluateur 6, attribuée
+         * au 3). Une traçabilité fausse est pire qu'absente — elle accuse.
+         */
+        @Test
+        @DisplayName("#213 — la note retient QUI l'a saisie, même si ce n'est pas le titulaire de la station")
+        void saisirNotation_devraitEnregistrerLAuteurReel() {
+            final Long AUTRE_EVALUATEUR = 999L; // pas le titulaire de STATION_ID
+            ExamenParticipation p = participation(1L); p.setId(100L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(200L);
+            Notation n = new Notation(); n.setId(1L); n.setGrilleId(1L); n.setVerouillee(false);
+
+            when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
+            when(notationItemRepository.findByNotationIdAndItemId(1L, 5L)).thenReturn(Optional.empty());
+            when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+
+            service.saisirNotation(
+                    new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f), AUTRE_EVALUATEUR);
+
+            // Le fait, pas la déduction : c'est bien l'appelant qui est retenu.
+            assertThat(n.getSaisiPar()).isEqualTo(AUTRE_EVALUATEUR);
+        }
+
         @Test
         @DisplayName("Notation verrouillée → BusinessException")
         void notationVerrouillee() {

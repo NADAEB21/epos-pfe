@@ -42,6 +42,17 @@ public class Notation {
     @Column(name = "commentaire")
     private String commentaire;
 
+    // #213 — l'auteur RÉEL, enregistré et non déduit. Avant, « qui a noté ? » se
+    // lisait sur rotation.evaluateur_id, donc sur le propriétaire de la station :
+    // toute écriture par quelqu'un d'autre était attribuée au mauvais évaluateur.
+    // Une traçabilité fausse est pire qu'absente — en réclamation, elle accuse.
+    // @Column explicite : `saisiPar` se mapperait en `saisipar` (piège ouvertA→ouverta, #208).
+    @Column(name = "saisi_par")
+    private Long saisiPar;
+
+    @Column(name = "verrouille_par")
+    private Long verrouillePar;
+
     // Lien 1-à-1 avec l'affectation de la rotation
     @OneToOne
     @JoinColumn(name = "assignment_id")

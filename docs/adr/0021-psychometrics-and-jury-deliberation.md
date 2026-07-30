@@ -81,6 +81,112 @@ Given ADR-0018's finding that **scoring has no matière predicate at all** (#86)
 must not ship before that predicate exists — otherwise the BI layer becomes the widest data leak in
 the platform.
 
+---
+
+# Part 2 — what "changing the barème after the exam" actually means
+
+Added 2026-07-30, from a working session with Nada. She recalled the supervisor's case — *a cohort
+does badly, so the responsable changes the barème afterwards; not the results, not any individual
+score* — and then challenged her own premise:
+
+> *« a criterion worth 10 points where many students scored 1s and 0s — what would change if we made
+> it worth 5? … it's literally like vacuuming the sea: changes nothing »*
+
+**She is right, and the code makes it stronger than she suspected.**
+
+## The scoring model, stated precisely (it was not written down anywhere)
+
+- **`ponderation`** = the criterion's **points budget** — its share of the station's `noteMax`.
+- **`valeurMax`** = the **scale the examiner marks on**, constrained to `≤ ponderation`
+  (`ItemEvaluation.isValide():99`, `GrilleServiceImpl:333`).
+- **Contribution to the score** (`ExamItemSnapshot.weigh:76-79`):
+  - `NUMERIQUE` → **the raw value entered**. `ponderation` does **not** appear in the arithmetic.
+  - `BINAIRE` → `valeur × ponderation` (0 or 1 × budget).
+
+Verified live: entered 5 → `score_final` 5; entered 7 → 7, with `ponderation = 10` inert throughout.
+
+So for numeric criteria — the ordinary case — **re-weighting is a literal no-op.** `ponderation`
+still matters, but only as the *ceiling* that `valeurMax ≤ ponderation` enforces. It is not
+decorative (an earlier draft of this ADR said so; that was wrong), and it is not a multiplier either.
+
+⚠️ **Consequence for #276:** a barème can be declared valid and still be unreachable —
+`Σ ponderation == noteMax` while `Σ valeurMax < noteMax`. Verified (grille 76: budgets 10+10 = 20 ✓
+valid, marked out of 5+5, best possible mark **10/20**). The launch gate must test the **achievable
+maximum**, not the sum of budgets.
+
+## D6 — Two layers, and only one of them may ever change
+
+| layer | what it is | may it change? |
+|---|---|---|
+| **Judgement** | *"this student scored 5 of 6 on hand hygiene"* — an examiner watched them | **Never.** |
+| **Aggregation** | how those judgements become a mark out of 20 | **Yes** — uniformly, with a reason |
+
+This is the distinction that dissolves the confusion, and Nada had already drawn the line herself
+(*"not modify results … just change the barème"*). A re-barème touches the **second layer only**.
+No raw value is ever rewritten.
+
+## D7 — ⚠️ The aggregation layer DOES NOT EXIST. Building it is the prerequisite.
+
+`recalculerScoreFinal:665-675` sums weighted values and stops. **Nothing anywhere normalises against
+`noteMax`.** There is no "out of 20" in the computation at all.
+
+So re-barème is **not** a feature layered onto the current model — the layer it would modify has to
+be created first. And that same absence is precisely why **#276** exists.
+
+**Therefore #276 and re-barème are one piece of work, not two.** Fixing the launch gate without
+introducing normalisation would paper over the symptom.
+
+## D8 — Three permitted operations, ranked by how defensible they are
+
+1. **Drop a faulty criterion, then renormalise to `noteMax`.** *Strongest* — "nobody could score on
+   it" is an **observation** (p-value ≈ 0, or discrimination ≈ 0). The students it sank recover most,
+   which is right, because the fault was the instrument's.
+2. **Drop a whole station.** The supervisor's case, and cleanest: a station is a coherent unit — one
+   examiner, one task, one thing that can be judged broken.
+3. **Re-weight with proportional rescaling.** Permitted, *weakest*. Moving budget alone changes
+   nothing (see above); only rescaling each performance to the new budget moves marks. And "criterion
+   1 should have counted for more" is a **judgement**, not an observation — it invites the one
+   question to avoid in front of a jury: *did you tune it until the pass rate looked acceptable?*
+
+**The line between measurement correction and grade inflation is not the arithmetic.** It is whether
+the change follows from a property of the item and applies to everyone identically:
+
+- uniform + reasoned → **measurement correction** ✓
+- **per-student → réclamation** (ADR-0013 / #136), a different process requiring proof ✓
+- uniform + unreasoned → grade inflation in a lab coat ✗
+
+## D9 — A re-barème is ADDITIVE. ADR-0015 is not weakened.
+
+The frozen snapshot is the record of **how the exam was actually graded**. It stays frozen and
+untouched.
+
+A re-barème is a **second artefact** — a deliberation barème applied on top, producing adjusted
+results while the original remains auditable. The jury can see both, and the motif for the change.
+
+That is how post-exam adjustment coexists with ADR-0015 instead of fighting it: **nothing is
+overwritten, so the write-once promise holds.** A re-barème that edited the snapshot would destroy the
+only evidence of what the examiners were actually working from.
+
+Every re-barème carries a `motif`, like réajustement (ADR-0013). Responsable-only.
+
+## D10 — The AI proposes; the human decides
+
+ADR-0008 §Rationale 2 already says the indices exist *to justify* #135. This makes the shape explicit:
+
+> *« Criterion 3 — discrimination 0.02, p-value 0.05: it separated nobody. Suggested: drop and
+> renormalise. Projected effect: median 11.2 → 12.8, pass rate 54% → 71%. »*
+
+The responsable **accepts or refuses, with a motif**. The analytics never write a score, never apply a
+barème, and never act unattended.
+
+That division is what makes it defensible: it is the difference between *"we computed some
+statistics"* and *"the statistics changed a decision, and here is the audit trail."* It also keeps the
+projected effect visible **before** the decision — a responsable must not discover the consequence
+after committing to it.
+
+⚠️ Per D4, the deliberation screen ships **before** any of this. The proposal engine is an
+enhancement to a working screen, never its prerequisite.
+
 ## Consequences
 
 - A read model is needed. Computing α or point-biserial by walking `notations` per request will not
@@ -91,6 +197,15 @@ the platform.
   exactly this analysis. Rater analytics must therefore **exclude** unattributed notations and say so.
 - #135 acquires its justification: a station is dropped or re-weighted *because* an index says so,
   recorded with a motif.
+- **#276 is absorbed into D7** — the launch gate and the missing aggregation layer are **one** piece of
+  work. Fixing the gate alone treats the symptom and leaves marks that still mean nothing out of 20.
+- **#135 finally has a definition.** It read "post-exam barème/station réajustement" without ever
+  saying what a barème change *does*. D6–D9 supply it — including the answer that plain re-weighting of
+  numeric criteria does **nothing at all**, which is why the ticket could never have been implemented
+  as written.
+- **A barème needs versions.** D9 implies an artefact the schema has no room for: the frozen snapshot,
+  plus zero or more deliberation barèmes, each with its motif and author. Deliberately **not** designed
+  here — but nothing in D6–D10 is buildable without it.
 - Sample sizes in a single pharmacy cohort (tens, not thousands) mean wide confidence intervals.
   **Indices must ship with their uncertainty**, or a jury will over-read a difference that is noise.
 

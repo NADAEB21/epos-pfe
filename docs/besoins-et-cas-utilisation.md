@@ -824,7 +824,8 @@ besoin rédigé contre l'une des positions ci-dessous doit être rejeté :
 | Une horloge fait progresser l'examen | La **progression** fait progresser l'examen ; le temps est une indication | ADR-0014 |
 | L'avancement d'une vague est automatique | Il appartient au **responsable** (poignée de main) | ADR-0014-B *(supersède 0014-A §1)* |
 | Un bouton « clôturer » déclare la fin | La clôture est **dérivée** ; `NON_EVALUE` est accepté | ADR-0016 |
-| Le multi-jour se simule par une pause | Le multi-jour est un **plan stocké** (`Lot.jour`) | ADR-0011, ADR-0014-A |
+| Le multi-jour se simule par une pause | Le multi-jour est un **plan stocké** (`Lot.jour`) | ADR-0011 **§1 seulement**, ADR-0014-A |
+| Une horloge par journée corrige le trou de la nuit | ⛔ **ADR-0011 §2 est VOID** : il n'y a plus d'horloge d'état à réparer — le tableau montre la *progression* | ADR-0014, ADR-0011 §Réconciliation |
 | Le responsable corrige une note directement | Il passe par le **canal audité** ; il ne verrouille pas | ADR-0013, #274 |
 | Éditer une grille après lancement modifie l'épreuve en cours | La définition est **figée** au lancement | ADR-0015 |
 | Une étape « Finaliser la configuration » | Les transitions techniques sont **invisibles** | #185, NFR-23 |

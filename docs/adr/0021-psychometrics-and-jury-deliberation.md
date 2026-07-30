@@ -125,16 +125,36 @@ This is the distinction that dissolves the confusion, and Nada had already drawn
 (*"not modify results … just change the barème"*). A re-barème touches the **second layer only**.
 No raw value is ever rewritten.
 
-## D7 — ⚠️ The aggregation layer DOES NOT EXIST. Building it is the prerequisite.
+## D7 — ⚠️ CORRECTED (Nada, 2026-07-30). The scoring model is sound; only a re-barème needs a scale.
 
-`recalculerScoreFinal:665-675` sums weighted values and stops. **Nothing anywhere normalises against
-`noteMax`.** There is no "out of 20" in the computation at all.
+An earlier draft of this section claimed *"nothing normalises against `noteMax`, so an aggregation
+layer must be built first"*. **That was wrong, and Nada rejected it on the right grounds:**
 
-So re-barème is **not** a feature layered onto the current model — the layer it would modify has to
-be created first. And that same absence is precisely why **#276** exists.
+> *« why do we need that — 20 is the max mark, not something to divide by. Saying 10/20 is saying I
+> got 10 points of 20. I don't need to make it 0.5. »*
 
-**Therefore #276 and re-barème are one piece of work, not two.** Fixing the launch gate without
-introducing normalisation would paper over the symptom.
+Exactly so. A station worth 20 with criteria of 12 + 8, each marked out of its own weight, yields
+`9 + 6 = 15` — **already out of 20**. The sum *is* the mark. No division exists because none is
+needed.
+
+The earlier claim was a leftover from **before #276 was gated**: when criteria could sum to 10 on a
+20-point station, the total genuinely meant nothing. **PR #277 removes that at the source** — the
+achievable maximum must equal `noteMax` to launch — so the sum is out of `noteMax` *by construction*.
+
+**What actually remains is much smaller.** Division appears in exactly one situation: a re-barème that
+**removes** something. Drop a 5-point criterion from a 20-point station and the exam is now out of 15.
+Two honest options, both cheap:
+
+- **report out of 15** — no arithmetic at all, only a different denominator;
+- **convert to 20** — one multiplication (`× 20/15`) at presentation.
+
+Note that even option 1 helps the cohort, without touching a single raw value: a student who scored 8
+including a 0 on the dropped criterion goes from 8/20 (40%) to 8/15 (53%). **The judgement is
+untouched; only what the exam is out of has changed** — which is precisely the D6 split.
+
+**So #276's remaining half is NOT "build an aggregation layer".** It is the much narrower D9 need: a
+place to record *what this exam is scored out of after deliberation, and which criteria are excluded*.
+A versioned barème, not a rewrite of scoring.
 
 ## D8 — Three permitted operations, ranked by how defensible they are
 
@@ -197,8 +217,9 @@ enhancement to a working screen, never its prerequisite.
   exactly this analysis. Rater analytics must therefore **exclude** unattributed notations and say so.
 - #135 acquires its justification: a station is dropped or re-weighted *because* an index says so,
   recorded with a motif.
-- **#276 is absorbed into D7** — the launch gate and the missing aggregation layer are **one** piece of
-  work. Fixing the gate alone treats the symptom and leaves marks that still mean nothing out of 20.
+- **#276's first half is shipped** (PR #277: launch refuses an unreachable barème), and with it the
+  sum is out of `noteMax` by construction. What remains is D9's versioned barème — *not* a rewrite of
+  the score computation, which works.
 - **#135 finally has a definition.** It read "post-exam barème/station réajustement" without ever
   saying what a barème change *does*. D6–D9 supply it — including the answer that plain re-weighting of
   numeric criteria does **nothing at all**, which is why the ticket could never have been implemented

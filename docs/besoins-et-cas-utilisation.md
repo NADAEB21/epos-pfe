@@ -267,7 +267,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC-23 | Définir les critères et leurs pondérations | A3, A4 | ✅ | `GrilleController:98,125,137` |
 | UC-24 | Décomposer un critère en sous-critères | A3, A4 | ✅ | `GrilleController:146` |
 | UC-25 | Renseigner le corrigé type | A3, A4 | ✅ | `ItemEvaluation.valeurAttendue`/`conditionsAttendues:63-69` |
-| UC-26 | Vérifier la complétude du barème | A3, A4 | ⚠️ | `GrilleEvaluation.getMaxAtteignable:88` + refus au lancement ✅ ; **`GET /examens/{id}/baremes-incomplets` n'a aucun appelant** — voir §6.1 |
+| UC-26 | Vérifier la complétude du barème | A3, A4 | ⚠️ | `GrilleEvaluation.getMaxAtteignable:88` + refus au lancement ✅ ; **`GET /examens/{id}/baremes-incomplets` n'a aucun appelant** — **#280**, §6.1 |
 | UC-27 | Enregistrer une grille comme modèle | A3, A4 | ✅ | `GrilleTemplateController:46` · `bibliotheque.component.ts` |
 | UC-28 | Appliquer un modèle à une station | A3, A4 | ✅ | `GrilleTemplateController:77` · `exam-api.service.ts:405` |
 | UC-29 | Administrer le catalogue global de modèles | A4 | 🔶 | `GrilleTemplateController:37,69` (`hasRole('SUPER_ADMIN')`) ; `admin/templates` = page vide |
@@ -309,7 +309,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-48 | Vérifier les pré-conditions de lancement | A3, A4 | ⚠️ | `examen-workspace.store.ts:~200-296` — **6 lignes**, dont *Évaluateurs disponibles* (#265) ; **la ligne « Barèmes complets » manque** (§6.1) |
+| UC-48 | Vérifier les pré-conditions de lancement | A3, A4 | ⚠️ | `examen-workspace.store.ts:~200-296` — **6 lignes**, dont *Évaluateurs disponibles* (#265) ; **la ligne « Barèmes complets » manque** — **#280**, §6.1 |
 | UC-49 | Lancer l'épreuve (et figer sa définition) | A3, A4 | ✅ | `ExamenController:124` · `ExamDefinitionSnapshotService` · **ADR-0015** |
 | UC-50 | Réinitialiser une épreuve lancée | A3, A4 | ✅ | `ExamenController:155` · `exam-api.service.ts:163` |
 
@@ -427,7 +427,7 @@ d'entrée ne pouvait la produire.
 identifiés et priorisés. Les manques ci-dessous ne sont **ni codés, ni arbitrés par un ADR, ni
 ouverts en issue** — ce sont des angles morts, et c'est ce qui les rend dignes d'une section.
 
-### 6.1 La ligne de pré-vol manquante *(mon propre écart, constaté ce jour)*
+### 6.1 La ligne de pré-vol manquante — **#280** *(écart constaté ce jour, désormais suivi)*
 
 `GET /api/examens/{id}/baremes-incomplets` (`ExamenController:116`) a été livré par la PR #277.
 La liste de contrôle de lancement (`examen-workspace.store.ts`) compte **six lignes** et
@@ -530,7 +530,7 @@ correction traçable** dans le projet.
 | NFR-21 | **Guidage** | Le parcours de préparation doit indiquer l'étape suivante ; l'utilisateur ne doit pas deviner l'ordre des onglets | ✅ #185 — parcours guidé + panneau conducteur du jour J |
 | NFR-22 | **Charge de travail** | Aucune consigne ne doit exiger de l'enseignant un détour hors de l'écran. La consigne « ajoutez une colonne au fichier et réimportez-le » a été **remplacée** par l'édition en ligne du courriel | ✅ #227 |
 | NFR-23 | **Contrôle explicite** | Les transitions d'état techniques doivent être **invisibles** : elles se produisent à l'intérieur de l'acte que l'utilisateur a voulu, jamais comme une étape à valider (« Finaliser la configuration » a été supprimé) | ✅ #185 |
-| NFR-24 | **Gestion des erreurs** | Une pré-condition bloquante doit s'afficher **avant** le clic, pas en erreur après | ⚠️ **respecté 5 fois sur 6** — voir §6.1 |
+| NFR-24 | **Gestion des erreurs** | Une pré-condition bloquante doit s'afficher **avant** le clic, pas en erreur après | ⚠️ **respecté 5 fois sur 6** — **#280** |
 | NFR-25 | **Signifiance des codes et dénominations** | Le vocabulaire de l'interface est celui de l'enseignant, jamais celui du modèle. Aucun message ne doit exposer un détail d'implémentation | ⚠️ « Envoi simulé » réécrit (#227) ; **#253** — « Lot N/M » désigne en réalité un **groupe** |
 | NFR-26 | **Homogénéité / cohérence** | Une même action porte le même nom et le même geste partout ; conventions de structure documentées | ✅ `frontend-web/STRUCTURE.md` |
 | NFR-27 | **Adaptabilité** | Le responsable doit pouvoir corriger le plan sans repartir de zéro (déplacer un étudiant, changer le jour d'un lot, remplacer un évaluateur) | ✅ UC-40, UC-41 · 🔶 UC-57 |
@@ -565,7 +565,7 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 | **Scénario nominal** | 1. Ouvrir l'onglet *Lancement*. 2. Lire la liste de pré-vol. 3. Cliquer *Lancer l'examen*. 4. Le service valide la transition, écrit l'instantané, horodate. 5. Le tableau de bord des évaluateurs sert désormais les sessions. |
 | **Alternatif A1** | Épreuve encore en `BROUILLON` → la transition `BROUILLON→CONFIGURE` est **enchaînée en silence** (NFR-23), sans étape visible. |
 | **Exception E1** | Un évaluateur tient déjà une station dans une épreuve en cours → refus (#265). Annoncé **avant** le clic. |
-| **Exception E2** | Une station expose moins de points que sa note annoncée → refus (#276). ⚠️ **Non annoncé avant le clic** — §6.1. |
+| **Exception E2** | Une station expose moins de points que sa note annoncée → refus (#276). ⚠️ **Non annoncé avant le clic** — **#280**. |
 | **Exception E3** | Le jour courant n'est pas un jour de l'épreuve → refus. |
 | **Règle métier** | **ADR-0015** : après cette action, éditer une grille n'altère aucune notation en cours. C'est ce qui sépare le *plan de contrôle* du *plan de données*. |
 
@@ -722,7 +722,7 @@ besoin sans ADR ni issue et non réalisé est un manque du §6.
 | FN-13, FN-19 | UC-16, UC-17, UC-19 | — | — | ✅ |
 | FN-14 | UC-20, UC-21 | 0017 | #242 | ⚠️ |
 | FN-15 | UC-22 → UC-25 | — | #195 (mobile) | ✅ |
-| FN-16 | UC-26, UC-48 | — | #276 | ⚠️ |
+| FN-16 | UC-26, UC-48 | — | #276, **#280** | ⚠️ |
 | FN-17 | UC-27 → UC-31 | — | #220 | 🔶 |
 | FN-18 | UC-32 | **0019** | #133, #92 | 📐 |
 | FN-20 | UC-33, UC-34 | — | — | ✅ |
@@ -736,7 +736,7 @@ besoin sans ADR ni issue et non réalisé est un manque du §6.
 | FN-31 | UC-65 | 0002 | **#198**, #244 | ⚠️ |
 | FN-32 | UC-66 | — | #195 | ❌ |
 | *(non exprimé)* | UC-87 | — | — | ❌ §6.5 |
-| FN-33, FN-34 | UC-48, UC-49 | **0015** | #276 | ⚠️ |
+| FN-33, FN-34 | UC-48, UC-49 | **0015** | #276, **#280** | ⚠️ |
 | FN-35 | UC-51, UC-52 | 0014-A | — | ✅ |
 | FN-36 | UC-53, UC-54 | **0014, 0014-B** | #250, #207–#210 | ⚠️ 🔶 |
 | FN-37 | UC-55 | — | #139, #252, #243 | ⚠️ |

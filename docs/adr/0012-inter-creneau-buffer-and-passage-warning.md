@@ -1,9 +1,26 @@
 # ADR 0012: Inter-créneau buffer + real-time passage warning
 
 - **Date:** 2026-06-28 (proposed) · 2026-06-28 (accepted)
-- **Status:** **Accepted.** §0 (dashboard-clock reconciliation) ships first as its
-  own PR; the buffer + warning feature (§1–§3) follows. Single-day implemented
-  first; multi-day (ADR-0011) slots in when ratified.
+- **Status:** **Accepted**, with ⚠️ **§0 superseded by ADR-0014** — see the note below.
+  The buffer + warning feature (§1–§3) stands and remains the live requirement (#151).
+  Single-day implemented first; multi-day = **ADR-0011 §1 only** (its §2 is void).
+
+> ### ⚠️ Reconciliation with ADR-0014 — added 2026-07-31
+>
+> **ADR-0014 (2026-07-15) states that it « supersedes the clock-as-state parts of ADR-0012's
+> execution assumptions ».** That sentence lives in ADR-0014; until this note there was **no
+> forward pointer here**, so a reader opening *this* file alone got the retired model. Added while
+> re-verifying the corpus on Nada's instruction.
+>
+> - ⛔ **§0 « reconcile the dashboard clock »** — void as a *state* concern. A station's state is no
+>   longer derived from elapsed time: the évaluateur advances a passage (ADR-0014) and the
+>   responsable closes a wave (ADR-0014-B). There is no clock left to reconcile into a status.
+> - ✅ **§1–§3 stand in full.** A buffer between passages and a warning before the next one are
+>   about **telling a human what is about to happen** — an indication, never a state. ADR-0014
+>   does not touch that, and the professor's requirement is unchanged. `Examen.tempsBattementMin`
+>   and `avertissementLeadSec` are shipped (`Examen.java:66,75`); the mobile half is **#151**.
+> - ✅ **§2 « one authoritative clock: the server »** also stands — for *display*. The lesson is
+>   not "no clocks", it is **no clock decides a state**.
 - **Deciders:** Nada (lead architect). Raised by the professor (~2026-06-24):
   at launch the student passages start back-to-back with no warning; the prof
   wants a **transition gap + a warning before each passage**.

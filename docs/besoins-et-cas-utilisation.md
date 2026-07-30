@@ -92,7 +92,7 @@ par »), jamais des associations d'acteur.
 | Réf. | Acteur | État |
 |:--:|---|---|
 | **A6** | Service de messagerie (SMTP) | ⚠️ intégré, **désactivé par défaut** (`app.mail.enabled`) |
-| **A7** | Service d'analyse (`ai-service`) | 📐 zéro contrôleur — ADR-0008, ADR-0021 |
+| **A7** | Service d'analyse (`ai-service`) | 📐 **le service n'existe pas** : ni `microservices/ai-service`, ni `ai-modules/` — ADR-0008, ADR-0021 |
 | **A8** | Horloge du serveur | ✅ zone épinglée `Africa/Tunis` — ADR-0010 |
 
 ---
@@ -365,7 +365,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021** ; `ai-service` **sans contrôleur** ; route `analyses-ia` = page vide |
+| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021** ; **le service `ai-service` n'existe pas dans le dépôt** ; route `analyses-ia` = page vide |
 | UC-79 | Détecter les anomalies de notation | A7 | 📐 | **ADR-0008** |
 | UC-80 | Comparer la sévérité des évaluateurs | A3, A4 | 📐 | **ADR-0021 D1/D2** — comparaison **intra-station obligatoire**, descriptive et jamais automatique (D3) |
 | UC-81 | Proposer un barème révisé motivé | A7 | 📐 | **ADR-0021 partie 2** — la finalité affichée du volet IA |
@@ -413,8 +413,10 @@ verdict.
    système *peut* et ce qu'un enseignant *peut faire*.
 4. **Le plan administratif est entièrement arbitré et entièrement à construire** : ADR-0018 à
    ADR-0021 sont fusionnés, aucun n'a de code.
-5. **Le volet IA — l'argument de valeur du projet — n'a aucune surface.** `ai-service` n'a pas un
-   seul contrôleur.
+5. **Le volet IA — l'argument de valeur du projet — n'a aucune surface.** Le service `ai-service`
+   **n'existe pas dans le dépôt** (`microservices/` en compte six, sans lui ; `ai-modules/` a
+   disparu). ⚠️ Or `chap2.tex:340` le liste dans le tableau d'architecture **avec son port 8084**,
+   et `chap2.tex:258` annonce Python/FastAPI dans la pile technique — voir §6.8.
 
 ---
 
@@ -475,6 +477,29 @@ définie. Une panne disque le lendemain d'un examen fait perdre les notes.
 Le premier `SUPER_ADMIN` et les premières matières ne viennent que de `init.sql`. Sur une
 installation neuve sans ce jeu d'amorçage, la plateforme est inutilisable et rien ne permet d'en
 sortir par l'interface. Lié à UC-10 (#134).
+
+---
+
+### 6.8 Le rapport annonce un service qui n'existe pas
+
+Vérifié ce jour, et à corriger **dans le rapport** autant que dans le code :
+
+- `microservices/` contient **six** répertoires : `api-gateway`, `auth-service`,
+  `discovery-server`, `epos-common`, `exam-service`, `scoring-service`. **Pas d'`ai-service`.**
+  Le répertoire `ai-modules/` mentionné dans d'anciennes notes a également disparu.
+- Or `rapport/chapters/chap2.tex:340` fait figurer **`ai-service` … 8084** dans le tableau des
+  services, et `chap2.tex:258` annonce **Python / FastAPI** dans la pile technique. Le tableau
+  `tab:besoins-fonctionnels` (`chap2.tex:67`) et le backlog (`:170`) présentent l'analyse
+  psychométrique comme un besoin couvert, et `chap2.tex:211` l'attribue au sprint 5.
+
+✅ **À la décharge du rapport :** les chapitres 5 et 6 sont **honnêtes**. `chap5.tex:44` porte un
+commentaire explicite « *STATUT HONNÊTE : verrouillage par notation existe ; publication /
+clôture n'existent pas* », et `chap6.tex` n'est encore qu'un squelette de commentaires. **Il n'y a
+donc aucune fausse affirmation rédigée en prose** — l'exposition est concentrée dans les
+**tableaux du chapitre 2**, qui décrivent une cible comme un état.
+
+Deux corrections suffisent à la lever : soit construire, soit **déplacer ces lignes vers les
+perspectives** et retirer le port 8084 du tableau d'architecture.
 
 ---
 

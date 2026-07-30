@@ -67,9 +67,30 @@ couvrent »), qu'aucun relevé d'endpoints n'aurait pu produire.
   **deux lignes `user_roles`** portant `RESPONSABLE_MATIERE` sur le même `matiere_id`. Le modèle
   la représente déjà et `PUT /api/v1/users/{id}/roles` sait l'écrire ; aucun écran ne le permet
   (UC-12).
-- **A4 généralise A3** (`SUPER_ADMIN --|> RESPONSABLE_MATIERE` sur le diagramme) mais conserve
-  **cinq pouvoirs exclusifs** : supprimer un utilisateur, un étudiant, une notation, une
-  affectation de rotation, et créer/supprimer un modèle de grille global.
+- ⚠️ **A4 NE généralise PAS A3.** *Corrigé le 2026-07-31 (Nada) : « a super-admin is an
+  administrator, not a subject's professor ».* Les deux sont des **pairs aux métiers distincts**,
+  pas un parent et un enfant. **Il n'y a donc pas de généralisation
+  `SUPER_ADMIN --|> RESPONSABLE_MATIERE`** — voir **ADR-0018 D5**.
+  - **A4 LIT tout** (examens, résultats, archives, analyses agrégées de toutes les matières) :
+    c'est le « accès à toutes les données » de son périmètre.
+  - **A4 ÉCRIT uniquement son domaine** : comptes, rôles, catalogue des matières, configuration
+    globale, modèles de grilles globaux.
+  - **A4 n'AUTORISE PAS** : concevoir, lancer, mettre en pause, noter, verrouiller, réajuster,
+    clôturer. Ce sont des actes d'**autorité pédagogique**, et l'autorité pédagogique est
+    précisément ce qui fait un responsable.
+  - **Accéder aux données est une LECTURE.** Créer et lancer n'en sont pas.
+  - Seule exception, étroite et nommée : la **continuité institutionnelle** (responsable
+    injoignable le matin de l'épreuve) — acte attribué, motivé et annoncé (ADR-0018 D3), pas une
+    capacité permanente.
+
+  ⚠️ **La colonne « Acteur » de ce catalogue énonce le modèle VOULU, pas ce que le code permet
+  aujourd'hui.** Vérifié le 2026-07-31 : **72 points d'entrée en écriture** ont une garde effective
+  nommant `SUPER_ADMIN`, dont **un seul** dans `auth-service` ; les 71 autres sont des actes
+  pédagogiques (`ExamenController:36` garde toute la classe, et `changerStatut` — le lancement — n'a
+  aucune garde de méthode). Sévérité honnête : **FAIBLE à MOYENNE, gouvernance et non
+  vulnérabilité** — aucune escalade de privilège possible (c'est déjà le rôle le plus élevé) et
+  **aucun écran ne l'expose** (toutes les routes `admin/*` sont des pages vides). L'atteindre exige
+  une requête HTTP fabriquée à la main.
 - **A2 n'est pas cloisonné par matière.** Sa légitimité vient de la rotation qui lui est
   affectée, pas de son périmètre disciplinaire — ADR-0007. C'est pourquoi les gardes de
   possession (#213, #218) interrogent la rotation et non le rôle.
@@ -257,75 +278,75 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-16 | Créer une épreuve | A3, A4 | ✅ | `ExamenController:40` · `examen-create.component.ts` |
-| UC-17 | Modifier une épreuve | A3, A4 | ✅ | `ExamenController:91` |
-| UC-18 | Supprimer une épreuve | A3, A4 | ⚠️ | `ExamenController:166` ; **#249** — lots/rotations orphelins, `invalidateExam` **sans appelant** → ADR-0020 |
-| UC-19 | Joindre / télécharger le sujet PDF | A3, A4 | ✅ | `ExamenController:174,185` · `exam-api.service.ts:180,194` |
-| UC-20 | Composer le circuit de stations | A3, A4 | ✅ | `StationController:30,67,91` · `stations-grilles.component.ts` |
-| UC-21 | Affecter des évaluateurs à une station | A3, A4 | ⚠️ | `StationController:78` ; **#242** (accepte un évaluateur inexistant — 12 références pendantes), **ADR-0017** (la réaffectation n'atteint pas les rotations déjà figées) |
-| UC-22 | Créer / remplacer la grille d'une station | A3, A4 | ✅ | `GrilleController:34,48` · `grille-editor.component.ts` |
-| UC-23 | Définir les critères et leurs pondérations | A3, A4 | ✅ | `GrilleController:98,125,137` |
-| UC-24 | Décomposer un critère en sous-critères | A3, A4 | ✅ | `GrilleController:146` |
-| UC-25 | Renseigner le corrigé type | A3, A4 | ✅ | `ItemEvaluation.valeurAttendue`/`conditionsAttendues:63-69` |
-| UC-26 | Vérifier la complétude du barème | A3, A4 | ⚠️ | `GrilleEvaluation.getMaxAtteignable:88` + refus au lancement ✅ ; **`GET /examens/{id}/baremes-incomplets` n'a aucun appelant** — **#280**, §6.1 |
-| UC-27 | Enregistrer une grille comme modèle | A3, A4 | ✅ | `GrilleTemplateController:46` · `bibliotheque.component.ts` |
-| UC-28 | Appliquer un modèle à une station | A3, A4 | ✅ | `GrilleTemplateController:77` · `exam-api.service.ts:405` |
+| UC-16 | Créer une épreuve | A3 | ✅ | `ExamenController:40` · `examen-create.component.ts` |
+| UC-17 | Modifier une épreuve | A3 | ✅ | `ExamenController:91` |
+| UC-18 | Supprimer une épreuve | A3 | ⚠️ | `ExamenController:166` ; **#249** — lots/rotations orphelins, `invalidateExam` **sans appelant** → ADR-0020 |
+| UC-19 | Joindre / télécharger le sujet PDF | A3 | ✅ | `ExamenController:174,185` · `exam-api.service.ts:180,194` |
+| UC-20 | Composer le circuit de stations | A3 | ✅ | `StationController:30,67,91` · `stations-grilles.component.ts` |
+| UC-21 | Affecter des évaluateurs à une station | A3 | ⚠️ | `StationController:78` ; **#242** (accepte un évaluateur inexistant — 12 références pendantes), **ADR-0017** (la réaffectation n'atteint pas les rotations déjà figées) |
+| UC-22 | Créer / remplacer la grille d'une station | A3 | ✅ | `GrilleController:34,48` · `grille-editor.component.ts` |
+| UC-23 | Définir les critères et leurs pondérations | A3 | ✅ | `GrilleController:98,125,137` |
+| UC-24 | Décomposer un critère en sous-critères | A3 | ✅ | `GrilleController:146` |
+| UC-25 | Renseigner le corrigé type | A3 | ✅ | `ItemEvaluation.valeurAttendue`/`conditionsAttendues:63-69` |
+| UC-26 | Vérifier la complétude du barème | A3 | ⚠️ | `GrilleEvaluation.getMaxAtteignable:88` + refus au lancement ✅ ; **`GET /examens/{id}/baremes-incomplets` n'a aucun appelant** — **#280**, §6.1 |
+| UC-27 | Enregistrer une grille comme modèle | A3 | ✅ | `GrilleTemplateController:46` · `bibliotheque.component.ts` |
+| UC-28 | Appliquer un modèle à une station | A3 | ✅ | `GrilleTemplateController:77` · `exam-api.service.ts:405` |
 | UC-29 | Administrer le catalogue global de modèles | A4 | 🔶 | `GrilleTemplateController:37,69` (`hasRole('SUPER_ADMIN')`) ; `admin/templates` = page vide |
-| UC-30 | Dupliquer une épreuve | A3, A4 | 🔶 | `GrilleTemplateController:89` — aucun appelant |
-| UC-31 | Exporter / importer une grille (JSON) | A3, A4 | 🔶 ⚠️ | `GrilleTemplateController:102,119` — aucun appelant ; **#220** (entrée malformée → 500, validation d'items contournée) |
+| UC-30 | Dupliquer une épreuve | A3 | 🔶 | `GrilleTemplateController:89` — aucun appelant |
+| UC-31 | Exporter / importer une grille (JSON) | A3 | 🔶 ⚠️ | `GrilleTemplateController:102,119` — aucun appelant ; **#220** (entrée malformée → 500, validation d'items contournée) |
 | UC-32 | Éditer le même matériel à plusieurs | A3 | 📐 | **ADR-0019** ; `@Version` **absent de toutes les entités** → **#133**, **#92** |
 
 ### P4 — Population étudiante
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-33 | Importer un listing d'étudiants | A3, A4 | ✅ | `EtudiantController:68` · `etudiants.component.ts` |
-| UC-34 | Créer / corriger un étudiant (dont le courriel) | A3, A4 | ✅ | `EtudiantController:46,90` ; édition en ligne du courriel (#227) |
-| UC-35 | Inscrire un étudiant à une épreuve | A3, A4 | ⚠️ | `ExamenParticipationController:54` ; **#214** — unicité `(participation, station)` absente |
-| UC-36 | Inscrire des étudiants en masse | A3, A4 | ❌ | **#186** |
+| UC-33 | Importer un listing d'étudiants | A3 | ✅ | `EtudiantController:68` · `etudiants.component.ts` |
+| UC-34 | Créer / corriger un étudiant (dont le courriel) | A3 | ✅ | `EtudiantController:46,90` ; édition en ligne du courriel (#227) |
+| UC-35 | Inscrire un étudiant à une épreuve | A3 | ⚠️ | `ExamenParticipationController:54` ; **#214** — unicité `(participation, station)` absente |
+| UC-36 | Inscrire des étudiants en masse | A3 | ❌ | **#186** |
 | UC-37 | Retirer / supprimer un étudiant | A3, A4 | 🔶 | `EtudiantController:115` (`SUPER_ADMIN`) — aucun appelant |
 
 ### P5 — Organisation des passages
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-38 | Répartir les étudiants en lots | A3, A4 | ⚠️ | `LotAssignmentController:42` · `lots.component.ts` ; **#256** — conserver l'ordre du listing (demande encadrant) |
-| UC-39 | Créer / modifier / supprimer un lot | A3, A4 | 🔶 | `LotController:61,75,87` — l'IHM passe par la répartition |
-| UC-40 | Déplacer un étudiant entre lots | A3, A4 | ✅ | `LotController:139` · `scoring-api.service.ts:265` |
-| UC-41 | Étaler les lots sur plusieurs journées | A3, A4 | ⚠️ | `LotController:154` (`PATCH /jour`, #147) ✅ ; `Lot.jour:31` existe ; route `planning` = **page vide** ; **ADR-0011** encore *Proposed* |
-| UC-42 | Générer les rotations d'un lot | A3, A4 | ✅ | `RotationGenerationController:35` |
-| UC-43 | Réinitialiser les rotations | A3, A4 | ✅ | `RotationGenerationController:52` |
-| UC-44 | Indiquer le lieu / la salle de passage | A3, A4 | ❌ | **`Examen` n'a aucun champ `lieu`** ni `Lot` de `salle` — constaté dans `ConvocationDTO:10` |
+| UC-38 | Répartir les étudiants en lots | A3 | ⚠️ | `LotAssignmentController:42` · `lots.component.ts` ; **#256** — conserver l'ordre du listing (demande encadrant) |
+| UC-39 | Créer / modifier / supprimer un lot | A3 | 🔶 | `LotController:61,75,87` — l'IHM passe par la répartition |
+| UC-40 | Déplacer un étudiant entre lots | A3 | ✅ | `LotController:139` · `scoring-api.service.ts:265` |
+| UC-41 | Étaler les lots sur plusieurs journées | A3 | ⚠️ | `LotController:154` (`PATCH /jour`, #147) ✅ ; `Lot.jour:31` existe ; route `planning` = **page vide** ; **ADR-0011** encore *Proposed* |
+| UC-42 | Générer les rotations d'un lot | A3 | ✅ | `RotationGenerationController:35` |
+| UC-43 | Réinitialiser les rotations | A3 | ✅ | `RotationGenerationController:52` |
+| UC-44 | Indiquer le lieu / la salle de passage | A3 | ❌ | **`Examen` n'a aucun champ `lieu`** ni `Lot` de `salle` — constaté dans `ConvocationDTO:10` |
 
 ### P6 — Convocation et communication
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-45 | Consulter les convocations dérivées | A3, A4 | ✅ | `ConvocationController:37` · `ConvocationService` (dérivation serveur) · `convocations.component.ts` |
-| UC-46 | Envoyer les convocations par courriel | A3, A4 | ⚠️ | `ConvocationController:53` ; expéditeur réel conditionné à `app.mail.enabled`, **désactivé par défaut** — compte SMTP institutionnel non arbitré |
+| UC-45 | Consulter les convocations dérivées | A3 | ✅ | `ConvocationController:37` · `ConvocationService` (dérivation serveur) · `convocations.component.ts` |
+| UC-46 | Envoyer les convocations par courriel | A3 | ⚠️ | `ConvocationController:53` ; expéditeur réel conditionné à `app.mail.enabled`, **désactivé par défaut** — compte SMTP institutionnel non arbitré |
 | UC-47 | Notifier un évaluateur de son affectation | A6 | ❌ | aucun code, aucun ADR |
 
 ### P7 — Lancement
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-48 | Vérifier les pré-conditions de lancement | A3, A4 | ⚠️ | `examen-workspace.store.ts:~200-296` — **6 lignes**, dont *Évaluateurs disponibles* (#265) ; **la ligne « Barèmes complets » manque** — **#280**, §6.1 |
-| UC-49 | Lancer l'épreuve (et figer sa définition) | A3, A4 | ✅ | `ExamenController:124` · `ExamDefinitionSnapshotService` · **ADR-0015** |
-| UC-50 | Réinitialiser une épreuve lancée | A3, A4 | ✅ | `ExamenController:155` · `exam-api.service.ts:163` |
+| UC-48 | Vérifier les pré-conditions de lancement | A3 | ⚠️ | `examen-workspace.store.ts:~200-296` — **6 lignes**, dont *Évaluateurs disponibles* (#265) ; **la ligne « Barèmes complets » manque** — **#280**, §6.1 |
+| UC-49 | Lancer l'épreuve (et figer sa définition) | A3 | ✅ | `ExamenController:124` · `ExamDefinitionSnapshotService` · **ADR-0015** |
+| UC-50 | Réinitialiser une épreuve lancée | A3 | ✅ | `ExamenController:155` · `exam-api.service.ts:163` |
 
 ### P8 — Déroulement du jour J
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-51 | Relever les présences | A3, A4 | ✅ | `LotAssignmentController:57,66` · `suivi.component.ts` |
-| UC-52 | Ouvrir une vague (lot) | A3, A4 | ✅ | `LotController:107` · `scoring-api.service.ts:332` |
+| UC-51 | Relever les présences | A3 | ✅ | `LotAssignmentController:57,66` · `suivi.component.ts` |
+| UC-52 | Ouvrir une vague (lot) | A3 | ✅ | `LotController:107` · `scoring-api.service.ts:332` |
 | UC-53 | Avancer le groupe au passage suivant | A2 | ⚠️ | `EvaluateurDashboardController:79` ; **#250** — aucun garde-fou plancher (avancer avant la durée due n'avertit pas) |
-| UC-54 | Valider la vague (poignée de main) | A3, A4 | 🔶 | `EvaluateurDashboardController:138` gardé responsable ; **aucun appelant web** — seule la moitié évaluateur d'**ADR-0014-B** est utilisable |
-| UC-55 | Suivre la progression en direct | A3, A4 | ⚠️ | `LotController:125` · `suivi.component.ts` (scrutation 5 s) ; **#139** (pas de poussée), **#252**, **#243** |
-| UC-56 | Suspendre / reprendre l'épreuve | A3, A4 | ⚠️ | `ExamenController:136,146` · **ADR-0009** ; **#199** — désynchronisation mobile |
-| UC-57 | Remplacer un évaluateur en cours d'épreuve | A3, A4 | 🔶 | `EvaluateurSubstitutionController:34` · **ADR-0017** ; **aucun appelant web** |
+| UC-54 | Valider la vague (poignée de main) | A3 | 🔶 | `EvaluateurDashboardController:138` gardé responsable ; **aucun appelant web** — seule la moitié évaluateur d'**ADR-0014-B** est utilisable |
+| UC-55 | Suivre la progression en direct | A3 | ⚠️ | `LotController:125` · `suivi.component.ts` (scrutation 5 s) ; **#139** (pas de poussée), **#252**, **#243** |
+| UC-56 | Suspendre / reprendre l'épreuve | A3 | ⚠️ | `ExamenController:136,146` · **ADR-0009** ; **#199** — désynchronisation mobile |
+| UC-57 | Remplacer un évaluateur en cours d'épreuve | A3 | 🔶 | `EvaluateurSubstitutionController:34` · **ADR-0017** ; **aucun appelant web** |
 | UC-58 | Avertir de l'imminence du passage suivant | A2 | 📐 | **ADR-0012** ; `Examen.tempsBattementMin:66`, `avertissementLeadSec:75` en place ; **#151** |
-| UC-59 | Terminer l'épreuve | A3, A4 | ⚠️ | `ExamenController:124` ; **#257** — `TERMINE → EN_COURS` inexistant, donc **irréversible** ; **ADR-0016** veut la clôture *dérivée* |
+| UC-59 | Terminer l'épreuve | A3 | ⚠️ | `ExamenController:124` ; **#257** — `TERMINE → EN_COURS` inexistant, donc **irréversible** ; **ADR-0016** veut la clôture *dérivée* |
 
 ### P9 — Notation
 
@@ -335,7 +356,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC-61 | Consulter le détail d'un groupe | A2 | ✅ | `EvaluateurDashboardController:67` · `student_detail_screen.dart` |
 | UC-62 | Saisir une note critère par critère | A2 | ✅ | `EvaluateurDashboardController:103` · `grading_screen.dart` ; possession vérifiée (#213) |
 | UC-63 | Valider un étudiant sur une station | A2 | ⚠️ | `EvaluateurDashboardController:119` ; **#212** — écrase la ligne de participation partagée entre stations |
-| UC-64 | Verrouiller une notation | A2, A4 | ⚠️ | `NotationController:113` — **le responsable ne peut pas verrouiller** (ADR-0013, séparation des pouvoirs) ; **#251** — irréversible pour l'évaluateur |
+| UC-64 | Verrouiller une notation | A2 | ⚠️ | `NotationController:113` — **le responsable ne peut pas verrouiller** (ADR-0013, séparation des pouvoirs) ; **#251** — irréversible pour l'évaluateur |
 | UC-65 | Noter hors-ligne puis synchroniser | A2 | ⚠️ | `core/offline/{sync_service,offline_storage_service}.dart` ; **#198** — note **supprimée** après 3 échecs ; **#244** — grille lue en direct, écran inatteignable en panne |
 | UC-66 | Consulter le corrigé pendant la notation | A2 | ❌ | **#195** — le service l'envoie déjà, l'écran ne l'affiche pas |
 | UC-87 | Noter un candidat anonymisé | A2 | ❌ | aucun code, aucun ADR — l'évaluateur voit le **nom** à chaque écran ; voir §6.5 |
@@ -344,22 +365,22 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-67 | Réajuster une note verrouillée (audité) | A3, A4 | ✅ | `NotationController:132` — **l'évaluateur ne peut pas réajuster** · **ADR-0013 P2** |
-| UC-68 | Consulter l'historique des réajustements | A3, A4 | ✅ | `NotationController:142` · `resultats.component.ts` |
-| UC-69 | Enregistrer une réclamation | A3, A4 | ✅ | `ReclamationController:33` · `reclamations-panel.component.ts` |
-| UC-70 | Résoudre une réclamation | A3, A4 | ✅ | `ReclamationController:55` |
-| UC-71 | Clôturer l'épreuve et geler les notes | A3, A4 | 📐 ⚠️ | **ADR-0016** (*Proposed*) ; **#236** — la clôture **n'empêche rien** : notation et validation aboutissent encore sur un examen `TERMINE` |
+| UC-67 | Réajuster une note verrouillée (audité) | A3 | ✅ | `NotationController:132` — **l'évaluateur ne peut pas réajuster** · **ADR-0013 P2** |
+| UC-68 | Consulter l'historique des réajustements | A3 | ✅ | `NotationController:142` · `resultats.component.ts` |
+| UC-69 | Enregistrer une réclamation | A3 | ✅ | `ReclamationController:33` · `reclamations-panel.component.ts` |
+| UC-70 | Résoudre une réclamation | A3 | ✅ | `ReclamationController:55` |
+| UC-71 | Clôturer l'épreuve et geler les notes | A3 | 📐 ⚠️ | **ADR-0016** (*Proposed*) ; **#236** — la clôture **n'empêche rien** : notation et validation aboutissent encore sur un examen `TERMINE` |
 
 ### P11 — Résultats et délibération
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-72 | Consulter les résultats de l'épreuve | A3, A4 | ✅ | `NotationController:80` · `resultats.component.ts` |
-| UC-73 | Analyser un critère en profondeur | A3, A4 | ✅ | `NotationItemController:33` · `resultats.component.html:263-270` |
-| UC-74 | Délibérer en jury | A3, A4 | 📐 | **ADR-0021 D4** — « l'écran de délibération précède toute statistique » |
-| UC-75 | Versionner le barème après délibération | A3, A4 | 📐 | **ADR-0021 D9** · **#135** · seconde moitié de **#276** |
+| UC-72 | Consulter les résultats de l'épreuve | A3, A4 *(lecture)* | ✅ | `NotationController:80` · `resultats.component.ts` |
+| UC-73 | Analyser un critère en profondeur | A3, A4 *(lecture)* | ✅ | `NotationItemController:33` · `resultats.component.html:263-270` |
+| UC-74 | Délibérer en jury | A3 | 📐 | **ADR-0021 D4** — « l'écran de délibération précède toute statistique » |
+| UC-75 | Versionner le barème après délibération | A3 | 📐 | **ADR-0021 D9** · **#135** · seconde moitié de **#276** |
 | UC-76 | Publier les résultats aux étudiants | A5 | ❌ | aucun code, aucun ADR — voir §6.2 |
-| UC-77 | Produire un procès-verbal archivable | A3, A4 | ❌ | aucun code, aucun ADR — voir §6.3 |
+| UC-77 | Produire un procès-verbal archivable | A3 | ❌ | aucun code, aucun ADR — voir §6.3 |
 
 ### P12 — Analyse et aide à la décision
 
@@ -626,7 +647,7 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 
 | | |
 |---|---|
-| **Acteurs autorisés** | A2 Évaluateur, A4 Super-administrateur — **jamais A3** |
+| **Acteurs autorisés** | **A2 Évaluateur seulement** — jamais A3, et pas A4 non plus (ADR-0018 D5 : noter et verrouiller sont des actes d'examinateur). ⚠️ Le code admet encore A4 : sur-attribution, cf. §2.1. |
 | **Postcondition** | `verouillee = true`, `verrouille_par` renseigné ; toute écriture ultérieure passe par UC-67 |
 | **Règle métier** | **Séparation des pouvoirs (ADR-0013)** : celui qui note verrouille ; celui qui pilote la matière ne peut que **réajuster de façon auditée**. Une simplification d'affichage qui fusionnerait les deux détruirait la garantie. |
 | **Réserve** | ⚠️ **#251** — irréversible pour l'évaluateur : sa propre erreur devient hors de sa portée. Décision prise (2026-07-29) : la voie de correction reste le canal audité du responsable. |
@@ -635,7 +656,7 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 
 | | |
 |---|---|
-| **Acteurs autorisés** | A3 Responsable, A4 Super-administrateur — **jamais A2** |
+| **Acteurs autorisés** | **A3 Responsable seulement** — jamais A2 (ADR-0013), et pas A4 (ADR-0018 D5 : le responsable signe le barème). ⚠️ Le code admet encore A4 : sur-attribution, cf. §2.1. |
 | **Préconditions** | Notation verrouillée ; **motif obligatoire** |
 | **Postconditions** | Nouvelle valeur appliquée ; **ligne d'ajustement créée** (ancienne valeur, nouvelle, motif, auteur, horodatage) ; la note brute d'origine reste lisible |
 | **Règle métier** | C'est **l'unique** canal de modification sanctionné après verrouillage. Sa valeur est l'irréversibilité de sa trace, pas la modification elle-même. |
@@ -654,7 +675,7 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 
 | | |
 |---|---|
-| **Acteurs** | A3 Responsable et co-responsables, A4 |
+| **Acteurs** | **A3 Responsable et co-responsables** — le jury de la matière. A4 en **lecture** seulement (ADR-0018 D5) : il consulte la délibération, il ne délibère pas. |
 | **État** | 📐 ADR-0021 D4 |
 | **Précondition** | Épreuve clôturée ; résultats consolidés disponibles |
 | **Postconditions** | Décisions consignées et motivées ; barème appliqué identifié ; trace exploitable pour UC-77 |
@@ -664,7 +685,7 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 
 | | |
 |---|---|
-| **Acteurs** | A3, A4 |
+| **Acteurs** | **A3 Responsable seulement.** Modifier un barème est un acte d'autorité pédagogique : A4 en est exclu (ADR-0018 D5). |
 | **État** | 📐 ADR-0021 D6/D7/D9 · #135 · seconde moitié de #276 |
 | **Ce que « changer le barème » signifie réellement** | Multiplier toutes les notes par un facteur ne change **rien** au classement : c'est le point qui a fait corriger l'ADR. Trois actes ont un effet réel : **(a) retirer un critère** de l'assiette — l'épreuve est alors notée sur moins, ce qui relève tout le monde sans toucher une valeur brute ; **(b) redistribuer les pondérations** entre critères — cela change le classement, donc c'est un acte de jury ; **(c) requalifier un critère** en non discriminant. |
 | **Contrainte** | La **note brute reste intacte**. Seuls le barème appliqué et son dénominateur sont versionnés. La séparation *note brute / barème appliqué* est le cœur de la fiche. |
@@ -701,7 +722,12 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 
 - **Acteurs à gauche :** A1 Visiteur, A2 Évaluateur. **À droite :** A3 Responsable de matière,
   A4 Super-administrateur.
-- **Généralisation :** `A4 --|> A3` (« hérite de tous ses cas, sans restriction de matière »).
+- ⚠️ **AUCUNE généralisation.** *Corrigé le 2026-07-31.* Ne pas dessiner
+  `A4 --|> A3` : une généralisation sur un diagramme de cas d'utilisation **affirme** « il exécute
+  aussi tous ces cas », ce qu'ADR-0018 D5 récuse. A3 et A4 sont deux acteurs **pairs**.
+- **Les 4 bulles propres à A4**, et ce sont les mots de Nada : « Gérer les comptes et les rôles » ·
+  « Gérer le catalogue des matières » · « Configurer la plateforme » · « **Consulter les données de
+  toutes les matières** ». Cette dernière porte « il voit tout » **sans** prétendre qu'il rédige.
 - **A5 Étudiant** en bas, relié en **pointillés** aux paquets *Notation* et *Résultats*
   (« est évalué », « est concerné par »). ⚠️ **Ne pas dessiner « Étudiant → déposer une
   réclamation »** : la réclamation est créée par le responsable.
@@ -720,8 +746,9 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 - **A3 Responsable** : le plus dense — P3 à P11. `<<include>>` de UC-49 vers UC-48
   (*Vérifier les pré-conditions*) ; `<<extend>>` de UC-57 (*Remplacer un évaluateur*) sur UC-55
   (*Suivre la progression*), puisque c'est une déviation exceptionnelle du déroulement.
-- **A4 Super-administrateur** : P2 en entier + les cinq pouvoirs exclusifs, avec la
-  généralisation vers A3.
+- **A4 Super-administrateur** : P2 en entier + ses 4 bulles ci-dessus. **Sans généralisation
+  vers A3** — ses associations vont à ses propres cas, plus une association de lecture vers les
+  résultats (UC-72/73) et les analyses agrégées (UC-80, ADR-0021 D5).
 
 ### 9.3 Convention de couleur pour la lecture de couverture *(optionnel, utile en soutenance)*
 

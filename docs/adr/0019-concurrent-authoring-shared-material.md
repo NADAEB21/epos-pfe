@@ -99,11 +99,33 @@ cheap; cross-service coupling and an authorization hole are not.
 
 ### D5 — Launch is guarded against the ADR-0015 hazard, and NOT by locking
 
-Because the hazard is B launching while A edits, the guard belongs on **launch**, and it must be a
-*fact*, not a lock:
+⚠️ **Correction (Nada, 2026-07-30) — this was under-stated as a concurrency case. It is not one.**
+The first draft framed the hazard as *"B launches while A edits"*. Nada asked whether a **single**
+responsable could do the same, and the answer is yes — filed as **#276** and reproduced live:
+
+```
+station notée sur 20, un seul critère de 10 pts  →  ponderationValide = FALSE
+PATCH /examens/54/statut?statut=EN_COURS        →  200, accepté
+notation d'un sans-faute                         →  10 / 20
+```
+
+The checklist tests `sansGrille()` — *existence*, not completeness (`examen-workspace.store.ts:241`).
+`ponderationValide` is computed correctly by the server and read **only by the grille editor**. Launch
+never looks at grilles at all. And `recalculerScoreFinal:665-675` sums weighted values with **no
+normalisation against `noteMax`**, so the shortfall becomes each student's ceiling — frozen by
+ADR-0015 for the life of the exam.
+
+**So the one-responsable case is the common case and will happen first.** Concurrency only widens a
+door that is already open. The guard below is therefore required on its own merits, independently of
+anything in this ADR.
+
+Because the residual hazard *is* B launching while A edits, the guard belongs on **launch**, and it
+must be a *fact*, not a lock:
 
 - **Refuse launch while any grille of the exam is incomplete** — pondérations not summing is already
-  computed (`ponderationValide`). Launching on an invalid barème should never have been possible.
+  computed (`ponderationValide`), in **both** directions: a sum below `noteMax` caps every student, a
+  sum above it allows a mark exceeding the announced maximum. Enforced in the **backend**, not only in
+  the screen, or a second client walks around it.
 - **Warn on launch when another responsable is present in this exam** (D3's presence), naming them.
   A warning, not a veto — the responsable may legitimately know their colleague is done.
 

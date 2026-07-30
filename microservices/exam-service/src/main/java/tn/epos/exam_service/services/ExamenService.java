@@ -44,6 +44,9 @@ public interface ExamenService {
      */
     java.util.List<tn.epos.exam_service.dto.response.ConflitEvaluateurResponse> listerConflitsEvaluateurs(Long id);
 
+    /** #276 — stations dont le barème rend noteMax inatteignable (pre-flight + refus de lancement). */
+    java.util.List<tn.epos.exam_service.dto.response.BaremeIncompletResponse> listerBaremesIncomplets(Long id);
+
     /** Mettre en pause un examen EN_COURS (ADR-0009 ; le statut reste EN_COURS) */
     ExamenResponse mettreEnPause(Long id);
 

@@ -13,6 +13,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import tn.epos.exam_service.dto.request.ExamenRequest;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.entities.Examen;
+import tn.epos.exam_service.entities.GrilleEvaluation;
+import tn.epos.exam_service.entities.ItemEvaluation;
 import tn.epos.exam_service.entities.Station;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.common.exception.BusinessException;
@@ -451,6 +453,90 @@ class ExamenServiceImplTest {
                         .evaluateurIds(new java.util.ArrayList<>(evals))
                         .build());
             }
+            return e;
+        }
+
+        /**
+         * #276 — un barème qui ne permet pas d'atteindre la note annoncée plafonne
+         * TOUTE la promotion, et ADR-0015 le fige au lancement : immuable ensuite.
+         * Reproduit en direct avant correctif (station notée sur 20, un critère de
+         * 10 pts → un sans-faute obtenait 10/20, lancement accepté en 200).
+         */
+        @Test
+        @DisplayName("#276 Lancement REFUSÉ : le barème ne permet pas d'atteindre noteMax")
+        void lancement_refuse_siBaremeInatteignable() {
+            Examen configure = examenAvecStation(baremeDe(20.0, 10.0));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(configure));
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.EN_COURS))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Station piege")
+                    .hasMessageContaining("10");
+
+            verify(examenRepository, never()).save(any());
+        }
+
+        /**
+         * Le second chemin, plus sournois : les BUDGETS somment bien à noteMax
+         * (ponderationValide = true) mais les critères sont notés sur moins.
+         * Un garde qui ne regarderait que la somme des pondérations le laisserait passer.
+         */
+        @Test
+        @DisplayName("#276 Lancement REFUSÉ : budgets corrects mais valeurMax insuffisantes")
+        void lancement_refuse_siBudgetsValidesMaisInatteignables() {
+            GrilleEvaluation grille = baremeDe(20.0, 10.0, 10.0);   // budgets 10+10 = 20 ✓
+            grille.getItems().forEach(i -> i.setValeurMax(5.0));    // mais notés sur 5+5 = 10
+            Examen configure = examenAvecStation(grille);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(configure));
+
+            // Le barème est « valide » au sens des budgets…
+            assertThat(grille.isPonderationValide()).isTrue();
+            // …et pourtant inatteignable.
+            assertThat(grille.getMaxAtteignable()).isEqualTo(10.0);
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.EN_COURS))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("#276 Lancement ACCEPTÉ quand un sans-faute peut atteindre noteMax")
+        void lancement_accepte_siBaremeAtteignable() {
+            Examen configure = examenAvecStation(baremeDe(20.0, 12.0, 8.0));
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(configure));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse r = examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(r.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+        }
+
+        /** Grille dont chaque critère est NUMERIQUE, noté sur toute sa pondération. */
+        private GrilleEvaluation baremeDe(double noteMax, double... ponderations) {
+            GrilleEvaluation g = new GrilleEvaluation();
+            g.setId(9L);
+            g.setNoteMax(noteMax);
+            for (double p : ponderations) {
+                ItemEvaluation it = new ItemEvaluation();
+                it.setType(tn.epos.exam_service.enums.TypeItem.NUMERIQUE);
+                it.setPonderation(p);
+                it.setValeurMax(p);
+                it.setGrille(g);
+                g.getItems().add(it);
+            }
+            return g;
+        }
+
+        private Examen examenAvecStation(GrilleEvaluation grille) {
+            Station st = new Station();
+            st.setId(5L);
+            st.setNom("Station piege");
+            st.setGrille(grille);
+            Examen e = Examen.builder()
+                    .id(1L).nom("Examen Test").matiereId(1L)
+                    .dateExamen(LocalDate.of(2024, 6, 15))
+                    .statut(StatutExamen.CONFIGURE)
+                    .build();
+            e.setStations(new java.util.ArrayList<>(java.util.List.of(st)));
             return e;
         }
 

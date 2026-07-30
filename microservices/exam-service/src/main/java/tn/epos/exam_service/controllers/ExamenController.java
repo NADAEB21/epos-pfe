@@ -113,6 +113,14 @@ public class ExamenController {
         return ResponseEntity.ok(ApiResponse.ok(examenService.listerConflitsEvaluateurs(id)));
     }
 
+    @GetMapping("/{id}/baremes-incomplets")
+    @Operation(summary = "Stations dont le barème est inatteignable",
+            description = "Stations où un étudiant sans-faute ne peut pas atteindre noteMax (#276)")
+    public ResponseEntity<ApiResponse<java.util.List<tn.epos.exam_service.dto.response.BaremeIncompletResponse>>> baremesIncomplets(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(examenService.listerBaremesIncomplets(id)));
+    }
+
     @PatchMapping("/{id}/statut")
     @Operation(summary = "Changer le statut d'un examen",
             description = "Transitions valides : BROUILLON→CONFIGURE→EN_COURS→TERMINE→ARCHIVE")

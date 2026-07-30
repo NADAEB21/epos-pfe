@@ -120,4 +120,31 @@ public class ItemEvaluation {
         if (!hasChildren()) return true;
         return Math.abs(getSommePonderationsEnfants() - ponderation) < 0.001;
     }
+
+    /**
+     * #276 — les points que ce critère peut RÉELLEMENT rapporter à un étudiant
+     * sans-faute, par opposition à son budget déclaré ({@code ponderation}).
+     *
+     * <p>Les deux divergent, et silencieusement. Le scoring ne note que les
+     * FEUILLES, et pour une feuille {@code NUMERIQUE} la contribution est la
+     * <b>valeur brute saisie</b> ({@code ExamItemSnapshot.weigh} renvoie {@code v}) —
+     * donc plafonnée par {@code valeurMax}, pas par {@code ponderation}. La règle
+     * {@code valeurMax ≤ ponderation} empêche de DÉPASSER le budget mais n'oblige
+     * pas à l'atteindre : un critère budgété 10 et noté sur 5 fait perdre 5 points
+     * à toute la promotion, sans qu'aucun contrôle ne s'en aperçoive.
+     *
+     * <p>{@code BINAIRE} ne diverge pas : la contribution est
+     * {@code valeur × ponderation}, donc le budget EST le maximum atteignable.
+     */
+    public double getMaxAtteignable() {
+        if (hasChildren()) {
+            // Seules les feuilles sont notées : le budget du parent ne rapporte
+            // rien par lui-même (règle #160, même famille de défaut).
+            return children.stream().mapToDouble(ItemEvaluation::getMaxAtteignable).sum();
+        }
+        if (type == TypeItem.NUMERIQUE) {
+            return valeurMax != null ? valeurMax : 0d;
+        }
+        return ponderation != null ? ponderation : 0d;
+    }
 }

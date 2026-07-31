@@ -70,8 +70,11 @@ today can do strictly less than a responsable.
 
 | scope | actor | owns | must NOT |
 |---|---|---|---|
-| **Faculty** | `SUPER_ADMIN` | matière catalogue, user accounts, role grants, cross-matière analytics | author or grade an exam |
+| **Faculty** | `SUPER_ADMIN` | matière catalogue, user accounts, role grants, global config, **read access to every matière** | **author, launch, grade or close** an exam — see **D5** |
 | **Matière** | `RESPONSABLE_MATIERE` (1..n per matière) | everything inside their matière's exams | reach another matière's data |
+
+⚠️ **D5 is the operative elaboration of this row's "must NOT" column** and takes precedence over any
+looser phrasing elsewhere in this ADR.
 
 **Co-responsables are simply the `n`** in "1..n `RESPONSABLE_MATIERE` per matière". No new role.
 
@@ -85,10 +88,14 @@ this matière?"*. Those separate:
 - **new** `checkMatiereAccess(examenId)` — the matière predicate that scoring has never had. Resolves
   the exam's `matiereId` and compares it against the caller's scoped authorities.
 
-**`SUPER_ADMIN` passes `checkMatiereAccess` unconditionally.** Per D1 the faculty scope owns no
-matière, so a matière comparison is meaningless for it — and a predicate that fails closed would lock
-the faculty out of its own platform. Its counterweight is D3 (attributed + announced), not a scope
-check.
+**`SUPER_ADMIN` passes `checkMatiereAccess` unconditionally *on READS*.** Per D1 the faculty scope
+owns no matière, so a matière comparison is meaningless for it — and a predicate that fails closed
+would lock the faculty out of its own platform.
+
+⚠️ **Corrigé le 2026-07-31 (Nada).** The sentence above originally said "unconditionally", full stop,
+without distinguishing reads from writes. That is too wide and it contradicts D1. **On WRITES the
+faculty scope is not admitted by this predicate at all** — see **D5**, which is now the governing
+rule. `checkMatiereAccess` is a *read* widener for the faculty scope, never a write authorisation.
 
 ⚠️ **Where `matiereId` comes from — and the snapshot is NOT the answer.**
 An earlier draft of this ADR proposed freezing `matiereId` in `exam_station_snapshot` so the check
@@ -114,8 +121,16 @@ exam too many is awkward; letting a responsable read another matière's grades i
 
 ### D3 — A faculty act inside a matière is ATTRIBUTED and ANNOUNCED, never silent
 
-This is the synchronization contract the responsable is owed. A `SUPER_ADMIN` retains the technical
-ability to act inside a matière (support, unblocking, a jury decision), but:
+This is the synchronization contract the responsable is owed.
+
+⚠️ **Corrigé le 2026-07-31 (Nada).** This section originally opened with « a `SUPER_ADMIN` **retains
+the technical ability to act** inside a matière (support, unblocking, a jury decision) ». That
+phrasing describes a *standing* capability and **contradicts D1**, which forbids the faculty scope
+from authoring or grading. It is replaced by **D5**: a faculty write inside a matière is an
+**exception with a name**, not a retained ability. D3 is what that exception must satisfy — it is the
+alarm on the door, not the reason the door is open.
+
+So: **when** such a write is legitimately performed (per D5's narrow list), it must be:
 
 1. **Attributed** — the acting user id is persisted on the artefact. `notations.saisi_par` (V15)
    established the pattern; it generalises.
@@ -137,9 +152,67 @@ notation records it, and the exam's results view flags which grades were entered
 exempt a responsable who is acting *as an évaluateur* on a station they hold. Otherwise #213/#218 are
 closed for colleagues and open for the person with the most authority.
 
+### D5 — The faculty scope READS everywhere and WRITES only its own domain
+
+**Added 2026-07-31.** Nada's framing, and it is the governing rule of this ADR:
+
+> « CRUD utilisateurs, configuration globale, accès à toutes les données, gestion des matières. […]
+> why should he be able to create or launch an exam, a super-admin is an administrator not a
+> subject's professor? »
+
+The distinction the earlier draft blurred:
+
+| act | faculty scope (`SUPER_ADMIN`) | why |
+|---|:--:|---|
+| **Read** anything, any matière — exams, results, archives, aggregate analytics | ✅ | *"accès à toutes les données"*. Oversight requires sight. Costs nothing to anyone. |
+| **Write** its own domain — accounts, roles, matière catalogue, global config, global grille templates | ✅ | that IS the faculty domain (D1) |
+| **Author** — create/edit an exam, a station, a grille, a criterion, a barème | ❌ | **Pedagogical authorship.** Deciding what a correct answer is in *Chimie thérapeutique* requires competence a platform administrator does not have. A permission its holder is unqualified to exercise is a liability, not a capability. |
+| **Launch / pause / close** an exam | ❌ | the most consequential act in the system: it freezes the definition (ADR-0015) and puts candidates in front of examiners. If a non-examiner can trigger it, the safeguard is not a safeguard. |
+| **Grade / validate / lock** a notation | ❌ | reserved to the examiner who was present (ADR-0013, ADR-0007 — legitimacy comes from the rotation) |
+| **Réajuster** a locked note | ❌ | ADR-0013 Part 2 is **responsable-only**; the responsable signs for the barème |
+
+**Access to data is a READ.** Creating and launching are not access to data — they are acts of
+authorship, and authorship is what makes a responsable a responsable. That single sentence resolves
+every case in the table.
+
+#### The one exception, and it is narrow
+
+Institutional continuity: the responsable is unreachable on exam morning and candidates are waiting.
+Someone must be able to act.
+
+That is **not** "the faculty scope is also a responsable". It is a **distinct, exceptional,
+individually-named act** — and D3 is exactly what it must satisfy: attributed, announced, never
+silent. **One emergency door with an alarm on it, not 71 unmarked ones.**
+
+⚠️ Scope of the gap this reveals, verified 2026-07-31: **72 write endpoints** across the services
+have an effective guard naming `SUPER_ADMIN`; exactly **one** is in `auth-service` (his legitimate
+domain). The other 71 are pedagogical acts. `ExamenController:36` guards the whole class with
+`hasAnyRole('SUPER_ADMIN','RESPONSABLE_MATIERE')`, and `changerStatut` — *launch* — carries no
+method-level guard at all, so it inherits it.
+
+**Honest severity: LOW–MEDIUM, and it is a governance gap, not a vulnerability.** There is no
+privilege escalation (the faculty scope is already the highest role), and **no screen exists** through
+which it could be exercised — every `admin/*` route is a stub (`app.routes.ts:164-167`). Reaching
+these endpoints requires a hand-crafted HTTP request. Per the standing lesson that *an ungated
+endpoint is not a reachable one*, this must not be filed as CRITICAL.
+
+#### Consequence for the use-case diagram
+
+⚠️ **There is no `SUPER_ADMIN --|> RESPONSABLE_MATIERE` generalization.** A generalization on a
+use-case diagram asserts « he performs all of those too », which D5 denies. The two are **peers with
+different jobs**, not parent and child. The faculty scope's own use cases are the four in the D5
+table's row 1–2: manage accounts and roles, manage the matière catalogue, configure the platform, and
+**read the data of every matière**. That last one carries « he sees everything » without claiming he
+authors anything.
+
 ## Consequences
 
-- **#86 becomes implementable** via D2 + `matiereId` in the snapshot, with no per-request hop.
+- **#86 becomes implementable** via D2's `checkMatiereAccess`. ⚠️ **Corrigé le 2026-07-31 :** this
+  bullet previously read « via D2 + `matiereId` in the snapshot, with no per-request hop » — which
+  **contradicts D2's own warning**, added later, that the snapshot is written *write-once at launch*
+  and therefore does not exist during authoring, precisely the window #86 leaves open. The source of
+  `matiereId` remains the open choice D2 states (ask exam-service, or denormalise at enrolment). A
+  reader who followed the old bullet would have implemented the option D2 rejects.
 - **#134 (matière CRUD) and the user-creation UI become the faculty plane's minimum viable surface** —
   without them a fresh faculty install cannot be operated by its intended users (verified on the
   faculty PC: creating "Sonia" was API-only).

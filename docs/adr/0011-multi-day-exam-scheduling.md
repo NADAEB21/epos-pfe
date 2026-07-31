@@ -1,12 +1,59 @@
 # ADR 0011: Multi-day exam scheduling (lot distribution across days)
 
 - **Date:** 2026-06-14 (proposed)
-- **Status:** **Proposed** — design only. Track A (end-exam + overtime, no schema
-  change) ships first and is independent of this ADR.
+- **Status:** ⚠️ **PARTIALLY SUPERSEDED — read the reconciliation below before implementing
+  anything from this ADR.** §1 (distribute lots across days) is **shipped**. §2 (revise the
+  effective-time model to per-day) is **void** — ADR-0014 removed the clock it repairs.
 - **Deciders:** Nada (lead architect).
 - **Related:** ADR 0009 (pause/resume execution model), ADR 0010 (launch instant +
-  zoned time), `RotationGenerationService`, exam-service `Examen`, scoring-service
-  `Lot`, the Suivi en direct board (`suivi.component.ts`).
+  zoned time), **ADR-0014 / 0014-A / 0014-B (which supersede §2)**, `RotationGenerationService`,
+  exam-service `Examen`, scoring-service `Lot`, the Suivi en direct board (`suivi.component.ts`).
+
+---
+
+## ⚠️ Reconciliation with ADR-0014 — added 2026-07-31
+
+This ADR is dated **2026-06-14**. **ADR-0014 is dated 2026-07-15**, a month later, and this
+document contained **zero references to it** until this note. Re-verified on Nada's instruction
+(« one wrong ADR could set us back to old models »), and the concern was justified — this was the
+one live trap in the corpus.
+
+### What is still valid — §1
+
+**Distributing lots across days is correct and remains the decision.** It shipped:
+`Lot.jour` (`LocalDate`, `Lot.java:31`) + `PATCH /api/lots/{id}/jour` (#147). Multi-day is a
+**stored plan**, not clock arithmetic — consistent with ADR-0014-A.
+
+⚠️ Naming drift: this ADR says `Lot.date_jour`; the shipped field is **`jour`**.
+
+### What is void — §2 « Revise the effective-time model to per-day »
+
+That section, and every clock passage supporting it, rests on a premise ADR-0014 **deleted**:
+that the board derives a station's *state* from elapsed time. It no longer does. State comes from
+**progress** — the évaluateur advances a passage (ADR-0014), the responsable closes a wave
+(ADR-0014-B). Time is an *indication*, never a state.
+
+So the overnight-gap problem this ADR treats as its « core reason to be an ADR » **is moot**: there
+is no continuous clock left to break. Per the standing rule *an absurd duration means DELETE the
+measurement, never smarter arithmetic* (#243, #252), the answer to "16 h elapsed on day 2" is that
+the board must not display elapsed exam time at all — not that it needs a per-day origin.
+
+⛔ **Do not implement §2.** Building a per-day clock origin, a per-day « temps effectif écoulé », or
+a day-scoped ADR-0010 launch shift would **reinstate clock-as-state** — the exact model
+ADR-0014 was written to retire.
+
+### Also void: the Status line's « Track A »
+
+The original status announced « Track A (**end-exam + overtime**) ships first ». Overtime is a
+clock-derived notion; ADR-0016 replaced declared end-of-exam with **derived closure**. Ignore it.
+
+### What actually remains of #147
+
+The **planning UI** (`planning` route is still a stub) so the responsable can *see and set* which
+lot runs on which day, and the convocation already derives « Jour 2 · 09:00 » server-side (#227).
+Data and endpoint exist; the screen does not. Nothing about clocks.
+
+---
 
 ## Context
 
@@ -61,7 +108,7 @@ knows how many waves fit in a day:
 Persist the computed `Lot.date_jour` (`LocalDate`) at répartition so the board and
 the convocation emails can show "Lot 3 · Jour 2 · 09:00" **before** exam day.
 
-### 2. Revise the effective-time model to per-day
+### 2. ⛔ Revise the effective-time model to per-day — **VOID, see the reconciliation at the top of this file. Do not implement.**
 
 Each wave's `Rotation.debutCreneau` is already an **absolute** datetime; once
 generation stamps it on the correct day, the board can compare **wall-clock now**

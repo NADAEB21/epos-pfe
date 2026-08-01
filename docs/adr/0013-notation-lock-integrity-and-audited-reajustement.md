@@ -7,6 +7,41 @@
   #64 (audit trail), #85 / ADR 0007 (évaluateur scoping — who may lock),
   `NotationService.verrouiller`, `NotationItemService`.
 
+## §0 — ⚠️ PARTIELLEMENT AMENDÉ PAR ADR-0018 D5 (ajouté le 2026-07-31)
+
+**Lisez ce paragraphe avant d'implémenter quoi que ce soit à partir de cet ADR.**
+
+Cet ADR est daté du **2026-07-03**, soit **quatre semaines avant ADR-0018 D5**, et il ne pouvait
+donc pas y renvoyer. Son **Part 2** nomme `SUPER_ADMIN` comme acteur autorisé du réajustement
+(voir la ligne « Authorization » ci-dessous et la note d'implémentation qui cite
+`hasAnyRole('SUPER_ADMIN','RESPONSABLE_MATIERE')`).
+
+**ADR-0018 D5 récuse cette intention.** Le périmètre facultaire **LIT partout mais n'écrit que son
+propre domaine** ; il ne rédige pas, ne lance pas, ne note pas, ne verrouille pas et **ne réajuste
+pas**. Réajuster une note verrouillée est un acte d'**autorité pédagogique** : c'est le responsable
+qui signe le barème.
+
+⚠️ **Le piège précis :** la mention de `SUPER_ADMIN` ici **décrit une garde `@PreAuthorize` du code
+tel qu'il a été livré**, et non une décision de conception. Reprendre #23 / #135 depuis cet ADR seul
+conduirait à reconduire — voire à élargir — une autorisation que la doctrine a depuis retirée.
+
+**Ce qui reste pleinement en vigueur dans cet ADR :** l'intégrité du verrou (Part 1), le principe du
+canal unique, atomique et systématiquement audité (Part 2), le `motif` obligatoire, l'audit
+synchrone dans la même transaction, et le recalcul pondéré. **Seule la liste des acteurs autorisés
+est amendée** : réajuster = `RESPONSABLE_MATIERE` (portée matière) **seul**.
+
+⚠️ **Même amendement pour le VERROUILLAGE.** La section *Context* ci-dessous dit « once an évaluateur
+(**or admin**) locks it » — c'est une **description de la garde livrée**
+(`NotationController:114` = `hasAnyRole('SUPER_ADMIN', 'EVALUATEUR')`), pas une décision. Part 1 ne
+tranche d'ailleurs **pas** la question de l'acteur : elle ne traite que de l'*intégrité* du verrou
+(refuser toute écriture sur une notation verrouillée). Depuis D5, **verrouiller = l'évaluateur
+seul** ; c'est l'examinateur présent qui signe sa notation.
+
+⚠️ **Le code n'est PAS encore aligné** sur ce §0 — les deux gardes citées nomment toujours
+`SUPER_ADMIN`. Divergence connue, **gouvernance et non vulnérabilité** (pas d'escalade possible,
+aucun écran ne l'expose). L'alignement est une tâche ouverte ; ne pas la traiter comme un correctif
+de sécurité urgent, et ne pas non plus « refermer » cet écart en réécrivant la doctrine.
+
 ## Context
 
 A `Notation` carries a `verouillee` flag; once an évaluateur (or admin) locks it
@@ -65,7 +100,10 @@ dance (which would leave an abusable "unlocked window"):
   nouveauScore`, `motif`, `adjustedByUserId`, `adjustedAt` in a new
   `NotationAdjustment` audit entity (scoring-service has no audit table today),
   then apply the change — the notation is **never left unlocked**.
-- **Authorization:** `RESPONSABLE_MATIERE` (matière-scoped) + `SUPER_ADMIN`.
+- **Authorization:** `RESPONSABLE_MATIERE` (matière-scoped) + ~~`SUPER_ADMIN`~~.
+  ⚠️ **`SUPER_ADMIN` barré le 2026-07-31 — voir §0 et ADR-0018 D5.** Le réajustement est un acte
+  d'autorité pédagogique : le responsable de matière **seul**. Le texte d'origine est conservé
+  barré pour qu'un lecteur de l'ancienne version apprenne qu'il a été amendé.
   **Not** the évaluateur — oversight/complaints are the responsable's role, and
   the évaluateur already had their grading pass. This makes the responsable a
   *new* score-mutation actor (today they cannot even lock), which is the

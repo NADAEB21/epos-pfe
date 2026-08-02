@@ -255,8 +255,15 @@ export class ExamenWorkspaceStore {
         // #276/#280 — a grille can exist yet not let a faultless student reach
         // noteMax; ADR-0015 freezes the barème at launch, so the whole cohort
         // would be silently capped. The backend refuses the launch; this row
-        // says it BEFORE the click, station by station.
-        label: 'Un bareme complet par station',
+        // says it BEFORE the click, station by station. The label states the
+        // PROBLEM when red (Nada's review: a warning must say what is wrong),
+        // and the achieved state when green.
+        label:
+          this.baremesIncomplets().length === 0
+            ? 'Baremes complets'
+            : this.baremesIncomplets().length === 1
+              ? 'Bareme incomplet'
+              : 'Baremes incomplets',
         ok: this.baremesIncomplets().length === 0,
         blocking: true,
         hint:

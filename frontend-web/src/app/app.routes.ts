@@ -45,7 +45,11 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/preparation/convocations.component').then((m) => m.ConvocationsComponent),
   },
-  { path: 'planning', ...stub('Planning') },
+  {
+    path: 'planning',
+    loadComponent: () =>
+      import('./features/examens/preparation/planning.component').then((m) => m.PlanningComponent),
+  },
   {
     path: 'lancement',
     loadComponent: () =>

@@ -256,9 +256,15 @@
             <div class="flex flex-wrap items-center gap-2">
               @for (id of s.evaluateurIds ?? []; track id) {
                 <span
-                  class="inline-flex items-center gap-1.5 text-xs bg-brand-50 text-brand-dark px-2.5 py-1 rounded-full"
+                  class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+                  [class.bg-brand-50]="!evalInactif(id)"
+                  [class.text-brand-dark]="!evalInactif(id)"
+                  [class.bg-red-50]="evalInactif(id)"
+                  [class.text-status-danger]="evalInactif(id)"
+                  [class.ring-1]="evalInactif(id)"
+                  [class.ring-status-danger]="evalInactif(id)"
                 >
-                  {{ evalName(id) }}
+                  {{ evalName(id) }}@if (evalInactif(id)) {<span class="font-medium"> · compte desactive</span>}
                   @if (editable()) {
                     <button
                       type="button"

@@ -55,7 +55,7 @@
           >{{ c.ok ? '✓' : '!' }}</span>
           <span>
             <span class="text-gray-700">{{ c.label }}</span>
-            @if (!c.blocking) {
+            @if (c.optional) {
               <span class="text-xs text-gray-400"> (optionnel)</span>
             }
             @if (c.hint) {

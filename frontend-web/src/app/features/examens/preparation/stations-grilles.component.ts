@@ -393,6 +393,18 @@ export class StationsGrillesComponent {
     return u ? `${u.prenom} ${u.nom}` : `Evaluateur #${id}`;
   }
 
+  /**
+   * #287 — an évaluateur deactivated AFTER being assigned stays bound to the
+   * station, and the chip resolved their name perfectly: the assignment looked
+   * healthy right up to exam morning, when they could not log in. The picker
+   * already refuses inactive accounts (see available()); this is the other half
+   * — telling the truth about an assignment that has gone stale.
+   */
+  evalInactif(id: number): boolean {
+    const u = this.evalMap().get(id);
+    return u ? !u.isActive : false; // unknown id = #242's dangling-ref problem, not this one
+  }
+
   typeLabel(t: TypeStation): string {
     return TYPE_LABELS[t];
   }

@@ -1,7 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
+import { catchError, of } from 'rxjs';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
+import { DirectoryApiService } from '../../../core/api/directory-api.service';
 import {
   BaremeIncomplet,
   ConflitEvaluateur,
@@ -9,6 +11,7 @@ import {
   LotSummary,
   StationSummary,
   StatutExamen,
+  UserResponse,
 } from '../../../core/api/models';
 import { isFutureDate, isLaunchDay } from '../../../core/api/exam-status';
 
@@ -17,6 +20,14 @@ export interface PreflightCheck {
   ok: boolean;
   /** A blocking check must be green before the lifecycle action is allowed. */
   blocking: boolean;
+  /**
+   * Non-blocking rows come in two flavours and must NOT read alike (#287):
+   * `optional` is nice-to-have (« Sujet PDF (optionnel) »), while a non-blocking
+   * WARNING reports something genuinely wrong that simply cannot be gated —
+   * labelling that one « (optionnel) » would tell the responsable the problem
+   * is optional. Only `optional` rows carry the suffix.
+   */
+  optional?: boolean;
   hint?: string;
 }
 
@@ -74,6 +85,7 @@ export interface PrepStep {
 export class ExamenWorkspaceStore {
   private readonly examApi = inject(ExamApiService);
   private readonly scoring = inject(ScoringApiService);
+  private readonly directory = inject(DirectoryApiService);
 
   readonly exam = signal<ExamenResponse | null>(null);
   readonly loading = signal(true);
@@ -87,6 +99,8 @@ export class ExamenWorkspaceStore {
   readonly conflitsEvaluateurs = signal<ConflitEvaluateur[]>([]);
   /** #276/#280 — stations whose barème makes noteMax unreachable. */
   readonly baremesIncomplets = signal<BaremeIncomplet[]>([]);
+  /** #287 — the user directory, for resolving assigned évaluateurs' liveness. */
+  readonly annuaire = signal<UserResponse[]>([]);
   readonly prepLoading = signal(true);
   readonly prepError = signal(false);
 
@@ -163,13 +177,19 @@ export class ExamenWorkspaceStore {
       lots: this.scoring.listLots(id),
       conflits: this.examApi.listConflitsEvaluateurs(id),
       baremes: this.examApi.listBaremesIncomplets(id),
+      // #287 — the directory carries isActive; the assignment lists carry only
+      // ids. Degraded on failure (empty ⇒ the row stays silent) because a
+      // directory outage must not blank the whole pre-flight: the other six
+      // checks are what gate the launch.
+      annuaire: this.directory.listUsers().pipe(catchError(() => of([] as UserResponse[]))),
     }).subscribe({
-      next: ({ stations, participations, lots, conflits, baremes }) => {
+      next: ({ stations, participations, lots, conflits, baremes, annuaire }) => {
         this.stations.set(stations);
         this.rosterCount.set(participations.length);
         this.lots.set(lots);
         this.conflitsEvaluateurs.set(conflits);
         this.baremesIncomplets.set(baremes);
+        this.annuaire.set(annuaire);
         this.prepLoading.set(false);
       },
       error: () => {
@@ -198,6 +218,26 @@ export class ExamenWorkspaceStore {
   private readonly sansGrille = computed(
     () => this.stations().filter((s) => !s.hasGrille).length,
   );
+
+  /**
+   * #287 — assigned évaluateurs whose account has since been deactivated.
+   * Only ids PRESENT in the directory and flagged inactive count: an id absent
+   * from it is #242's dangling reference, a different defect, and guessing here
+   * would raise false alarms whenever the directory is partial.
+   */
+  private readonly evaluateursInactifs = computed<{ nom: string; station: string }[]>(() => {
+    const parId = new Map(this.annuaire().map((u) => [u.id, u]));
+    const out: { nom: string; station: string }[] = [];
+    for (const s of this.stations()) {
+      for (const id of s.evaluateurIds ?? []) {
+        const u = parId.get(id);
+        if (u && !u.isActive) {
+          out.push({ nom: `${u.prenom} ${u.nom}`, station: s.nom ?? `station ${s.id}` });
+        }
+      }
+    }
+    return out;
+  });
 
   private readonly dateExamen = computed(() => this.exam()?.dateExamen ?? null);
   /** #147 — launch is allowed on ANY of the exam's lot-days (multi-day). For a
@@ -318,9 +358,33 @@ export class ExamenWorkspaceStore {
                 .join(' · '),
       },
       {
+        // #287 — an évaluateur deactivated AFTER assignment stays bound, and
+        // every other row stays green: proved live, the exam launches with a
+        // station whose only examiner cannot log in.
+        //
+        // NON-blocking on purpose. There is no authoritative server guard to
+        // mirror (exam-service holds no HTTP client and cannot ask auth — see
+        // ADR-0023 D4), and no reactivation endpoint exists (#289): a blocking
+        // row would trap a responsable on exam morning with no way out. Same
+        // doctrine as the floor warning (#250) — warn, never gate.
+        label:
+          this.evaluateursInactifs().length === 0
+            ? 'Evaluateurs actifs'
+            : 'Compte(s) d’evaluateur desactive(s)',
+        ok: this.evaluateursInactifs().length === 0,
+        blocking: false,
+        hint:
+          this.evaluateursInactifs().length === 0
+            ? undefined
+            : this.evaluateursInactifs()
+                .map((e) => `${e.nom} (${e.station}) ne pourra pas se connecter — remplacez-le sur la station`)
+                .join(' · '),
+      },
+      {
         label: 'Sujet PDF importe',
         ok: this.exam()?.hasPdfSujet ?? false,
         blocking: false,
+        optional: true,
       },
     ];
   });

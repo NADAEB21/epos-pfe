@@ -332,8 +332,8 @@
         Désactiver le compte de {{ u.prenom }} {{ u.nom }} ?
       </p>
       <p class="text-sm text-gray-700 mb-3">
-        La personne ne pourra plus se connecter et ses sessions en cours seront fermées.
-        La réactivation n'est pas encore disponible depuis cet écran.
+        La personne ne pourra plus se reconnecter — mais une session déjà ouverte peut rester
+        active jusqu'à 24 heures. La réactivation n'est pas encore disponible depuis cet écran.
       </p>
       @if (deactivateError(); as err) {
         <p class="text-sm text-status-danger mb-3">{{ err }}</p>

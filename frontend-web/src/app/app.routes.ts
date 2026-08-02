@@ -138,9 +138,19 @@ export const routes: Routes = [
               ),
           },
 
-          // Mon equipe
-          { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },
-          { path: 'equipe/co-responsables', ...stub('Co-responsables') },
+          // Mon equipe — one component, scope via route data (#259 / S5)
+          {
+            path: 'equipe/evaluateurs',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'evaluateurs' },
+          },
+          {
+            path: 'equipe/co-responsables',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'co-responsables' },
+          },
 
           // Parametres (matiere-scoped)
           { path: 'parametres/matiere', ...stub('Ma matiere') },
@@ -161,7 +171,12 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/admin/admin-home.component').then((m) => m.AdminHomeComponent),
           },
-          { path: 'utilisateurs', ...stub('Utilisateurs (tous)') },
+          {
+            path: 'utilisateurs',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'admin' },
+          },
           { path: 'matieres', ...stub('Matieres (catalogue)') },
           { path: 'templates', ...stub('Templates globaux') },
           { path: 'examens', ...stub('Examens (oversight)') },

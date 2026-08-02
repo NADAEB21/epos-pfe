@@ -1,0 +1,360 @@
+<div class="max-w-5xl mx-auto">
+  <!-- Header -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-xl font-semibold text-gray-900">{{ title }}</h1>
+      <p class="text-sm text-gray-500">
+        @switch (scope) {
+          @case ('evaluateurs') {
+            Les personnes qui notent aux stations, depuis l'application mobile. Un évaluateur
+            peut examiner dans toutes les matières.
+          }
+          @case ('co-responsables') {
+            Les personnes qui partagent avec vous la responsabilité de votre matière — mêmes
+            droits que vous sur ses examens.
+          }
+          @case ('admin') {
+            Tous les comptes de la plateforme. La création d'examens reste l'affaire des
+            responsables de matière.
+          }
+        }
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      @if (scope === 'co-responsables') {
+        <button
+          type="button"
+          (click)="openAppoint()"
+          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium border border-brand text-brand hover:bg-brand-50 transition-colors"
+        >
+          Nommer une personne existante
+        </button>
+      }
+      <button
+        type="button"
+        (click)="openCreate()"
+        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors"
+      >
+        @switch (scope) {
+          @case ('evaluateurs') { Ajouter un évaluateur }
+          @case ('co-responsables') { Créer un compte co-responsable }
+          @case ('admin') { Créer un compte }
+        }
+      </button>
+    </div>
+  </div>
+
+  <!-- Success banner: the password is shown EXACTLY ONCE -->
+  @if (created(); as c) {
+    <section class="rounded-xl border border-status-success bg-green-50 p-5 mb-6">
+      <p class="text-sm font-medium text-gray-900 mb-1">
+        Compte créé pour {{ c.nomComplet }} ({{ c.email }}).
+      </p>
+      <p class="text-sm text-gray-700 mb-3">
+        Communiquez-lui ce mot de passe maintenant —
+        <span class="font-medium">il ne sera plus jamais affiché</span> :
+      </p>
+      <div class="flex items-center gap-2">
+        <code class="px-3 py-1.5 rounded-lg bg-white border border-gray-300 text-sm font-mono">{{ c.password }}</code>
+        <button
+          type="button"
+          (click)="copyPassword()"
+          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          Copier
+        </button>
+        <button
+          type="button"
+          (click)="created.set(null)"
+          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:text-gray-700"
+        >
+          J'ai transmis — fermer
+        </button>
+      </div>
+    </section>
+  }
+
+  <!-- Create form -->
+  @if (formOpen()) {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+      <h2 class="font-semibold text-gray-900 mb-4">
+        @switch (scope) {
+          @case ('evaluateurs') { Nouvel évaluateur }
+          @case ('co-responsables') { Nouveau compte co-responsable }
+          @case ('admin') { Nouveau compte }
+        }
+      </h2>
+      <form [formGroup]="createForm" (ngSubmit)="submitCreate()" class="space-y-4">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <label class="block text-sm">
+            <span class="text-gray-700">Prénom</span>
+            <input formControlName="prenom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            @if (createForm.controls.prenom.touched && createForm.controls.prenom.invalid) {
+              <span class="text-xs text-status-danger">Le prénom est requis.</span>
+            }
+          </label>
+          <label class="block text-sm">
+            <span class="text-gray-700">Nom</span>
+            <input formControlName="nom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            @if (createForm.controls.nom.touched && createForm.controls.nom.invalid) {
+              <span class="text-xs text-status-danger">Le nom est requis.</span>
+            }
+          </label>
+          <label class="block text-sm">
+            <span class="text-gray-700">E-mail (identifiant de connexion)</span>
+            <input formControlName="email" type="email" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            @if (createForm.controls.email.touched && createForm.controls.email.invalid) {
+              <span class="text-xs text-status-danger">Une adresse e-mail valide est requise.</span>
+            }
+          </label>
+          <label class="block text-sm">
+            <span class="text-gray-700">Mot de passe (généré — transmettez-le à la personne)</span>
+            <span class="mt-1 flex gap-2">
+              <input formControlName="password" type="text" class="w-full rounded-lg border-gray-300 text-sm font-mono" />
+              <button
+                type="button"
+                (click)="regeneratePassword()"
+                class="shrink-0 inline-flex items-center px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Régénérer
+              </button>
+            </span>
+            @if (createForm.controls.password.touched && createForm.controls.password.invalid) {
+              <span class="text-xs text-status-danger">
+                8 caractères minimum, avec au moins une majuscule et un chiffre.
+              </span>
+            }
+          </label>
+        </div>
+
+        @if (scope === 'co-responsables' && myMatieres().length > 1) {
+          <label class="block text-sm max-w-xs">
+            <span class="text-gray-700">Matière</span>
+            <select formControlName="matiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+              <option [ngValue]="null">— choisir —</option>
+              @for (m of myMatieres(); track m.id) {
+                <option [ngValue]="m.id">{{ m.libelle }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (scope === 'admin') {
+          <fieldset class="text-sm space-y-2">
+            <legend class="text-gray-700 mb-1">Rôles du compte</legend>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" formControlName="roleEvaluateur" class="rounded border-gray-300" />
+              <span>Évaluateur — note aux stations (application mobile), toutes matières</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="checkbox" formControlName="roleResponsable" class="rounded border-gray-300" />
+              <span>Responsable de matière — crée et conduit les examens de sa matière</span>
+            </label>
+            @if (createForm.controls.roleResponsable.value) {
+              <label class="block max-w-xs pl-6">
+                <span class="text-gray-700">Matière du responsable</span>
+                <select formControlName="respMatiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+                  <option [ngValue]="null">— choisir —</option>
+                  @for (m of matieres(); track m.id) {
+                    <option [ngValue]="m.id">{{ m.libelle }}</option>
+                  }
+                </select>
+              </label>
+            }
+            <label class="flex items-center gap-2">
+              <input type="checkbox" formControlName="roleSuperAdmin" class="rounded border-gray-300" />
+              <span>Super-admin — comptes, matières et supervision (pas d'actes pédagogiques)</span>
+            </label>
+          </fieldset>
+        }
+
+        @if (submitError(); as err) {
+          <p class="text-sm text-status-danger">{{ err }}</p>
+        }
+
+        <div class="flex items-center gap-3">
+          <button
+            type="submit"
+            [disabled]="submitting()"
+            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+          >
+            {{ submitting() ? 'Création…' : 'Créer le compte' }}
+          </button>
+          <button type="button" (click)="cancelCreate()" class="text-sm text-gray-500 hover:text-gray-700">
+            Annuler
+          </button>
+        </div>
+      </form>
+    </section>
+  }
+
+  <!-- Appoint existing person (co-responsables) -->
+  @if (appointOpen()) {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+      <h2 class="font-semibold text-gray-900 mb-1">Nommer une personne existante</h2>
+      <p class="text-sm text-gray-500 mb-4">
+        La personne garde son compte et ses rôles actuels — elle devient en plus co-responsable
+        de la matière choisie, avec les mêmes droits que vous.
+      </p>
+      <div class="flex flex-wrap items-end gap-3">
+        @if (myMatieres().length > 1) {
+          <label class="block text-sm">
+            <span class="text-gray-700">Matière</span>
+            <select
+              (change)="onAppointMatiereChange($any($event.target).value)"
+              class="mt-1 rounded-lg border-gray-300 text-sm"
+            >
+              <option value="">— choisir —</option>
+              @for (m of myMatieres(); track m.id) {
+                <option [value]="m.id" [selected]="appointMatiereId() === m.id">{{ m.libelle }}</option>
+              }
+            </select>
+          </label>
+        }
+        <label class="block text-sm min-w-64">
+          <span class="text-gray-700">Personne</span>
+          <select
+            (change)="onAppointUserChange($any($event.target).value)"
+            class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+          >
+            <option value="">— choisir —</option>
+            @for (u of appointCandidates(); track u.id) {
+              <option [value]="u.id" [selected]="appointUserId() === u.id">
+                {{ u.nom }} {{ u.prenom }} · {{ u.email }}
+              </option>
+            }
+          </select>
+        </label>
+        <button
+          type="button"
+          (click)="submitAppoint()"
+          [disabled]="appointSubmitting()"
+          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+        >
+          {{ appointSubmitting() ? 'Nomination…' : 'Nommer co-responsable' }}
+        </button>
+        <button type="button" (click)="appointOpen.set(false)" class="text-sm text-gray-500 hover:text-gray-700 pb-2">
+          Annuler
+        </button>
+      </div>
+      @if (appointError(); as err) {
+        <p class="text-sm text-status-danger mt-3">{{ err }}</p>
+      }
+    </section>
+  }
+
+  <!-- List -->
+  @if (loading()) {
+    <div class="space-y-3 animate-pulse">
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+    </div>
+  } @else if (error()) {
+    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+      <p class="text-gray-700 mb-4">Impossible de charger la liste des personnes.</p>
+      <button
+        type="button"
+        (click)="load()"
+        class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      >
+        Réessayer
+      </button>
+    </div>
+  } @else {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card">
+      <div class="p-4 border-b border-gray-100">
+        <input
+          type="search"
+          placeholder="Rechercher par nom ou e-mail…"
+          class="w-full sm:w-80 rounded-lg border-gray-300 text-sm"
+          [value]="search()"
+          (input)="search.set($any($event.target).value)"
+        />
+      </div>
+
+      @if (rows().length === 0) {
+        <p class="p-8 text-center text-sm text-gray-500">
+          @if (search()) {
+            Personne ne correspond à « {{ search() }} ».
+          } @else {
+            @switch (scope) {
+              @case ('evaluateurs') { Aucun évaluateur pour l'instant — créez le premier compte. }
+              @case ('co-responsables') { Vous êtes seul(e) responsable de votre matière pour l'instant. }
+              @case ('admin') { Aucun compte. }
+            }
+          }
+        </p>
+      } @else {
+        <ul class="divide-y divide-gray-100">
+          @for (u of rows(); track u.id) {
+            <li class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+              <div class="min-w-48">
+                <p class="text-sm font-medium text-gray-900">
+                  {{ u.nom }} {{ u.prenom }}
+                  @if (u.id === myUserId()) {
+                    <span class="text-xs text-gray-400">(vous)</span>
+                  }
+                </p>
+                <p class="text-xs text-gray-500">{{ u.email }}</p>
+              </div>
+              <div class="flex flex-wrap gap-1.5 flex-1">
+                @for (r of u.roles; track $index) {
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{{ roleChip(r) }}</span>
+                }
+              </div>
+              @if (!u.isActive) {
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                  Désactivé
+                </span>
+              }
+              <span class="text-xs text-gray-400">Créé le {{ frDate(u.createdAt) }}</span>
+              @if (scope === 'admin' && u.isActive && u.id !== myUserId()) {
+                <button
+                  type="button"
+                  (click)="askDeactivate(u)"
+                  class="text-xs text-status-danger hover:underline"
+                >
+                  Désactiver
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  }
+
+  <!-- Deactivation confirm (admin) -->
+  @if (confirmingDeactivation(); as u) {
+    <section class="rounded-xl border border-status-danger bg-red-50 p-5 mt-6">
+      <p class="text-sm font-medium text-gray-900 mb-1">
+        Désactiver le compte de {{ u.prenom }} {{ u.nom }} ?
+      </p>
+      <p class="text-sm text-gray-700 mb-3">
+        La personne ne pourra plus se connecter et ses sessions en cours seront fermées.
+        La réactivation n'est pas encore disponible depuis cet écran.
+      </p>
+      @if (deactivateError(); as err) {
+        <p class="text-sm text-status-danger mb-3">{{ err }}</p>
+      }
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          (click)="confirmDeactivate()"
+          [disabled]="deactivating()"
+          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-danger transition-colors disabled:opacity-40"
+        >
+          {{ deactivating() ? 'Désactivation…' : 'Désactiver le compte' }}
+        </button>
+        <button
+          type="button"
+          (click)="confirmingDeactivation.set(null)"
+          class="text-sm text-gray-500 hover:text-gray-700"
+        >
+          Annuler
+        </button>
+      </div>
+    </section>
+  }
+</div>

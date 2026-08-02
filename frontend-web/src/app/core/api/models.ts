@@ -724,6 +724,12 @@ export interface MatiereResponse {
   libelle: string;
 }
 
+/** One (role, matière) grant — mirrors auth-service RoleAssignmentDto. */
+export interface RoleAssignment {
+  role: import('../auth/auth.models').RoleType;
+  matiereId: number | null;
+}
+
 export interface UserResponse {
   id: number;
   email: string;
@@ -731,4 +737,20 @@ export interface UserResponse {
   prenom: string;
   isActive: boolean;
   createdAt: string | null;
+  /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
+  roles: RoleAssignment[];
+}
+
+/**
+ * Body for POST /users (auth-service UserCreateRequest). Password policy is
+ * validated server-side too: min 8, at least one uppercase and one digit.
+ * There is NO email infrastructure — the creator hands the password to the
+ * person directly, which is why the UI generates and displays it once.
+ */
+export interface UserCreateRequest {
+  email: string;
+  password: string;
+  nom: string;
+  prenom: string;
+  roles: RoleAssignment[];
 }

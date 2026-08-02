@@ -223,7 +223,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | FN-49 | Le responsable doit pouvoir consulter les **résultats consolidés** de l'épreuve et descendre au **critère** pour comprendre un échec. | UC-72, UC-73 |
 | FN-50 | Le jury doit disposer d'un **écran de délibération** : décider, motiver, tracer. | UC-74 |
 | FN-51 | Une modification de barème **après l'épreuve** doit être **versionnée** — le barème appliqué reste identifiable, la note brute reste intacte. | UC-75 |
-| FN-52 | Les résultats doivent pouvoir être **communiqués aux étudiants**. | UC-76 |
+| FN-52 | Les résultats doivent pouvoir être **communiqués aux étudiants** — *satisfait HORS système via le PV (ADR-0022)*. | UC-76 ⛔ / UC-77 |
 | FN-53 | L'épreuve doit produire un **procès-verbal archivable**. | UC-77 |
 
 ### D11 — Analyse psychométrique et aide à la décision
@@ -379,7 +379,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC-73 | Analyser un critère en profondeur | A3, A4 *(lecture)* | ✅ | `NotationItemController:33` · `resultats.component.html:263-270` |
 | UC-74 | Délibérer en jury | A3 | 📐 | **ADR-0021 D4** — « l'écran de délibération précède toute statistique » |
 | UC-75 | Versionner le barème après délibération | A3 | 📐 | **ADR-0021 D9** · **#135** · seconde moitié de **#276** |
-| UC-76 | Publier les résultats aux étudiants | A5 | ❌ | aucun code, aucun ADR — voir §6.2 |
+| UC-76 | Publier les résultats aux étudiants | A5 | ⛔ non retenu | **ADR-0022** (2026-07-31) : la faculté conserve ses canaux officiels ; le système s'arrête à la clôture + PV (UC-77). Exclusion décidée, plus une omission |
 | UC-77 | Produire un procès-verbal archivable | A3 | ❌ | aucun code, aucun ADR — voir §6.3 |
 
 ### P12 — Analyse et aide à la décision
@@ -459,13 +459,16 @@ lancement — mais le responsable l'apprend en **erreur rouge après le clic**, 
 défaut que la doctrine #185 et le commentaire de `BaremeIncompletResponse:11-13` interdisent.
 Le service existe et n'a pas de consommateur : c'est un raccordement, pas une fonctionnalité.
 
-### 6.2 L'étudiant ne reçoit jamais son résultat
+### 6.2 L'étudiant ne reçoit jamais son résultat — ✅ ARBITRÉ (ADR-0022, 2026-07-31)
 
 `GET /api/notations/examen/{id}/results` est gardé `SUPER_ADMIN | RESPONSABLE_MATIERE`. Aucun
-point d'entrée ne communique un résultat à un étudiant, et aucun ADR ne tranche la question.
-**Ce n'est pas forcément à construire — mais il faut le décider.** Un examen de pharmacie dont
-la plateforme ne notifie pas le candidat est un choix défendable (la faculté a ses canaux
-officiels) ; l'omettre en silence n'en est pas un. À arbitrer par ADR avant la soutenance.
+point d'entrée ne communique un résultat à un étudiant. **La question est désormais TRANCHÉE :
+ADR-0022 — la publication aux étudiants est HORS PÉRIMÈTRE.** Dans le circuit réel de la
+faculté, le responsable arrête ses notes et transmet le procès-verbal à la scolarité, qui
+publie par ses canaux officiels ; EPOS n'a pas d'acteur « scolarité » et n'en invente pas un.
+La frontière du système = clôture (UC-71) + procès-verbal (UC-77). UC-76 passe de « non
+couvert » à « **non retenu** ». Ce qui reste ouvert dans cette famille : UC-77 lui-même
+(le PV, toujours ❌ — voir §6.3).
 
 ### 6.3 Aucun procès-verbal, aucun archivage
 
@@ -718,37 +721,127 @@ Dix fiches, choisies parce qu'elles portent une règle métier que le code seul 
 > (draw.io, ou PlantUML pour les diagrammes UML). Cette section fournit la **spécification** à
 > dessiner, pas un rendu.
 
-### 9.1 Diagramme global (`fig:usecase-global`)
+> ⚠️ **§9 entièrement réécrit le 2026-07-31.** La version antérieure spécifiait un diagramme
+> global de 17 bulles (puis 87 regroupées en paquets) **à niveaux d'abstraction mêlés**. Elle est
+> caduque. Les fichiers `usecase-global.puml` / `usecase-global-squelette.puml` du Bureau portent
+> désormais un marqueur ⛔ SUPERSÉDÉ. La spécification ci-dessous est la seule valide.
 
-- **Acteurs à gauche :** A1 Visiteur, A2 Évaluateur. **À droite :** A3 Responsable de matière,
-  A4 Super-administrateur.
-- ⚠️ **AUCUNE généralisation.** *Corrigé le 2026-07-31.* Ne pas dessiner
-  `A4 --|> A3` : une généralisation sur un diagramme de cas d'utilisation **affirme** « il exécute
-  aussi tous ces cas », ce qu'ADR-0018 D5 récuse. A3 et A4 sont deux acteurs **pairs**.
-- **Les 4 bulles propres à A4**, et ce sont les mots de Nada : « Gérer les comptes et les rôles » ·
-  « Gérer le catalogue des matières » · « Configurer la plateforme » · « **Consulter les données de
-  toutes les matières** ». Cette dernière porte « il voit tout » **sans** prétendre qu'il rédige.
-- **A5 Étudiant** en bas, relié en **pointillés** aux paquets *Notation* et *Résultats*
-  (« est évalué », « est concerné par »). ⚠️ **Ne pas dessiner « Étudiant → déposer une
-  réclamation »** : la réclamation est créée par le responsable.
-- **A6/A7** en acteurs systèmes à droite, reliés à UC-46 et UC-78→UC-81.
-- **Regrouper en paquets** correspondant aux phases P1 à P13 ; 87 bulles en une colonne seraient
-  illisibles. Si la hauteur reste excessive, scinder en un diagramme global par paquets + les
-  diagrammes par acteur du §9.2.
-- **Deux séparations que le diagramme ne doit pas perdre**, sous peine de contredire ADR-0013 :
-  - UC-64 *Verrouiller* → relié à **A2 et A4 seulement**
-  - UC-67 *Réajuster* → relié à **A3 et A4 seulement**
+### 9.0 La règle de niveau — c'est elle qu'il faut savoir défendre
 
-### 9.2 Diagrammes par acteur
+Un diagramme **global** (ou *de contexte*) n'est **pas** la liste de tous les cas, ni un
+sous-ensemble choisi : c'est le système raconté à **UN SEUL niveau d'abstraction**, celui de
+l'**objectif d'acteur**. Craig Larman, *Applying UML and Patterns*, 2ᵉ éd., chap. 6, légende de la
+figure 6.4 : « *For a use case context diagram, limit the use cases to **user-goal level** use
+cases.* » Son propre diagramme de contexte, pour un système de caisse entier, compte **six** bulles.
 
-- **A2 Évaluateur** (surface mobile) : UC-01→UC-04, UC-60→UC-66, UC-53. Une relation
-  `<<include>>` de UC-62 vers *Vérifier l'affectation à la station*.
-- **A3 Responsable** : le plus dense — P3 à P11. `<<include>>` de UC-49 vers UC-48
-  (*Vérifier les pré-conditions*) ; `<<extend>>` de UC-57 (*Remplacer un évaluateur*) sur UC-55
-  (*Suivre la progression*), puisque c'est une déviation exceptionnelle du déroulement.
-- **A4 Super-administrateur** : P2 en entier + ses 4 bulles ci-dessus. **Sans généralisation
-  vers A3** — ses associations vont à ses propres cas, plus une association de lecture vers les
-  résultats (UC-72/73) et les analyses agrégées (UC-80, ADR-0021 D5).
+Trois tests (Larman §6.16) filtrent chaque bulle candidate :
+
+| test | énoncé | ce qu'il élimine |
+|---|---|---|
+| **Test du patron** | « Qu'avez-vous fait aujourd'hui ? » — la réponse satisfait-elle le patron ? | « J'ai verrouillé une notation », « Je me suis connecté » |
+| **Test EBP** | une tâche, *une personne, un lieu, un moment*, valeur métier mesurable, données cohérentes | ce qui prend des jours, ce qui ne produit rien |
+| **Test de taille** | un cas d'utilisation n'est presque jamais une action unique | tout ce qui est une étape dans une séquence |
+
+Corollaires appliqués : tout nom **commence par un verbe** ; les objectifs CRUD sont repliés dans
+l'idiome **« Gérer \<X\> »** (Larman p. 87) ; une bulle contenant « **et** » cache presque toujours
+deux objectifs.
+
+### 9.1 Diagramme global (`fig:usecase-global`) — **12 bulles** — ✅ DESSINÉ ET FIGÉ
+
+**La figure fait foi : elle a été dessinée à la main dans draw.io, validée bulle par bulle le
+2026-08-01, et vit dans le rapport** (`pfe-report/rapport/img/global-use-case-diagram.png`).
+Cette section décrit CE QUI EST DESSINÉ ; en cas d'écart, c'est la figure qui est juste.
+(Les `.puml` intermédiaires du Bureau — `uc-00-global`, `uc-global-chatgpt-corrige` — sont des
+brouillons de travail, pas la référence.)
+
+- **Acteurs principaux à gauche** : Évaluateur · Responsable de matière · Super-administrateur.
+- **Acteur système à droite, en RECTANGLE** : *Service de messagerie*, relié à
+  « Convoquer les candidats » **et à lui seul**.
+- **Étudiant en bas, HORS frontière**, en **pointillés sans flèche** : « est convoqué » et
+  « est évalué » — c'est tout. Note attachée : *« Acteur du domaine, sans compte : il ne se
+  connecte jamais à la plateforme »*.
+- Les 12 bulles telles que dessinées, avec leurs associations :
+
+  | bulle | associée à | replie (catalogue) |
+  |---|---|---|
+  | Évaluer les candidats | Évaluateur | UC-60→66, UC-87 |
+  | Piloter le déroulement de l'épreuve | **Évaluateur ET Responsable** | UC-48→59 — la poignée de main ADR-0014-B : l'évaluateur fait avancer les groupes (UC-53) et signale la fin de vague, le responsable seul lance/ouvre/suspend/termine |
+  | Concevoir une épreuve | Responsable | UC-16→32 |
+  | Préparer une session d'examen | Responsable | UC-33→44 |
+  | Convoquer les candidats | Responsable (+ SMTP) | UC-45→47 |
+  | Traiter les réclamations | Responsable | UC-67→70 (réajustement audité inclus) |
+  | Clôturer l'épreuve | Responsable | UC-71, UC-77 — le système s'arrête au PV, **ADR-0022** |
+  | Analyser la qualité de l'épreuve | Responsable **et Super-admin (lecture)** | UC-73, UC-78→81 |
+  | Consulter les résultats | Responsable **et Super-admin (lecture)** | UC-72 |
+  | Gérer les utilisateurs | Super-admin | UC-11→14 |
+  | Gérer les matières | Super-admin | UC-09, UC-10 |
+  | Consulter l'historique des épreuves de la faculté | Super-admin | lecture seule trans-matières — vérifié `admin-home.component.ts` (tous examens, toutes matières) |
+
+- **Écarts assumés vs l'ancienne spec à 11 bulles** (2026-08-01) :
+  - « Gérer les matières et les utilisateurs » **scindée en deux** (le « et » cachait deux
+    référentiels) ;
+  - « Superviser toutes les matières » **renommée** « Consulter l'historique des épreuves de la
+    faculté » — le verbe porte la doctrine (une **lecture**) et l'objet est explicite ;
+  - « Publier les résultats » **supprimée** → « Clôturer l'épreuve » (**ADR-0022** : la
+    publication aux étudiants est hors périmètre, la faculté garde ses canaux) ;
+  - « Faire progresser les groupes » **fusionnée** dans « Piloter le déroulement » (bulle
+    partagée Évaluateur + Responsable — c'est elle qui raconte la poignée de main) ;
+  - la curation des **modèles de grille** (UC-29) descend au diagramme raffiné
+    `uc-06-administrer` : acte rare et janitorial, il échoue au test du patron.
+- ⛔ **AUCUNE bulle « S'authentifier », AUCUN `<<include>>` à ce niveau.** *Décision arrêtée par
+  Nada le 2026-07-31 (modèle Larman).* L'authentification échoue au test du patron : c'est une
+  **sous-fonction**. La famille UC-01→UC-08 est traitée en §9.2. **La légende de la figure doit
+  porter la phrase :** « *Tous les cas d'utilisation supposent une session authentifiée ;
+  l'authentification est une sous-fonction et n'est pas représentée à ce niveau d'abstraction
+  (Larman, 2004, §6.16).* »
+- ⛔ **AUCUNE généralisation** `Super-administrateur --|> Responsable de matière` : une
+  généralisation **affirme** « il exécute aussi tous ces cas », ce qu'**ADR-0018 D5** récuse. Deux
+  acteurs **pairs**, deux métiers.
+- ⛔ **AUCUN lien « Étudiant → réclamation »** ni « destinataire des résultats » : la réclamation
+  est enregistrée **par le responsable** pour son compte (`ReclamationController:33` =
+  RESP/ADMIN), et la publication est hors périmètre (**ADR-0022**).
+- ⛔ **« Configurer la plateforme » est RETIRÉE** : elle ne correspondait à aucun UC de ce
+  catalogue ni à aucun écran. Une bulle sans référent est indéfendable.
+
+### 9.2 Diagrammes raffinés — c'est là que vivent les détails
+
+Six diagrammes, un niveau plus bas, où `<<include>>` et `<<extend>>` ont enfin un sens. Sources sur
+le Bureau, tous rendus sans erreur.
+
+| fichier | couvre | bulles globales détaillées |
+|---|---|---|
+| `uc-01-concevoir.puml` | UC-16→32 | Concevoir une épreuve |
+| `uc-02-organiser.puml` | UC-33→47 | Organiser la session + Convoquer |
+| `uc-03-conduire.puml` | UC-48→59 (moitié responsable) | Conduire l'épreuve |
+| `uc-04-evaluer.puml` | UC-51→54, 58, 60→66, 87 | Évaluer + Faire progresser |
+| `uc-05-resultats.puml` | UC-67→81 | Arrêter les résultats + Analyser |
+| `uc-06-administrer.puml` | UC-01→14, 29 | les 3 bulles super-admin **+ la famille session** |
+
+⚠️ **Sens des flèches, à ne pas inverser en redessinant :** `<<include>>` va du cas de **base** vers
+le cas **inclus** ; `<<extend>>` va, **à l'inverse**, du cas **qui étend** vers le cas de **base**.
+
+**Deux séparations que les diagrammes ne doivent pas perdre** — *corrigées le 2026-07-31 : §9
+attribuait auparavant ces deux actes au super-administrateur, ce qu'**ADR-0018 D5** interdit* :
+
+- **UC-64 *Verrouiller*** → **l'évaluateur seul**. C'est l'examinateur présent qui signe sa notation.
+  La séparation évaluateur / responsable vient d'**ADR-0013** (le responsable ne verrouille pas) ;
+  l'exclusion du **super-administrateur** vient d'**ADR-0018 D5**, et d'elle seule.
+- **UC-67 *Réajuster*** → **le responsable de matière seul**, dans sa matière. C'est lui qui signe le
+  barème. ADR-0013 P2 exclut l'évaluateur ; **D5** exclut le super-administrateur.
+
+⚠️ **Le code diverge de la doctrine sur ces deux actes** — constaté et vérifié le 2026-07-31 :
+
+| acte | garde effective | doctrine D5 |
+|---|---|---|
+| verrouiller | `NotationController:114` — `hasAnyRole('SUPER_ADMIN', 'EVALUATEUR')` | super-admin ❌ |
+| réajuster | `NotationController:133` — `hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')` | super-admin ❌ |
+
+Ce sont deux instances nommées du constat général du §1.2 (**72 points d'entrée en écriture** gardés
+par une garde nommant `SUPER_ADMIN`, dont un seul légitime). **Sévérité faible à moyenne,
+gouvernance et non vulnérabilité** : pas d'escalade possible (c'est déjà le rôle le plus élevé) et
+aucun écran ne l'expose. ⚠️ **Une garde `@PreAuthorize` dit ce que le système *permet*, jamais ce
+qu'il *doit*** — ne jamais la citer comme si elle était l'intention de conception. Les diagrammes
+ci-dessus décrivent l'**intention** ; l'alignement du code est une tâche ouverte.
 
 ### 9.3 Convention de couleur pour la lecture de couverture *(optionnel, utile en soutenance)*
 
@@ -804,7 +897,7 @@ besoin sans ADR ni issue et non réalisé est un manque du §6.
 | FN-49 | UC-72, UC-73 | — | — | ✅ |
 | FN-50 | UC-74 | **0021 D4** | — | 📐 |
 | FN-51 | UC-75 | **0021 D6/D7/D9** | #135, #276 | 📐 |
-| FN-52 | UC-76 | — | — | ❌ |
+| FN-52 | UC-76 | **0022** | — | ⛔ non retenu |
 | FN-53 | UC-77 | — | — | ❌ |
 | FN-54, FN-55 | UC-78, UC-79 | **0008** | — | 📐 |
 | FN-56 | UC-80 | **0021 D1/D2/D3** | — | 📐 |
@@ -831,6 +924,9 @@ besoin rédigé contre l'une des positions ci-dessous doit être rejeté :
 | Une étape « Finaliser la configuration » | Les transitions techniques sont **invisibles** | #185, NFR-23 |
 | Comparer les évaluateurs par moyenne globale | Comparaison **intra-station** uniquement | ADR-0021 D2 |
 | Un verrou pessimiste sur le matériel partagé | Verrou **optimiste** ; la présence n'est qu'une courtoisie | ADR-0019 D1/D2/D3 |
+| Le super-admin est un responsable généralisé (`ADMIN --|> RESP`) | Il **LIT partout, n'écrit que son domaine** ; jamais d'acte pédagogique | ADR-0018 D5 |
+| La plateforme publie les résultats aux étudiants | La publication est **hors périmètre** : clôture + PV, la faculté garde ses canaux | ADR-0022 |
+| Génération de clients par OpenAPI (codegen CI) | Jamais adopté — clients **écrits à la main**, dérive gérée au cas par cas | ADR-0003 §0 (lapsed) |
 
 ---
 

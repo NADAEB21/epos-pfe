@@ -441,6 +441,22 @@ export interface ConflitEvaluateur {
 }
 
 /**
+ * #276/#280 — one station whose grille does not let a faultless student reach
+ * the announced noteMax (GET /examens/{id}/baremes-incomplets). Non-empty =
+ * launching would silently cap the whole cohort; the backend refuses it at
+ * changerStatut (ADR-0015 freezes the definition at launch). noteMax and
+ * maxAtteignable come separately so the row can say « 10 points saisis sur
+ * 20 » — the phrase the responsable can act on.
+ */
+export interface BaremeIncomplet {
+  stationId: number;
+  stationNom: string;
+  grilleId: number;
+  noteMax: number;
+  maxAtteignable: number;
+}
+
+/**
  * Result of POST /lots/{lotId}/presence-et-demarrer (#185 — « Présence &
  * démarrer », the conductor's single act: presence + rotation generation in one
  * transaction; the wave opening stays delegated to ADR-0014-B).

@@ -3,6 +3,7 @@ import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
+  BaremeIncomplet,
   ConflitEvaluateur,
   ExamenResponse,
   LotSummary,
@@ -84,6 +85,8 @@ export class ExamenWorkspaceStore {
   readonly lots = signal<LotSummary[]>([]);
   /** #265 — EN_COURS exams holding évaluateurs this exam also needs. */
   readonly conflitsEvaluateurs = signal<ConflitEvaluateur[]>([]);
+  /** #276/#280 — stations whose barème makes noteMax unreachable. */
+  readonly baremesIncomplets = signal<BaremeIncomplet[]>([]);
   readonly prepLoading = signal(true);
   readonly prepError = signal(false);
 
@@ -159,12 +162,14 @@ export class ExamenWorkspaceStore {
       participations: this.scoring.listParticipations(id),
       lots: this.scoring.listLots(id),
       conflits: this.examApi.listConflitsEvaluateurs(id),
+      baremes: this.examApi.listBaremesIncomplets(id),
     }).subscribe({
-      next: ({ stations, participations, lots, conflits }) => {
+      next: ({ stations, participations, lots, conflits, baremes }) => {
         this.stations.set(stations);
         this.rosterCount.set(participations.length);
         this.lots.set(lots);
         this.conflitsEvaluateurs.set(conflits);
+        this.baremesIncomplets.set(baremes);
         this.prepLoading.set(false);
       },
       error: () => {
@@ -245,6 +250,21 @@ export class ExamenWorkspaceStore {
           hasStations && this.sansGrille() > 0
             ? `${this.sansGrille()} station(s) sans grille`
             : undefined,
+      },
+      {
+        // #276/#280 — a grille can exist yet not let a faultless student reach
+        // noteMax; ADR-0015 freezes the barème at launch, so the whole cohort
+        // would be silently capped. The backend refuses the launch; this row
+        // says it BEFORE the click, station by station.
+        label: 'Baremes complets',
+        ok: this.baremesIncomplets().length === 0,
+        blocking: true,
+        hint:
+          this.baremesIncomplets().length === 0
+            ? undefined
+            : this.baremesIncomplets()
+                .map((b) => `${b.stationNom} : ${b.maxAtteignable} point(s) saisi(s) sur ${b.noteMax}`)
+                .join(' · '),
       },
       {
         label: 'Etudiants inscrits',

@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
+  BaremeIncomplet,
   ConflitEvaluateur,
   CreateExamenRequest,
   ExamenResponse,
@@ -67,6 +68,17 @@ export class ExamApiService {
   listConflitsEvaluateurs(id: number): Observable<ConflitEvaluateur[]> {
     return this.http
       .get<ApiResponse<ConflitEvaluateur[]>>(`${this.baseUrl}/${id}/conflits-evaluateurs`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * #276/#280 — the stations whose barème makes noteMax unreachable. Feeds the
+   * « Barèmes complets » pre-flight row; the authoritative refusal stays in
+   * changerStatut server-side (same calculation on both sides).
+   */
+  listBaremesIncomplets(id: number): Observable<BaremeIncomplet[]> {
+    return this.http
+      .get<ApiResponse<BaremeIncomplet[]>>(`${this.baseUrl}/${id}/baremes-incomplets`)
       .pipe(map((r) => r.data ?? []));
   }
 

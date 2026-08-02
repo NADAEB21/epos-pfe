@@ -256,7 +256,7 @@ export class ExamenWorkspaceStore {
         // noteMax; ADR-0015 freezes the barème at launch, so the whole cohort
         // would be silently capped. The backend refuses the launch; this row
         // says it BEFORE the click, station by station.
-        label: 'Bareme complet par station',
+        label: 'Un bareme complet par station',
         ok: this.baremesIncomplets().length === 0,
         blocking: true,
         hint:

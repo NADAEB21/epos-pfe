@@ -1,0 +1,87 @@
+@if (loading()) {
+  <div class="space-y-4 animate-pulse">
+    <div class="h-28 rounded-xl bg-gray-200"></div>
+    <div class="h-28 rounded-xl bg-gray-200"></div>
+  </div>
+} @else if (error()) {
+  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <p class="text-gray-700 mb-4">Impossible de charger le planning.</p>
+    <button
+      type="button"
+      (click)="store.reloadPrep()"
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+    >
+      Reessayer
+    </button>
+  </div>
+} @else if (days().length === 0) {
+  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <p class="text-gray-800 font-medium mb-1">Pas encore de planning.</p>
+    <p class="text-sm text-gray-500 mb-4">
+      Le planning se construit tout seul dès que les étudiants sont répartis en lots.
+    </p>
+    <a
+      routerLink="../lots"
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+    >
+      Répartir en lots
+    </a>
+  </div>
+} @else {
+  <!-- Intro -->
+  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+    <h2 class="font-semibold text-gray-900 mb-1">Planning des passages</h2>
+    <p class="text-sm text-gray-500">
+      Qui passe quel jour, à quelle heure d'arrivée.
+      @if (multiDay()) {
+        L'examen s'étale sur {{ days().length }} jours.
+      }
+      Pour déplacer un lot vers un autre jour :
+      <a routerLink="../lots" class="text-brand hover:underline">onglet Lots</a>, champ
+      « Jour de passage ».
+    </p>
+  </section>
+
+  <!-- One card per day -->
+  <div class="space-y-4">
+    @for (day of days(); track day.date) {
+      <section class="rounded-xl bg-white border border-gray-200 shadow-card">
+        <header class="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-gray-100">
+          <h3 class="font-medium text-gray-900">{{ day.label }}</h3>
+          @if (multiDay() && day.isExamDate) {
+            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand">
+              Date de l'examen
+            </span>
+          }
+          <span class="ml-auto text-xs text-gray-400">
+            {{ day.lots.length }} lot(s)
+          </span>
+        </header>
+        <ul class="divide-y divide-gray-100">
+          @for (lot of day.lots; track lot.numeroLot) {
+            <li class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 text-sm">
+              <span class="font-medium text-gray-900 w-16">Lot {{ lot.numeroLot }}</span>
+              <span class="text-gray-600">
+                @if (lot.taille != null) { {{ lot.taille }} étudiant(s) }
+              </span>
+              @if (lot.arrivee) {
+                <span class="text-gray-600">arrivée <span class="font-medium text-gray-800">{{ lot.arrivee }}</span></span>
+              }
+              @if (statutLabel(lot.statut); as st) {
+                <span
+                  class="ml-auto text-xs font-medium px-2 py-0.5 rounded-full"
+                  [class.bg-status-success]="lot.statut === 'TERMINE'"
+                  [class.text-white]="lot.statut === 'TERMINE'"
+                  [class.bg-brand-50]="lot.statut === 'EN_COURS'"
+                  [class.text-brand]="lot.statut === 'EN_COURS'"
+                >
+                  {{ st }}
+                </span>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  </div>
+}

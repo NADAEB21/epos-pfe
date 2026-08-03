@@ -14,6 +14,8 @@ import tn.epos.auth_service.entity.UserRole;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -23,6 +25,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
+    private final Clock clock;
 
     /**
      * Called by Spring Security during form/basic auth and by the JWT filter
@@ -46,8 +49,18 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 .username(user.getEmail())
                 .password(user.getPasswordHash())
                 .authorities(authorities)
-                .accountLocked(!user.getIsActive())
+                // #294 — « verrouillé » au sens de Spring Security couvre les DEUX
+                // états depuis V2 : le retrait administratif (durable) et le verrou
+                // temporaire anti-force-brute (qui expire). AuthService.login les
+                // distingue pour le message ; ici, seul compte « ne peut pas entrer ».
+                .accountLocked(!user.getIsActive() || isTemporarilyLocked(user))
                 .build();
+    }
+
+    /** #294 — un verrou temporaire encore en cours. */
+    private boolean isTemporarilyLocked(User user) {
+        return user.getLockedUntil() != null
+                && LocalDateTime.now(clock).isBefore(user.getLockedUntil());
     }
 
     // -------------------------------------------------------------------------

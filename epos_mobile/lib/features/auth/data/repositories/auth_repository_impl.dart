@@ -50,10 +50,15 @@ class AuthRepositoryImpl implements AuthRepository {
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
         throw Exception('Email ou mot de passe incorrect.');
-      } else if (e.response?.statusCode == 423) {
-        throw Exception(
-          'Compte verrouillé après 3 tentatives. Réessayez dans 15 minutes.',
-        );
+      } else if (e.response?.statusCode == 403) {
+        // #294 — le backend renvoie 403 (AccountLockedException), pas 423 : ce
+        // cas ne se déclenchait donc JAMAIS, et l'évaluateur verrouillé le matin
+        // de l'épreuve recevait une erreur Dio brute. Le serveur distingue
+        // désormais « désactivé » de « verrouillé N minutes » et annonce le
+        // délai — on affiche SON message plutôt qu'un délai inventé (l'ancien
+        // texte promettait 15 minutes, alors que le verrou était définitif).
+        throw Exception(_extractErrorMessage(e) ??
+            "Connexion refusée. Contactez l'administration de la faculté.");
       } else if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout) {
         throw Exception(

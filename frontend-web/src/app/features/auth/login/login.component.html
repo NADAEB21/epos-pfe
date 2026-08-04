@@ -43,7 +43,7 @@
         }
         @case ('locked') {
           <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
-            Compte verrouillé après 3 tentatives. Contactez votre responsable.
+            {{ lockedMessage() ?? 'Connexion refusée. Contactez l’administration de la faculté.' }}
           </div>
         }
         @case ('network') {

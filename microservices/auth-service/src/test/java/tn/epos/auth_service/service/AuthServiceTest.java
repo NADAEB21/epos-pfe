@@ -5,6 +5,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -26,7 +27,10 @@ import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
 import tn.epos.auth_service.service.email.EmailService;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +50,12 @@ class AuthServiceTest {
     @Mock private AuditService auditService;
     @Mock private EmailService emailService;
 
+    /**
+     * #294 — horloge FIXE : le verrou temporaire est une décision datée, et un
+     * test qui « attend deux minutes » n'est pas un test. On la substitue.
+     */
+    @Spy private Clock clock = Clock.fixed(Instant.parse("2026-08-04T09:00:00Z"), ZoneId.of("UTC"));
+
     @InjectMocks private AuthService authService;
 
     // -------------------------------------------------------------------------
@@ -59,10 +69,21 @@ class AuthServiceTest {
                 .build();
     }
 
-    private User lockedUser() {
+    /** Retiré par l'administration — état durable (#294). */
+    private User deactivatedUser() {
         return User.builder()
                 .id(1L).email("user@test.com").passwordHash("hashed-pw")
-                .nom("Test").prenom("User").isActive(false).failedLoginAttempts(3)
+                .nom("Test").prenom("User").isActive(false).failedLoginAttempts(0)
+                .build();
+    }
+
+    /** Verrou temporaire encore actif (#294) — le compte reste isActive=true. */
+    private User temporarilyLockedUser(long minutesRemaining) {
+        return User.builder()
+                .id(1L).email("user@test.com").passwordHash("hashed-pw")
+                .nom("Test").prenom("User").isActive(true).failedLoginAttempts(0)
+                .lockedUntil(LocalDateTime.now(clock).plusMinutes(minutesRemaining))
+                .lockCount(1)
                 .build();
     }
 
@@ -107,11 +128,12 @@ class AuthServiceTest {
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(1);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(BadCredentialsException.class);
 
         verify(userRepository).incrementFailedAttempts(1L);
-        verify(userRepository, never()).lockAccount(any());
+        verify(userRepository, never()).applyTemporaryLock(any(), any());
     }
 
     @Test
@@ -121,26 +143,32 @@ class AuthServiceTest {
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(2);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(BadCredentialsException.class)
                 .hasMessage("Invalid email or password");
 
         verify(userRepository).incrementFailedAttempts(1L);
-        verify(userRepository, never()).lockAccount(any());
+        verify(userRepository, never()).applyTemporaryLock(any(), any());
     }
 
     @Test
-    void login_thirdFailure_locksAccount_and_persists() {
+    void login_thirdFailure_appliesTemporaryLock_notPermanent() {
         User user = activeUser();
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
+        when(userRepository.getLockCount(1L)).thenReturn(0);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
 
         verify(userRepository).incrementFailedAttempts(1L);
-        verify(userRepository).lockAccount(1L);
+        // #294 — verrou TEMPORAIRE : 1er verrou = 2 min à partir de l'horloge fixe
+        verify(userRepository).applyTemporaryLock(1L,
+                LocalDateTime.now(clock).plusMinutes(2));
+        verify(userRepository, never()).save(any());
 
         // Verify the audit log is fired with the correct locked-account action
         verify(auditService).log(
@@ -151,11 +179,95 @@ class AuthServiceTest {
     }
 
     @Test
-    void login_lockedAccount_rejectsBeforePasswordCheck() {
-        User locked = lockedUser();
+    void login_temporaryLockStillRunning_refusesAndAnnouncesRemainingTime() {
+        // #294 — le message doit dire QUAND réessayer : sans délai annoncé,
+        // « verrouillé » est indiscernable de « mort ».
+        // le fixture touche l'horloge (un @Spy) : le construire AVANT le when(),
+        // sinon Mockito voit une interaction au milieu d'un stubbing.
+        User locked = temporarilyLockedUser(5);
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(locked));
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "Password1"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
+                .isExactlyInstanceOf(AccountLockedException.class)
+                .hasMessageContaining("temporairement")
+                .hasMessageContaining("minute");
+
+        // le mot de passe n'est même pas examiné
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    void login_expiredTemporaryLock_letsTheUserBackIn() {
+        // LE test de #294 : le verrou s'ouvre TOUT SEUL. lockedUntil est dans le
+        // passé de l'horloge fixe — aucune intervention d'administrateur.
+        User user = temporarilyLockedUser(-1);
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password1", "hashed-pw")).thenReturn(true);
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+        stubTokenIssuance();
+
+        LoginResponse response = authService.login(loginReq("user@test.com", "Password1"), "127.0.0.1");
+
+        assertThat(response.getAccessToken()).isEqualTo("access-token");
+        // la connexion réussie efface compteur ET verrou (sinon l'escalade
+        // continuerait pour quelqu'un qui a simplement retrouvé son mot de passe)
+        verify(userRepository).resetFailedAttempts(1L);
+    }
+
+    @Test
+    void login_repeatedLockouts_escalateTheDuration() {
+        // 3e verrou consécutif ⇒ 2 · 2^2 = 8 minutes.
+        User user = activeUser();
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
+        when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
+        when(userRepository.getLockCount(1L)).thenReturn(2);
+
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
+                .isExactlyInstanceOf(AccountLockedException.class);
+
+        verify(userRepository).applyTemporaryLock(1L, LocalDateTime.now(clock).plusMinutes(8));
+    }
+
+    @Test
+    void login_escalationIsCapped() {
+        // Sans plafond, le backoff redeviendrait un verrou définitif de fait.
+        User user = activeUser();
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
+        when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
+        when(userRepository.getLockCount(1L)).thenReturn(9);
+
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
+                .isExactlyInstanceOf(AccountLockedException.class);
+
+        verify(userRepository).applyTemporaryLock(1L, LocalDateTime.now(clock).plusMinutes(30));
+    }
+
+    @Test
+    void login_deactivatedAccount_saysSoDistinctlyFromATemporaryLock() {
+        // #294 — les deux états ne doivent PLUS se ressembler : les remèdes
+        // sont opposés (voir l'administration vs attendre).
+        User removed = deactivatedUser();
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(removed));
+
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
+                .isExactlyInstanceOf(AccountLockedException.class)
+                .hasMessageContaining("désactivé")
+                .hasMessageContaining("administration");
+    }
+
+    @Test
+    void login_lockedAccount_rejectsBeforePasswordCheck() {
+        User locked = deactivatedUser();
+        when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(locked));
+
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
     }
 

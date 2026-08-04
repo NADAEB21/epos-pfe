@@ -358,7 +358,8 @@ export class ExamenWorkspaceStore {
                 .join(' · '),
       },
       {
-        // #287 — an évaluateur deactivated AFTER assignment stays bound, and
+        // #287 — an évaluateur whose account went inactive AFTER assignment stays
+        // bound, and
         // every other row stays green: proved live, the exam launches with a
         // station whose only examiner cannot log in.
         //
@@ -367,17 +368,27 @@ export class ExamenWorkspaceStore {
         // ADR-0023 D4), and no reactivation endpoint exists (#289): a blocking
         // row would trap a responsable on exam morning with no way out. Same
         // doctrine as the floor warning (#250) — warn, never gate.
+        //
+        // « inactif », not « désactivé »: is_active=false is set BOTH by an
+        // administrative deactivation and by the 3-strikes lockout
+        // (UserRepository.lockAccount), and the two are indistinguishable in the
+        // data. The remedies differ (unlock vs replace), so the hint names both
+        // rather than confidently giving the wrong one.
         label:
           this.evaluateursInactifs().length === 0
             ? 'Evaluateurs actifs'
-            : 'Compte(s) d’evaluateur desactive(s)',
+            : 'Compte(s) d’evaluateur inactif(s)',
         ok: this.evaluateursInactifs().length === 0,
         blocking: false,
         hint:
           this.evaluateursInactifs().length === 0
             ? undefined
             : this.evaluateursInactifs()
-                .map((e) => `${e.nom} (${e.station}) ne pourra pas se connecter — remplacez-le sur la station`)
+                .map(
+                  (e) =>
+                    `${e.nom} (${e.station}) ne pourra pas se connecter — compte retiré ou ` +
+                    `verrouillé après 3 essais : voyez l’administrateur, ou remplacez-le sur la station`,
+                )
                 .join(' · '),
       },
       {

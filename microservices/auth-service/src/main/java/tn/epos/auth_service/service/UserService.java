@@ -405,6 +405,7 @@ public class UserService {
                 .nom(user.getNom())
                 .prenom(user.getPrenom())
                 .isActive(user.getIsActive())
+                .lockedUntil(user.getLockedUntil())
                 .createdAt(user.getCreatedAt())
                 .roles(roles.stream()
                         .map(r -> RoleAssignmentDto.builder()

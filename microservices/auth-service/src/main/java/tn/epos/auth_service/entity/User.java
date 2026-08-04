@@ -59,6 +59,18 @@ public class User {
     @Builder.Default
     private Integer lockCount = 0;
 
+    /** #289 — quand le compte a été retiré ; null tant qu'il est actif. */
+    @Column(name = "deactivated_at")
+    private LocalDateTime deactivatedAt;
+
+    /** #289 — l'administrateur qui a décidé du retrait. */
+    @Column(name = "deactivated_by")
+    private Long deactivatedBy;
+
+    /** #289 — motif du retrait, obligatoire au moment de l'acte. */
+    @Column(name = "deactivation_motif", length = 500)
+    private String deactivationMotif;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -135,6 +135,68 @@ class UserControllerTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
+    // -------------------------------------------------------------------------
+    // #289 — retrait / retablissement d'acces : motive, attribue, reserve a l'admin
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void desactivation_superAdmin_delegueAuServiceAvecLeMotif() throws Exception {
+        mockMvc.perform(post("/api/v1/users/2/desactivation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motif\":\"Depart de la faculte\"}"))
+                .andExpect(status().isOk());
+
+        verify(userService).deactivateUser(eq(2L), eq("Depart de la faculte"),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void desactivation_sansMotif_estRejetee() throws Exception {
+        // #289 — le motif n'est pas decoratif : sans lui la trace ne vaut rien.
+        mockMvc.perform(post("/api/v1/users/2/desactivation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motif\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(userService, org.mockito.Mockito.never())
+                .deactivateUser(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_RESPONSABLE_MATIERE:5")
+    void desactivation_responsable_estRefusee() throws Exception {
+        // Retirer un acces reste un acte du plan facultaire (ADR-0018 D5).
+        mockMvc.perform(post("/api/v1/users/2/desactivation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motif\":\"tentative\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void reactivation_superAdmin_delegueAuService() throws Exception {
+        mockMvc.perform(post("/api/v1/users/2/reactivation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motif\":\"Homonyme, retrait par erreur\"}"))
+                .andExpect(status().isOk());
+
+        verify(userService).reactivateUser(eq(2L), eq("Homonyme, retrait par erreur"),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_EVALUATEUR")
+    void reactivation_evaluateur_estRefusee() throws Exception {
+        mockMvc.perform(post("/api/v1/users/2/reactivation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motif\":\"tentative\"}"))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     @WithMockUser(authorities = "ROLE_EVALUATEUR")
     void addRoles_evaluateur_isDenied() throws Exception {

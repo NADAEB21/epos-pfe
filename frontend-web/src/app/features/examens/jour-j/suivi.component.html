@@ -399,7 +399,7 @@
                     <span class="text-gray-700">Qui prend la station ?</span>
                     <select
                       (change)="onRemplacantChange($any($event.target).value)"
-                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                     >
                       <option value="">— choisir —</option>
                       @for (u of remplacantsPossibles(lane); track u.id) {
@@ -415,7 +415,7 @@
                       [value]="motifRemplacement()"
                       (input)="motifRemplacement.set($any($event.target).value)"
                       placeholder="Ex. : absence imprévue, départ en urgence, compte inaccessible"
-                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                     ></textarea>
                   </label>
                 }

@@ -48,6 +48,15 @@ public class AuditLog {
     @Column(name = "ip_address")
     private String ipAddress;
 
+    /**
+     * #289 / ADR-0018 D3 — QUI a agi. {@code userId} designe la CIBLE de
+     * l'action ; jusqu'ici rien ne disait qui l'avait declenchee, ce qui rend
+     * un journal d'audit incapable de repondre a sa seule question utile.
+     * {@code null} pour les actes ou la cible EST l'auteur (connexion, logout).
+     */
+    @Column(name = "acteur_id")
+    private Long acteurId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

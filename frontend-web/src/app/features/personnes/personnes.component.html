@@ -88,21 +88,21 @@
         <div class="grid sm:grid-cols-2 gap-4">
           <label class="block text-sm">
             <span class="text-gray-700">Prénom</span>
-            <input formControlName="prenom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="prenom" type="text" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.prenom.touched && createForm.controls.prenom.invalid) {
               <span class="text-xs text-status-danger">Le prénom est requis.</span>
             }
           </label>
           <label class="block text-sm">
             <span class="text-gray-700">Nom</span>
-            <input formControlName="nom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="nom" type="text" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.nom.touched && createForm.controls.nom.invalid) {
               <span class="text-xs text-status-danger">Le nom est requis.</span>
             }
           </label>
           <label class="block text-sm">
             <span class="text-gray-700">E-mail (identifiant de connexion)</span>
-            <input formControlName="email" type="email" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="email" type="email" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.email.touched && createForm.controls.email.invalid) {
               <span class="text-xs text-status-danger">Une adresse e-mail valide est requise.</span>
             }
@@ -110,7 +110,7 @@
           <label class="block text-sm">
             <span class="text-gray-700">Mot de passe (généré — transmettez-le à la personne)</span>
             <span class="mt-1 flex gap-2">
-              <input formControlName="password" type="text" class="w-full rounded-lg border-gray-300 text-sm font-mono" />
+              <input formControlName="password" type="text" class="w-full text-sm font-mono rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
               <button
                 type="button"
                 (click)="regeneratePassword()"
@@ -130,7 +130,7 @@
         @if (scope === 'co-responsables' && myMatieres().length > 1) {
           <label class="block text-sm max-w-xs">
             <span class="text-gray-700">Matière</span>
-            <select formControlName="matiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+            <select formControlName="matiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
               <option [ngValue]="null">— choisir —</option>
               @for (m of myMatieres(); track m.id) {
                 <option [ngValue]="m.id">{{ m.libelle }}</option>
@@ -143,17 +143,17 @@
           <fieldset class="text-sm space-y-2">
             <legend class="text-gray-700 mb-1">Rôles du compte</legend>
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleEvaluateur" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleEvaluateur" class="rounded border border-gray-300" />
               <span>Évaluateur — note aux stations (application mobile), toutes matières</span>
             </label>
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleResponsable" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleResponsable" class="rounded border border-gray-300" />
               <span>Responsable de matière — crée et conduit les examens de sa matière</span>
             </label>
             @if (createForm.controls.roleResponsable.value) {
               <label class="block max-w-xs pl-6">
                 <span class="text-gray-700">Matière du responsable</span>
-                <select formControlName="respMatiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+                <select formControlName="respMatiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
                   <option [ngValue]="null">— choisir —</option>
                   @for (m of matieres(); track m.id) {
                     <option [ngValue]="m.id">{{ m.libelle }}</option>
@@ -162,7 +162,7 @@
               </label>
             }
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleSuperAdmin" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleSuperAdmin" class="rounded border border-gray-300" />
               <span>Super-admin — comptes, matières et supervision (pas d'actes pédagogiques)</span>
             </label>
           </fieldset>
@@ -202,7 +202,7 @@
             <span class="text-gray-700">Matière</span>
             <select
               (change)="onAppointMatiereChange($any($event.target).value)"
-              class="mt-1 rounded-lg border-gray-300 text-sm"
+              class="mt-1 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
             >
               <option value="">— choisir —</option>
               @for (m of myMatieres(); track m.id) {
@@ -215,7 +215,7 @@
           <span class="text-gray-700">Personne</span>
           <select
             (change)="onAppointUserChange($any($event.target).value)"
-            class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+            class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           >
             <option value="">— choisir —</option>
             @for (u of appointCandidates(); track u.id) {
@@ -267,7 +267,7 @@
         <input
           type="search"
           placeholder="Rechercher par nom ou e-mail…"
-          class="w-full sm:w-80 rounded-lg border-gray-300 text-sm"
+          class="w-full sm:w-80 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           [value]="search()"
           (input)="search.set($any($event.target).value)"
         />
@@ -304,9 +304,15 @@
                 }
               </div>
               @if (!u.isActive) {
-                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
-                  Désactivé
+                <!-- #289 — un badge muet ne répond pas à « pourquoi ce compte
+                     est-il fermé ? ». La provenance vit à côté du nom. -->
+                <span
+                  class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600"
+                  [title]="retraitLabel(u)"
+                >
+                  Accès retiré
                 </span>
+                <span class="text-xs text-gray-500 basis-full">{{ retraitLabel(u) }}</span>
               }
               <span class="text-xs text-gray-400">Créé le {{ frDate(u.createdAt) }}</span>
               @if (scope === 'admin' && u.isActive && u.id !== myUserId()) {
@@ -315,8 +321,108 @@
                   (click)="askDeactivate(u)"
                   class="text-xs text-status-danger hover:underline"
                 >
-                  Désactiver
+                  Retirer l'accès
                 </button>
+              }
+              @if (scope === 'admin' && !u.isActive) {
+                <button
+                  type="button"
+                  (click)="askReactivate(u)"
+                  class="text-xs text-brand hover:underline"
+                >
+                  Rétablir l'accès
+                </button>
+              }
+
+              <!-- #289 (retour de Nada) — la confirmation s'ouvre SOUS la ligne
+                   cliquée, pas en bas de page : sur un annuaire long, le clic
+                   semblait ne rien faire et il fallait deviner qu'il fallait
+                   défiler. Même motif que le panneau de suppléance (#296). -->
+  <!-- #289 — retirer l'accès : un acte nommé, motivé, et réversible -->
+              @if (confirmingDeactivation()?.id === u.id) {
+                <section class="basis-full rounded-lg border border-status-danger bg-red-50 p-4 mt-3"
+                  role="alertdialog">
+                  <p class="text-sm font-medium text-gray-900 mb-1">
+                    Retirer l'accès de {{ u.prenom }} {{ u.nom }} ?
+                  </p>
+                  <p class="text-sm text-gray-700 mb-3">
+                    La personne ne pourra plus se reconnecter — une session déjà ouverte peut toutefois
+                    rester active jusqu'à 24 heures. Vous pourrez rétablir l'accès depuis cet écran.
+                  </p>
+                  <label class="block text-sm mb-3 max-w-xl">
+                    <span class="text-gray-700">Motif (obligatoire)</span>
+                    <textarea
+                      rows="2"
+                      maxlength="500"
+                      [value]="motifRetrait()"
+                      (input)="motifRetrait.set($any($event.target).value)"
+                      placeholder="Ex. : départ de la faculté, compte créé en double"
+                  #motifInput
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                    ></textarea>
+                    <span class="text-xs text-gray-500">
+                      Il restera lisible à côté du compte, avec votre nom — c'est ce qui permettra de
+                      répondre plus tard à « pourquoi ce compte est-il fermé ? ».
+                    </span>
+                  </label>
+                  @if (deactivateError(); as err) {
+                    <p class="text-sm text-status-danger mb-3">{{ err }}</p>
+                  }
+                  <div class="flex items-center gap-3">
+                    <button
+                      type="button"
+                      (click)="confirmDeactivate()"
+                      [disabled]="deactivating()"
+                      class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-danger transition-colors disabled:opacity-40"
+                    >
+                      {{ deactivating() ? 'Retrait…' : "Retirer l'accès" }}
+                    </button>
+                    <button type="button" (click)="annulerRetrait()" class="text-sm text-gray-500 hover:text-gray-700">
+                      Annuler
+                    </button>
+                  </div>
+                </section>
+              }
+
+              @if (confirmingReactivation()?.id === u.id) {
+                <section class="basis-full rounded-lg border border-brand bg-brand-50 p-4 mt-3"
+                  role="alertdialog">
+                  <p class="text-sm font-medium text-gray-900 mb-1">
+                    Rétablir l'accès de {{ u.prenom }} {{ u.nom }} ?
+                  </p>
+                  <p class="text-sm text-gray-700 mb-3">
+                    {{ retraitLabel(u) }}. La personne pourra se reconnecter immédiatement ; tout
+                    verrouillage résiduel est levé.
+                  </p>
+                  <label class="block text-sm mb-3 max-w-xl">
+                    <span class="text-gray-700">Motif (obligatoire)</span>
+                    <textarea
+                      rows="2"
+                      maxlength="500"
+                      [value]="motifRetrait()"
+                      (input)="motifRetrait.set($any($event.target).value)"
+                      placeholder="Ex. : retrait par erreur (homonyme), retour de la personne"
+                  #motifInput
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                    ></textarea>
+                  </label>
+                  @if (deactivateError(); as err) {
+                    <p class="text-sm text-status-danger mb-3">{{ err }}</p>
+                  }
+                  <div class="flex items-center gap-3">
+                    <button
+                      type="button"
+                      (click)="confirmReactivate()"
+                      [disabled]="deactivating()"
+                      class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand transition-colors disabled:opacity-40"
+                    >
+                      {{ deactivating() ? 'Rétablissement…' : "Rétablir l'accès" }}
+                    </button>
+                    <button type="button" (click)="annulerRetrait()" class="text-sm text-gray-500 hover:text-gray-700">
+                      Annuler
+                    </button>
+                  </div>
+                </section>
               }
             </li>
           }
@@ -325,36 +431,5 @@
     </section>
   }
 
-  <!-- Deactivation confirm (admin) -->
-  @if (confirmingDeactivation(); as u) {
-    <section class="rounded-xl border border-status-danger bg-red-50 p-5 mt-6">
-      <p class="text-sm font-medium text-gray-900 mb-1">
-        Désactiver le compte de {{ u.prenom }} {{ u.nom }} ?
-      </p>
-      <p class="text-sm text-gray-700 mb-3">
-        La personne ne pourra plus se reconnecter — mais une session déjà ouverte peut rester
-        active jusqu'à 24 heures. La réactivation n'est pas encore disponible depuis cet écran.
-      </p>
-      @if (deactivateError(); as err) {
-        <p class="text-sm text-status-danger mb-3">{{ err }}</p>
-      }
-      <div class="flex items-center gap-3">
-        <button
-          type="button"
-          (click)="confirmDeactivate()"
-          [disabled]="deactivating()"
-          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-danger transition-colors disabled:opacity-40"
-        >
-          {{ deactivating() ? 'Désactivation…' : 'Désactiver le compte' }}
-        </button>
-        <button
-          type="button"
-          (click)="confirmingDeactivation.set(null)"
-          class="text-sm text-gray-500 hover:text-gray-700"
-        >
-          Annuler
-        </button>
-      </div>
-    </section>
-  }
+
 </div>

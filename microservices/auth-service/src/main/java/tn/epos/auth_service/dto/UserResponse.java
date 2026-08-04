@@ -28,6 +28,16 @@ public class UserResponse {
      * UTC+2 — la ligne d'alerte ne s'affichait pas). Même piège qu'ADR-0010.
      */
     private java.time.OffsetDateTime lockedUntil;
+
+    /**
+     * #289 — le « pourquoi » d'un compte fermé, lisible six mois plus tard.
+     * L'écran affiche « Retiré le … par … — motif » au lieu d'un badge muet.
+     * Null sur les comptes fermés AVANT la V3 : on n'invente pas un motif
+     * après coup.
+     */
+    private java.time.LocalDateTime deactivatedAt;
+    private Long deactivatedBy;
+    private String deactivationMotif;
     private LocalDateTime createdAt;
     private List<RoleAssignmentDto> roles;
 }

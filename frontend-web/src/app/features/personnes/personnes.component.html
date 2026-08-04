@@ -88,21 +88,21 @@
         <div class="grid sm:grid-cols-2 gap-4">
           <label class="block text-sm">
             <span class="text-gray-700">Prénom</span>
-            <input formControlName="prenom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="prenom" type="text" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.prenom.touched && createForm.controls.prenom.invalid) {
               <span class="text-xs text-status-danger">Le prénom est requis.</span>
             }
           </label>
           <label class="block text-sm">
             <span class="text-gray-700">Nom</span>
-            <input formControlName="nom" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="nom" type="text" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.nom.touched && createForm.controls.nom.invalid) {
               <span class="text-xs text-status-danger">Le nom est requis.</span>
             }
           </label>
           <label class="block text-sm">
             <span class="text-gray-700">E-mail (identifiant de connexion)</span>
-            <input formControlName="email" type="email" class="mt-1 w-full rounded-lg border-gray-300 text-sm" />
+            <input formControlName="email" type="email" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
             @if (createForm.controls.email.touched && createForm.controls.email.invalid) {
               <span class="text-xs text-status-danger">Une adresse e-mail valide est requise.</span>
             }
@@ -110,7 +110,7 @@
           <label class="block text-sm">
             <span class="text-gray-700">Mot de passe (généré — transmettez-le à la personne)</span>
             <span class="mt-1 flex gap-2">
-              <input formControlName="password" type="text" class="w-full rounded-lg border-gray-300 text-sm font-mono" />
+              <input formControlName="password" type="text" class="w-full text-sm font-mono rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
               <button
                 type="button"
                 (click)="regeneratePassword()"
@@ -130,7 +130,7 @@
         @if (scope === 'co-responsables' && myMatieres().length > 1) {
           <label class="block text-sm max-w-xs">
             <span class="text-gray-700">Matière</span>
-            <select formControlName="matiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+            <select formControlName="matiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
               <option [ngValue]="null">— choisir —</option>
               @for (m of myMatieres(); track m.id) {
                 <option [ngValue]="m.id">{{ m.libelle }}</option>
@@ -143,17 +143,17 @@
           <fieldset class="text-sm space-y-2">
             <legend class="text-gray-700 mb-1">Rôles du compte</legend>
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleEvaluateur" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleEvaluateur" class="rounded border border-gray-300" />
               <span>Évaluateur — note aux stations (application mobile), toutes matières</span>
             </label>
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleResponsable" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleResponsable" class="rounded border border-gray-300" />
               <span>Responsable de matière — crée et conduit les examens de sa matière</span>
             </label>
             @if (createForm.controls.roleResponsable.value) {
               <label class="block max-w-xs pl-6">
                 <span class="text-gray-700">Matière du responsable</span>
-                <select formControlName="respMatiereId" class="mt-1 w-full rounded-lg border-gray-300 text-sm">
+                <select formControlName="respMatiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
                   <option [ngValue]="null">— choisir —</option>
                   @for (m of matieres(); track m.id) {
                     <option [ngValue]="m.id">{{ m.libelle }}</option>
@@ -162,7 +162,7 @@
               </label>
             }
             <label class="flex items-center gap-2">
-              <input type="checkbox" formControlName="roleSuperAdmin" class="rounded border-gray-300" />
+              <input type="checkbox" formControlName="roleSuperAdmin" class="rounded border border-gray-300" />
               <span>Super-admin — comptes, matières et supervision (pas d'actes pédagogiques)</span>
             </label>
           </fieldset>
@@ -202,7 +202,7 @@
             <span class="text-gray-700">Matière</span>
             <select
               (change)="onAppointMatiereChange($any($event.target).value)"
-              class="mt-1 rounded-lg border-gray-300 text-sm"
+              class="mt-1 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
             >
               <option value="">— choisir —</option>
               @for (m of myMatieres(); track m.id) {
@@ -215,7 +215,7 @@
           <span class="text-gray-700">Personne</span>
           <select
             (change)="onAppointUserChange($any($event.target).value)"
-            class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+            class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           >
             <option value="">— choisir —</option>
             @for (u of appointCandidates(); track u.id) {
@@ -267,7 +267,7 @@
         <input
           type="search"
           placeholder="Rechercher par nom ou e-mail…"
-          class="w-full sm:w-80 rounded-lg border-gray-300 text-sm"
+          class="w-full sm:w-80 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           [value]="search()"
           (input)="search.set($any($event.target).value)"
         />
@@ -358,7 +358,7 @@
                       (input)="motifRetrait.set($any($event.target).value)"
                       placeholder="Ex. : départ de la faculté, compte créé en double"
                   #motifInput
-                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                     ></textarea>
                     <span class="text-xs text-gray-500">
                       Il restera lisible à côté du compte, avec votre nom — c'est ce qui permettra de
@@ -403,7 +403,7 @@
                       (input)="motifRetrait.set($any($event.target).value)"
                       placeholder="Ex. : retrait par erreur (homonyme), retour de la personne"
                   #motifInput
-                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                     ></textarea>
                   </label>
                   @if (deactivateError(); as err) {

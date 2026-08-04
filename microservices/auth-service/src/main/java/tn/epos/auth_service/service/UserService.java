@@ -44,6 +44,7 @@ public class UserService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final java.time.Clock clock;
 
     // -------------------------------------------------------------------------
     // Read
@@ -405,7 +406,11 @@ public class UserService {
                 .nom(user.getNom())
                 .prenom(user.getPrenom())
                 .isActive(user.getIsActive())
-                .lockedUntil(user.getLockedUntil())
+                // #294 — ancré sur la zone de l'horloge serveur : sans décalage,
+                // le client daterait le verrou dans SA zone (cf. UserResponse).
+                .lockedUntil(user.getLockedUntil() == null
+                        ? null
+                        : user.getLockedUntil().atZone(clock.getZone()).toOffsetDateTime())
                 .createdAt(user.getCreatedAt())
                 .roles(roles.stream()
                         .map(r -> RoleAssignmentDto.builder()

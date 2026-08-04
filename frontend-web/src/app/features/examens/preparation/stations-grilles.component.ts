@@ -401,8 +401,26 @@ export class StationsGrillesComponent {
    * — telling the truth about an assignment that has gone stale.
    */
   evalInactif(id: number): boolean {
+    return this.evalEtat(id) !== null;
+  }
+
+  /**
+   * #287 + #294 — pourquoi cet évaluateur ne peut pas travailler, ou null s'il
+   * le peut. Les deux causes ne se ressemblent plus depuis la V2 et n'appellent
+   * pas le même geste : un compte retiré se remplace (ADR-0017), un verrou
+   * s'attend. Un id absent de l'annuaire = référence pendante (#242), pas ce
+   * défaut-ci — on ne crie pas dessus ici.
+   */
+  evalEtat(id: number): 'retire' | 'verrouille' | null {
     const u = this.evalMap().get(id);
-    return u ? !u.isActive : false; // unknown id = #242's dangling-ref problem, not this one
+    if (!u) return null;
+    if (!u.isActive) return 'retire';
+    if (u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now()) return 'verrouille';
+    return null;
+  }
+
+  evalEtatLabel(id: number): string {
+    return this.evalEtat(id) === 'verrouille' ? 'compte verrouille' : 'compte retire';
   }
 
   typeLabel(t: TypeStation): string {

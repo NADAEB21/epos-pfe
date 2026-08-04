@@ -441,6 +441,35 @@ export interface ConflitEvaluateur {
 }
 
 /**
+ * ADR-0017 §3 / #296 — corps de la suppléance en pleine épreuve
+ * (POST /lots/{lotId}/stations/{stationId}/remplacer-evaluateur).
+ *
+ * Le motif est OBLIGATOIRE côté serveur (@NotBlank, ≤500) : une suppléance
+ * doit pouvoir s'expliquer après coup, comme un réajustement de note
+ * (ADR-0013). Un champ facultatif serait vide neuf fois sur dix.
+ */
+export interface RemplacerEvaluateurRequest {
+  nouvelEvaluateurId: number;
+  motif: string;
+}
+
+/**
+ * Bilan d'une suppléance. `rotationsTransferees` et `rotationsConservees`
+ * arrivent séparément parce que c'est LA question du responsable : le travail
+ * déjà fait reste-t-il au nom de celui qui l'a fait ? Oui — seules les
+ * rotations non terminées changent de main.
+ */
+export interface SubstitutionResult {
+  lotId: number;
+  stationId: number;
+  ancienEvaluateur: number;
+  nouvelEvaluateur: number;
+  rotationsTransferees: number;
+  rotationsConservees: number;
+  message: string;
+}
+
+/**
  * #276/#280 — one station whose grille does not let a faultless student reach
  * the announced noteMax (GET /examens/{id}/baremes-incomplets). Non-empty =
  * launching would silently cap the whole cohort; the backend refuses it at

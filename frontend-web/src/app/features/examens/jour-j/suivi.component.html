@@ -335,6 +335,21 @@
     </section>
   }
 
+  <!-- #296 — bilan de la dernière suppléance : le responsable doit LIRE que le
+       travail déjà fait n'a pas changé de main. -->
+  @if (remplacementBilan(); as bilan) {
+    <div class="rounded-xl border border-status-success bg-green-50 p-4 mb-4 flex items-start gap-3">
+      <p class="text-sm text-gray-800 flex-1">{{ bilan }}</p>
+      <button
+        type="button"
+        (click)="remplacementBilan.set(null)"
+        class="text-sm text-gray-500 hover:text-gray-700"
+      >
+        Fermer
+      </button>
+    </div>
+  }
+
   <!-- Per-station lanes -->
   <div class="space-y-4">
     @for (lane of lanes(); track lane.stationId) {
@@ -348,7 +363,86 @@
             <p class="text-sm text-gray-500">
               Évaluateur :
               <span class="text-gray-700">{{ lane.evaluateurNom || 'non assigné' }}</span>
+              <!-- #296 / ADR-0017 §3 — la sortie de secours du jour J : si
+                   l'examinateur ne peut pas tenir sa station, quelqu'un reprend
+                   les groupes non terminés. Sans ce lien, l'examen restait
+                   ouvert pour toujours (aucune vague ne pouvait s'achever). -->
+              @if (peutRemplacer() && remplacementStationId() !== lane.stationId) {
+                <button
+                  type="button"
+                  (click)="ouvrirRemplacement(lane)"
+                  class="ml-2 text-xs text-brand hover:underline"
+                >
+                  Remplacer
+                </button>
+              }
             </p>
+
+            @if (remplacementStationId() === lane.stationId) {
+              <div class="mt-3 rounded-lg border border-brand bg-brand-50 p-3 max-w-xl">
+                <p class="text-sm font-medium text-gray-900 mb-1">
+                  Remplacer l'évaluateur de « {{ lane.nom }} »
+                </p>
+                <p class="text-xs text-gray-600 mb-3">
+                  Les groupes déjà validés restent au nom de
+                  {{ lane.evaluateurNom || 'l’évaluateur précédent' }} ; seuls les groupes en
+                  cours et à venir changent de main.
+                </p>
+
+                @if (remplacantsPossibles(lane).length === 0) {
+                  <p class="text-sm text-status-danger mb-3">
+                    Aucun évaluateur disponible : les autres tiennent déjà une station de cette
+                    vague, ou leur compte est retiré ou verrouillé.
+                  </p>
+                } @else {
+                  <label class="block text-sm mb-2">
+                    <span class="text-gray-700">Qui prend la station ?</span>
+                    <select
+                      (change)="onRemplacantChange($any($event.target).value)"
+                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                    >
+                      <option value="">— choisir —</option>
+                      @for (u of remplacantsPossibles(lane); track u.id) {
+                        <option [value]="u.id">{{ u.nom }} {{ u.prenom }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="block text-sm mb-3">
+                    <span class="text-gray-700">Motif (obligatoire)</span>
+                    <textarea
+                      rows="2"
+                      maxlength="500"
+                      [value]="motifRemplacement()"
+                      (input)="motifRemplacement.set($any($event.target).value)"
+                      placeholder="Ex. : absence imprévue, départ en urgence, compte inaccessible"
+                      class="mt-1 w-full rounded-lg border-gray-300 text-sm"
+                    ></textarea>
+                  </label>
+                }
+
+                @if (remplacementErreur(); as err) {
+                  <p class="text-sm text-status-danger mb-2">{{ err }}</p>
+                }
+
+                <div class="flex items-center gap-3">
+                  <button
+                    type="button"
+                    [disabled]="remplacementEnCours() || remplacantsPossibles(lane).length === 0"
+                    (click)="confirmerRemplacement(lane)"
+                    class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+                  >
+                    {{ remplacementEnCours() ? 'Remplacement…' : 'Remplacer' }}
+                  </button>
+                  <button
+                    type="button"
+                    (click)="fermerRemplacement()"
+                    class="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            }
           </div>
 
           <!--

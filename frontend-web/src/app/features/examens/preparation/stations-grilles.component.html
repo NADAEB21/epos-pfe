@@ -264,7 +264,7 @@
                   [class.ring-1]="evalInactif(id)"
                   [class.ring-status-danger]="evalInactif(id)"
                 >
-                  {{ evalName(id) }}@if (evalInactif(id)) {<span class="font-medium"> · compte inactif</span>}
+                  {{ evalName(id) }}@if (evalInactif(id)) {<span class="font-medium"> · {{ evalEtatLabel(id) }}</span>}
                   @if (editable()) {
                     <button
                       type="button"

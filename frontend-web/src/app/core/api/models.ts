@@ -737,6 +737,13 @@ export interface UserResponse {
   prenom: string;
   isActive: boolean;
   createdAt: string | null;
+  /**
+   * #294 — fin du verrou TEMPORAIRE (3 mots de passe ratés), ou null. À ne pas
+   * confondre avec `isActive`, qui ne porte plus QUE le retrait administratif :
+   * les deux causes partageaient un drapeau avant la V2, et leurs remèdes sont
+   * opposés (attendre vs voir l'administration).
+   */
+  lockedUntil?: string | null;
   /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
   roles: RoleAssignment[];
 }

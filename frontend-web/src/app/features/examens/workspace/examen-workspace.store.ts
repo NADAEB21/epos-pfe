@@ -225,19 +225,36 @@ export class ExamenWorkspaceStore {
    * from it is #242's dangling reference, a different defect, and guessing here
    * would raise false alarms whenever the directory is partial.
    */
-  private readonly evaluateursInactifs = computed<{ nom: string; station: string }[]>(() => {
+  private readonly evaluateursInactifs = computed<
+    { nom: string; station: string; cause: 'retire' | 'verrouille'; jusqua?: string }[]
+  >(() => {
     const parId = new Map(this.annuaire().map((u) => [u.id, u]));
-    const out: { nom: string; station: string }[] = [];
+    const maintenant = Date.now();
+    const out: { nom: string; station: string; cause: 'retire' | 'verrouille'; jusqua?: string }[] = [];
     for (const s of this.stations()) {
       for (const id of s.evaluateurIds ?? []) {
         const u = parId.get(id);
-        if (u && !u.isActive) {
-          out.push({ nom: `${u.prenom} ${u.nom}`, station: s.nom ?? `station ${s.id}` });
+        if (!u) continue; // id inconnu = référence pendante (#242), autre défaut
+        const station = s.nom ?? `station ${s.id}`;
+        const nom = `${u.prenom} ${u.nom}`;
+        if (!u.isActive) {
+          out.push({ nom, station, cause: 'retire' });
+        } else if (u.lockedUntil && new Date(u.lockedUntil).getTime() > maintenant) {
+          // #294 — verrou temporaire : il s'ouvrira tout seul, on annonce QUAND
+          // plutôt que d'envoyer chercher un administrateur pour rien.
+          out.push({ nom, station, cause: 'verrouille', jusqua: this.frHeure(u.lockedUntil) });
         }
       }
     }
     return out;
   });
+
+  private frHeure(iso: string): string {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? ''
+      : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
 
   private readonly dateExamen = computed(() => this.exam()?.dateExamen ?? null);
   /** #147 — launch is allowed on ANY of the exam's lot-days (multi-day). For a
@@ -369,25 +386,26 @@ export class ExamenWorkspaceStore {
         // row would trap a responsable on exam morning with no way out. Same
         // doctrine as the floor warning (#250) — warn, never gate.
         //
-        // « inactif », not « désactivé »: is_active=false is set BOTH by an
-        // administrative deactivation and by the 3-strikes lockout
-        // (UserRepository.lockAccount), and the two are indistinguishable in the
-        // data. The remedies differ (unlock vs replace), so the hint names both
-        // rather than confidently giving the wrong one.
+        // #294 a séparé les deux causes, donc le message n'a plus à hésiter :
+        // « retiré » (l'administration seule rouvre) et « verrouillé jusqu'à
+        // HH:MM » (ça se rouvre tout seul) appellent des gestes opposés, et le
+        // second ne justifie PAS de déranger l'administration.
         label:
           this.evaluateursInactifs().length === 0
             ? 'Evaluateurs actifs'
-            : 'Compte(s) d’evaluateur inactif(s)',
+            : 'Compte(s) d’evaluateur indisponible(s)',
         ok: this.evaluateursInactifs().length === 0,
         blocking: false,
         hint:
           this.evaluateursInactifs().length === 0
             ? undefined
             : this.evaluateursInactifs()
-                .map(
-                  (e) =>
-                    `${e.nom} (${e.station}) ne pourra pas se connecter — compte retiré ou ` +
-                    `verrouillé après 3 essais : voyez l’administrateur, ou remplacez-le sur la station`,
+                .map((e) =>
+                  e.cause === 'verrouille'
+                    ? `${e.nom} (${e.station}) est verrouillé après plusieurs essais de mot de passe — `
+                      + `il pourra se reconnecter vers ${e.jusqua}`
+                    : `${e.nom} (${e.station}) a un compte retiré — il ne pourra pas se connecter : `
+                      + `voyez l’administration, ou remplacez-le sur la station`,
                 )
                 .join(' · '),
       },

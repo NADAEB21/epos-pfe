@@ -22,6 +22,7 @@ import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -232,17 +233,92 @@ public class UserService {
     // Deactivate (soft delete)
     // -------------------------------------------------------------------------
 
+    /**
+     * #289 — retirer l'accès à quelqu'un devient un acte NOMMÉ, MOTIVÉ et
+     * RÉVERSIBLE.
+     *
+     * <p>Avant : un clic, sans motif, sans trace de l'auteur, sans retour
+     * possible — alors qu'une simple suppléance d'évaluateur exige déjà un motif
+     * et enregistre son auteur (ADR-0017). L'écart n'était pas défendable.
+     *
+     * <p>Deux garde-fous que l'appelant ne peut pas contourner :
+     * on ne se retire pas soi-même, et on ne retire pas le dernier
+     * administrateur actif — sans quoi la plateforme devient ingérable, et la
+     * seule sortie serait une requête en base.
+     *
+     * @param acteurId l'administrateur qui décide ; jamais la cible.
+     */
     @Transactional
-    public void deactivateUser(Long userId) {
+    public void deactivateUser(Long userId, String motif, Long acteurId) {
         User user = findUserOrThrow(userId);
 
+        if (acteurId != null && acteurId.equals(userId)) {
+            throw new UnauthorizedDelegationException(
+                    "Vous ne pouvez pas retirer votre propre accès. "
+                            + "Demandez à un autre administrateur.");
+        }
+        if (isLastActiveSuperAdmin(user)) {
+            throw new UnauthorizedDelegationException(
+                    "Ce compte est le dernier administrateur actif de la plateforme : "
+                            + "le retirer rendrait toute administration impossible. "
+                            + "Nommez d'abord un autre administrateur.");
+        }
+
         user.setIsActive(false);
+        user.setDeactivatedAt(LocalDateTime.now(clock));
+        user.setDeactivatedBy(acteurId);
+        user.setDeactivationMotif(motif);
         userRepository.save(user);
 
         // Force all active sessions to expire immediately
         refreshTokenRepository.revokeAllByUserId(userId);
 
-        auditService.log(user.getId(), user.getEmail(), AuditAction.USER_DEACTIVATED, null, null);
+        auditService.logAttribue(user.getId(), user.getEmail(),
+                AuditAction.USER_DEACTIVATED, motif, null, acteurId);
+    }
+
+    /**
+     * #289 — rouvrir un compte retiré. Il n'existait AUCUN chemin de retour :
+     * une erreur de ligne (deux homonymes) se réparait en SQL.
+     *
+     * <p>La réouverture efface aussi tout verrou temporaire résiduel (#294) :
+     * un compte qu'on rouvre ne doit pas hériter d'un blocage vieux de six mois.
+     */
+    @Transactional
+    public void reactivateUser(Long userId, String motif, Long acteurId) {
+        User user = findUserOrThrow(userId);
+        if (Boolean.TRUE.equals(user.getIsActive())) {
+            throw new tn.epos.auth_service.exception.EmailAlreadyExistsException(
+                    "Ce compte est déjà actif.");
+        }
+
+        user.setIsActive(true);
+        user.setDeactivatedAt(null);
+        user.setDeactivatedBy(null);
+        user.setDeactivationMotif(null);
+        user.setLockedUntil(null);
+        user.setLockCount(0);
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
+
+        auditService.logAttribue(user.getId(), user.getEmail(),
+                AuditAction.USER_REACTIVATED, motif, null, acteurId);
+    }
+
+    /**
+     * Vrai si {@code cible} est le SEUL compte actif portant SUPER_ADMIN.
+     * Compté sur les rôles réels, pas sur le rôle « principal » : un compte peut
+     * être administrateur ET responsable.
+     */
+    private boolean isLastActiveSuperAdmin(User cible) {
+        boolean cibleEstAdmin = userRoleRepository.findByUserId(cible.getId()).stream()
+                .anyMatch(r -> r.getRole() == RoleType.SUPER_ADMIN);
+        if (!cibleEstAdmin) {
+            return false;
+        }
+        return userRepository.findByRole(RoleType.SUPER_ADMIN).stream()
+                .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
+                .noneMatch(u -> !u.getId().equals(cible.getId()));
     }
 
     // -------------------------------------------------------------------------
@@ -408,6 +484,9 @@ public class UserService {
                 .isActive(user.getIsActive())
                 // #294 — ancré sur la zone de l'horloge serveur : sans décalage,
                 // le client daterait le verrou dans SA zone (cf. UserResponse).
+                .deactivatedAt(user.getDeactivatedAt())
+                .deactivatedBy(user.getDeactivatedBy())
+                .deactivationMotif(user.getDeactivationMotif())
                 .lockedUntil(user.getLockedUntil() == null
                         ? null
                         : user.getLockedUntil().atZone(clock.getZone()).toOffsetDateTime())

@@ -11,6 +11,8 @@ public enum AuditAction {
     PASSWORD_RESET_CONFIRMED,
     USER_CREATED,
     USER_DEACTIVATED,
+    /** #289 — la desactivation cesse d'etre a sens unique. */
+    USER_REACTIVATED,
     ROLE_ASSIGNED,
     ROLE_REVOKED
 }

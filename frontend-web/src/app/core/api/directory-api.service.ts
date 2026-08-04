@@ -51,13 +51,23 @@ export class DirectoryApiService {
   }
 
   /**
-   * Deactivate an account (DELETE /users/{id}) — SUPER_ADMIN only. Soft:
-   * is_active=false + all refresh tokens revoked. There is NO reactivation
-   * endpoint today — reversing this requires SQL (known backend gap).
+   * #289 — retirer l'accès (POST /users/{id}/desactivation), SUPER_ADMIN seul.
+   *
+   * <p>Remplace l'ancien `DELETE /users/{id}` : le motif est désormais
+   * OBLIGATOIRE et l'auteur est enregistré côté serveur (depuis le JWT). Le
+   * serveur refuse aussi qu'on se retire soi-même ou qu'on retire le dernier
+   * administrateur actif — deux refus nominatifs à afficher tels quels.
    */
-  deactivateUser(userId: number): Observable<void> {
+  deactivateUser(userId: number, motif: string): Observable<void> {
     return this.http
-      .delete<ApiResponse<void>>(`${this.baseUrl}/users/${userId}`)
+      .post<ApiResponse<void>>(`${this.baseUrl}/users/${userId}/desactivation`, { motif })
+      .pipe(map(() => undefined));
+  }
+
+  /** #289 — rouvrir un compte retiré. Efface aussi tout verrou résiduel (#294). */
+  reactivateUser(userId: number, motif: string): Observable<void> {
+    return this.http
+      .post<ApiResponse<void>>(`${this.baseUrl}/users/${userId}/reactivation`, { motif })
       .pipe(map(() => undefined));
   }
 }

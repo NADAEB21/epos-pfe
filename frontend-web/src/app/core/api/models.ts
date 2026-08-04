@@ -773,6 +773,13 @@ export interface UserResponse {
    * opposés (attendre vs voir l'administration).
    */
   lockedUntil?: string | null;
+  /**
+   * #289 — le « pourquoi » d'un compte fermé. Null sur les comptes fermés avant
+   * la V3 : l'écran le dit honnêtement plutôt que d'inventer un motif.
+   */
+  deactivatedAt?: string | null;
+  deactivatedBy?: number | null;
+  deactivationMotif?: string | null;
   /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
   roles: RoleAssignment[];
 }

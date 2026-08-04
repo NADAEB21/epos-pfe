@@ -79,10 +79,14 @@ export class PersonnesComponent {
   readonly appointSubmitting = signal(false);
   readonly appointError = signal<string | null>(null);
 
-  // ---- deactivation (admin scope) --------------------------------------------
+  // ---- retrait / rétablissement d'accès (admin scope) — #289 -----------------
   readonly confirmingDeactivation = signal<UserResponse | null>(null);
   readonly deactivating = signal(false);
   readonly deactivateError = signal<string | null>(null);
+  /** #289 — motif obligatoire : fermer le compte d'un collègue s'explique. */
+  readonly motifRetrait = signal('');
+  /** Compte dont la réouverture est en cours de confirmation. */
+  readonly confirmingReactivation = signal<UserResponse | null>(null);
 
   readonly myUserId = computed(() => this.auth.currentUser()?.userId ?? null);
   readonly myMatiereIds = computed(() => this.auth.responsableMatiereIds());
@@ -335,15 +339,36 @@ export class PersonnesComponent {
 
   askDeactivate(u: UserResponse): void {
     this.deactivateError.set(null);
+    this.motifRetrait.set('');
+    this.confirmingReactivation.set(null);
     this.confirmingDeactivation.set(u);
+  }
+
+  askReactivate(u: UserResponse): void {
+    this.deactivateError.set(null);
+    this.motifRetrait.set('');
+    this.confirmingDeactivation.set(null);
+    this.confirmingReactivation.set(u);
+  }
+
+  annulerRetrait(): void {
+    this.confirmingDeactivation.set(null);
+    this.confirmingReactivation.set(null);
   }
 
   confirmDeactivate(): void {
     const u = this.confirmingDeactivation();
     if (!u) return;
+    const motif = this.motifRetrait().trim();
+    if (!motif) {
+      this.deactivateError.set(
+        'Le motif est obligatoire : un retrait d’accès doit pouvoir s’expliquer.',
+      );
+      return;
+    }
     this.deactivating.set(true);
     this.deactivateError.set(null);
-    this.api.deactivateUser(u.id).subscribe({
+    this.api.deactivateUser(u.id, motif).subscribe({
       next: () => {
         this.deactivating.set(false);
         this.confirmingDeactivation.set(null);
@@ -351,8 +376,44 @@ export class PersonnesComponent {
       },
       error: (e: HttpErrorResponse) => {
         this.deactivating.set(false);
-        this.deactivateError.set(e.error?.message ?? 'La désactivation a échoué. Réessayez.');
+        // Les refus du serveur (soi-même, dernier admin) sont nominatifs :
+        // on les affiche mot pour mot plutôt que d'inventer un texte générique.
+        this.deactivateError.set(e.error?.message ?? 'Le retrait a échoué. Réessayez.');
       },
     });
+  }
+
+  confirmReactivate(): void {
+    const u = this.confirmingReactivation();
+    if (!u) return;
+    const motif = this.motifRetrait().trim();
+    if (!motif) {
+      this.deactivateError.set('Indiquez pourquoi ce compte est rouvert.');
+      return;
+    }
+    this.deactivating.set(true);
+    this.deactivateError.set(null);
+    this.api.reactivateUser(u.id, motif).subscribe({
+      next: () => {
+        this.deactivating.set(false);
+        this.confirmingReactivation.set(null);
+        this.load();
+      },
+      error: (e: HttpErrorResponse) => {
+        this.deactivating.set(false);
+        this.deactivateError.set(e.error?.message ?? 'La réouverture a échoué. Réessayez.');
+      },
+    });
+  }
+
+  /** #289 — « Retiré le 04/08/2026 par Aymen Ben Ali — motif », lisible longtemps après. */
+  retraitLabel(u: UserResponse): string {
+    if (!u.deactivatedAt) return 'Retiré (avant la traçabilité — motif inconnu)';
+    const auteur = u.deactivatedBy != null
+      ? this.users().find((x) => x.id === u.deactivatedBy)
+      : null;
+    const par = auteur ? ` par ${auteur.prenom} ${auteur.nom}` : '';
+    const motif = u.deactivationMotif ? ` — ${u.deactivationMotif}` : '';
+    return `Retiré le ${this.frDate(u.deactivatedAt)}${par}${motif}`;
   }
 }

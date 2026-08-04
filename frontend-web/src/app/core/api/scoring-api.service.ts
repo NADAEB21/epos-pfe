@@ -16,6 +16,8 @@ import {
   ImportEtudiantRow,
   ImportResult,
   LotSummary,
+  RemplacerEvaluateurRequest,
+  SubstitutionResult,
   NotationAdjustmentSummary,
   NotationItemSummary,
   NotationSummary,
@@ -224,6 +226,31 @@ export class ScoringApiService {
     return this.http
       .delete<ApiResponse<void>>(`${this.baseUrl}/participations/${participationId}`)
       .pipe(map(() => void 0));
+  }
+
+  /**
+   * ADR-0017 §3 / #296 — remplacer l'évaluateur d'une station EN PLEINE épreuve.
+   *
+   * <p>Seules les rotations non terminées changent de main : le travail déjà
+   * validé reste au nom de son auteur. Le serveur refuse (400) si la personne
+   * tient déjà une autre station de la même vague, et (404) si la vague n'a pas
+   * démarré — auquel cas il faut réaffecter la station, pas suppléer.
+   *
+   * <p>N'existait qu'au backend depuis ADR-0017 : aucun écran ne l'appelait,
+   * donc la seule sortie d'un examinateur injoignable était une requête à la
+   * main. C'est ce que #296 corrige.
+   */
+  remplacerEvaluateur(
+    lotId: number,
+    stationId: number,
+    body: RemplacerEvaluateurRequest,
+  ): Observable<SubstitutionResult> {
+    return this.http
+      .post<ApiResponse<SubstitutionResult>>(
+        `${this.baseUrl}/lots/${lotId}/stations/${stationId}/remplacer-evaluateur`,
+        body,
+      )
+      .pipe(map((r) => r.data));
   }
 
   /**

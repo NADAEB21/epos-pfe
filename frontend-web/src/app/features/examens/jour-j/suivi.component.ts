@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
   DestroyRef,
@@ -43,6 +44,8 @@ interface Lane {
   stationId: number;
   nom: string;
   ordre: number;
+  /** #296 — l'id, pas seulement le nom : la suppléance en a besoin. */
+  evaluateurId: number | null;
   evaluateurNom: string | null;
   slots: Slot[]; // sorted by debutMs
 }
@@ -206,6 +209,98 @@ export class SuiviComponent {
   // Conservés pour pouvoir recharger les passages seuls (#208) sans refaire tout le load.
   private readonly stationsCache = signal<StationSummary[]>([]);
   private readonly evaluateursCache = signal<UserResponse[]>([]);
+
+  // ---- #296 — suppléance d'un évaluateur en pleine épreuve (ADR-0017 §3) ----
+  /** Station dont le panneau de remplacement est ouvert, ou null. */
+  readonly remplacementStationId = signal<number | null>(null);
+  readonly remplacantId = signal<number | null>(null);
+  readonly motifRemplacement = signal('');
+  readonly remplacementEnCours = signal(false);
+  readonly remplacementErreur = signal<string | null>(null);
+  /** Bilan affiché après coup : combien de groupes ont changé de main. */
+  readonly remplacementBilan = signal<string | null>(null);
+
+  /**
+   * Les évaluateurs proposables en suppléance : joignables, et pas déjà sur une
+   * autre station de la vague (le serveur refuse ce cas — autant ne pas l'offrir).
+   * On EXCLUT les comptes retirés ou verrouillés : proposer quelqu'un qui ne peut
+   * pas se connecter serait remplacer un problème par le même (#287/#294).
+   */
+  remplacantsPossibles(lane: Lane): UserResponse[] {
+    const maintenant = Date.now();
+    const prisAilleurs = new Set(
+      this.lanes()
+        .filter((l) => l.stationId !== lane.stationId && l.evaluateurId != null)
+        .map((l) => l.evaluateurId as number),
+    );
+    return this.evaluateursCache()
+      .filter((u) => u.id !== lane.evaluateurId)
+      .filter((u) => !prisAilleurs.has(u.id))
+      .filter((u) => u.isActive)
+      .filter((u) => !u.lockedUntil || new Date(u.lockedUntil).getTime() <= maintenant)
+      .sort((a, b) => a.nom.localeCompare(b.nom));
+  }
+
+  ouvrirRemplacement(lane: Lane): void {
+    this.remplacementErreur.set(null);
+    this.remplacementBilan.set(null);
+    this.remplacantId.set(null);
+    this.motifRemplacement.set('');
+    this.remplacementStationId.set(lane.stationId);
+  }
+
+  fermerRemplacement(): void {
+    this.remplacementStationId.set(null);
+  }
+
+  onRemplacantChange(value: string): void {
+    this.remplacantId.set(value ? Number(value) : null);
+  }
+
+  /**
+   * La suppléance n'a de sens qu'une fois la vague DÉMARRÉE : avant, les
+   * rotations n'existent pas et la bonne action est de réaffecter la station
+   * (ADR-0017 §2). Le serveur le dit aussi, mais autant ne pas proposer un
+   * bouton qui ne peut que refuser.
+   */
+  peutRemplacer(): boolean {
+    return this.progression()?.lotOuvert != null;
+  }
+
+  confirmerRemplacement(lane: Lane): void {
+    const lotId = this.progression()?.lotOuvert?.id;
+    const nouvel = this.remplacantId();
+    const motif = this.motifRemplacement().trim();
+    if (lotId == null || nouvel == null) {
+      this.remplacementErreur.set('Choisissez la personne qui prend la station.');
+      return;
+    }
+    if (!motif) {
+      this.remplacementErreur.set(
+        'Le motif est obligatoire : une suppléance doit pouvoir s’expliquer après coup.',
+      );
+      return;
+    }
+    this.remplacementEnCours.set(true);
+    this.remplacementErreur.set(null);
+    this.scoring.remplacerEvaluateur(lotId, lane.stationId, { nouvelEvaluateurId: nouvel, motif })
+      .subscribe({
+        next: (res) => {
+          this.remplacementEnCours.set(false);
+          this.remplacementStationId.set(null);
+          this.remplacementBilan.set(res.message);
+          // Le tableau doit refléter le nouveau nom immédiatement : les
+          // rotations viennent de changer de main.
+          this.reloadLanes();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.remplacementEnCours.set(false);
+          this.remplacementErreur.set(
+            err.error?.message ?? 'Le remplacement a échoué. Réessayez.',
+          );
+        },
+      });
+  }
 
   // Student-name resolution.
   private readonly partById = signal<Map<number, ParticipationSummary>>(new Map());
@@ -461,9 +556,15 @@ export class SuiviComponent {
         })
         .filter((s) => !Number.isNaN(s.debutMs))
         .sort((a, b) => a.debutMs - b.debutMs);
-      // One évaluateur per station (the generator binds the same one to every
-      // rotation of the station); fall back to the station's own binding.
+      // Qui tient la station MAINTENANT. Le générateur lie le même évaluateur à
+      // toutes les rotations, donc n'importe laquelle suffisait — jusqu'à ce que
+      // la suppléance (#296) existe : elle ne transfère QUE les groupes non
+      // terminés, exprès, pour que le travail fait reste au nom de son auteur.
+      // Prendre la première rotation venue affichait alors l'ancien nom sur un
+      // groupe déjà noté (constaté à l'écran après un remplacement réussi). On
+      // lit donc les rotations ENCORE À FAIRE en priorité.
       const evId =
+        rots.find((r) => r.evaluateurId != null && r.statut !== 'TERMINE')?.evaluateurId ??
         rots.find((r) => r.evaluateurId != null)?.evaluateurId ??
         s.evaluateurIds?.[0] ??
         null;
@@ -471,6 +572,7 @@ export class SuiviComponent {
         stationId: s.id,
         nom: s.nom ?? `Station ${s.ordre ?? i + 1}`,
         ordre: s.ordre ?? i + 1,
+        evaluateurId: evId,
         evaluateurNom: evId != null ? evalName.get(evId) ?? null : null,
         slots,
       };

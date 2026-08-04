@@ -49,10 +49,10 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 .username(user.getEmail())
                 .password(user.getPasswordHash())
                 .authorities(authorities)
-                // #294 — « verrouillé » au sens de Spring Security couvre les DEUX
-                // états depuis V2 : le retrait administratif (durable) et le verrou
-                // temporaire anti-force-brute (qui expire). AuthService.login les
-                // distingue pour le message ; ici, seul compte « ne peut pas entrer ».
+                // #294 : pour Spring Security, les deux états se valent — retrait
+                // administratif durable ou verrou temporaire qui expire, la
+                // personne ne peut pas entrer. Seul le message les distingue,
+                // et il est construit dans AuthService
                 .accountLocked(!user.getIsActive() || isTemporarilyLocked(user))
                 .build();
     }

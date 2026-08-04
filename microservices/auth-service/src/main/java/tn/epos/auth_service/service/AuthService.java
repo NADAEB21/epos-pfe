@@ -94,7 +94,14 @@ public class AuthService {
         // distinguer « attends deux minutes » de « ton compte est mort ».
         LocalDateTime now = LocalDateTime.now(clock);
         if (user.getLockedUntil() != null && now.isBefore(user.getLockedUntil())) {
-            long minutes = Math.max(1, Duration.between(now, user.getLockedUntil()).toMinutes() + 1);
+            // ⚠️ Duration.between(LocalDateTime, LocalDateTime) est AVEUGLE au
+            // changement d'heure (S6883, déjà corrigé une fois sur le Suivi) :
+            // un verrou posé la nuit du passage à l'heure d'hiver annoncerait
+            // une heure de trop. On ancre les deux bornes sur la zone de
+            // l'horloge avant de mesurer.
+            long minutes = Math.max(1, Duration.between(
+                    now.atZone(clock.getZone()).toInstant(),
+                    user.getLockedUntil().atZone(clock.getZone()).toInstant()).toMinutes() + 1);
             auditService.log(user.getId(), user.getEmail(),
                     AuditAction.LOGIN_FAILURE, "Temporarily locked", ipAddress);
             throw new AccountLockedException(

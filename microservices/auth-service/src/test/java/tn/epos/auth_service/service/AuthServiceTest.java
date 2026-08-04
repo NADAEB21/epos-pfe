@@ -128,7 +128,8 @@ class AuthServiceTest {
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(1);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(BadCredentialsException.class);
 
         verify(userRepository).incrementFailedAttempts(1L);
@@ -142,7 +143,8 @@ class AuthServiceTest {
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(false);
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(2);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(BadCredentialsException.class)
                 .hasMessage("Invalid email or password");
 
@@ -158,7 +160,8 @@ class AuthServiceTest {
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
         when(userRepository.getLockCount(1L)).thenReturn(0);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
 
         verify(userRepository).incrementFailedAttempts(1L);
@@ -184,7 +187,8 @@ class AuthServiceTest {
         User locked = temporarilyLockedUser(5);
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(locked));
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "Password1"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class)
                 .hasMessageContaining("temporairement")
                 .hasMessageContaining("minute");
@@ -220,7 +224,8 @@ class AuthServiceTest {
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
         when(userRepository.getLockCount(1L)).thenReturn(2);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
 
         verify(userRepository).applyTemporaryLock(1L, LocalDateTime.now(clock).plusMinutes(8));
@@ -235,7 +240,8 @@ class AuthServiceTest {
         when(userRepository.getFailedLoginAttempts(1L)).thenReturn(3);
         when(userRepository.getLockCount(1L)).thenReturn(9);
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "wrong"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "wrong");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
 
         verify(userRepository).applyTemporaryLock(1L, LocalDateTime.now(clock).plusMinutes(30));
@@ -248,7 +254,8 @@ class AuthServiceTest {
         User removed = deactivatedUser();
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(removed));
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "Password1"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class)
                 .hasMessageContaining("désactivé")
                 .hasMessageContaining("administration");
@@ -259,7 +266,8 @@ class AuthServiceTest {
         User locked = deactivatedUser();
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(locked));
 
-        assertThatThrownBy(() -> authService.login(loginReq("user@test.com", "Password1"), "127.0.0.1"))
+        LoginRequest req = loginReq("user@test.com", "Password1");
+        assertThatThrownBy(() -> authService.login(req, "127.0.0.1"))
                 .isExactlyInstanceOf(AccountLockedException.class);
     }
 

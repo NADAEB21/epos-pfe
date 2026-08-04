@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -88,10 +98,35 @@ export class PersonnesComponent {
   /** Compte dont la réouverture est en cours de confirmation. */
   readonly confirmingReactivation = signal<UserResponse | null>(null);
 
+  /**
+   * Le champ motif du panneau ouvert (au plus un à la fois). `autofocus` ne
+   * sert à rien ici : le navigateur ne l'honore qu'au chargement initial, pas
+   * sur un bloc rendu par @if. On place donc le focus nous-mêmes.
+   */
+  private readonly motifInput = viewChild<ElementRef<HTMLTextAreaElement>>('motifInput');
+
+  /**
+   * Échap annule — posé sur le DOCUMENT, pas sur le panneau : au moment du
+   * clic le focus est encore sur le bouton, qui est HORS du panneau, donc un
+   * (keydown.escape) local ne recevait jamais l'évènement (constaté au test).
+   */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.confirmingDeactivation() || this.confirmingReactivation()) {
+      this.annulerRetrait();
+    }
+  }
+
   readonly myUserId = computed(() => this.auth.currentUser()?.userId ?? null);
   readonly myMatiereIds = computed(() => this.auth.responsableMatiereIds());
 
   constructor() {
+    // Le panneau vient d'apparaître : y amener le clavier, sinon la personne
+    // qui n'utilise pas la souris doit tabuler à l'aveugle jusqu'au motif.
+    effect(() => {
+      const champ = this.motifInput();
+      if (champ) champ.nativeElement.focus();
+    });
     this.load();
     if (this.scope === 'co-responsables') {
       // Single-matière responsable: preselect — the only possible answer.

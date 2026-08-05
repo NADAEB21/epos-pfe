@@ -14,5 +14,11 @@ public enum AuditAction {
     /** #289 — la desactivation cesse d'etre a sens unique. */
     USER_REACTIVATED,
     ROLE_ASSIGNED,
-    ROLE_REVOKED
+    ROLE_REVOKED,
+    /** #134 — le catalogue des matieres cesse d'etre gere au SQL. */
+    MATIERE_CREATED,
+    MATIERE_UPDATED,
+    MATIERE_RETIRED,
+    MATIERE_REACTIVATED,
+    MATIERE_IMPORTED
 }

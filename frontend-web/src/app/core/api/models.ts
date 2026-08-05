@@ -751,6 +751,44 @@ export interface MatiereResponse {
   id: number;
   code: string;
   libelle: string;
+  /**
+   * #134 — false = matière RETIRÉE du catalogue. La liste serveur reste
+   * complète (les libellés des examens et rôles historiques en dépendent) ;
+   * ce sont les PICKERS qui excluent les retirées. Jamais de DELETE :
+   * matiere_id traverse les services en clé logique (ADR-0006).
+   */
+  active: boolean;
+  /** #134 — provenance du retrait (qui, quand, pourquoi), même doctrine que #289. */
+  retiredAt?: string | null;
+  retiredBy?: number | null;
+  retirementMotif?: string | null;
+}
+
+/** Body for POST/PUT /matieres (auth-service MatiereRequest). #134. */
+export interface MatiereRequest {
+  code: string;
+  libelle: string;
+}
+
+/** #134 — one row of the bulk import payload (no client-side constraints: the server verdicts per row). */
+export interface MatiereImportRow {
+  code: string;
+  libelle: string;
+}
+
+/** #134 — per-row verdict of POST /matieres/import. `ligne` is 1-based in the sent payload. */
+export interface MatiereImportRowResult {
+  ligne: number;
+  code: string;
+  statut: 'CREATED' | 'DUPLICATE' | 'ERROR';
+  message: string;
+}
+
+export interface MatiereImportResult {
+  crees: number;
+  doublons: number;
+  erreurs: number;
+  rows: MatiereImportRowResult[];
 }
 
 /** One (role, matière) grant — mirrors auth-service RoleAssignmentDto. */

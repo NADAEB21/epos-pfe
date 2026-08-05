@@ -1,0 +1,331 @@
+<div class="max-w-5xl mx-auto">
+  <!-- Header -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-xl font-semibold text-gray-900">Matières</h1>
+      <p class="text-sm text-gray-500">
+        Le catalogue des matières de la faculté — c'est ici qu'une matière naît, se renomme,
+        se retire. Les examens et les responsables s'y rattachent ; une matière retirée garde
+        son nom pour l'historique.
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        (click)="openImport()"
+        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium border border-brand text-brand hover:bg-brand-50 transition-colors"
+      >
+        Importer une liste
+      </button>
+      <button
+        type="button"
+        (click)="openCreate()"
+        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors"
+      >
+        Ajouter une matière
+      </button>
+    </div>
+  </div>
+
+  <!-- Create / rename panel -->
+  @if (formOpen()) {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+      <h2 class="font-semibold text-gray-900 mb-1">
+        @if (editing(); as m) { Renommer « {{ m.libelle }} » } @else { Nouvelle matière }
+      </h2>
+      @if (editing()) {
+        <p class="text-sm text-gray-500 mb-4">
+          Les examens et les rôles déjà rattachés suivent automatiquement — ils pointent sur la
+          matière, pas sur son nom.
+        </p>
+      } @else {
+        <p class="text-sm text-gray-500 mb-4">
+          Le code est la référence courte des listes (ex. CHIM_THER) ; le libellé est le nom
+          complet affiché partout.
+        </p>
+      }
+      <form [formGroup]="form" (ngSubmit)="submitForm()" class="space-y-4">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <label class="block text-sm">
+            <span class="text-gray-700">Code (unique, 20 caractères max.)</span>
+            <input formControlName="code" type="text" class="mt-1 w-full text-sm font-mono rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
+            @if (form.controls.code.touched && form.controls.code.invalid) {
+              <span class="text-xs text-status-danger">Un code de 20 caractères au plus est requis.</span>
+            }
+          </label>
+          <label class="block text-sm">
+            <span class="text-gray-700">Libellé</span>
+            <input formControlName="libelle" type="text" placeholder="Ex. : Biochimie clinique" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
+            @if (form.controls.libelle.touched && form.controls.libelle.invalid) {
+              <span class="text-xs text-status-danger">Un libellé de 100 caractères au plus est requis.</span>
+            }
+          </label>
+        </div>
+        @if (submitError(); as err) {
+          <p class="text-sm text-status-danger">{{ err }}</p>
+        }
+        <div class="flex items-center gap-3">
+          <button
+            type="submit"
+            [disabled]="submitting()"
+            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+          >
+            {{ submitting() ? 'Enregistrement…' : (editing() ? 'Renommer' : 'Créer la matière') }}
+          </button>
+          <button type="button" (click)="cancelForm()" class="text-sm text-gray-500 hover:text-gray-700">
+            Annuler
+          </button>
+        </div>
+      </form>
+    </section>
+  }
+
+  <!-- Bulk import panel -->
+  @if (importOpen()) {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+      <h2 class="font-semibold text-gray-900 mb-1">Importer une liste de matières</h2>
+      <p class="text-sm text-gray-500 mb-4">
+        Une ligne par matière : <code class="font-mono">CODE ; Libellé</code> — le point-virgule
+        ou une tabulation (copier-coller direct de deux colonnes Excel). Chaque ligne reçoit son
+        verdict : les lignes valides sont créées même si d'autres échouent.
+      </p>
+      <textarea
+        rows="6"
+        [value]="importText()"
+        (input)="importText.set($any($event.target).value)"
+        placeholder="BIOCHIM ; Biochimie clinique&#10;MICRO ; Microbiologie"
+        class="w-full text-sm font-mono rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+      ></textarea>
+      @if (importError(); as err) {
+        <p class="text-sm text-status-danger mt-2">{{ err }}</p>
+      }
+
+      @if (importResult(); as r) {
+        <div class="mt-4 rounded-lg border border-gray-200 overflow-hidden">
+          <p class="px-4 py-2 text-sm bg-gray-50 border-b border-gray-200 text-gray-700">
+            {{ r.crees }} créée(s) · {{ r.doublons }} doublon(s) · {{ r.erreurs }} erreur(s)
+          </p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <tbody class="divide-y divide-gray-100">
+                @for (row of r.rows; track row.ligne) {
+                  <tr>
+                    <td class="px-4 py-1.5 text-gray-400 w-16">L{{ row.ligne }}</td>
+                    <td class="px-4 py-1.5 font-mono">{{ row.code || '—' }}</td>
+                    <td class="px-4 py-1.5">
+                      <span
+                        class="text-xs font-medium px-2 py-0.5 rounded-full"
+                        [class]="row.statut === 'CREATED' ? 'bg-green-50 text-status-success' : row.statut === 'DUPLICATE' ? 'bg-gray-100 text-gray-600' : 'bg-red-50 text-status-danger'"
+                      >
+                        {{ statutLabel(row.statut) }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-1.5 text-gray-600">{{ row.message }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+
+      <div class="flex items-center gap-3 mt-4">
+        <button
+          type="button"
+          (click)="submitImport()"
+          [disabled]="importSubmitting()"
+          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+        >
+          {{ importSubmitting() ? 'Import…' : 'Importer' }}
+        </button>
+        <button type="button" (click)="cancelImport()" class="text-sm text-gray-500 hover:text-gray-700">
+          {{ importResult() ? 'Fermer' : 'Annuler' }}
+        </button>
+      </div>
+    </section>
+  }
+
+  <!-- List -->
+  @if (loading()) {
+    <div class="space-y-3 animate-pulse">
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+      <div class="h-14 rounded-xl bg-gray-200"></div>
+    </div>
+  } @else if (error()) {
+    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+      <p class="text-gray-700 mb-4">Impossible de charger le catalogue des matières.</p>
+      <button
+        type="button"
+        (click)="load()"
+        class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      >
+        Réessayer
+      </button>
+    </div>
+  } @else {
+    <section class="rounded-xl bg-white border border-gray-200 shadow-card">
+      <div class="p-4 border-b border-gray-100">
+        <input
+          type="search"
+          placeholder="Rechercher par code ou libellé…"
+          class="w-full sm:w-80 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+          [value]="search()"
+          (input)="search.set($any($event.target).value)"
+        />
+      </div>
+
+      @if (rows().length === 0) {
+        <p class="p-8 text-center text-sm text-gray-500">
+          @if (search()) {
+            Aucune matière ne correspond à « {{ search() }} ».
+          } @else {
+            Aucune matière au catalogue — créez la première ou importez une liste.
+          }
+        </p>
+      } @else {
+        <ul class="divide-y divide-gray-100">
+          @for (m of rows(); track m.id) {
+            <li class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+              <div class="min-w-48 flex-1">
+                <p class="text-sm font-medium" [class]="m.active ? 'text-gray-900' : 'text-gray-500'">
+                  {{ m.libelle }}
+                </p>
+                <p class="text-xs text-gray-500 font-mono">{{ m.code }}</p>
+              </div>
+              @if (!m.active) {
+                <!-- Un badge muet ne répond pas à « pourquoi cette matière
+                     est-elle fermée ? » — la provenance vit sur la ligne (#289). -->
+                <span
+                  class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600"
+                  [title]="retraitLabel(m)"
+                >
+                  Retirée
+                </span>
+                <span class="text-xs text-gray-500 basis-full">{{ retraitLabel(m) }}</span>
+              }
+              <button
+                type="button"
+                (click)="openRename(m)"
+                class="text-xs text-brand hover:underline"
+              >
+                Renommer
+              </button>
+              @if (m.active) {
+                <button
+                  type="button"
+                  (click)="askRetirer(m)"
+                  class="text-xs text-status-danger hover:underline"
+                >
+                  Retirer du catalogue
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  (click)="askReactiver(m)"
+                  class="text-xs text-brand hover:underline"
+                >
+                  Rouvrir
+                </button>
+              }
+
+              <!-- La confirmation s'ouvre SOUS la ligne cliquée, pas en bas de
+                   page (retour de Nada sur #289). -->
+              @if (confirmingRetrait()?.id === m.id) {
+                <section class="basis-full rounded-lg border border-status-danger bg-red-50 p-4 mt-3"
+                  role="alertdialog">
+                  <p class="text-sm font-medium text-gray-900 mb-1">
+                    Retirer « {{ m.libelle }} » du catalogue ?
+                  </p>
+                  <p class="text-sm text-gray-700 mb-3">
+                    Elle ne sera plus proposée pour un nouvel examen ni pour nommer un responsable.
+                    Ses examens passés et leurs résultats restent intacts, sous son nom. Vous pourrez
+                    la rouvrir depuis cet écran.
+                  </p>
+                  <label class="block text-sm mb-3 max-w-xl">
+                    <span class="text-gray-700">Motif (obligatoire)</span>
+                    <textarea
+                      rows="2"
+                      maxlength="500"
+                      [value]="motif()"
+                      (input)="motif.set($any($event.target).value)"
+                      placeholder="Ex. : matière fermée à la rentrée 2026, créée en double"
+                      #motifInput
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                    ></textarea>
+                    <span class="text-xs text-gray-500">
+                      Il restera lisible sur la ligne, avec votre nom — c'est ce qui permettra de
+                      répondre plus tard à « pourquoi cette matière est-elle fermée ? ».
+                    </span>
+                  </label>
+                  @if (actError(); as err) {
+                    <p class="text-sm text-status-danger mb-3">{{ err }}</p>
+                  }
+                  <div class="flex items-center gap-3">
+                    <button
+                      type="button"
+                      (click)="confirmRetirer()"
+                      [disabled]="acting()"
+                      class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-status-danger transition-colors disabled:opacity-40"
+                    >
+                      {{ acting() ? 'Retrait…' : 'Retirer du catalogue' }}
+                    </button>
+                    <button type="button" (click)="annuler()" class="text-sm text-gray-500 hover:text-gray-700">
+                      Annuler
+                    </button>
+                  </div>
+                </section>
+              }
+
+              @if (confirmingReactivation()?.id === m.id) {
+                <section class="basis-full rounded-lg border border-brand bg-brand-50 p-4 mt-3"
+                  role="alertdialog">
+                  <p class="text-sm font-medium text-gray-900 mb-1">
+                    Rouvrir « {{ m.libelle }} » ?
+                  </p>
+                  <p class="text-sm text-gray-700 mb-3">
+                    {{ retraitLabel(m) }}. Elle redeviendra proposable pour les examens et les
+                    nominations, immédiatement.
+                  </p>
+                  <label class="block text-sm mb-3 max-w-xl">
+                    <span class="text-gray-700">Motif (obligatoire)</span>
+                    <textarea
+                      rows="2"
+                      maxlength="500"
+                      [value]="motif()"
+                      (input)="motif.set($any($event.target).value)"
+                      placeholder="Ex. : la matière reprend, retrait par erreur"
+                      #motifInput
+                      class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                    ></textarea>
+                  </label>
+                  @if (actError(); as err) {
+                    <p class="text-sm text-status-danger mb-3">{{ err }}</p>
+                  }
+                  <div class="flex items-center gap-3">
+                    <button
+                      type="button"
+                      (click)="confirmReactiver()"
+                      [disabled]="acting()"
+                      class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand transition-colors disabled:opacity-40"
+                    >
+                      {{ acting() ? 'Réouverture…' : 'Rouvrir la matière' }}
+                    </button>
+                    <button type="button" (click)="annuler()" class="text-sm text-gray-500 hover:text-gray-700">
+                      Annuler
+                    </button>
+                  </div>
+                </section>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </section>
+    @if (nbRetirees() > 0 && !search()) {
+      <p class="text-xs text-gray-400 mt-2 px-1">
+        {{ matieres().length }} matière(s) au catalogue, dont {{ nbRetirees() }} retirée(s).
+      </p>
+    }
+  }
+</div>

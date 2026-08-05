@@ -195,9 +195,19 @@ export class PersonnesComponent {
       .sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, 'fr'));
   });
 
+  /**
+   * #134 — matières proposables pour une NOMINATION : les retirées sont
+   * exclues (le serveur refuse de toute façon). `matieres()` reste complète
+   * pour `matiereLabel` — un rôle historique sur une matière retirée doit
+   * garder son libellé.
+   */
+  readonly matieresActives = computed<MatiereResponse[]>(() =>
+    this.matieres().filter((m) => m.active),
+  );
+
   readonly myMatieres = computed<MatiereResponse[]>(() => {
     const mine = new Set(this.myMatiereIds());
-    return this.matieres().filter((m) => mine.has(m.id));
+    return this.matieresActives().filter((m) => mine.has(m.id));
   });
 
   // ---- labels -----------------------------------------------------------------

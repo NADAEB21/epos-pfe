@@ -155,7 +155,8 @@
                 <span class="text-gray-700">Matière du responsable</span>
                 <select formControlName="respMatiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
                   <option [ngValue]="null">— choisir —</option>
-                  @for (m of matieres(); track m.id) {
+                  <!-- #134 — une matière retirée n'est plus proposable en nomination -->
+                  @for (m of matieresActives(); track m.id) {
                     <option [ngValue]="m.id">{{ m.libelle }}</option>
                   }
                 </select>

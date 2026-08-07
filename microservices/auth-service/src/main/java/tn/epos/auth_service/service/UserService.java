@@ -15,9 +15,12 @@ import tn.epos.auth_service.dto.UserResponse;
 import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
+import tn.epos.auth_service.entity.Matiere;
 import tn.epos.auth_service.exception.EmailAlreadyExistsException;
+import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
 import tn.epos.auth_service.exception.UserNotFoundException;
+import tn.epos.auth_service.repository.MatiereRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
@@ -43,6 +46,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final MatiereRepository matiereRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final java.time.Clock clock;
@@ -121,6 +125,7 @@ public class UserService {
 
         List<RoleAssignmentDto> requestedRoles = dedupe(request.getRoles());
         validateDelegation(requestedRoles, authentication);
+        validateMatieresAssignables(requestedRoles);
 
         User user = User.builder()
                 .email(request.getEmail())
@@ -178,9 +183,14 @@ public class UserService {
         // son périmètre (p. ex. le RESPONSABLE_MATIERE d'une autre matière).
         validateDelegation(toRoleDtos(toRemove), authentication);
 
-        List<UserRole> toAdd = buildUserRoles(user, desired.stream()
+        List<RoleAssignmentDto> ajouts = desired.stream()
                 .filter(d -> !existingKeys.contains(roleKey(d)))
-                .toList());
+                .toList();
+        // #134 — seuls les rôles AJOUTÉS sont contrôlés contre le catalogue :
+        // un compte portant déjà un rôle sur une matière retirée doit rester
+        // modifiable (le rôle conservé n'est pas une nouvelle nomination).
+        validateMatieresAssignables(ajouts);
+        List<UserRole> toAdd = buildUserRoles(user, ajouts);
 
         applyRoleDelta(user, toRemove, toAdd);
     }
@@ -209,9 +219,12 @@ public class UserService {
                 .map(this::roleKey)
                 .collect(Collectors.toSet());
 
-        List<UserRole> toAdd = buildUserRoles(user, requested.stream()
+        List<RoleAssignmentDto> ajouts = requested.stream()
                 .filter(d -> !existingKeys.contains(roleKey(d)))
-                .toList());
+                .toList();
+        // #134 — même garde catalogue que le PUT, sur les seuls ajouts réels.
+        validateMatieresAssignables(ajouts);
+        List<UserRole> toAdd = buildUserRoles(user, ajouts);
 
         applyRoleDelta(user, List.of(), toAdd);
     }
@@ -366,6 +379,31 @@ public class UserService {
                     // A RESPONSABLE_MATIERE may assign an EVALUATEUR (global) since that is
                     // the primary use-case: designating exam evaluators for their subject.
                 }
+            }
+        }
+    }
+
+    /**
+     * #134 — une nomination qui référence une matière doit viser une matière
+     * EXISTANTE et ACTIVE. Avant cette garde, une matière inexistante remontait
+     * en 500 brut (violation de la FK user_roles.matiere_id) ; une matière
+     * retirée restait nommable alors qu'elle a quitté le catalogue actif.
+     * S'applique à tous les appelants, SUPER_ADMIN compris : ce n'est pas une
+     * question de droits mais de validité de la requête (d'où 400, pas 403).
+     */
+    private void validateMatieresAssignables(List<RoleAssignmentDto> rolesBeingAssigned) {
+        for (RoleAssignmentDto dto : rolesBeingAssigned) {
+            if (dto.getMatiereId() == null) {
+                continue;
+            }
+            Matiere matiere = matiereRepository.findById(dto.getMatiereId())
+                    .orElseThrow(() -> new MatiereNonAssignableException(
+                            "La matière " + dto.getMatiereId() + " n'existe pas."));
+            if (Boolean.FALSE.equals(matiere.getActive())) {
+                throw new MatiereNonAssignableException(
+                        "La matière « " + matiere.getLibelle() + " » est retirée du catalogue : "
+                                + "on ne peut plus y nommer de responsable. "
+                                + "Un administrateur peut la rouvrir si elle reprend.");
             }
         }
     }

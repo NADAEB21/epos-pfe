@@ -14,10 +14,13 @@ import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
+import tn.epos.auth_service.entity.Matiere;
 import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
+import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
+import tn.epos.auth_service.repository.MatiereRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
@@ -39,6 +42,7 @@ class UserServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private UserRoleRepository userRoleRepository;
     @Mock private RefreshTokenRepository refreshTokenRepository;
+    @Mock private MatiereRepository matiereRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
 
@@ -48,6 +52,18 @@ class UserServiceTest {
                     java.time.ZoneId.of("UTC"));
 
     @InjectMocks private UserService userService;
+
+    /**
+     * #134 — par défaut, toute matière référencée par un test existe et est
+     * active ; les tests de la garde catalogue redéfinissent ce stub.
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void stubCatalogueParDefaut() {
+        lenient().when(matiereRepository.findById(anyLong())).thenAnswer(inv ->
+                Optional.of(Matiere.builder()
+                        .id(inv.getArgument(0)).code("M" + inv.getArgument(0))
+                        .libelle("Matière " + inv.getArgument(0)).build()));
+    }
 
     // -------------------------------------------------------------------------
     // Fixtures
@@ -593,5 +609,78 @@ class UserServiceTest {
 
         verify(auditService).logAttribue(eq(1L), anyString(), eq(AuditAction.USER_REACTIVATED),
                 anyString(), isNull(), eq(99L));
+    }
+
+    // =========================================================================
+    // #134 — garde catalogue : une nomination vise une matière existante et active
+    // =========================================================================
+
+    @Test
+    void createUser_matiereInexistante_throws400PasUn500() {
+        // Avant la garde : violation de FK -> 500 brut. La requête est
+        // invalide, la réponse doit le dire nominativement.
+        when(matiereRepository.findById(9999L)).thenReturn(Optional.empty());
+        var req = createRequest("new@test.com", List.of(
+                RoleAssignmentDto.builder()
+                        .role(RoleType.RESPONSABLE_MATIERE).matiereId(9999L).build()));
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.createUser(req, authWith("ROLE_SUPER_ADMIN")))
+                .isInstanceOf(MatiereNonAssignableException.class)
+                .hasMessageContaining("9999");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void createUser_matiereRetiree_refuseNominativement() {
+        when(matiereRepository.findById(3L)).thenReturn(Optional.of(
+                Matiere.builder().id(3L).code("PHAG").libelle("Pharmacognosie")
+                        .active(false).build()));
+        var req = createRequest("new@test.com", List.of(
+                RoleAssignmentDto.builder()
+                        .role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()));
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.createUser(req, authWith("ROLE_SUPER_ADMIN")))
+                .isInstanceOf(MatiereNonAssignableException.class)
+                .hasMessageContaining("Pharmacognosie")
+                .hasMessageContaining("retirée");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void addRoles_evaluateurGlobal_passeSansConsulterLeCatalogue() {
+        // EVALUATEUR porte matiereId null : rien à contrôler côté catalogue.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+
+        userService.addRoles(1L, List.of(
+                        RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        verify(userRoleRepository).saveAll(any());
+        verify(matiereRepository, never()).findById(any());
+    }
+
+    @Test
+    void addRoles_compteDejaPorteurDuneMatiereRetiree_resteModifiable() {
+        // Le rôle CONSERVÉ sur une matière retirée n'est pas une nouvelle
+        // nomination : ajouter EVALUATEUR à ce compte doit passer.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()));
+
+        userService.addRoles(1L, List.of(
+                        RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        // La matière 3 (retirée ou non) n'est jamais re-contrôlée : seul
+        // l'AJOUT est soumis à la garde, et il ne référence aucune matière.
+        verify(matiereRepository, never()).findById(any());
+        verify(userRoleRepository).saveAll(any());
     }
 }

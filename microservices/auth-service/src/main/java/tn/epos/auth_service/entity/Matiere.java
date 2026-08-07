@@ -35,6 +35,25 @@ public class Matiere {
     @Column(nullable = false, length = 100)
     private String libelle;
 
+    /**
+     * #134 — false = matière retirée du catalogue actif. Jamais de DELETE :
+     * matiere_id traverse les services en clé logique sans contrainte SQL
+     * (ADR-0006), une suppression orphelinerait les examens passés.
+     */
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean active = true;
+
+    /** #134 — provenance du retrait, même exigence que users.deactivated_* (#289). */
+    @Column(name = "retired_at")
+    private LocalDateTime retiredAt;
+
+    @Column(name = "retired_by")
+    private Long retiredBy;
+
+    @Column(name = "retirement_motif", length = 500)
+    private String retirementMotif;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

@@ -40,7 +40,9 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
 
   function build(scope: 'evaluateurs' | 'co-responsables' | 'admin', users: UserResponse[]) {
     api.listUsers.and.returnValue(of(users));
-    api.listMatieres.and.returnValue(of([{ id: 1, code: 'CT', libelle: 'Chimie thérapeutique' }]));
+    api.listMatieres.and.returnValue(
+      of([{ id: 1, code: 'CT', libelle: 'Chimie thérapeutique', active: true }]),
+    );
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       imports: [PersonnesComponent],

@@ -3,7 +3,15 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse, RoleType } from '../auth/auth.models';
-import { MatiereResponse, RoleAssignment, UserCreateRequest, UserResponse } from './models';
+import {
+  MatiereImportResult,
+  MatiereImportRow,
+  MatiereRequest,
+  MatiereResponse,
+  RoleAssignment,
+  UserCreateRequest,
+  UserResponse,
+} from './models';
 
 /** auth-service directory (users + matieres) through the gateway. */
 @Injectable({ providedIn: 'root' })
@@ -69,5 +77,48 @@ export class DirectoryApiService {
     return this.http
       .post<ApiResponse<void>>(`${this.baseUrl}/users/${userId}/reactivation`, { motif })
       .pipe(map(() => undefined));
+  }
+
+  // ---------------------------------------------------------------------------
+  // #134 — catalogue des matières (écritures SUPER_ADMIN seul, ADR-0018 D5)
+  // ---------------------------------------------------------------------------
+
+  /** #134 — créer une matière. 409 = code déjà pris (comparé sans la casse). */
+  createMatiere(body: MatiereRequest): Observable<MatiereResponse> {
+    return this.http
+      .post<ApiResponse<MatiereResponse>>(`${this.baseUrl}/matieres`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /** #134 — renommer (code et/ou libellé). Les références par id restent intactes. */
+  updateMatiere(id: number, body: MatiereRequest): Observable<MatiereResponse> {
+    return this.http
+      .put<ApiResponse<MatiereResponse>>(`${this.baseUrl}/matieres/${id}`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #134 — retirer une matière du catalogue actif. Pas de DELETE : les examens
+   * passés la référencent en clé logique inter-services (ADR-0006). Motif
+   * obligatoire, auteur enregistré côté serveur, réversible — doctrine #289.
+   */
+  retirerMatiere(id: number, motif: string): Observable<MatiereResponse> {
+    return this.http
+      .post<ApiResponse<MatiereResponse>>(`${this.baseUrl}/matieres/${id}/retrait`, { motif })
+      .pipe(map((r) => r.data));
+  }
+
+  /** #134 — rouvrir une matière retirée. */
+  reactiverMatiere(id: number, motif: string): Observable<MatiereResponse> {
+    return this.http
+      .post<ApiResponse<MatiereResponse>>(`${this.baseUrl}/matieres/${id}/reactivation`, { motif })
+      .pipe(map((r) => r.data));
+  }
+
+  /** #134 — import en lot, verdict par ligne (meilleur effort : les lignes valides passent). */
+  importMatieres(rows: MatiereImportRow[]): Observable<MatiereImportResult> {
+    return this.http
+      .post<ApiResponse<MatiereImportResult>>(`${this.baseUrl}/matieres/import`, rows)
+      .pipe(map((r) => r.data));
   }
 }

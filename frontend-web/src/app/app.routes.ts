@@ -181,7 +181,11 @@ export const routes: Routes = [
               import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
             data: { scope: 'admin' },
           },
-          { path: 'matieres', ...stub('Matieres (catalogue)') },
+          {
+            path: 'matieres',
+            loadComponent: () =>
+              import('./features/admin/matieres.component').then((m) => m.MatieresComponent),
+          },
           { path: 'templates', ...stub('Templates globaux') },
           { path: 'examens', ...stub('Examens (oversight)') },
         ],

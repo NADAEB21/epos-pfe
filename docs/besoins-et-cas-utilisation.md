@@ -267,7 +267,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
 | UC-09 | Consulter le catalogue des matières | A2–A4 | ✅ | `MatiereController:27` · `directory-api.service.ts:22` |
-| UC-10 | Créer / modifier / retirer une matière | A4 | ❌ | `MatiereController` ne contient **qu'un `@GetMapping`** → **#134** |
+| UC-10 | Créer / modifier / retirer une matière | A4 | ✅ | **#134** — CRUD + retrait motivé/attribué/réversible (jamais de DELETE, ADR-0006) + import en lot ; écran `admin/matieres` |
 | UC-11 | Créer un compte utilisateur | A3, A4 | 🔶 | `UserController:59` gardé ; `admin/utilisateurs` = page vide |
 | UC-12 | Affecter / révoquer des rôles (dont co-responsable) | A3, A4 | 🔶 | `UserController:81,102` ; `equipe/co-responsables` = page vide |
 | UC-13 | Désactiver un utilisateur | A4 | 🔶 | `UserController:119` |

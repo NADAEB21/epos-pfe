@@ -48,8 +48,12 @@ export class ExamenCreateComponent {
     description: ['', [Validators.maxLength(500)]],
   });
 
-  /** Picker options; empty until the catalogue loads. */
-  readonly matiereOptions = computed(() => this.scopedMatieres());
+  /**
+   * Picker options; empty until the catalogue loads. #134 — une matière
+   * RETIRÉE n'est plus proposée pour un nouvel examen (scopedMatieres reste
+   * complète : soleMatiereLabel doit garder le libellé même retirée).
+   */
+  readonly matiereOptions = computed(() => this.scopedMatieres().filter((m) => m.active));
 
   /** Label shown when the responsable owns a single matière (no picker). */
   readonly soleMatiereLabel = computed(() => {

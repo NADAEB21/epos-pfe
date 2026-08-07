@@ -91,6 +91,11 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    @ExceptionHandler(MatiereNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMatiereNotFound(MatiereNotFoundException ex) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
     // An unknown URL raises NoResourceFoundException. Without this handler it
     // falls through to the catch-all below and returns 500, which reports a
     // client-side typo as a server fault.
@@ -106,6 +111,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(EmailAlreadyExistsException.class)
     public ResponseEntity<ApiResponse<Void>> handleEmailConflict(EmailAlreadyExistsException ex) {
         return error(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /** #134 — code de matière déjà pris, ou état déjà acquis (déjà retirée / déjà active). */
+    @ExceptionHandler(MatiereConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMatiereConflict(MatiereConflictException ex) {
+        return error(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /**
+     * #134 — la requête référence une matière inexistante ou retirée (400).
+     * Avant cette garde, une matière inexistante remontait en 500 brut par
+     * violation de la FK user_roles.matiere_id.
+     */
+    @ExceptionHandler(MatiereNonAssignableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMatiereNonAssignable(
+            MatiereNonAssignableException ex) {
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     // -------------------------------------------------------------------------

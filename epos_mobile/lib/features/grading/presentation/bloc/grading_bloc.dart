@@ -30,6 +30,7 @@ import '../../domain/entities/lot.dart';
 import '../../domain/entities/notation.dart';
 import '../../domain/repositories/grading_repository.dart';
 import '../../../../core/offline/offline_bloc.dart';
+import '../../../../core/offline/offline_storage_service.dart';
 import '../../../../core/offline/websocket_service.dart';
 import '../../../../core/utils/score_utils.dart';
 
@@ -358,6 +359,24 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingPauseStateUpdated>(_onPauseStateUpdated); // #196
   }
 
+  /// #307 — écrit les noms lisibles dans la base locale. Silencieux par
+  /// conception : un échec d'écriture de LIBELLÉ ne doit jamais empêcher une
+  /// session de notation de démarrer.
+  Future<void> _memoriserLibelles(int stationId, String stationNom, Lot lot) async {
+    try {
+      await OfflineStorageService.instance.rememberLabel(
+        OfflineStorageService.kindStation, stationId, stationNom,
+      );
+      for (final e in lot.etudiants) {
+        await OfflineStorageService.instance.rememberLabel(
+          OfflineStorageService.kindEtudiant, e.id, e.nomComplet,
+        );
+      }
+    } catch (_) {
+      // Confort d'affichage uniquement — jamais bloquant.
+    }
+  }
+
   // ── Chargement initial ────────────────────────────────────────────────────
   Future<void> _onSessionStarted(
       GradingSessionStarted event,
@@ -373,6 +392,12 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final grille   = results[0] as Grille;
       final lot      = results[1] as Lot;
       final grilleId = event.grilleId ?? grille.id;
+
+      // #307 — mémorise les libellés MAINTENANT, tant qu'on a le réseau.
+      // Si une note reste bloquée, l'écran « notes non parties » doit pouvoir
+      // dire « Sonia Karoui — Station 2 » plutôt que « Étudiant n°42 », y
+      // compris hors ligne, où plus aucun nom n'est récupérable.
+      unawaited(_memoriserLibelles(event.stationId, event.stationNom, lot));
 
       _dureeStation = Duration(minutes: event.dureeMinutes > 0 ? event.dureeMinutes : 15);
       _clockOffset  = event.clockOffset; 

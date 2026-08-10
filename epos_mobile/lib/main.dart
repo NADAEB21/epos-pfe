@@ -8,6 +8,7 @@ import 'package:logger/logger.dart';
 
 import 'app.dart';
 import 'core/network/api_client.dart';
+import 'core/offline/sync_service.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
 import 'features/auth/data/repositories/mock_auth_repository.dart';
 import 'features/auth/domain/repositories/auth_repository.dart';
@@ -60,6 +61,13 @@ void main() async {
     sessionRepository = SessionRepositoryImpl(apiClient: apiClient);
     gradingRepository = GradingRepositoryImpl(apiClient: apiClient);
   }
+
+  // #307 — CÂBLAGE DE LA SYNCHRONISATION. Sans cette ligne, SyncService n'a pas
+  // de repository : `syncNow()` sortait à sa deuxième ligne et AUCUNE notation
+  // saisie hors ligne n'a jamais été remontée au serveur. Tout le reste
+  // existait (service, flux, BLoC abonné, bannière, compteurs) — sauf le lien.
+  // Couvert par test/unit/sync_wiring_test.dart : ne pas retirer.
+  SyncService.instance.init(gradingRepository);
 
   runApp(
     EposApp(

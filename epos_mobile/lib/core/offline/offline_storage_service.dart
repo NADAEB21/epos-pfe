@@ -16,6 +16,17 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../features/grading/domain/entities/notation.dart';
 
+/// État d'une notation locale.
+///
+/// #307 — `blocked` REMPLACE l'ancien « abandon » qui faisait un DELETE. Une
+/// note bloquée reste en base locale, indéfiniment : c'est la note d'un
+/// étudiant, elle n'existe nulle part ailleurs tant que le serveur ne l'a pas
+/// confirmée. Seule une réponse 2xx autorise la suppression.
+class PendingStatus {
+  static const String pending = 'PENDING';
+  static const String blocked = 'BLOCKED';
+}
+
 /// Représente une notation en attente de synchronisation.
 class PendingNotation {
   final int?   id;          // PK locale (null avant insertion)
@@ -26,6 +37,8 @@ class PendingNotation {
   final double valeur;
   final int    createdAtMs; // timestamp de saisie (ms epoch)
   final int    retryCount;  // nombre de tentatives d'envoi
+  final String status;      // #307 — PENDING | BLOCKED
+  final String? lastError;  // #307 — motif lisible du blocage
 
   const PendingNotation({
     this.id,
@@ -36,7 +49,11 @@ class PendingNotation {
     required this.valeur,
     required this.createdAtMs,
     this.retryCount = 0,
+    this.status = PendingStatus.pending,
+    this.lastError,
   });
+
+  bool get estBloquee => status == PendingStatus.blocked;
 
   factory PendingNotation.fromNotation(Notation n) {
     assert(n.stationId != null && n.grilleId != null,
@@ -68,6 +85,8 @@ class PendingNotation {
     'valeur':        valeur,
     'created_at_ms': createdAtMs,
     'retry_count':   retryCount,
+    'status':        status,
+    'last_error':    lastError,
   };
 
   factory PendingNotation.fromMap(Map<String, dynamic> m) => PendingNotation(
@@ -79,32 +98,57 @@ class PendingNotation {
     valeur:      (m['valeur'] as num).toDouble(),
     createdAtMs: m['created_at_ms'] as int,
     retryCount:  m['retry_count']   as int,
+    // Colonnes ajoutées en v2 : une base v1 migrée porte le DEFAULT, mais on
+    // reste tolérant si la lecture précède la migration.
+    status:      (m['status'] as String?) ?? PendingStatus.pending,
+    lastError:   m['last_error'] as String?,
   );
 
-  PendingNotation copyWith({int? retryCount}) => PendingNotation(
-    id:          id,
-    etudiantId:  etudiantId,
-    stationId:   stationId,
-    grilleId:    grilleId,
-    itemId:      itemId,
-    valeur:      valeur,
-    createdAtMs: createdAtMs,
-    retryCount:  retryCount ?? this.retryCount,
-  );
+  PendingNotation copyWith({int? retryCount, String? status, String? lastError}) =>
+      PendingNotation(
+        id:          id,
+        etudiantId:  etudiantId,
+        stationId:   stationId,
+        grilleId:    grilleId,
+        itemId:      itemId,
+        valeur:      valeur,
+        createdAtMs: createdAtMs,
+        retryCount:  retryCount ?? this.retryCount,
+        status:      status     ?? this.status,
+        lastError:   lastError  ?? this.lastError,
+      );
+}
+
+/// #307 — le sous-ensemble du stockage dont la synchronisation a besoin.
+///
+/// Existe pour que la boucle de synchronisation soit testable SANS SQLite
+/// (qui exige un appareil). Le défaut de suppression a survécu précisément
+/// parce qu'aucun test ne pouvait exercer ce chemin.
+abstract class PendingStore {
+  Future<List<PendingNotation>> getPendingNotations();
+  Future<void> deleteByIds(List<int> ids);
+  Future<void> incrementRetry(List<int> ids);
+  Future<void> markBlocked(List<int> ids, String reason);
+  Future<int> getPendingCount();
+  Future<int> getBlockedCount();
+  Future<int> unblockAll();
+  Future<void> logSync({required int count, required bool success});
 }
 
 /// Service singleton d'accès à la base SQLite locale.
-class OfflineStorageService {
+class OfflineStorageService implements PendingStore {
   OfflineStorageService._();
   static final OfflineStorageService instance = OfflineStorageService._();
 
   Database? _db;
 
   static const String _dbName    = 'epos_offline.db';
-  static const int    _dbVersion = 1;
+  // #307 — v2 : colonnes status / last_error / last_attempt_ms + table libellés.
+  static const int    _dbVersion = 2;
 
   static const String _tableNotations = 'pending_notations';
   static const String _tableSyncLog   = 'sync_log';
+  static const String _tableLabels    = 'labels';
 
   // ── Initialisation ──────────────────────────────────────────────────────
 
@@ -117,9 +161,51 @@ class OfflineStorageService {
     final dbPath = p.join(await getDatabasesPath(), _dbName);
     return openDatabase(
       dbPath,
-      version: _dbVersion,
-      onCreate: _onCreate,
+      version:   _dbVersion,
+      onCreate:  _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  /// #307 — migration v1 → v2 sur un téléphone qui porte DÉJÀ des notes.
+  /// Purement additive : aucune ligne n'est touchée, les notes existantes
+  /// deviennent PENDING (le DEFAULT), donc elles repartent en synchronisation.
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // SQLite ne connaît pas `ADD COLUMN IF NOT EXISTS`. Si la migration est
+      // interrompue (l'app est tuée entre deux ALTER), la reprise rejouerait
+      // le premier ALTER et échouerait sur « duplicate column name » — la base
+      // deviendrait alors inouvrable, donc les notes seraient INACCESSIBLES.
+      // Chaque étape est donc rendue idempotente.
+      await _ajouterColonneSiAbsente(
+        db,
+        "ALTER TABLE $_tableNotations ADD COLUMN status TEXT NOT NULL DEFAULT '${PendingStatus.pending}'",
+      );
+      await _ajouterColonneSiAbsente(
+        db, 'ALTER TABLE $_tableNotations ADD COLUMN last_error TEXT',
+      );
+      await _ajouterColonneSiAbsente(
+        db, 'ALTER TABLE $_tableNotations ADD COLUMN last_attempt_ms INTEGER',
+      );
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $_tableLabels (
+          kind    TEXT    NOT NULL,
+          ref_id  INTEGER NOT NULL,
+          label   TEXT    NOT NULL,
+          PRIMARY KEY (kind, ref_id)
+        )
+      ''');
+    }
+  }
+
+  /// Rejoue un ALTER sans casser si la colonne existe déjà. On n'avale QUE ce
+  /// cas précis : toute autre erreur doit remonter.
+  Future<void> _ajouterColonneSiAbsente(Database db, String sql) async {
+    try {
+      await db.execute(sql);
+    } on DatabaseException catch (e) {
+      if (!e.toString().toLowerCase().contains('duplicate column')) rethrow;
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -132,7 +218,23 @@ class OfflineStorageService {
         item_id       INTEGER NOT NULL,
         valeur        REAL    NOT NULL,
         created_at_ms INTEGER NOT NULL,
-        retry_count   INTEGER NOT NULL DEFAULT 0
+        retry_count   INTEGER NOT NULL DEFAULT 0,
+        status        TEXT    NOT NULL DEFAULT '${PendingStatus.pending}',
+        last_error    TEXT,
+        last_attempt_ms INTEGER
+      )
+    ''');
+
+    // #307 — libellés lisibles (étudiant, station), écrits au chargement d'un
+    // lot. Sans eux, l'écran des notes bloquées ne pourrait afficher que des
+    // numéros — or il doit rester lisible HORS LIGNE, donc on ne peut pas
+    // aller chercher les noms au moment de l'affichage.
+    await db.execute('''
+      CREATE TABLE $_tableLabels (
+        kind    TEXT    NOT NULL,
+        ref_id  INTEGER NOT NULL,
+        label   TEXT    NOT NULL,
+        PRIMARY KEY (kind, ref_id)
       )
     ''');
 
@@ -185,6 +287,10 @@ class OfflineStorageService {
           'valeur':        notation.valeur,
           'created_at_ms': notation.createdAtMs,
           'retry_count':   0, // reset les retries lors d'une nouvelle saisie
+          // #307 — une nouvelle saisie DÉBLOQUE la ligne : l'évaluateur vient
+          // de retaper la note, elle doit repartir en synchronisation.
+          'status':        PendingStatus.pending,
+          'last_error':    null,
         },
         where: 'id = ?',
         whereArgs: [existingId],
@@ -194,30 +300,97 @@ class OfflineStorageService {
 
   // ── Lecture ─────────────────────────────────────────────────────────────
 
-  /// Retourne toutes les notations en attente de synchronisation.
+  /// Notations à ENVOYER. Exclut les bloquées : elles attendent une action de
+  /// l'évaluateur, les renvoyer en boucle ne ferait que répéter le même échec.
+  @override
   Future<List<PendingNotation>> getPendingNotations() async {
     if (kIsWeb) return [];
     final db   = await _database;
     final rows = await db.query(
       _tableNotations,
-      orderBy: 'created_at_ms ASC',
+      where:     'status = ?',
+      whereArgs: [PendingStatus.pending],
+      orderBy:   'created_at_ms ASC',
     );
     return rows.map(PendingNotation.fromMap).toList();
   }
 
-  /// Nombre de notations en attente (pour le badge UI).
+  /// #307 — notations BLOQUÉES : conservées, jamais supprimées, en attente
+  /// d'une reprise par l'évaluateur.
+  Future<List<PendingNotation>> getBlockedNotations() async {
+    if (kIsWeb) return [];
+    final db   = await _database;
+    final rows = await db.query(
+      _tableNotations,
+      where:     'status = ?',
+      whereArgs: [PendingStatus.blocked],
+      orderBy:   'created_at_ms ASC',
+    );
+    return rows.map(PendingNotation.fromMap).toList();
+  }
+
+  /// Nombre de notations bloquées (badge rouge).
+  @override
+  Future<int> getBlockedCount() async {
+    if (kIsWeb) return 0;
+    final db     = await _database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as cnt FROM $_tableNotations WHERE status = ?',
+      [PendingStatus.blocked],
+    );
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  /// #307 — marque des notations comme bloquées. REMPLACE l'ancien DELETE :
+  /// la note reste en base, avec le motif, jusqu'à ce qu'elle parte.
+  @override
+  Future<void> markBlocked(List<int> ids, String reason) async {
+    if (kIsWeb) return;
+    if (ids.isEmpty) return;
+    final db           = await _database;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE $_tableNotations SET status = ?, last_error = ?, last_attempt_ms = ? '
+      'WHERE id IN ($placeholders)',
+      [PendingStatus.blocked, reason, DateTime.now().millisecondsSinceEpoch, ...ids],
+    );
+  }
+
+  /// #307 — l'évaluateur redemande l'envoi : tout repasse en attente et le
+  /// compteur d'essais repart de zéro.
+  @override
+  Future<int> unblockAll() async {
+    if (kIsWeb) return 0;
+    final db = await _database;
+    return db.rawUpdate(
+      'UPDATE $_tableNotations SET status = ?, retry_count = 0, last_error = NULL '
+      'WHERE status = ?',
+      [PendingStatus.pending, PendingStatus.blocked],
+    );
+  }
+
+  /// Nombre de notations en attente d'envoi (badge UI) — hors bloquées.
+  @override
   Future<int> getPendingCount() async {
     if (kIsWeb) return 0;
     final db     = await _database;
     final result = await db.rawQuery(
-      'SELECT COUNT(*) as cnt FROM $_tableNotations',
+      'SELECT COUNT(*) as cnt FROM $_tableNotations WHERE status = ?',
+      [PendingStatus.pending],
     );
     return (result.first['cnt'] as int?) ?? 0;
   }
 
   // ── Suppression ─────────────────────────────────────────────────────────
 
-  /// Supprime les notations synchronisées avec succès.
+  /// Supprime des notations.
+  ///
+  /// ⛔ #307 — N'APPELER QU'APRÈS UNE CONFIRMATION 2xx DU SERVEUR. Une note
+  /// supprimée n'existe plus nulle part : le téléphone était son seul
+  /// dépositaire. L'ancien code appelait ceci après un « échec avalé » traité
+  /// comme un succès, et après 3 essais ratés — dans les deux cas la note de
+  /// l'étudiant disparaissait en silence.
+  @override
   Future<void> deleteByIds(List<int> ids) async {
     if (kIsWeb) return;
     if (ids.isEmpty) return;
@@ -231,6 +404,7 @@ class OfflineStorageService {
   }
 
   /// Incrémente le compteur de retry pour les notations en échec.
+  @override
   Future<void> incrementRetry(List<int> ids) async {
     if (kIsWeb) return;
     if (ids.isEmpty) return;
@@ -248,10 +422,44 @@ class OfflineStorageService {
     final db = await _database;
     await db.delete(_tableNotations);
     await db.delete(_tableSyncLog);
+    await db.delete(_tableLabels);
+  }
+
+  // ── Libellés lisibles (#307) ─────────────────────────────────────────────
+
+  static const String kindEtudiant = 'etudiant';
+  static const String kindStation  = 'station';
+
+  /// Mémorise « 12 → Sonia Karoui » pour que l'écran des notes bloquées parle
+  /// de personnes et non de numéros, MÊME hors ligne.
+  Future<void> rememberLabel(String kind, int refId, String label) async {
+    if (kIsWeb) return;
+    if (label.trim().isEmpty) return;
+    final db = await _database;
+    await db.insert(
+      _tableLabels,
+      {'kind': kind, 'ref_id': refId, 'label': label},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Tous les libellés d'un type, en une requête (l'écran en affiche plusieurs).
+  Future<Map<int, String>> getLabels(String kind) async {
+    if (kIsWeb) return {};
+    final db   = await _database;
+    final rows = await db.query(
+      _tableLabels,
+      where:     'kind = ?',
+      whereArgs: [kind],
+    );
+    return {
+      for (final r in rows) r['ref_id'] as int: r['label'] as String,
+    };
   }
 
   // ── Journal de synchronisation ───────────────────────────────────────────
 
+  @override
   Future<void> logSync({
     required int  count,
     required bool success,

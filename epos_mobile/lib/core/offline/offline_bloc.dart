@@ -56,24 +56,37 @@ class OfflineSyncRequested extends OfflineEvent {
   const OfflineSyncRequested();
 }
 
-/// Mise à jour du nombre de notations en attente.
+/// #307 — l'évaluateur redemande l'envoi de ses notes bloquées.
+/// C'est LUI qui reprend la main (et pas le responsable) : il est sur place,
+/// et c'est lui qui sait ce qu'il a saisi.
+class OfflineRetryBlockedRequested extends OfflineEvent {
+  const OfflineRetryBlockedRequested();
+}
+
+/// Mise à jour du nombre de notations en attente (et bloquées, #307).
 class OfflinePendingCountUpdated extends OfflineEvent {
   final int count;
-  const OfflinePendingCountUpdated(this.count);
+  final int blockedCount;
+  const OfflinePendingCountUpdated(this.count, {this.blockedCount = 0});
   @override
-  List<Object?> get props => [count];
+  List<Object?> get props => [count, blockedCount];
 }
 
 // ── States ───────────────────────────────────────────────────────────────────
 
 /// État d'une synchronisation.
-enum SyncStatus { idle, syncing, success, partialFailure }
+///
+/// #307 — `blocked` et `authExpired` sont des états qui APPELLENT UNE ACTION,
+/// contrairement à `partialFailure` qui se résoudra tout seul au prochain
+/// passage en ligne.
+enum SyncStatus { idle, syncing, success, partialFailure, blocked, authExpired }
 
 class OfflineState extends Equatable {
   final bool       isOnline;
   final bool       isSyncing;
   final SyncStatus syncStatus;
-  final int        pendingCount; // notations en attente
+  final int        pendingCount; // notations en attente d'envoi
+  final int        blockedCount; // #307 — notations bloquées (action requise)
   final int        lastSyncedCount; // notations envoyées lors de la dernière sync
   final DateTime?  lastSyncAt;
 
@@ -82,15 +95,20 @@ class OfflineState extends Equatable {
     this.isSyncing      = false,
     this.syncStatus     = SyncStatus.idle,
     this.pendingCount   = 0,
+    this.blockedCount   = 0,
     this.lastSyncedCount = 0,
     this.lastSyncAt,
   });
+
+  /// Rien n'est perdu, mais quelque chose attend l'évaluateur.
+  bool get aDesNotesBloquees => blockedCount > 0;
 
   OfflineState copyWith({
     bool?       isOnline,
     bool?       isSyncing,
     SyncStatus? syncStatus,
     int?        pendingCount,
+    int?        blockedCount,
     int?        lastSyncedCount,
     DateTime?   lastSyncAt,
   }) => OfflineState(
@@ -98,13 +116,15 @@ class OfflineState extends Equatable {
     isSyncing:       isSyncing       ?? this.isSyncing,
     syncStatus:      syncStatus      ?? this.syncStatus,
     pendingCount:    pendingCount    ?? this.pendingCount,
+    blockedCount:    blockedCount    ?? this.blockedCount,
     lastSyncedCount: lastSyncedCount ?? this.lastSyncedCount,
     lastSyncAt:      lastSyncAt      ?? this.lastSyncAt,
   );
 
   @override
   List<Object?> get props => [
-    isOnline, isSyncing, syncStatus, pendingCount, lastSyncedCount, lastSyncAt,
+    isOnline, isSyncing, syncStatus, pendingCount, blockedCount,
+    lastSyncedCount, lastSyncAt,
   ];
 }
 
@@ -120,6 +140,7 @@ class OfflineBloc extends Bloc<OfflineEvent, OfflineState> {
     on<OfflineSyncProgressChanged>  (_onSyncProgressChanged);
     on<OfflineSyncCompleted>        (_onSyncCompleted);
     on<OfflineSyncRequested>        (_onSyncRequested);
+    on<OfflineRetryBlockedRequested>(_onRetryBlockedRequested);
     on<OfflinePendingCountUpdated>  (_onPendingCountUpdated);
 
     _connectivitySub = ConnectivityService.instance.onConnectivityChanged
@@ -158,19 +179,40 @@ class OfflineBloc extends Bloc<OfflineEvent, OfflineState> {
     OfflineSyncCompleted event,
     Emitter<OfflineState> emit,
   ) async {
-    final r      = event.result;
-    final status = r.isComplete ? SyncStatus.success : SyncStatus.partialFailure;
+    final r = event.result;
 
-    // Recharge le compte après sync
+    // #307 — l'ordre traduit l'urgence : une session expirée et des notes
+    // bloquées demandent un geste ; un échec temporaire, non.
+    final SyncStatus status;
+    if (r.authFailed) {
+      status = SyncStatus.authExpired;
+    } else if (r.blocked > 0) {
+      status = SyncStatus.blocked;
+    } else if (r.isComplete) {
+      status = SyncStatus.success;
+    } else {
+      status = SyncStatus.partialFailure;
+    }
+
+    // Recharge les compteurs après sync
     final remaining = await SyncService.instance.getPendingCount();
+    final blocked   = await SyncService.instance.getBlockedCount();
 
     emit(state.copyWith(
       isSyncing:       false,
       syncStatus:      status,
       pendingCount:    remaining,
+      blockedCount:    blocked,
       lastSyncedCount: r.synced,
       lastSyncAt:      r.syncedAt,
     ));
+  }
+
+  Future<void> _onRetryBlockedRequested(
+    OfflineRetryBlockedRequested event,
+    Emitter<OfflineState> emit,
+  ) async {
+    await SyncService.instance.retryBlocked();
   }
 
   Future<void> _onSyncRequested(
@@ -185,15 +227,22 @@ class OfflineBloc extends Bloc<OfflineEvent, OfflineState> {
     OfflinePendingCountUpdated event,
     Emitter<OfflineState> emit,
   ) async {
-    emit(state.copyWith(pendingCount: event.count));
+    emit(state.copyWith(
+      pendingCount: event.count,
+      blockedCount: event.blockedCount,
+    ));
   }
 
   /// Appelé depuis GradingBloc après chaque sauvegarde locale.
   Future<void> refreshPendingCount() => _refreshPendingCount();
 
   Future<void> _refreshPendingCount() async {
-    final count = await SyncService.instance.getPendingCount();
-    add(OfflinePendingCountUpdated(count));
+    final count   = await SyncService.instance.getPendingCount();
+    // #307 — des notes peuvent être restées bloquées d'une session précédente :
+    // le badge doit le dire dès l'ouverture de l'app, pas seulement après une
+    // synchronisation.
+    final blocked = await SyncService.instance.getBlockedCount();
+    add(OfflinePendingCountUpdated(count, blockedCount: blocked));
   }
 
   @override

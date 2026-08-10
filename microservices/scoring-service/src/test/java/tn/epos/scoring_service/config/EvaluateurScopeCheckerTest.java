@@ -49,34 +49,58 @@ class EvaluateurScopeCheckerTest {
                 new UsernamePasswordAuthenticationToken("u", "p", grants));
     }
 
-    // ── isUnrestricted ──────────────────────────────────────────────────────
+    // ── peutLireHorsPerimetre / peutEcrireHorsPerimetre (#274) ──────────────
+    //
+    // Ces deux méthodes remplacent l'unique `isUnrestricted()`, qui servait à la fois les
+    // filtres de liste et les gardes d'écriture. Le test qui suit — « un responsable LIT
+    // partout mais n'ÉCRIT pas partout » — est la régression de #274 : c'est exactement la
+    // confusion qui laissait un responsable écraser la note d'un évaluateur.
 
     @Test
-    @DisplayName("SUPER_ADMIN is unrestricted")
-    void unrestricted_superAdmin() {
+    @DisplayName("SUPER_ADMIN lit ET écrit hors périmètre")
+    void superAdmin_litEtEcrit() {
         authNonJwt("ROLE_SUPER_ADMIN");
-        assertThat(checker.isUnrestricted()).isTrue();
+        assertThat(checker.peutLireHorsPerimetre()).isTrue();
+        assertThat(checker.peutEcrireHorsPerimetre()).isTrue();
     }
 
     @Test
-    @DisplayName("RESPONSABLE_MATIERE is unrestricted (oversight + corrections)")
-    void unrestricted_responsable() {
+    @DisplayName("#274 — RESPONSABLE_MATIERE lit hors périmètre mais n'y ÉCRIT PAS")
+    void responsable_litMaisNEcritPas() {
         authNonJwt("ROLE_RESPONSABLE_MATIERE", "ROLE_RESPONSABLE_MATIERE:5");
-        assertThat(checker.isUnrestricted()).isTrue();
+        assertThat(checker.peutLireHorsPerimetre())
+                .as("la supervision exige la vue — ADR-0018 D5")
+                .isTrue();
+        assertThat(checker.peutEcrireHorsPerimetre())
+                .as("son canal vers une note est le réajustement audité, pas un PUT silencieux")
+                .isFalse();
     }
 
     @Test
-    @DisplayName("EVALUATEUR is constrained")
-    void constrained_evaluateur() {
+    @DisplayName("EVALUATEUR est borné en lecture comme en écriture")
+    void evaluateur_borneDesDeuxCotes() {
         authAsJwt(42L, "ROLE_EVALUATEUR");
-        assertThat(checker.isUnrestricted()).isFalse();
+        assertThat(checker.peutLireHorsPerimetre()).isFalse();
+        assertThat(checker.peutEcrireHorsPerimetre()).isFalse();
     }
 
     @Test
-    @DisplayName("no authentication is constrained")
-    void constrained_noAuth() {
+    @DisplayName("sans authentification, tout est borné")
+    void sansAuth_borne() {
         SecurityContextHolder.clearContext();
-        assertThat(checker.isUnrestricted()).isFalse();
+        assertThat(checker.peutLireHorsPerimetre()).isFalse();
+        assertThat(checker.peutEcrireHorsPerimetre()).isFalse();
+    }
+
+    @Test
+    @DisplayName("#274 — un responsable ne traverse plus checkOwnership sur la note d'autrui")
+    void responsable_refuseSurLaNoteDunAutre() {
+        authNonJwt("ROLE_RESPONSABLE_MATIERE", "ROLE_RESPONSABLE_MATIERE:5");
+        // Le repro exact du ticket : ce même appelant obtenait 200 par
+        // PUT /api/notation-items/152 et faisait passer la note de 8 à 3.
+        assertThatThrownBy(() -> checker.checkOwnership(99L))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(checker.isCaller(99L)).isFalse();
     }
 
     // ── getCallerUserId ─────────────────────────────────────────────────────

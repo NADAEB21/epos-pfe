@@ -50,14 +50,19 @@ public class ConvocationService {
     private final ConvocationEmailService emailService;
     private final Clock clock;
 
+    /** #274 — une convocation nomme un candidat et son créneau : périmètre de matière. */
+    private final MatiereAccessGuard matiereAccessGuard;
+
     public ConvocationService(IExamenParticipationRepository participationRepository,
                               ExamServiceClient examServiceClient,
                               ConvocationEmailService emailService,
-                              Clock clock) {
+                              Clock clock,
+                              MatiereAccessGuard matiereAccessGuard) {
         this.participationRepository = participationRepository;
         this.examServiceClient = examServiceClient;
         this.emailService = emailService;
         this.clock = clock;
+        this.matiereAccessGuard = matiereAccessGuard;
     }
 
     /**
@@ -67,6 +72,12 @@ public class ConvocationService {
      * annoncer, et inventer une convocation serait pire que de n'en pas donner.
      */
     public List<ConvocationDTO> construire(Long examenId) {
+        // #274 — garde LOCALE, posée avant l'appel distant. Le périmètre était déjà tenu
+        // indirectement (exam-service refuse `GET /api/examens/{id}` hors matière), mais par le
+        // réseau : l'autorisation tombait avec exam-service. `envoyer` passe par ici, donc la
+        // garde couvre les deux endpoints.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
         List<ExamenParticipation> participations = participationRepository.findByExamenId(examenId);
 
@@ -157,6 +168,11 @@ public class ConvocationService {
      * exactement ceux que le responsable devra convoquer en main propre.
      */
     public EnvoiConvocationsResult envoyer(Long examenId) {
+        // #274 — redit ici, et pas seulement dans `construire` : cette méthode appelle
+        // exam-service AVANT `construire`. Sans cette ligne, un appelant hors périmètre
+        // déclencherait un aller-retour réseau et recevrait un 400 de transport au lieu d'un 403.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
         String examenNom = exam.nom() == null ? "Examen" : exam.nom();
         List<ConvocationDTO> convocations = construire(examenId);

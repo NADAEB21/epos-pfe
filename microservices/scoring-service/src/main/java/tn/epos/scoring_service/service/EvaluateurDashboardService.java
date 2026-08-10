@@ -56,6 +56,13 @@ public class EvaluateurDashboardService {
     /** Horloge injectable ADR-0010. */
     private final Clock clock;
 
+    /**
+     * #274 — n'est consulté que par {@code validerLot}, le seul acte RESP/ADMIN de cette classe.
+     * Les actes d'évaluateur restent bornés par {@code verifierAffectationStation} (#213), qui
+     * est déjà strict et n'exempte aucun rôle : la matière n'y ajouterait rien.
+     */
+    private final MatiereAccessGuard matiereAccessGuard;
+
     /** BF6.1 — Template STOMP pour le push WebSocket. */
     private final SimpMessagingTemplate          messagingTemplate;
 
@@ -442,6 +449,11 @@ public class EvaluateurDashboardService {
 
     public void validerLot(Long lotId, Long evaluateurId) {
         Lot lot = lotRepository.findById(lotId).orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
+
+        // #274 — ce point de terminaison est réservé RESP/ADMIN (surcharge de méthode dans
+        // EvaluateurDashboardController) : il écrit `Lot.statut`, un état de conduite. Il se
+        // borne donc à la matière, comme l'ouverture de vague.
+        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
 
         // #211 — cascade NEUTRALISÉE. L'ancienne version forçait TOUTES les
         // rotations du lot à TERMINE : un admin clôturant un lot terminait ainsi

@@ -83,13 +83,13 @@ public class ExamenParticipationController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<ParticipationDTO>> update(
             @PathVariable Long id, @RequestBody ParticipationDTO dto) {
-        return participationService.getById(id)
-                .map(existing -> {
-                    existing.setNote(dto.note());
-                    existing.setEst_present(dto.est_present());
-                    return ResponseEntity.ok(ApiResponse.ok("Participation mise à jour",
-                            ParticipationDTO.fromEntity(participationService.save(existing))));
-                })
+        // #274 — la mutation vit dans le SERVICE, pas ici. Le contrôleur chargeait l'entité,
+        // la modifiait, puis appelait un `save` gardé : la garde répondait 403 et l'écriture
+        // partait quand même (entité managée déjà sale, flushée par la transaction de la garde
+        // elle-même). Mesuré en direct : note 3,25 → 19 sur un appel refusé.
+        return participationService.update(id, dto.note(), dto.est_present())
+                .map(saved -> ResponseEntity.ok(ApiResponse.ok("Participation mise à jour",
+                        ParticipationDTO.fromEntity(saved))))
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(NOT_FOUND_MSG)));
     }

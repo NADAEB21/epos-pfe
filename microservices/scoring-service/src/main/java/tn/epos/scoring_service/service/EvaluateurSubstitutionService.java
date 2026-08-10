@@ -7,9 +7,11 @@ import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.dto.SubstitutionResult;
 import tn.epos.scoring_service.entities.EvaluateurSubstitution;
+import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationStatus;
 import tn.epos.scoring_service.repositories.IEvaluateurSubstitutionRepository;
+import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.Clock;
@@ -44,18 +46,35 @@ public class EvaluateurSubstitutionService {
     private final IRotationRepository rotationRepository;
     private final IEvaluateurSubstitutionRepository substitutionRepository;
     private final Clock clock;
+    /**
+     * #274 — remplacer un examinateur en pleine épreuve se borne à SA matière.
+     *
+     * <p>Le lot est chargé pour ça, et pas déduit des rotations : une garde d'autorisation ne
+     * doit pas dépendre de l'existence de données métier. Un lot sans rotation générée doit
+     * répondre « hors périmètre » à un étranger, et « la vague n'a pas démarré » au titulaire —
+     * dans cet ordre.
+     */
+    private final ILotRepository lotRepository;
+    private final MatiereAccessGuard matiereAccessGuard;
 
     public EvaluateurSubstitutionService(IRotationRepository rotationRepository,
                                          IEvaluateurSubstitutionRepository substitutionRepository,
-                                         Clock clock) {
+                                         Clock clock,
+                                         ILotRepository lotRepository,
+                                         MatiereAccessGuard matiereAccessGuard) {
         this.rotationRepository = rotationRepository;
         this.substitutionRepository = substitutionRepository;
         this.clock = clock;
+        this.lotRepository = lotRepository;
+        this.matiereAccessGuard = matiereAccessGuard;
     }
 
     @Transactional
     public SubstitutionResult remplacer(Long lotId, Long stationId, Long nouvelEvaluateurId,
                                         String motif, Long decideParId) {
+        matiereAccessGuard.checkExamenAccess(
+                lotRepository.findById(lotId).map(Lot::getExamenId).orElse(null));
+
         List<Rotation> duLot = rotationRepository.findByStudentGroup_Lot_Id(lotId);
 
         List<Rotation> deLaStation = duLot.stream()

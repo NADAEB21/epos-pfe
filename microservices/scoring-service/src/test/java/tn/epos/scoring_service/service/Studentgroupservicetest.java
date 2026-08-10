@@ -28,6 +28,9 @@ class StudentGroupServiceTest {
     @Mock
     private IStudentGroupRepository studentGroupRepository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private StudentGroupService studentGroupService;
 
@@ -155,14 +158,38 @@ class StudentGroupServiceTest {
     @DisplayName("delete()")
     class Delete {
 
+        /**
+         * #274 — on charge le groupe pour remonter {@code group → lot → examenId} :
+         * {@code deleteById} ne permettait aucun contrôle de périmètre.
+         */
         @Test
-        @DisplayName("Doit appeler deleteById avec le bon ID")
-        void delete_devraitAppelerDeleteById() {
-            doNothing().when(studentGroupRepository).deleteById(1L);
+        @DisplayName("#274 — charge le groupe, vérifie le périmètre, PUIS supprime")
+        void delete_devraitVerifierLePerimetrePuisSupprimer() {
+            Lot lot = new Lot();
+            lot.setExamenId(42L);
+            StudentGroup group = new StudentGroup();
+            group.setId(1L);
+            group.setLot(lot);
+            when(studentGroupRepository.findById(1L)).thenReturn(Optional.of(group));
 
             studentGroupService.delete(1L);
 
-            verify(studentGroupRepository, times(1)).deleteById(1L);
+            verify(matiereAccessGuard).checkExamenAccess(42L);
+            verify(studentGroupRepository, times(1)).delete(group);
+        }
+
+        @Test
+        @DisplayName("Un groupe DÉTACHÉ (sans lot) échoue fermé : examenId null")
+        void delete_groupeDetache_perimetreNull() {
+            StudentGroup orphelin = new StudentGroup();
+            orphelin.setId(2L);
+            when(studentGroupRepository.findById(2L)).thenReturn(Optional.of(orphelin));
+
+            studentGroupService.delete(2L);
+
+            // Le guard reçoit null et c'est LUI qui refuse (403) — ici mocké, donc permissif.
+            // Ce qui compte : on ne contourne pas la vérification faute de lot.
+            verify(matiereAccessGuard).checkExamenAccess(null);
         }
     }
 

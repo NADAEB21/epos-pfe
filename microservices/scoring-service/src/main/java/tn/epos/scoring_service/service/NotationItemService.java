@@ -111,8 +111,20 @@ public class NotationItemService {
      *
      * <p>On réutilise {@code EvaluateurScopeChecker} plutôt que d'écrire un second
      * contrôle : deux mécanismes de propriété finiraient par diverger.
-     * {@code isUnrestricted()} laisse passer responsable et admin, dont la
-     * supervision est légitime ; l'auteur réel reste tracé par {@code saisi_par}.
+     *
+     * <p><b>#274 — le responsable ne passe plus.</b> La version précédente de ce Javadoc
+     * justifiait l'exemption ainsi : « {@code isUnrestricted()} laisse passer responsable et
+     * admin, dont la supervision est légitime ; l'auteur réel reste tracé par
+     * {@code saisi_par} ». Les deux moitiés étaient fausses. La supervision est une
+     * <b>LECTURE</b> (ADR-0018 D5) — modifier la note d'un examinateur n'en est pas une. Et
+     * {@code saisi_par} n'était PAS écrit sur ce chemin : la note changeait et la base continuait
+     * de désigner l'auteur précédent, donc une traçabilité fausse plutôt qu'absente. Le canal du
+     * responsable est le <b>réajustement audité</b> (ADR-0013 partie 2), motivé et attribué — et
+     * c'est déjà le seul que l'IHM web utilise.
+     *
+     * <p>Aucune garde de MATIÈRE n'est ajoutée ici, volontairement : le responsable étant
+     * désormais refusé quelle que soit sa matière, elle n'aurait rien à décider. Seul
+     * {@code SUPER_ADMIN} traverse encore, divergence ADR-0018 D5 assumée et différée.
      *
      * <p>Compatible ADR-0017 : la propriété est lue sur
      * {@code rotation.evaluateurId}, que la suppléance met à jour — un remplaçant
@@ -123,7 +135,15 @@ public class NotationItemService {
         Notation parent = notationRepository.findById(notation.getId()).orElse(null);
         if (parent == null || parent.getAssignment() == null
                 || parent.getAssignment().getRotation() == null) {
-            return;   // lien absent : rien à comparer (défensif, comme le garde de verrou)
+            // #274 — chaîne rompue : on échoue FERMÉ, on ne renonce plus au contrôle.
+            // La version précédente rendait la main ici (« rien à comparer »), ce qui était
+            // survivable tant que responsable et admin étaient exemptés de toute façon. Depuis
+            // que cette garde décide vraiment, ce `return` serait devenu LE contournement :
+            // une notation sans affectation aurait été modifiable par tout porteur du rôle.
+            // `checkOwnership(null)` refuse tout appelant borné et ne laisse passer que
+            // l'exemption d'écriture explicite.
+            scopeChecker.checkOwnership(null);
+            return;
         }
         scopeChecker.checkOwnership(parent.getAssignment().getRotation().getEvaluateurId());
     }

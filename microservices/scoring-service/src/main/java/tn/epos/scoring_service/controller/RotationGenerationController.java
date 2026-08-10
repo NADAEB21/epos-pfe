@@ -21,9 +21,13 @@ import tn.epos.scoring_service.service.RotationGenerationService;
  * {@code /api/examens/**}, which the gateway routes to exam-service.
  *
  * <p>Generation is now scoped to a single lot and gated to exam day: the exam
- * must be EN_COURS and the lot's presence must already be marked. Matière scope is
- * still enforced cross-service — generation reads the exam via the JWT-forwarded
- * exam-service call, which rejects exams outside the caller's matière.
+ * must be EN_COURS and the lot's presence must already be marked.
+ *
+ * <p><b>Périmètre de matière : désormais LOCAL (#274).</b> Il l'était auparavant
+ * <i>cross-service</i> — la lecture de l'examen via l'appel exam-service portant le JWT de
+ * l'appelant refusait les examens hors matière. Correct, mais l'autorisation tombait alors avec
+ * exam-service, sur un chemin du jour J qu'ADR-0015 veut précisément indépendant. Le contrôle est
+ * maintenant fait avant l'appel distant, sur la matière figée localement.
  */
 @RestController
 @RequestMapping("/api/rotations")

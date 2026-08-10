@@ -28,6 +28,16 @@ public class EtudiantService {
     @Autowired
     private IExamenParticipationRepository participationRepository;
 
+    /**
+     * #274 — borne l'IMPORT à la matière de l'examen visé.
+     *
+     * <p>⚠️ Ne borne PAS le CRUD étudiant : {@code Etudiant} est un enregistrement d'annuaire
+     * facultaire, sans aucun lien d'examen, donc sans matière à comparer. Le rattacher à une
+     * matière serait inventer une appartenance que le modèle ne porte pas. Limite énoncée.
+     */
+    @Autowired
+    private MatiereAccessGuard matiereAccessGuard;
+
     public List<Etudiant> getAllEtudiants() {
         return etudiantRepository.findAll();
     }
@@ -55,6 +65,17 @@ public class EtudiantService {
      * so the caller can render a line-by-line outcome.
      */
     public ImportResult importStudents(Long examenId, List<ImportEtudiantRequest> rows) {
+        // #274 — la garde est posée ICI, au-dessus de la boucle, et c'est essentiel : le
+        // `catch (Exception)` par ligne ci-dessous transformerait un refus d'autorisation en une
+        // simple ligne « ERROR » du bilan. L'import répondrait alors 200 avec N lignes en erreur,
+        // et l'appelant illégitime lirait ça comme un problème de fichier. Un 403 avalé en état
+        // d'erreur métier est le même piège que celui payé sur la lecture d'examen côté
+        // évaluateur : une garde doit interrompre, pas colorer une ligne.
+        //
+        // L'import passe par `participationRepository` directement, donc la garde de
+        // `ExamenParticipationService.save` ne le couvre PAS — deuxième porte, garde propre.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         Bilan bilan = new Bilan();
 
         int ligne = 0;

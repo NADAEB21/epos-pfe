@@ -41,7 +41,8 @@ class RotationServiceTest {
         // Appelant non contraint par défaut : le filtrage de périmètre
         // évaluateur (#91) est couvert séparément ci-dessous + dans
         // EvaluateurScopeCheckerTest. lenient() car findById/update ne le consultent pas.
-        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
+        // #274 — filtre de LISTE : `peutLireHorsPerimetre`, pas l'écriture.
+        lenient().when(scopeChecker.peutLireHorsPerimetre()).thenReturn(true);
 
         Lot lot = new Lot();
         lot.setId(1L);

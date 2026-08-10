@@ -42,7 +42,7 @@ public class RotationService {
     // Filtre une liste de rotations au périmètre de l'évaluateur appelant.
     // Un appelant non contraint (SUPER_ADMIN / RESPONSABLE_MATIERE) voit tout.
     private List<Rotation> scoped(List<Rotation> rotations) {
-        if (scopeChecker.isUnrestricted()) {
+        if (scopeChecker.peutLireHorsPerimetre()) {
             return rotations;
         }
         return rotations.stream()

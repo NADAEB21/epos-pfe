@@ -60,6 +60,9 @@ class EvaluateurDashboardServiceTest {
     // le temps effectif du service s'aligne sur les debutCreneau construits ici.
     @Spy private Clock clock = Clock.system(ZoneId.of("Africa/Tunis"));
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private EvaluateurDashboardService service;
 

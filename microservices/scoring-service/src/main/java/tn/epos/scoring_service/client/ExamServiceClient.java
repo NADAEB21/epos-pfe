@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import reactor.netty.http.client.HttpClient;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -290,6 +291,83 @@ public class ExamServiceClient {
                     + "grille " + grilleId + " — définition non figée (ADR-0015).");
         }
         return infos;
+    }
+
+    /**
+     * Matière propriétaire d'un examen, sans repli — #274.
+     *
+     * <p>Sert à figer {@code exam_matiere_snapshot} une seule fois par examen, pour que
+     * l'autorisation par matière du jour J soit ensuite purement locale (ADR-0015).
+     *
+     * <p><b>Le cas du tout premier appel.</b> {@code GET /api/examens/{id}} est déjà réservé à
+     * {@code SUPER_ADMIN | RESPONSABLE_MATIERE} <b>et</b> déjà borné par matière côté
+     * exam-service ({@code ExamenServiceImpl.trouverParId} → {@code checkAccess}). Un
+     * responsable étranger reçoit donc un 403 d'exam-service <b>avant même</b> que la ligne
+     * locale existe : la garde de #274 est effective dès le premier appel, sans état préalable.
+     *
+     * <p>Ce 403 amont est traduit en {@link AccessDeniedException}, donc en <b>403</b> pour le
+     * client, et non en erreur de transport. Mesuré en direct le 2026-08-10 avant ce
+     * traitement : le responsable de Toxicologie était bien refusé sur l'examen 53, mais en
+     * <b>400</b> avec le message « matière non figée » — un code faux, et une explication qui
+     * parle de plomberie interne. Le frontend distingue 403 et 400 ; c'est le code qui porte
+     * le sens ici.
+     *
+     * <p>⚠️ Le message détaillé ci-dessous n'atteint PAS l'utilisateur : le
+     * {@code GlobalExceptionHandler} aplatit tout 403 en « Access denied » (choix délibéré et
+     * antérieur, identique côté exam-service). Il sert donc les journaux et le diagnostic. Rendre
+     * les refus de périmètre explicites à l'écran est un sujet à part — il touche TOUS les 403 du
+     * service — et n'est pas traité ici.
+     *
+     * <p>⚠️ Ce n'est PAS une garde qui dépend du réseau : dès la ligne figée, la décision est
+     * locale et ce chemin n'est plus emprunté (vérifié en direct — 403 local après figeage).
+     * C'est l'amorçage, et il a lieu en préparation, exam-service debout.
+     *
+     * @throws AccessDeniedException si exam-service refuse l'examen à cet appelant (403/401) —
+     *                               c'est une réponse d'autorisation, pas une panne
+     * @throws BusinessException si exam-service est injoignable, répond une autre erreur, ou ne
+     *                           fournit pas de matière. Ne devine JAMAIS une matière : figer une
+     *                           matière fausse autoriserait durablement le mauvais responsable.
+     */
+    public Long getMatiereIdStrict(Long examenId) {
+        String bearerToken = currentBearerToken();
+        JsonNode root;
+        try {
+            root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            int code = e.getStatusCode().value();
+            if (code == 403 || code == 401) {
+                // exam-service est PROPRIÉTAIRE de la matière : son refus est la réponse
+                // d'autorisation, pas un incident. On la relaie sans la déguiser.
+                throw new AccessDeniedException(
+                        "Accès interdit : l'examen " + examenId
+                                + " ne relève pas de vos matières (#274).");
+            }
+            throw new BusinessException("exam-service a renvoyé " + code
+                    + " pour l'examen " + examenId
+                    + " — matière non figée, écriture refusée (#274, ADR-0015).");
+        } catch (RuntimeException e) {
+            throw new BusinessException("exam-service injoignable pour l'examen " + examenId
+                    + " — matière non figée, écriture refusée (#274, ADR-0015) : " + e.getMessage());
+        }
+
+        // asText(null) puis parse explicite : un `matiereId` absent rend un noeud MISSING, dont
+        // asLong() vaut 0 — un identifiant plausible qu'on figerait en silence.
+        String brut = (root != null) ? root.path("data").path("matiereId").asText(null) : null;
+        if (brut == null || brut.isBlank()) {
+            throw new BusinessException("exam-service n'a pas fourni de matière pour l'examen "
+                    + examenId + " — matière non figée, écriture refusée (#274, ADR-0015).");
+        }
+        try {
+            return Long.parseLong(brut.trim());
+        } catch (NumberFormatException e) {
+            throw new BusinessException("exam-service a renvoyé une matière illisible « " + brut
+                    + " » pour l'examen " + examenId + " — matière non figée (#274, ADR-0015).");
+        }
     }
 
     /**

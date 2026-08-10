@@ -48,6 +48,9 @@ class LotAssignmentServiceTest {
     @Mock private ILotRepository lotRepository;
     @Mock private IStudentGroupRepository studentGroupRepository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks private LotAssignmentService service;
 
     private static final long EXAM_ID = 100L;

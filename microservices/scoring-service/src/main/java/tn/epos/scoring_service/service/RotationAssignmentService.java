@@ -48,7 +48,7 @@ public class RotationAssignmentService {
     // RotationAssignment -> Rotation.evaluateurId. Un appelant non contraint
     // (SUPER_ADMIN / RESPONSABLE_MATIERE) voit tout.
     private List<RotationAssignment> scoped(List<RotationAssignment> assignments) {
-        if (scopeChecker.isUnrestricted()) {
+        if (scopeChecker.peutLireHorsPerimetre()) {
             return assignments;
         }
         return assignments.stream()

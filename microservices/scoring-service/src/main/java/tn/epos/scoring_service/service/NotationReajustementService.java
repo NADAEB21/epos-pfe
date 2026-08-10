@@ -43,15 +43,23 @@ public class NotationReajustementService {
     private final INotationItemRepository notationItemRepository;
     private final INotationAdjustmentRepository adjustmentRepository;
     private final EvaluateurScopeChecker scopeChecker;
+    /** #274 — le réajustement est le canal du responsable : il se borne à SA matière. */
+    private final MatiereAccessGuard matiereAccessGuard;
 
     /** ADR-0015 — définition figée : seule source des pondérations et du calcul du score. */
     private final ExamDefinitionSnapshotService examDefinitionSnapshot;
 
     /**
      * Applies an audited réajustement and returns the persisted adjustment row.
-     * Authorization (RESPONSABLE_MATIERE / SUPER_ADMIN only) is enforced at the
-     * controller via {@code @PreAuthorize}; here we only resolve the caller's
-     * user id for the audit trail.
+     *
+     * <p>Le rôle (RESPONSABLE_MATIERE / SUPER_ADMIN) est vérifié au contrôleur par
+     * {@code @PreAuthorize} ; la MATIÈRE l'est ici (#274). Les deux sont nécessaires : le rôle nu
+     * ne dit pas de quelle matière on est titulaire.
+     *
+     * <p>Depuis #274 c'est le <b>seul</b> chemin par lequel un responsable modifie une note —
+     * l'écriture directe ({@code PUT /api/notation-items/{id}}, {@code PUT /api/notations/{id}})
+     * lui est fermée. Ce canal-ci est motivé, attribué et historisé (ADR-0013 partie 2) ; il porte
+     * donc d'autant plus la charge de vérifier que la note appartient bien à SA matière.
      */
     public NotationAdjustment reajuster(Long notationId, ReajustementRequest req) {
         Long userId = scopeChecker.getCallerUserId();
@@ -65,6 +73,10 @@ public class NotationReajustementService {
         Notation notation = notationRepository.findById(notationId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Notation non trouvée avec l'id : " + notationId));
+
+        // #274 — la note relève-t-elle d'une épreuve de MA matière ? Échec fermé si la chaîne
+        // vers l'examen est rompue : une note qu'on ne sait pas rattacher ne se réajuste pas.
+        matiereAccessGuard.checkExamenAccess(notation.resolveExamenId());
 
         float ancienScore = notation.getScore_final() != null ? notation.getScore_final() : 0f;
 

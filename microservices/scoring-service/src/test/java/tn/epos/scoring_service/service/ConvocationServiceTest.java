@@ -50,6 +50,8 @@ class ConvocationServiceTest {
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private ExamServiceClient examServiceClient;
     @Mock private ConvocationEmailService emailService;
+    /** #274 — permissif par défaut : le périmètre de matière a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
 
     private ConvocationService service;
 
@@ -57,7 +59,7 @@ class ConvocationServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-28T08:00:00Z"), ZoneId.of("Africa/Tunis"));
         service = new ConvocationService(participationRepository, examServiceClient,
-                emailService, clock);
+                emailService, clock, matiereAccessGuard);
     }
 
     /** Examen à 2 stations de 10 min → un circuit dure 20 min. */

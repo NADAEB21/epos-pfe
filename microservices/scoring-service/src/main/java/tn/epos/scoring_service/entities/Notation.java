@@ -68,4 +68,29 @@ public class Notation {
     protected void onCreate() {
         this.timestamp = LocalDateTime.now();
 }
+
+    /**
+     * L'examen dont relève cette notation, ou {@code null} si la chaîne est incomplète — #274.
+     *
+     * <p>Le chemin fait quatre maillons ({@code assignment → rotation → studentGroup → lot}) et
+     * chacun est nullable en base : une notation existe avant son affectation, et
+     * {@code NotationService.save} traite déjà explicitement le cas « sans assignment ». Cette
+     * méthode vit sur l'entité, et pas dupliquée dans chaque service, pour une raison précise :
+     * #274 était né de DEUX chemins vers la même donnée qui répondaient différemment. Une seule
+     * définition de « l'examen de cette notation » ne peut pas diverger d'elle-même.
+     *
+     * <p>Rend {@code null} plutôt que de lever : l'appelant décide. Les gardes d'autorisation
+     * échouent FERMÉ sur ce {@code null} ({@code MatiereAccessGuard.checkExamenAccess}), tandis
+     * qu'un affichage peut légitimement l'ignorer.
+     */
+    public Long resolveExamenId() {
+        if (assignment == null || assignment.getRotation() == null) {
+            return null;
+        }
+        StudentGroup groupe = assignment.getRotation().getStudentGroup();
+        if (groupe == null || groupe.getLot() == null) {
+            return null;
+        }
+        return groupe.getLot().getExamenId();
+    }
 }

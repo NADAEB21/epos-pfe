@@ -293,6 +293,58 @@ public class ExamServiceClient {
     }
 
     /**
+     * Matière propriétaire d'un examen, sans repli — #274.
+     *
+     * <p>Sert à figer {@code exam_matiere_snapshot} une seule fois par examen, pour que
+     * l'autorisation par matière du jour J soit ensuite purement locale (ADR-0015).
+     *
+     * <p><b>Un effet de bord utile.</b> {@code GET /api/examens/{id}} est déjà réservé à
+     * {@code SUPER_ADMIN | RESPONSABLE_MATIERE} <b>et</b> déjà borné par matière côté
+     * exam-service ({@code ExamenServiceImpl.trouverParId} → {@code checkAccess}). Un
+     * responsable étranger reçoit donc un 403 d'exam-service <b>avant même</b> que la ligne
+     * locale existe : la garde de #274 est effective dès le premier appel, sans état préalable.
+     * On ne compte pas sur ce 403 (il traverse la frontière de service, et une garde ne doit pas
+     * dépendre d'un service distant) — c'est une deuxième serrure, pas la serrure.
+     *
+     * @throws BusinessException si exam-service est injoignable, répond en erreur, ou ne fournit
+     *                           pas de matière. Ne devine JAMAIS une matière : figer une matière
+     *                           fausse autoriserait durablement le mauvais responsable.
+     */
+    public Long getMatiereIdStrict(Long examenId) {
+        String bearerToken = currentBearerToken();
+        JsonNode root;
+        try {
+            root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value()
+                    + " pour l'examen " + examenId
+                    + " — matière non figée, écriture refusée (#274, ADR-0015).");
+        } catch (RuntimeException e) {
+            throw new BusinessException("exam-service injoignable pour l'examen " + examenId
+                    + " — matière non figée, écriture refusée (#274, ADR-0015) : " + e.getMessage());
+        }
+
+        // asText(null) puis parse explicite : un `matiereId` absent rend un noeud MISSING, dont
+        // asLong() vaut 0 — un identifiant plausible qu'on figerait en silence.
+        String brut = (root != null) ? root.path("data").path("matiereId").asText(null) : null;
+        if (brut == null || brut.isBlank()) {
+            throw new BusinessException("exam-service n'a pas fourni de matière pour l'examen "
+                    + examenId + " — matière non figée, écriture refusée (#274, ADR-0015).");
+        }
+        try {
+            return Long.parseLong(brut.trim());
+        } catch (NumberFormatException e) {
+            throw new BusinessException("exam-service a renvoyé une matière illisible « " + brut
+                    + " » pour l'examen " + examenId + " — matière non figée (#274, ADR-0015).");
+        }
+    }
+
+    /**
      * Récupère le nom d'une station depuis l'exam-service.
      * Résultat non mis en cache (champ mutable si examen en brouillon).
      */

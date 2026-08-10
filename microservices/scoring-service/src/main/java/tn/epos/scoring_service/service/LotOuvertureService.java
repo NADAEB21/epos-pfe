@@ -69,6 +69,8 @@ public class LotOuvertureService {
     private final SimpMessagingTemplate messagingTemplate;
     /** ADR-0010 — « maintenant » vient du bean, pas de l'horloge système (zone épinglée). */
     private final Clock                 clock;
+    /** #274 — ouvrir une vague est un acte de conduite : il se borne à SA matière. */
+    private final MatiereAccessGuard    matiereAccessGuard;
 
     // =========================================================================
     // ACTION RESPONSABLE — « Lot suivant »
@@ -89,6 +91,13 @@ public class LotOuvertureService {
     public void ouvrirLot(Long lotId) {
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot introuvable : " + lotId));
+
+        // 0. #274 — AVANT toute règle métier : la garde d'autorisation. Jusqu'ici la seule
+        //    protection était `hasAnyRole('SUPER_ADMIN','RESPONSABLE_MATIERE')` sur le
+        //    contrôleur — le rôle NU, sans matière. Un responsable de Toxicologie pouvait donc
+        //    ouvrir une vague d'une épreuve de Chimie thérapeutique. Le refus doit précéder les
+        //    messages métier : sinon on renseigne un appelant illégitime sur l'état de la salle.
+        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
 
         // 1. La présence conditionne déjà la génération côté web (lots.component.ts:220).
         //    On le redit ici pour que l'API refuse proprement au lieu de compter 0 rotation.

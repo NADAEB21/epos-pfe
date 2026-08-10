@@ -44,6 +44,9 @@ class NotationReajustementServiceTest {
     @Mock private EvaluateurScopeChecker scopeChecker;
     @Mock private ExamDefinitionSnapshotService examDefinitionSnapshot;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private NotationReajustementService service;
 

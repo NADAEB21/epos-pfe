@@ -56,6 +56,9 @@ class RotationGenerationServiceTest {
     @Mock private INotationRepository notationRepository;
     @Mock private LotOuvertureService lotOuvertureService;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks private RotationGenerationService service;
 
     private final List<Rotation> savedRotations = new ArrayList<>();

@@ -34,6 +34,9 @@ class EtudiantServiceTest {
     @Mock
     private IExamenParticipationRepository participationRepository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private EtudiantService etudiantService;
 

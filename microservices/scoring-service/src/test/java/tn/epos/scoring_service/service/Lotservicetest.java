@@ -27,6 +27,9 @@ class LotServiceTest {
     @Mock
     private ILotRepository lotRepository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private LotService lotService;
 
@@ -121,14 +124,33 @@ class LotServiceTest {
     @DisplayName("delete()")
     class Delete {
 
+        /**
+         * #274 — la suppression CHARGE désormais le lot avant de le supprimer. Ce n'est pas un
+         * détour gratuit : {@code deleteById} ne révèle pas à quel examen le lot appartenait,
+         * donc aucun périmètre de matière n'était vérifiable. Le test suit ce contrat.
+         */
         @Test
-        @DisplayName("Doit appeler deleteById avec le bon ID")
-        void delete_devraitAppelerDeleteById() {
-            doNothing().when(lotRepository).deleteById(1L);
+        @DisplayName("#274 — charge le lot, vérifie le périmètre, PUIS supprime")
+        void delete_devraitVerifierLePerimetrePuisSupprimer() {
+            Lot lot = new Lot();
+            lot.setId(1L);
+            lot.setExamenId(42L);
+            when(lotRepository.findById(1L)).thenReturn(Optional.of(lot));
 
             lotService.delete(1L);
 
-            verify(lotRepository, times(1)).deleteById(1L);
+            verify(matiereAccessGuard).checkExamenAccess(42L);
+            verify(lotRepository, times(1)).delete(lot);
+        }
+
+        @Test
+        @DisplayName("Un lot inconnu ne supprime rien et ne lève pas")
+        void delete_lotInconnu_neSupprimeRien() {
+            when(lotRepository.findById(404L)).thenReturn(Optional.empty());
+
+            lotService.delete(404L);
+
+            verify(lotRepository, never()).delete(any(Lot.class));
         }
     }
 

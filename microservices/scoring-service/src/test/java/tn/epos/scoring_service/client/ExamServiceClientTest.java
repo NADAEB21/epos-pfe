@@ -522,4 +522,110 @@ class ExamServiceClientTest {
             assertThat(t.totalPauseSec()).isZero();
         }
     }
+
+    // =========================================================================
+    // getMatiereIdStrict (#274) — la source de la matière figée
+    //
+    // STRICT au sens d'ADR-0015 : en cas d'échec on ne devine RIEN. Une matière devinée serait
+    // figée définitivement et autoriserait durablement le mauvais responsable — dégât permanent,
+    // là où un refus est réversible.
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getMatiereIdStrict (#274)")
+    class GetMatiereIdStrict {
+
+        @Test
+        @DisplayName("Lit data.matiereId et appelle /api/examens/{id}")
+        void happyPath() {
+            List<ClientRequest> captured = new ArrayList<>();
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"id\":42,\"matiereId\":7,\"nom\":\"x\"}}"),
+                    captured);
+
+            assertThat(client.getMatiereIdStrict(42L)).isEqualTo(7L);
+            assertThat(captured).hasSize(1);
+            assertThat(captured.get(0).url().getPath()).isEqualTo("/api/examens/42");
+        }
+
+        /**
+         * LE piège que {@code asText(null)} évite. Avec {@code asLong()}, un nœud MISSING vaut
+         * <b>0</b> : la matière 0 aurait été figée en silence, et plus aucun responsable n'aurait
+         * jamais pu écrire sur cet examen — ou pire, un jeton portant « :0 » aurait pu.
+         */
+        @Test
+        @DisplayName("matiereId ABSENT → échoue, ne fige jamais 0")
+        void matiereAbsente_echoue() {
+            assertThatThrownBy(() -> clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"id\":42,\"nom\":\"x\"}}"),
+                    new ArrayList<>()).getMatiereIdStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("n'a pas fourni de matière");
+        }
+
+        @Test
+        @DisplayName("matiereId illisible → échoue en le citant")
+        void matiereIllisible_echoue() {
+            assertThatThrownBy(() -> clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"matiereId\":\"abc\"}}"),
+                    new ArrayList<>()).getMatiereIdStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("illisible");
+        }
+
+        /**
+         * Le 403 d'exam-service quand un responsable étranger demande l'examen : il doit devenir
+         * un refus franc côté scoring, jamais une matière par défaut.
+         */
+        @Test
+        @DisplayName("403 d'exam-service → échoue en citant le code")
+        void refusAmont_echoue() {
+            ClientResponse forbidden = ClientResponse.create(HttpStatus.FORBIDDEN)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false,\"message\":\"Accès refusé\"}")
+                    .build();
+
+            assertThatThrownBy(() -> clientReturning(forbidden, new ArrayList<>())
+                    .getMatiereIdStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("403");
+        }
+
+        @Test
+        @DisplayName("exam-service injoignable → échoue, aucune valeur inventée")
+        void injoignable_echoue() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("connexion refusée"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            assertThatThrownBy(() -> client.getMatiereIdStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("injoignable");
+        }
+
+        /**
+         * Les variantes STRICTES ne consultent jamais l'état de santé : elles tentent toujours
+         * l'appel. Un faux positif bloquerait sinon toute autorisation pendant la fenêtre de
+         * repli, sur le chemin précisément protégé par ADR-0015.
+         */
+        @Test
+        @DisplayName("Ne consulte PAS la fenêtre de repli : tente l'appel même après une panne")
+        void neConsultePasLaSanté() {
+            AtomicInteger appels = new AtomicInteger();
+            ExchangeFunction exchange = req -> {
+                if (appels.incrementAndGet() == 1) {
+                    return Mono.error(new RuntimeException("panne"));
+                }
+                return Mono.just(okJson("{\"success\":true,\"data\":{\"matiereId\":7}}"));
+            };
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(exchange).build());
+
+            assertThatThrownBy(() -> client.getMatiereIdStrict(42L))
+                    .isInstanceOf(BusinessException.class);
+            // Immédiatement après la panne : le second appel PART quand même.
+            assertThat(client.getMatiereIdStrict(42L)).isEqualTo(7L);
+            assertThat(appels.get()).isEqualTo(2);
+        }
+    }
 }

@@ -28,6 +28,9 @@ class ExamenParticipationServiceTest {
     @Mock
     private IExamenParticipationRepository repository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private ExamenParticipationService service;
 
@@ -136,14 +139,32 @@ class ExamenParticipationServiceTest {
     @DisplayName("delete()")
     class Delete {
 
+        /**
+         * #274 — on charge l'inscription avant de la supprimer : {@code deleteById} ne dit pas
+         * de quel examen elle relevait, donc ne permet aucun contrôle de périmètre.
+         */
         @Test
-        @DisplayName("Doit appeler deleteById avec le bon ID")
-        void delete_devraitAppelerDeleteById() {
-            doNothing().when(repository).deleteById(1L);
+        @DisplayName("#274 — charge l'inscription, vérifie le périmètre, PUIS supprime")
+        void delete_devraitVerifierLePerimetrePuisSupprimer() {
+            ExamenParticipation p = new ExamenParticipation();
+            p.setId(1L);
+            p.setExamen_id(42L);
+            when(repository.findById(1L)).thenReturn(Optional.of(p));
 
             service.delete(1L);
 
-            verify(repository, times(1)).deleteById(1L);
+            verify(matiereAccessGuard).checkExamenAccess(42L);
+            verify(repository, times(1)).delete(p);
+        }
+
+        @Test
+        @DisplayName("Une inscription inconnue ne supprime rien et ne lève pas")
+        void delete_inconnue_neSupprimeRien() {
+            when(repository.findById(404L)).thenReturn(Optional.empty());
+
+            service.delete(404L);
+
+            verify(repository, never()).delete(any(ExamenParticipation.class));
         }
     }
 }

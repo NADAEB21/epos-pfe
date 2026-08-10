@@ -40,10 +40,16 @@ public class ReclamationService {
     private final IReclamationRepository reclamationRepository;
     private final IExamenParticipationRepository participationRepository;
     private final EvaluateurScopeChecker scopeChecker;
+    /** #274 — le registre des réclamations est celui d'UNE épreuve, donc d'UNE matière. */
+    private final MatiereAccessGuard matiereAccessGuard;
 
     /** Files a new complaint in state EN_ATTENTE, attributed to the caller. */
     public ReclamationDTO creer(ReclamationRequest req) {
         Long userId = requireCallerUserId();
+
+        // #274 — on ne dépose pas une réclamation sur l'épreuve d'un collègue d'une autre
+        // matière. `Reclamation` porte `examenId` en direct : aucune chaîne à remonter.
+        matiereAccessGuard.checkExamenAccess(req.examenId());
 
         // The complaint must point at a real participation — the register is only
         // meaningful if it references an actual student result (same DB, cheap check).
@@ -84,6 +90,11 @@ public class ReclamationService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Réclamation introuvable : " + id));
 
+        // #274 — décider une réclamation engage la note d'un candidat : réservé au titulaire
+        // de la matière. Vérifié AVANT la règle « déjà traitée », qui révélerait sinon l'état
+        // d'une réclamation d'une autre matière.
+        matiereAccessGuard.checkExamenAccess(reclamation.getExamenId());
+
         if (reclamation.getStatut() != ReclamationStatus.EN_ATTENTE) {
             throw new BusinessException(
                     "Réclamation " + id + " déjà traitée (" + reclamation.getStatut()
@@ -104,6 +115,10 @@ public class ReclamationService {
 
     @Transactional(readOnly = true)
     public List<ReclamationDTO> listerParExamen(Long examenId) {
+        // #274 — lecture examen-clé : une réclamation nomme un candidat et contexte un litige
+        // sur sa note. Ce n'est pas de la supervision agrégée, et le périmètre se vérifie en
+        // une seule résolution, sans parcourir la liste.
+        matiereAccessGuard.checkExamenAccess(examenId);
         return reclamationRepository.findByExamenIdOrderByCreatedAtDesc(examenId).stream()
                 .map(ReclamationDTO::fromEntity)
                 .toList();
@@ -111,10 +126,11 @@ public class ReclamationService {
 
     @Transactional(readOnly = true)
     public ReclamationDTO trouver(Long id) {
-        return reclamationRepository.findById(id)
-                .map(ReclamationDTO::fromEntity)
+        Reclamation reclamation = reclamationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Réclamation introuvable : " + id));
+        matiereAccessGuard.checkExamenAccess(reclamation.getExamenId());
+        return ReclamationDTO.fromEntity(reclamation);
     }
 
     /**

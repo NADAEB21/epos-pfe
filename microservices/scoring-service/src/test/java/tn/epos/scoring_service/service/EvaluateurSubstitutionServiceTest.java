@@ -12,6 +12,7 @@ import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.dto.SubstitutionResult;
 import tn.epos.scoring_service.entities.*;
 import tn.epos.scoring_service.repositories.IEvaluateurSubstitutionRepository;
+import tn.epos.scoring_service.repositories.ILotRepository;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.time.Clock;
@@ -45,13 +46,17 @@ class EvaluateurSubstitutionServiceTest {
 
     @Mock private IRotationRepository rotationRepository;
     @Mock private IEvaluateurSubstitutionRepository substitutionRepository;
+    /** #274 — le lot n'est chargé que pour résoudre la matière ; permissif ici. */
+    @Mock private ILotRepository lotRepository;
+    @Mock private MatiereAccessGuard matiereAccessGuard;
 
     private EvaluateurSubstitutionService service;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-29T10:00:00Z"), ZoneId.of("Africa/Tunis"));
-        service = new EvaluateurSubstitutionService(rotationRepository, substitutionRepository, clock);
+        service = new EvaluateurSubstitutionService(rotationRepository, substitutionRepository,
+                clock, lotRepository, matiereAccessGuard);
     }
 
     private Rotation rotation(long id, Long stationId, Long evaluateurId, RotationStatus statut) {

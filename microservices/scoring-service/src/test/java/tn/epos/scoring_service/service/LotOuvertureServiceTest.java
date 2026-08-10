@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.entities.Lot;
@@ -29,10 +30,13 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -60,6 +64,9 @@ class LotOuvertureServiceTest {
 
     @Spy private Clock clock = Clock.fixed(
             T0.atZone(ZoneId.of("Africa/Tunis")).toInstant(), ZoneId.of("Africa/Tunis"));
+
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
 
     @InjectMocks private LotOuvertureService service;
 
@@ -388,6 +395,79 @@ class LotOuvertureServiceTest {
             service.ouvrirLot(LOT_2);
 
             verify(messagingTemplate).convertAndSend(eq("/topic/lots/32/status"), any(Object.class));
+        }
+    }
+
+    /**
+     * #274 — ouvrir une vague est l'acte de conduite le plus lourd du jour J : il engage la salle
+     * entière et les stations de tous les collègues. Jusqu'ici sa seule garde était
+     * {@code hasAnyRole('SUPER_ADMIN','RESPONSABLE_MATIERE')} — le rôle NU, sans matière — donc
+     * un responsable de Toxicologie pouvait ouvrir une vague d'une épreuve de Chimie
+     * thérapeutique.
+     */
+    @Nested
+    @DisplayName("#274 — périmètre de matière")
+    class PerimetreMatiere {
+
+        @Test
+        @DisplayName("Un responsable d'une AUTRE matière ne peut pas ouvrir la vague")
+        void autreMatiere_refuse() {
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
+            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            doThrow(new AccessDeniedException("matière hors périmètre"))
+                    .when(matiereAccessGuard).checkExamenAccess(EXAM_ID);
+
+            assertThatThrownBy(() -> service.ouvrirLot(LOT_2))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(lotRepository, never()).save(any(Lot.class));
+            verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+        }
+
+        /**
+         * L'ORDRE compte, et ce n'est pas cosmétique : les refus métier de cette méthode sont
+         * nominatifs (« lot 2 toujours en cours : 3 groupe(s) restent à valider »). Vérifier le
+         * périmètre en dernier renseignerait un appelant illégitime sur l'état de la salle.
+         */
+        @Test
+        @DisplayName("Le refus de périmètre précède TOUT message métier (pas de fuite d'état)")
+        void perimetreAvantMetier() {
+            // Lot EN_ATTENTE : le refus métier « enregistrez d'abord la présence » serait
+            // normalement levé. Le refus d'autorisation doit passer devant.
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_ATTENTE);
+            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            doThrow(new AccessDeniedException("matière hors périmètre"))
+                    .when(matiereAccessGuard).checkExamenAccess(EXAM_ID);
+
+            assertThatThrownBy(() -> service.ouvrirLot(LOT_2))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            // Aucune règle métier n'a été consultée : rien n'a été lu sur les rotations.
+            verifyNoInteractions(rotationRepository);
+        }
+
+        /**
+         * La non-régression de la co-responsabilité : libre à l'INTÉRIEUR de la matière. Deux
+         * titulaires de la même matière sont deux titulaires ; le second doit pouvoir ouvrir la
+         * vague suivante d'une épreuve lancée par le premier, sans passation formelle — c'est
+         * précisément le cas « le premier rentre chez lui ».
+         */
+        @Test
+        @DisplayName("Un co-responsable de LA matière ouvre la vague sans obstacle")
+        void memeMatiere_autorise() {
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
+            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            lenient().when(rotationRepository.countByStudentGroupLotId(LOT_2)).thenReturn(9L);
+            lotJamaisDemarre(LOT_2);
+            when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot2));
+            when(rotationRepository.findByStudentGroup_Lot_IdAndOrdrePassage(LOT_2, 1))
+                    .thenReturn(rangUn());
+            // guard permissif = le périmètre est le bon
+
+            service.ouvrirLot(LOT_2);
+
+            verify(matiereAccessGuard).checkExamenAccess(EXAM_ID);
+            verify(lotRepository, org.mockito.Mockito.atLeastOnce()).save(any(Lot.class));
         }
     }
 }

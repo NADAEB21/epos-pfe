@@ -54,6 +54,8 @@ public class LotAssignmentService {
     private final IExamenParticipationRepository participationRepository;
     private final ILotRepository lotRepository;
     private final IStudentGroupRepository studentGroupRepository;
+    /** #274 — répartir, déplacer, pointer la présence : trois écritures bornées à SA matière. */
+    private final MatiereAccessGuard matiereAccessGuard;
 
     /**
      * Partitions the enrolled roster of {@code examenId} into lots. Re-runnable
@@ -64,6 +66,11 @@ public class LotAssignmentService {
      */
     @Transactional
     public RepartitionResult repartir(Long examenId) {
+        // #274 — d'abord le périmètre. C'est aussi la première écriture scoring de la vie d'un
+        // examen dans le cas nominal : la matière se fige donc ici, en PRÉPARATION, exam-service
+        // nécessairement debout. Le jour J, l'autorisation ne fera plus aucun appel réseau.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
 
         if (!"CONFIGURE".equals(exam.statut())) {
@@ -160,6 +167,13 @@ public class LotAssignmentService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Lot non trouvé avec l'id : " + targetLotId));
 
+        // #274 — les DEUX bouts sont vérifiés, pas seulement la source. La garde « même examen »
+        // juste dessous les rend équivalents dans le cas nominal, mais une garde d'autorisation
+        // ne doit pas dépendre d'une garde métier voisine pour être complète : si l'une bouge,
+        // l'autre ne doit pas devenir un contournement.
+        matiereAccessGuard.checkExamenAccess(participation.getExamen_id());
+        matiereAccessGuard.checkExamenAccess(target.getExamenId());
+
         // Same-exam guard: a lot_id must never cross exams (the participation's
         // examen_id is the source of truth — it is always set on enrolment).
         if (!Objects.equals(target.getExamenId(), participation.getExamen_id())) {
@@ -214,6 +228,8 @@ public class LotAssignmentService {
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot non trouvé avec l'id : " + lotId));
 
+        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
+
         ExamGenerationView exam = examServiceClient.getExamForGeneration(lot.getExamenId());
         if (!"CONFIGURE".equals(exam.statut())) {
             throw new BusinessException(
@@ -238,6 +254,12 @@ public class LotAssignmentService {
     public PresenceResult markPresence(Long lotId, List<Long> absentParticipationIds) {
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new BusinessException("Lot introuvable : " + lotId));
+
+        // #274 — pointer la présence engage la salle : acte de conduite, borné à SA matière.
+        // Gardé ICI et non sur `presenceEtDemarrer` : ainsi `PATCH /lots/{id}/presence`, qui
+        // entre par une autre porte, est couvert par la même vérification. Une garde posée sur
+        // l'orchestrateur seul aurait laissé la porte directe ouverte — le défaut même de #274.
+        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
 
         List<ExamenParticipation> participations = participationRepository.findByLotId(lotId);
         if (participations.isEmpty()) {

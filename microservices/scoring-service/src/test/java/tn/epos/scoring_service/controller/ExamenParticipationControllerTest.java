@@ -227,8 +227,8 @@ class ExamenParticipationControllerTest {
             updated.setNote(18.0f);
             updated.setEst_present(true);
 
-            when(participationService.getById(1L)).thenReturn(Optional.of(participation));
-            when(participationService.save(any(ExamenParticipation.class))).thenReturn(updated);
+            when(participationService.update(eq(1L), eq(18.0f), eq(true)))
+                    .thenReturn(Optional.of(updated));
 
             mockMvc.perform(put("/api/participations/1")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -241,12 +241,33 @@ class ExamenParticipationControllerTest {
         @Test
         @DisplayName("404 - Participation introuvable à la mise à jour")
         void update_devraitRetourner404SiIntrouvable() throws Exception {
-            when(participationService.getById(99L)).thenReturn(Optional.empty());
+            when(participationService.update(eq(99L), any(), any())).thenReturn(Optional.empty());
 
             mockMvc.perform(put("/api/participations/99")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(participation)))
                     .andExpect(status().isNotFound());
+        }
+
+        /**
+         * #274 — le contrôleur ne doit JAMAIS charger puis muter l'entité lui-même. C'est ce qu'il
+         * faisait, et le refus d'autorisation partait alors 403 pendant que l'écriture, déjà posée
+         * sur une entité managée, était flushée par la transaction de la garde. Mesuré en direct :
+         * note 3,25 → 19 sur un appel refusé. La mutation appartient au service, derrière la garde.
+         */
+        @Test
+        @DisplayName("#274 — ne charge ni ne mute l'entité : tout passe par service.update")
+        void update_neMutePasDansLeControleur() throws Exception {
+            when(participationService.update(eq(1L), any(), any()))
+                    .thenReturn(Optional.of(participation));
+
+            mockMvc.perform(put("/api/participations/1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(participation)))
+                    .andExpect(status().isOk());
+
+            verify(participationService, never()).getById(anyLong());
+            verify(participationService, never()).save(any(ExamenParticipation.class));
         }
     }
 

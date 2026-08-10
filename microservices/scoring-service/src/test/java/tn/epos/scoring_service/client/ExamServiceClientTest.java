@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -574,12 +575,18 @@ class ExamServiceClientTest {
         }
 
         /**
-         * Le 403 d'exam-service quand un responsable étranger demande l'examen : il doit devenir
-         * un refus franc côté scoring, jamais une matière par défaut.
+         * Le 403 d'exam-service quand un responsable étranger demande l'examen. exam-service est
+         * PROPRIÉTAIRE de la matière : son refus est une réponse d'AUTORISATION, donc un 403 chez
+         * nous — pas une erreur de transport.
+         *
+         * <p>Régression d'un défaut mesuré en direct le 2026-08-10 : le responsable de
+         * Toxicologie était bien refusé sur l'examen 53, mais en <b>400</b> avec « matière non
+         * figée, écriture refusée » — code faux, et un message qui parle de plomberie interne à
+         * un enseignant. Le seul chemin concerné est l'amorçage (matière pas encore figée).
          */
         @Test
-        @DisplayName("403 d'exam-service → échoue en citant le code")
-        void refusAmont_echoue() {
+        @DisplayName("403 amont → AccessDeniedException (403), PAS une erreur de transport")
+        void refusAmont_devient403() {
             ClientResponse forbidden = ClientResponse.create(HttpStatus.FORBIDDEN)
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                     .body("{\"success\":false,\"message\":\"Accès refusé\"}")
@@ -587,8 +594,22 @@ class ExamServiceClientTest {
 
             assertThatThrownBy(() -> clientReturning(forbidden, new ArrayList<>())
                     .getMatiereIdStrict(42L))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("ne relève pas de vos matières");
+        }
+
+        @Test
+        @DisplayName("404 amont → erreur métier (l'examen n'existe pas ≠ accès refusé)")
+        void examenInexistant_resteUneErreurMetier() {
+            ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false}")
+                    .build();
+
+            assertThatThrownBy(() -> clientReturning(notFound, new ArrayList<>())
+                    .getMatiereIdStrict(42L))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("403");
+                    .hasMessageContaining("404");
         }
 
         @Test

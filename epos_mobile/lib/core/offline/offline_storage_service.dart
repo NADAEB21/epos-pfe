@@ -12,7 +12,7 @@
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 
 import '../../features/grading/domain/entities/notation.dart';
 
@@ -150,6 +150,24 @@ class OfflineStorageService implements PendingStore {
   static const String _tableSyncLog   = 'sync_log';
   static const String _tableLabels    = 'labels';
 
+  /// #307 — chemin de base forcé, pour les tests. Permet d'exercer le VRAI
+  /// SQLite (via `sqflite_common_ffi`) sur un fichier temporaire, y compris la
+  /// migration v1 → v2, qui autrement ne s'exécuterait pour la première fois
+  /// que sur le téléphone d'un évaluateur, le jour d'un examen.
+  @visibleForTesting
+  static String? debugDbPath;
+
+  /// Referme la base et oublie l'instance ouverte (isolation entre tests).
+  @visibleForTesting
+  Future<void> debugReset() async {
+    await _db?.close();
+    _db = null;
+  }
+
+  /// Version du schéma, exposée pour que les tests vérifient la migration.
+  @visibleForTesting
+  static int get schemaVersion => _dbVersion;
+
   // ── Initialisation ──────────────────────────────────────────────────────
 
   Future<Database> get _database async {
@@ -158,7 +176,7 @@ class OfflineStorageService implements PendingStore {
   }
 
   Future<Database> _initDatabase() async {
-    final dbPath = p.join(await getDatabasesPath(), _dbName);
+    final dbPath = debugDbPath ?? p.join(await getDatabasesPath(), _dbName);
     return openDatabase(
       dbPath,
       version:   _dbVersion,
@@ -204,6 +222,8 @@ class OfflineStorageService implements PendingStore {
     try {
       await db.execute(sql);
     } on DatabaseException catch (e) {
+      // Vérifié en test : sans ce rattrapage, la reprise échoue sur
+      // « duplicate column name: status » et la base devient inouvrable.
       if (!e.toString().toLowerCase().contains('duplicate column')) rethrow;
     }
   }

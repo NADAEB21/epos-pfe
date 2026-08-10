@@ -6,6 +6,9 @@ import '../../features/grading/domain/entities/notation.dart';
 class ScoreUtils {
   ScoreUtils._();
 
+  static String fmtPoints(double v) =>
+      v == v.truncateToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
   /// Un seul niveau de profondeur (#160) : seules les feuilles sont notées ;
   /// le score d'un critère parent = somme de ses sous-critères.
   static List<ItemEvaluation> feuilles(List<ItemEvaluation> items) {

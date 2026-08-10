@@ -389,6 +389,18 @@ class _Body extends StatelessWidget {
           ],
           _SectionTitle(icon: '📋', title: Tr.get(lang, 'home_planning')),
           const SizedBox(height: 10),
+
+          // ── Nouveau : détail du lot en cours ──────────────────────────
+          if (_lotActuelNumero(loaded) case final lotActuel?) ...[
+            _LotActuelCard(
+              lotNumero: lotActuel,
+              cellules: loaded.planning.where((p) => p.lotNumero == lotActuel).toList()
+                ..sort((a, b) => a.heure.compareTo(b.heure)),
+              isDark: isDark,
+            ),
+            const SizedBox(height: 16),
+          ],
+
           _PlanningTable(loaded: loaded, lang: lang),
           const SizedBox(height: 12),
           _PlanningLegend(lang: lang),
@@ -579,6 +591,133 @@ class _SessionAVenirCard extends StatelessWidget {
     );
   }
 }
+
+// ════════════════════════════════════════════════
+// widget de la carte
+// ════════════════════════════════════════════════
+class _LotActuelCard extends StatelessWidget {
+  final int lotNumero;
+  final List<PlanningCell> cellules;
+  final bool isDark;
+
+  const _LotActuelCard({
+    required this.lotNumero,
+    required this.cellules,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _C(isDark);
+    final termines = cellules.where((p) => p.statut == CellStatus.termine).length;
+    final complet = cellules.isNotEmpty && termines == cellules.length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: complet ? AppTheme.scoreGreen.withValues(alpha: 0.4) : c.border),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.20 : 0.06), blurRadius: 10, offset: const Offset(0, 3)),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('Lot $lotNumero',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(complet ? 'Terminé' : 'En cours',
+                      style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600,
+                        color: complet ? AppTheme.scoreGreen : AppTheme.scoreOrange,
+                      )),
+                ],
+              ),
+              Text('$termines/${cellules.length} groupes',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.textSub)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: cellules.asMap().entries.map((entry) {
+                final i = entry.key;
+                return Padding(
+                  padding: EdgeInsets.only(right: i == cellules.length - 1 ? 0 : 10),
+                  child: _GroupeChip(cell: entry.value, rang: i + 1, isDark: isDark),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupeChip extends StatelessWidget {
+  final PlanningCell cell;
+  final int rang; // repli si groupeNumero absent (ancien backend)
+  final bool isDark;
+  const _GroupeChip({required this.cell, required this.rang, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _C(isDark);
+    final label = 'G${cell.groupeNumero ?? rang}';
+    final Color couleur;
+    final Widget indicateur;
+
+    switch (cell.statut) {
+      case CellStatus.termine:
+        couleur = AppTheme.scoreGreen;
+        indicateur = Icon(Icons.check, size: 14, color: couleur);
+        break;
+      case CellStatus.aVenir:
+        couleur = AppTheme.scoreOrange;
+        indicateur = Text('»', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: couleur));
+        break;
+      case CellStatus.aucun:
+        couleur = AppTheme.criterionPending;
+        indicateur = Text('—', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: couleur));
+    }
+
+    return Container(
+      width: 58,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: couleur.withValues(alpha: cell.statut == CellStatus.aucun ? 0 : 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: couleur.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: couleur)),
+          const SizedBox(height: 4),
+          indicateur,
+          const SizedBox(height: 4),
+          Text(cell.heure, style: TextStyle(fontSize: 9, color: c.heureText)),
+        ],
+      ),
+    );
+  }
+}
+
 
 // ════════════════════════════════════════════════
 // TABLEAU — Planning du jour
@@ -847,4 +986,18 @@ String? _matiereAnneeLabel(Session s) {
     if (a?.isNotEmpty == true) a,
   ];
   return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// Le lot "en cours" pour la carte de détail : le premier lot (par ordre
+/// croissant) dont au moins un groupe n'est pas encore terminé. Si tous les
+/// lots du planning sont terminés, on retombe sur le dernier — jamais
+/// d'écran vide une fois la journée bouclée.
+int? _lotActuelNumero(SessionLoaded loaded) {
+  for (final lotNumero in loaded.lots) {
+    final cellules = loaded.planning.where((p) => p.lotNumero == lotNumero);
+    if (cellules.isEmpty) continue;
+    final tousTermines = cellules.every((c) => c.statut == CellStatus.termine);
+    if (!tousTermines) return lotNumero;
+  }
+  return loaded.lots.isNotEmpty ? loaded.lots.last : null;
 }

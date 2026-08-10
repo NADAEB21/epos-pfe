@@ -471,7 +471,7 @@ class _CritereCell extends StatelessWidget {
           if (!row.isHeader) ...[
             const SizedBox(height: 4),
             Text(
-              '${item.ponderation.toInt()} pts',
+              '${ScoreUtils.fmtPoints(item.ponderation)} pts',
               style: TextStyle(
                 fontSize:   10,
                 color:      invisible ? Colors.transparent : AppTheme.primary,
@@ -511,8 +511,7 @@ class _CritereSousTotalCell extends StatelessWidget {
           border:       Border.all(color: gc.numBorder),
         ),
         child: Text(
-          '${sousTotal.toStringAsFixed(sousTotal == sousTotal.truncateToDouble() ? 0 : 1)}'
-              '/${item.ponderation.toInt()}',
+          '${ScoreUtils.fmtPoints(sousTotal)}/${ScoreUtils.fmtPoints(item.ponderation)}',
           style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: gc.textPrim),
         ),
       ),

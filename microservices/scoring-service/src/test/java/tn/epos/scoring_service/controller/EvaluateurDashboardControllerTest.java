@@ -273,21 +273,23 @@ class EvaluateurDashboardControllerTest {
         }
     }
 
-    // Forçage manuel côté responsable/admin — logique interne inchangée,
-    // toujours accessible via /lots/{lotId}/valider (restreint désormais à
-    // SUPER_ADMIN / RESPONSABLE_MATIERE au niveau du @PreAuthorize méthode).
+    /**
+     * L'ancien « forçage manuel » du responsable est SUPPRIMÉ. Ce test remplace celui qui
+     * vérifiait son 200 : la route ne doit plus exister du tout.
+     *
+     * <p>Un lot ne se valide pas — il se clôture seul quand sa dernière rotation passe TERMINE
+     * (dans {@code validerGroupe}). L'endpoint était de surcroît faux : sur un lot sans aucune
+     * rotation, « toutes les rotations sont terminées » était vrai, donc il le marquait TERMINE.
+     */
     @Nested
-    @DisplayName("POST /api/evaluateur/lots/{id}/valider")
-    class ValiderLot {
+    @DisplayName("POST /api/evaluateur/lots/{id}/valider — SUPPRIMÉ")
+    class ValiderLotSupprime {
         @Test
-        @DisplayName("200 - Valide le lot complet (forçage manuel responsable)")
-        void validerLot_devraitRetourner200() throws Exception {
+        @DisplayName("404 - la route n'existe plus")
+        void validerLot_routeSupprimee() throws Exception {
             mockMvc.perform(post("/api/evaluateur/lots/10/valider")
                             .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.message").value("Lot 10 validé"));
-
-            verify(dashboardService).validerLot(10L, EVAL_ID);
+                    .andExpect(status().isNotFound());
         }
     }
 }

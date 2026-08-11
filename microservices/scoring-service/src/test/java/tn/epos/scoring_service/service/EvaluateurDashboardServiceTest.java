@@ -33,7 +33,10 @@ import static org.mockito.Mockito.*;
  * Couvre chaque méthode publique et les branches non triviales :
  *   buildDashboard / resolveSessionStatut / buildSessions / buildPlanning /
  *   getGroupeDetail / getGroupeSuivant / saisirNotation / validerEtudiant /
- *   validerGroupe / validerLot.
+ *   validerGroupe / avancerGroupe.
+ *
+ * `validerLot` a été SUPPRIMÉ : un lot ne se valide pas, il se clôture seul quand son
+ * dernier groupe est validé (voir la suite validerGroupe).
  *
  * getGroupeDetail/getGroupeSuivant/validerGroupe remplacent l'ancien
  * getLotDetail(stationId, lotNumero, evaluateurId), ambigu dès qu'un
@@ -1810,78 +1813,16 @@ class EvaluateurDashboardServiceTest {
     }
 
     // =========================================================================
-    // validerLot — #211 : cascade NEUTRALISÉE. Recalcul d'oversight (admin) qui
-    // DÉRIVE lot.statut de l'état stocké des rotations, sans JAMAIS écrire de
-    // statut de rotation (ADR-0014 §4).
+    // `validerLot` est SUPPRIMÉ — la suite « ValiderLotLogic » qui vivait ici est retirée
+    // avec lui, et rien n'est perdu : ce qui compte est la clôture AUTOMATIQUE du lot, déjà
+    // couverte dans la suite validerGroupe ci-dessus par
+    //   - validerGroupe_dernierGroupe_clotureLot  (dernière rotation → lot TERMINE)
+    //   - « d'autres rotations du lot restent actives → lot NON clôturé »
+    //
+    // Ces deux tests décrivent le vrai modèle : personne ne valide un lot, le lot se ferme
+    // quand son dernier groupe est validé. Les tests supprimés vérifiaient un recalcul
+    // d'oversight sans appelant, qui de surcroît marquait TERMINE un lot sans aucune rotation.
     // =========================================================================
-
-    @Nested
-    @DisplayName("validerLot()")
-    class ValiderLotLogic {
-
-        @Test
-        @DisplayName("Toutes rotations TERMINE (restantes=0) → lot TERMINE, aucune rotation écrite")
-        void validerLot_deriveTermine() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(0L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
-            verify(lotRepository).save(lot);
-            // #211 : la neutralisation garantit qu'AUCUNE rotation n'est forcée.
-            verify(rotationRepository, never()).save(any(Rotation.class));
-        }
-
-        @Test
-        @DisplayName("Des rotations restent non terminées → lot EN_COURS, aucune rotation écrite")
-        void validerLot_deriveEnCours() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(3L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.EN_COURS);
-            verify(lotRepository).save(lot);
-            verify(rotationRepository, never()).save(any(Rotation.class));
-        }
-
-        @Test
-        @DisplayName("Diffuse le statut DÉRIVÉ du lot via WebSocket après validation")
-        void validerLot_broadcastStatut() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(0L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            verify(messagingTemplate).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
-        }
-
-        @Test
-        @DisplayName("Lot introuvable → ResourceNotFoundException")
-        void validerLot_lotIntrouvable() {
-            when(lotRepository.findById(99L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> service.validerLot(99L, EVAL_ID))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Lot introuvable");
-        }
-    }
 
     /**
      * Filtre par examen (#189) — et surtout le garde-fou qui a manqué.

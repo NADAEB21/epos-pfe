@@ -56,12 +56,10 @@ public class EvaluateurDashboardService {
     /** Horloge injectable ADR-0010. */
     private final Clock clock;
 
-    /**
-     * #274 — n'est consulté que par {@code validerLot}, le seul acte RESP/ADMIN de cette classe.
-     * Les actes d'évaluateur restent bornés par {@code verifierAffectationStation} (#213), qui
-     * est déjà strict et n'exempte aucun rôle : la matière n'y ajouterait rien.
-     */
-    private final MatiereAccessGuard matiereAccessGuard;
+    // Plus de garde de matière ici, et ce n'est pas un oubli : `validerLot` était le seul acte
+    // RESP/ADMIN de cette classe, et il est supprimé. Tout ce qui reste est un acte d'ÉVALUATEUR,
+    // borné par `verifierProprietaire` / `verifierAffectationStation` (#213) — strict, sans
+    // exemption de rôle. Le périmètre par matière n'y ajouterait rien.
 
     /** BF6.1 — Template STOMP pour le push WebSocket. */
     private final SimpMessagingTemplate          messagingTemplate;
@@ -447,28 +445,29 @@ public class EvaluateurDashboardService {
         return total;
     }
 
-    public void validerLot(Long lotId, Long evaluateurId) {
-        Lot lot = lotRepository.findById(lotId).orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
-
-        // #274 — ce point de terminaison est réservé RESP/ADMIN (surcharge de méthode dans
-        // EvaluateurDashboardController) : il écrit `Lot.statut`, un état de conduite. Il se
-        // borne donc à la matière, comme l'ouverture de vague.
-        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
-
-        // #211 — cascade NEUTRALISÉE. L'ancienne version forçait TOUTES les
-        // rotations du lot à TERMINE : un admin clôturant un lot terminait ainsi
-        // de force les stations d'autres évaluateurs encore en cours de notation
-        // (perte de données silencieuse). ADR-0014 §4 : le statut du lot se DÉRIVE
-        // de l'état réel des rotations — on ne l'IMPOSE jamais, et on n'écrit
-        // AUCUN statut de rotation ici. Ce point de terminaison "Valider lot"
-        // (réservé admin/responsable) n'est donc plus qu'un recalcul d'oversight.
-        long restantes = rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lotId, RotationStatus.TERMINE);
-        LotStatus derive = (restantes == 0) ? LotStatus.TERMINE : LotStatus.EN_COURS;
-        lot.setStatut(derive);
-        lotRepository.save(lot);
-        broadcastLotStatus(lotId, derive.name());
-    }
-
+    // =========================================================================
+    // « VALIDER UN LOT » — SUPPRIMÉ. Ne pas le réintroduire.
+    //
+    // Personne ne clôture un lot à la main : le lot se clôture TOUT SEUL. Voir la fin de
+    // validerGroupe ci-dessous — dès que la dernière rotation du lot passe TERMINE, le lot
+    // passe TERMINE. Le dernier évaluateur qui valide son dernier groupe ferme la vague, ce
+    // qui est exactement le moment où elle est finie.
+    //
+    // Ce qu'était `validerLot(lotId, evaluateurId)`, et pourquoi il ne reste rien :
+    //   * à l'origine il forçait TOUTES les rotations du lot à TERMINE. #211 a supprimé cette
+    //     cascade : un admin « clôturant » un lot terminait de force les stations de collègues
+    //     encore en train de noter — perte de données silencieuse (ADR-0014 §4 : le statut du
+    //     lot se DÉRIVE de l'état réel des rotations, on ne l'IMPOSE jamais) ;
+    //   * il ne restait donc qu'un recalcul de ce que validerGroupe calcule déjà ;
+    //   * son paramètre `evaluateurId` n'était même plus lu ;
+    //   * ZÉRO appelant : `frontend-web` ne contient aucun littéral « /valider », et côté
+    //     Flutter la constante était commentée (« Remplace validerLot et validerRotation ») ;
+    //   * et il était FAUX : `countByStudentGroup_Lot_IdAndStatutNot(..., TERMINE)` vaut 0
+    //     quand le lot n'a AUCUNE rotation, donc l'appeler sur un lot jamais démarré le
+    //     marquait TERMINE. Mesuré en direct sur un examen encore en CONFIGURE.
+    //
+    // Le vocabulaire restait celui d'un modèle disparu : « valider » servait à trois grains
+    // (un étudiant, un groupe, un lot) alors que seuls les deux premiers sont des actes.
     // =========================================================================
 // VALIDER GROUPE — remplace "Valider lot" côté évaluateur.
 // Verrouille toutes les notations du groupe COURANT (cette rotation), marque

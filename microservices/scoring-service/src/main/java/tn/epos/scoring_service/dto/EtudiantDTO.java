@@ -6,7 +6,8 @@ public record EtudiantDTO(
     Long id,
     String nom,
     String prenom,
-    String numero_inscription
+    String numero_inscription,
+    String email
 ) {
     public static EtudiantDTO fromEntity(Etudiant e) {
         if (e == null) return null;
@@ -14,7 +15,8 @@ public record EtudiantDTO(
             e.getId(),
             e.getNom(),
             e.getPrenom(),
-            e.getNumero_inscription()
+            e.getNumero_inscription(),
+            e.getEmail()
         );
     }
 }

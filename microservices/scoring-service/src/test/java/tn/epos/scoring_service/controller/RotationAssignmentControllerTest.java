@@ -148,83 +148,44 @@ class RotationAssignmentControllerTest {
 
     // ─── POST /api/assignments ────────────────────────────────────────────────
 
+    // =========================================================================
+    // POST / PUT / DELETE /api/assignments et PATCH /{id}/presence — SUPPRIMES (#218).
+    // La presence a son acte, borne a la matiere : PATCH /api/lots/{lotId}/presence.
+    // =========================================================================
     @Nested
-    @DisplayName("POST /api/assignments")
-    class Create {
+    @DisplayName("Ecritures brutes — SUPPRIMEES")
+    class EcrituresSupprimees {
 
         @Test
-        @DisplayName("201 - Assignment créé avec succès")
-        void create_devraitRetourner200() throws Exception {
-            when(service.save(any(RotationAssignment.class), any(), any())).thenReturn(assignment);
-
+        @DisplayName("POST /api/assignments n'existe plus")
+        void postSupprime() throws Exception {
             mockMvc.perform(post("/api/assignments")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(assignment)))
-                    .andExpect(status().isCreated()) // Matches controller 201
-                    .andExpect(jsonPath("$.data.id").value(1));
+                            .content("{}"))
+                    .andExpect(status().isMethodNotAllowed());
         }
-    }
-
-    // ─── PATCH /api/assignments/{id}/presence ─────────────────────────────────
-
-    @Nested
-    @DisplayName("PATCH /api/assignments/{id}/presence")
-    class ConfirmerPresence {
 
         @Test
-        @DisplayName("200 - Présence confirmée à true")
-        void confirmerPresence_true_devraitRetourner200() throws Exception {
-            assignment.setPresenceConfirmee(true);
-            when(service.confirmerPresence(1L, true)).thenReturn(assignment);
-
-            mockMvc.perform(patch("/api/assignments/1/presence")
-                            .param("present", "true"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.presenceConfirmee").value(true));
-        }
-    }
-
-    // ─── PUT /api/assignments/{id} ────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("PUT /api/assignments/{id}")
-    class Update {
-
-        @Test
-        @DisplayName("200 - Assignment mis à jour")
-        void update_devraitRetourner200() throws Exception {
-            RotationAssignment updated = new RotationAssignment();
-            updated.setId(1L);
-            updated.setPresenceConfirmee(true);
-            updated.setTempsAdditionnel(10);
-
-            when(service.update(eq(1L), any(RotationAssignment.class))).thenReturn(updated);
-
+        @DisplayName("PUT /api/assignments/{id} n'existe plus")
+        void putSupprime() throws Exception {
             mockMvc.perform(put("/api/assignments/1")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(updated)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.presenceConfirmee").value(true))
-                    .andExpect(jsonPath("$.data.tempsAdditionnel").value(10));
+                            .content("{}"))
+                    .andExpect(status().isMethodNotAllowed());
         }
-    }
-
-    // ─── DELETE /api/assignments/{id} ────────────────────────────────────────
-
-    @Nested
-    @DisplayName("DELETE /api/assignments/{id}")
-    class Delete {
 
         @Test
-        @DisplayName("200 - Assignment supprimé") // Changed from 204 to 200
-        void delete_devraitRetourner204() throws Exception {
-            doNothing().when(service).delete(1L);
-
+        @DisplayName("DELETE /api/assignments/{id} n'existe plus")
+        void deleteSupprime() throws Exception {
             mockMvc.perform(delete("/api/assignments/1"))
-                    .andExpect(status().isOk()) // Returns ApiResponse success
-                    .andExpect(jsonPath("$.success").value(true));
+                    .andExpect(status().isMethodNotAllowed());
+        }
 
-            verify(service, times(1)).delete(1L);
+        @Test
+        @DisplayName("PATCH /{id}/presence n'existe plus — un evaluateur ne pointe plus chez un collegue")
+        void presenceSupprimee() throws Exception {
+            mockMvc.perform(patch("/api/assignments/1/presence").param("present", "false"))
+                    .andExpect(status().isNotFound());
         }
     }
 }

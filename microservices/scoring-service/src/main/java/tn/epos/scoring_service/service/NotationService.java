@@ -34,10 +34,14 @@ public class NotationService {
     @Autowired
     private EvaluateurScopeChecker scopeChecker;
 
+    /** #274 — la vue Résultats est examen-clé : elle se lit dans SA matière. */
+    @Autowired
+    private MatiereAccessGuard matiereAccessGuard;
+
     // Récupérer toutes les notations — filtrées au périmètre de l'évaluateur (#91)
     public List<Notation> findAll() {
         List<Notation> all = repository.findAll();
-        if (scopeChecker.isUnrestricted()) {
+        if (scopeChecker.peutLireHorsPerimetre()) {
             return all;
         }
         return all.stream()
@@ -64,6 +68,12 @@ public class NotationService {
     // associations déjà fetch-join (étudiant), donc aucune LazyInit hors session.
     @Transactional(readOnly = true)
     public List<ExamenResultDTO> getResultatsByExamen(Long examenId) {
+        // #274 — lecture examen-clé, donc bornée : cette vue nomme chaque candidat et donne sa
+        // note par station. Un responsable d'une autre matière n'a rien à y lire. Le périmètre
+        // se vérifie en une résolution, sans parcourir la liste — c'est ce qui rend cette
+        // lecture-ci bornable alors que les listes de notations restent hors périmètre.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         List<Notation> notations = repository.findByExamenIdWithGraph(examenId);
 
         // Regroupe par participation en préservant l'ordre de première apparition.
@@ -113,7 +123,7 @@ public class NotationService {
     // Récupérer les notations d'une station (cross-service) — filtrées (#91)
     public List<Notation> findByStation(Long stationId) {
         List<Notation> rows = repository.findByStationId(stationId);
-        if (scopeChecker.isUnrestricted()) {
+        if (scopeChecker.peutLireHorsPerimetre()) {
             return rows;
         }
         return rows.stream()
@@ -124,7 +134,7 @@ public class NotationService {
     // Récupérer les notations d'une grille (cross-service) — filtrées (#91)
     public List<Notation> findByGrille(Long grilleId) {
         List<Notation> rows = repository.findByGrilleId(grilleId);
-        if (scopeChecker.isUnrestricted()) {
+        if (scopeChecker.peutLireHorsPerimetre()) {
             return rows;
         }
         return rows.stream()

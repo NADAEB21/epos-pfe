@@ -73,6 +73,30 @@ public class GrilleEvaluation {
                 .allMatch(ItemEvaluation::isPonderationEnfantsValide);
     }
 
+    /**
+     * #276 — la note maximale qu'un étudiant SANS-FAUTE peut réellement obtenir.
+     *
+     * <p>À ne pas confondre avec {@link #getSommePonderations()}, qui additionne les
+     * budgets déclarés. Les deux peuvent différer sans qu'aucun contrôle existant ne
+     * le voie : reproduit en direct sur la grille 76 — budgets 10 + 10 = 20 =
+     * {@code noteMax}, donc {@code ponderationValide = true}, et pourtant maximum
+     * atteignable = 10, parce que les deux critères sont notés sur 5.
+     *
+     * <p>C'est cette valeur-là qui compte pour l'étudiant, et c'est elle que le
+     * lancement doit comparer à {@code noteMax}.
+     */
+    public double getMaxAtteignable() {
+        return items.stream()
+                .filter(i -> i.getParent() == null)
+                .mapToDouble(ItemEvaluation::getMaxAtteignable)
+                .sum();
+    }
+
+    /** #276 — true quand un sans-faute peut atteindre {@code noteMax}. */
+    public boolean isNoteMaxAtteignable() {
+        return Math.abs(getMaxAtteignable() - noteMax) < 0.001;
+    }
+
     public Double getSommePonderations() {
         return items.stream()
                 .filter(i -> i.getParent() == null)   // ← seuls les items de premier niveau comptent pour noteMax

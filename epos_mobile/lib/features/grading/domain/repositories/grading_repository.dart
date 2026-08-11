@@ -15,11 +15,21 @@ abstract class GradingRepository {
   /// Charge le PROCHAIN groupe planifié pour cet évaluateur (même station).
   Future<Lot> getGroupeSuivant(int rotationId);
 
-  /// Valide uniquement la rotation (session) de l'évaluateur actuel
-  /// Future<void> validerRotation(int rotationId);
-
-  /// Sauvegarde une notation (création ou mise à jour)
+  /// Sauvegarde une notation (création ou mise à jour).
+  ///
+  /// Chemin de SAISIE : « essaie en ligne, sinon garde en local ». Un échec
+  /// réseau y est normal et silencieux — c'est le contrat du hors-ligne.
   Future<void> saveNotation(Notation notation);
+
+  /// #307 — ENVOI PUR, réservé à la synchronisation. Ne retombe JAMAIS sur le
+  /// stockage local et LÈVE une exception en cas d'échec.
+  ///
+  /// Pourquoi une seconde méthode : `saveNotation` avale les erreurs réseau et
+  /// réenregistre en local, puis retourne normalement. La synchronisation
+  /// interprétait ce retour comme un succès et supprimait la note — alors
+  /// qu'elle n'était jamais partie. Pour synchroniser, « je n'ai pas pu » doit
+  /// être une ERREUR, jamais un silence.
+  Future<void> pushNotation(Notation notation);
 
   /// Sauvegarde plusieurs notations en batch (sync offline)
   Future<void> saveNotations(List<Notation> notations);

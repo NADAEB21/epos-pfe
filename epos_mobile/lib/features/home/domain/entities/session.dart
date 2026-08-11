@@ -88,15 +88,17 @@ class PlanningCell extends Equatable {
   final String     heure;
   final int        lotNumero;
   final CellStatus statut;
+  final int?       groupeNumero;
 
   const PlanningCell({
     required this.heure,
     required this.lotNumero,
     required this.statut,
+    this.groupeNumero,
   });
 
   @override
-  List<Object?> get props => [heure, lotNumero, statut];
+  List<Object?> get props => [heure, lotNumero, statut, groupeNumero];
 }
 
 enum CellStatus { termine, aVenir, aucun }

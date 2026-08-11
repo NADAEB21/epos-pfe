@@ -7,7 +7,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.RotationAssignmentDTO; // New Import
-import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.scoring_service.service.RotationAssignmentService;
 
 import java.util.List;
@@ -48,43 +47,17 @@ public class RotationAssignmentController {
         return ResponseEntity.ok(ApiResponse.ok(dtos));
     }
 
-    @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> create(@RequestBody RotationAssignmentDTO dto) {
-        RotationAssignment entity = new RotationAssignment();
-        entity.setPresenceConfirmee(dto.presenceConfirmee());
-        entity.setTempsAdditionnel(dto.tempsAdditionnel());
-
-        RotationAssignmentDTO saved = RotationAssignmentDTO.fromEntity(
-                service.save(entity, dto.rotationId(), dto.participationId()));
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Assignment créé avec succès", saved));
-    }
-
-    @PatchMapping("/{id}/presence")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE', 'EVALUATEUR')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> updatePresence(@PathVariable Long id,
-            @RequestParam boolean present) {
-        RotationAssignmentDTO updated = RotationAssignmentDTO.fromEntity(service.confirmerPresence(id, present));
-        return ResponseEntity.ok(ApiResponse.ok("Présence mise à jour", updated));
-    }
-
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationAssignmentDTO>> update(@PathVariable Long id,
-            @RequestBody RotationAssignmentDTO dto) {
-        RotationAssignment entity = new RotationAssignment();
-        entity.setPresenceConfirmee(dto.presenceConfirmee());
-        entity.setTempsAdditionnel(dto.tempsAdditionnel());
-
-        RotationAssignmentDTO updated = RotationAssignmentDTO.fromEntity(service.update(id, entity));
-        return ResponseEntity.ok(ApiResponse.ok("Assignment modifié", updated));
-    }
-
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        service.delete(id);
-        return ResponseEntity.ok(ApiResponse.ok("Assignment supprimé"));
-    }
+    // =========================================================================
+    // POST / PUT / DELETE /api/assignments et PATCH /{id}/presence — SUPPRIMES (#218).
+    // Ne pas reintroduire.
+    //
+    // Un assignment est le PRODUIT de la generation du circuit : de l'etat derive, pas
+    // une ressource qu'on redige. Aucune des quatre portes n'avait de garde — mesure en
+    // direct, un evaluateur a retourne la presence sur la rotation d'un collegue. Zero
+    // appelant dans les deux clients.
+    //
+    // La presence a son acte, utilise lui, au grain ou le responsable travaille :
+    //   PATCH /api/lots/{lotId}/presence  ->  LotAssignmentService.markPresence
+    // Voir le bloc de suppression dans RotationAssignmentService pour le detail.
+    // =========================================================================
 }

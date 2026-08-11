@@ -5,17 +5,22 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
+import tn.epos.auth_service.entity.Matiere;
 import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
+import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
+import tn.epos.auth_service.repository.MatiereRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
@@ -26,6 +31,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,10 +42,28 @@ class UserServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private UserRoleRepository userRoleRepository;
     @Mock private RefreshTokenRepository refreshTokenRepository;
+    @Mock private MatiereRepository matiereRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
 
+    /** #289 — la date du retrait est une donnée, pas un hasard : horloge fixe. */
+    @Spy private java.time.Clock clock =
+            java.time.Clock.fixed(java.time.Instant.parse("2026-08-04T09:00:00Z"),
+                    java.time.ZoneId.of("UTC"));
+
     @InjectMocks private UserService userService;
+
+    /**
+     * #134 — par défaut, toute matière référencée par un test existe et est
+     * active ; les tests de la garde catalogue redéfinissent ce stub.
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void stubCatalogueParDefaut() {
+        lenient().when(matiereRepository.findById(anyLong())).thenAnswer(inv ->
+                Optional.of(Matiere.builder()
+                        .id(inv.getArgument(0)).code("M" + inv.getArgument(0))
+                        .libelle("Matière " + inv.getArgument(0)).build()));
+    }
 
     // -------------------------------------------------------------------------
     // Fixtures
@@ -491,19 +517,170 @@ class UserServiceTest {
     // =========================================================================
 
     @Test
-    void deactivateUser_softDeletes_revokesTokens() {
+    void deactivateUser_softDeletes_revokesTokens_andRecordsWhoAndWhy() {
         User user = existingUser(1L);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(User.class))).thenReturn(user);
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
 
-        userService.deactivateUser(1L);
+        userService.deactivateUser(1L, "Depart de la faculte", 99L);
 
-        // isActive must be set to false on the entity before saving
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
-        assertThat(userCaptor.getValue().getIsActive()).isFalse();
+        User saved = userCaptor.getValue();
+        assertThat(saved.getIsActive()).isFalse();
+        // #289 — l'acte se raconte : qui, quand, pourquoi
+        assertThat(saved.getDeactivationMotif()).isEqualTo("Depart de la faculte");
+        assertThat(saved.getDeactivatedBy()).isEqualTo(99L);
+        assertThat(saved.getDeactivatedAt()).isNotNull();
 
-        // All active sessions must be revoked immediately
         verify(refreshTokenRepository).revokeAllByUserId(1L);
+        verify(auditService).logAttribue(eq(1L), anyString(), eq(AuditAction.USER_DEACTIVATED),
+                eq("Depart de la faculte"), isNull(), eq(99L));
+    }
+
+    @Test
+    void deactivateUser_refusesSelfRemoval() {
+        // Le geste le plus banal et le plus couteux : se fermer soi-meme.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.deactivateUser(1L, "erreur", 1L))
+                .isInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("votre propre");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void deactivateUser_refusesTheLastActiveSuperAdmin() {
+        // Sans cette garde, la plateforme devient ingerable et la seule sortie
+        // est une requete en base.
+        User admin = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(
+                List.of(UserRole.builder().role(RoleType.SUPER_ADMIN).build()));
+        when(userRepository.findByRole(RoleType.SUPER_ADMIN)).thenReturn(List.of(admin));
+
+        assertThatThrownBy(() -> userService.deactivateUser(1L, "menage", 42L))
+                .isInstanceOf(UnauthorizedDelegationException.class)
+                .hasMessageContaining("dernier administrateur");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void deactivateUser_allowsAnAdminWhenAnotherOneRemains() {
+        User admin = existingUser(1L);
+        User autre = existingUser(2L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(
+                List.of(UserRole.builder().role(RoleType.SUPER_ADMIN).build()));
+        when(userRepository.findByRole(RoleType.SUPER_ADMIN)).thenReturn(List.of(admin, autre));
+        when(userRepository.save(any(User.class))).thenReturn(admin);
+
+        userService.deactivateUser(1L, "depart", 42L);
+
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    void reactivateUser_reopensAndClearsAnyResidualLock() {
+        // #289 + #294 — un compte qu'on rouvre ne doit pas heriter d'un verrou
+        // vieux de six mois.
+        User user = existingUser(1L);
+        user.setIsActive(false);
+        user.setDeactivationMotif("erreur de ligne");
+        user.setLockedUntil(java.time.LocalDateTime.now(clock).plusMinutes(30));
+        user.setLockCount(3);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenReturn(user);
+
+        userService.reactivateUser(1L, "Homonyme : mauvaise ligne", 99L);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        User saved = captor.getValue();
+        assertThat(saved.getIsActive()).isTrue();
+        assertThat(saved.getDeactivationMotif()).isNull();
+        assertThat(saved.getDeactivatedBy()).isNull();
+        assertThat(saved.getLockedUntil()).isNull();
+        assertThat(saved.getLockCount()).isZero();
+
+        verify(auditService).logAttribue(eq(1L), anyString(), eq(AuditAction.USER_REACTIVATED),
+                anyString(), isNull(), eq(99L));
+    }
+
+    // =========================================================================
+    // #134 — garde catalogue : une nomination vise une matière existante et active
+    // =========================================================================
+
+    @Test
+    void createUser_matiereInexistante_throws400PasUn500() {
+        // Avant la garde : violation de FK -> 500 brut. La requête est
+        // invalide, la réponse doit le dire nominativement.
+        when(matiereRepository.findById(9999L)).thenReturn(Optional.empty());
+        var req = createRequest("new@test.com", List.of(
+                RoleAssignmentDto.builder()
+                        .role(RoleType.RESPONSABLE_MATIERE).matiereId(9999L).build()));
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.createUser(req, authWith("ROLE_SUPER_ADMIN")))
+                .isInstanceOf(MatiereNonAssignableException.class)
+                .hasMessageContaining("9999");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void createUser_matiereRetiree_refuseNominativement() {
+        when(matiereRepository.findById(3L)).thenReturn(Optional.of(
+                Matiere.builder().id(3L).code("PHAG").libelle("Pharmacognosie")
+                        .active(false).build()));
+        var req = createRequest("new@test.com", List.of(
+                RoleAssignmentDto.builder()
+                        .role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()));
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.createUser(req, authWith("ROLE_SUPER_ADMIN")))
+                .isInstanceOf(MatiereNonAssignableException.class)
+                .hasMessageContaining("Pharmacognosie")
+                .hasMessageContaining("retirée");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void addRoles_evaluateurGlobal_passeSansConsulterLeCatalogue() {
+        // EVALUATEUR porte matiereId null : rien à contrôler côté catalogue.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+
+        userService.addRoles(1L, List.of(
+                        RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        verify(userRoleRepository).saveAll(any());
+        verify(matiereRepository, never()).findById(any());
+    }
+
+    @Test
+    void addRoles_compteDejaPorteurDuneMatiereRetiree_resteModifiable() {
+        // Le rôle CONSERVÉ sur une matière retirée n'est pas une nouvelle
+        // nomination : ajouter EVALUATEUR à ce compte doit passer.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(3L).build()));
+
+        userService.addRoles(1L, List.of(
+                        RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        // La matière 3 (retirée ou non) n'est jamais re-contrôlée : seul
+        // l'AJOUT est soumis à la garde, et il ne référence aucune matière.
+        verify(matiereRepository, never()).findById(any());
+        verify(userRoleRepository).saveAll(any());
     }
 }

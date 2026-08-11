@@ -48,6 +48,9 @@ class LotAssignmentServiceTest {
     @Mock private ILotRepository lotRepository;
     @Mock private IStudentGroupRepository studentGroupRepository;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks private LotAssignmentService service;
 
     private static final long EXAM_ID = 100L;
@@ -72,7 +75,7 @@ class LotAssignmentServiceTest {
         for (int i = 0; i < nbStations; i++) {
             stations.add(new ExamGenerationView.StationView(10L + i, i + 1, List.of(1000L + i)));
         }
-        return new ExamGenerationView(EXAM_ID, LocalDate.of(2026, 6, 20),
+        return new ExamGenerationView(EXAM_ID, "Examen test", LocalDate.of(2026, 6, 20),
                 LocalTime.of(9, 0), null, 15, 0, capacite, statut, stations);
     }
 

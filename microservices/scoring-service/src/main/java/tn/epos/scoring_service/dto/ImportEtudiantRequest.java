@@ -10,5 +10,6 @@ package tn.epos.scoring_service.dto;
 public record ImportEtudiantRequest(
     String nom,
     String prenom,
-    String numero_inscription
+    String numero_inscription,
+    String email
 ) {}

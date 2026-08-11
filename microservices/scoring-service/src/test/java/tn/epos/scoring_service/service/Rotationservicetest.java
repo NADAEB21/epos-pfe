@@ -41,7 +41,8 @@ class RotationServiceTest {
         // Appelant non contraint par défaut : le filtrage de périmètre
         // évaluateur (#91) est couvert séparément ci-dessous + dans
         // EvaluateurScopeCheckerTest. lenient() car findById/update ne le consultent pas.
-        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
+        // #274 — filtre de LISTE : `peutLireHorsPerimetre`, pas l'écriture.
+        lenient().when(scopeChecker.peutLireHorsPerimetre()).thenReturn(true);
 
         Lot lot = new Lot();
         lot.setId(1L);
@@ -171,119 +172,10 @@ class RotationServiceTest {
         }
     }
 
-    @Nested
-    @DisplayName("save()")
-    class Save {
-
-        @Test
-        @DisplayName("Doit sauvegarder et retourner la rotation")
-        void save_devraitSauvegarder() {
-            when(rotationRepository.save(any(Rotation.class))).thenReturn(rotation);
-
-            Rotation result = rotationService.save(rotation);
-
-            assertThat(result).isNotNull();
-            assertThat(result.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
-            assertThat(result.getStudentGroup().getNumeroGroupe()).isEqualTo(1);
-            verify(rotationRepository, times(1)).save(any(Rotation.class));
-        }
-    }
-
-    @Nested
-    @DisplayName("delete()")
-    class Delete {
-
-        @Test
-        @DisplayName("Doit appeler deleteById avec le bon ID")
-        void delete_devraitAppelerDeleteById() {
-            doNothing().when(rotationRepository).deleteById(1L);
-
-            rotationService.delete(1L);
-
-            verify(rotationRepository, times(1)).deleteById(1L);
-        }
-    }
-
-    @Nested
-    @DisplayName("update()")
-    class Update {
-
-        @Test
-        @DisplayName("Doit mettre à jour tous les champs de la rotation si trouvée")
-        void update_devraitMettreAJourRotation() {
-            StudentGroup nouveauGroupe = new StudentGroup();
-            nouveauGroupe.setId(2L);
-            nouveauGroupe.setNumeroGroupe(2);
-
-            Rotation details = new Rotation();
-            details.setOrdrePassage(2);
-            details.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 10, 0));
-            details.setStatut(RotationStatus.EN_COURS);
-            details.setEvaluateurId(5L);
-            details.setStationId(8L);
-            details.setStudentGroup(nouveauGroupe);
-
-            when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
-            when(rotationRepository.save(any(Rotation.class))).thenAnswer(inv -> inv.getArgument(0));
-
-            Rotation result = rotationService.update(1L, details);
-
-            assertThat(result.getOrdrePassage()).isEqualTo(2);
-            assertThat(result.getStatut()).isEqualTo(RotationStatus.EN_COURS);
-            assertThat(result.getEvaluateurId()).isEqualTo(5L);
-            assertThat(result.getStationId()).isEqualTo(8L);
-            assertThat(result.getStudentGroup().getId()).isEqualTo(2L);
-            assertThat(result.getDebutCreneau()).isEqualTo(LocalDateTime.of(2024, 6, 15, 10, 0));
-            verify(rotationRepository).save(any(Rotation.class));
-        }
-
-        @Test
-        @DisplayName("Transition statut EN_ATTENTE → TERMINE doit réussir")
-        void update_devraitAccepterTransitionStatutTermine() {
-            Rotation details = new Rotation();
-            details.setOrdrePassage(rotation.getOrdrePassage());
-            details.setDebutCreneau(rotation.getDebutCreneau());
-            details.setStatut(RotationStatus.TERMINE);
-            details.setEvaluateurId(rotation.getEvaluateurId());
-            details.setStudentGroup(rotation.getStudentGroup());
-
-            when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
-            when(rotationRepository.save(any(Rotation.class))).thenAnswer(inv -> inv.getArgument(0));
-
-            Rotation result = rotationService.update(1L, details);
-
-            assertThat(result.getStatut()).isEqualTo(RotationStatus.TERMINE);
-        }
-
-        @Test
-        @DisplayName("Doit lever RuntimeException si rotation introuvable")
-        void update_devraitLeverExceptionSiIntrouvable() {
-            when(rotationRepository.findById(99L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> rotationService.update(99L, new Rotation()))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("99");
-        }
-
-        @Test
-        @DisplayName("#215 : un PUT partiel (sans evaluateurId/stationId/group) ne doit PAS null-ifier les FK")
-        void update_putPartiel_preserveLesFk() {
-            Rotation details = new Rotation();
-            details.setOrdrePassage(2);
-            details.setDebutCreneau(LocalDateTime.of(2024, 6, 15, 10, 0));
-            details.setStatut(RotationStatus.EN_COURS);
-            // evaluateurId / stationId / studentGroup NON fournis
-
-            when(rotationRepository.findById(1L)).thenReturn(Optional.of(rotation));
-            when(rotationRepository.save(any(Rotation.class))).thenAnswer(inv -> inv.getArgument(0));
-
-            Rotation result = rotationService.update(1L, details);
-
-            assertThat(result.getOrdrePassage()).isEqualTo(2);
-            assertThat(result.getEvaluateurId()).isEqualTo(3L);         // préservé
-            assertThat(result.getStationId()).isEqualTo(7L);            // préservé
-            assertThat(result.getStudentGroup()).isNotNull();          // préservé
-            assertThat(result.getStudentGroup().getId()).isEqualTo(1L);
-        }
-    }
+    // =========================================================================
+    // save() / delete() / update() — SUPPRIMES (#86, #219).
+    // Leurs tests partent avec eux. Ce qui compte est preserve ailleurs : la
+    // generation du circuit est testee par RotationGenerationServiceTest, et les
+    // lectures filtrees au perimetre evaluateur le sont ci-dessus.
+    // =========================================================================
 }

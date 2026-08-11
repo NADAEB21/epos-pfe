@@ -193,6 +193,18 @@ services:
       # de temps effectif, mais on aligne la zone OS pour les logs et tout appel
       # éventuel à now(). Le planning (debutCreneau) reste ancré sur launched_at.
       - TZ=${APP_TIMEZONE:-Africa/Tunis}
+      # #227 — envoi des convocations aux étudiants. DÉSACTIVÉ par défaut : sans
+      # ce garde-fou, un `docker compose up` sur une copie des données réelles
+      # enverrait de vrais e-mails à de vrais étudiants. Renseigner MAIL_ENABLED
+      # + un compte SMTP dans infrastructure/.env pour envoyer réellement.
+      - MAIL_ENABLED=${MAIL_ENABLED:-false}
+      - MAIL_FROM=${MAIL_FROM:-noreply@epos.tn}
+      - MAIL_SMTP_HOST=${MAIL_SMTP_HOST:-smtp.gmail.com}
+      - MAIL_SMTP_PORT=${MAIL_SMTP_PORT:-587}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
+      - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-true}
+      - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-true}
     depends_on:
       postgres-db:
         condition: service_healthy

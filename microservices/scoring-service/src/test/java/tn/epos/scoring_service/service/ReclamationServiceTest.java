@@ -40,6 +40,9 @@ class ReclamationServiceTest {
     @Mock private IExamenParticipationRepository participationRepository;
     @Mock private EvaluateurScopeChecker scopeChecker;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private ReclamationService service;
 

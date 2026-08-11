@@ -5,12 +5,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import tn.epos.exam_service.dto.request.ExamenRequest;
+import tn.epos.exam_service.dto.response.BaremeIncompletResponse;
 import tn.epos.exam_service.dto.response.ConflitEvaluateurResponse;
 import tn.epos.exam_service.dto.response.ExamTimingResponse;
 import tn.epos.exam_service.dto.response.ExamenResponse;
 import tn.epos.exam_service.dto.response.StationResponse;
 import tn.epos.exam_service.entities.Examen;
+import tn.epos.exam_service.entities.GrilleEvaluation;
 import tn.epos.exam_service.entities.Station;
+import java.util.ArrayList;
 import tn.epos.exam_service.enums.StatutExamen;
 import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.common.exception.BusinessException;
@@ -187,6 +190,30 @@ public class ExamenServiceImpl implements ExamenService {
             }
         }
 
+        // #276 — un barème dont un sans-faute ne peut PAS atteindre la note annoncée
+        // plafonne TOUTE la promotion, en silence, et ADR-0015 le fige au lancement :
+        // la définition devient immuable pour la vie de l'examen. Reproduit en direct
+        // (station notée sur 20, un critère de 10 → un sans-faute obtient 10/20).
+        //
+        // Le contrôle porte sur le maximum ATTEIGNABLE, pas sur la somme des budgets :
+        // ponderationValide peut être vrai alors que la note reste inatteignable
+        // (budgets 10+10=20 mais critères notés sur 5+5 → 10/20). Refus NOMINATIF.
+        if (nouveauStatut == StatutExamen.EN_COURS) {
+            List<BaremeIncompletResponse> incomplets = calculerBaremesIncomplets(examen);
+            if (!incomplets.isEmpty()) {
+                String detail = incomplets.stream()
+                        .map(b -> String.format("%s : %.1f pt(s) atteignable(s) sur %.1f",
+                                b.getStationNom(), b.getMaxAtteignable(), b.getNoteMax()))
+                        .collect(Collectors.joining(" ; "));
+                throw new BusinessException(
+                        "Lancement impossible : le barème de " + incomplets.size()
+                                + " station(s) ne permet pas d'atteindre la note annoncée — "
+                                + detail + ". Complétez les grilles avant de lancer : une fois "
+                                + "l'examen lancé, le barème est figé et tous les étudiants de "
+                                + "ces stations seraient plafonnés.");
+            }
+        }
+
         // Ne pas clôturer un examen figé en pause : le temps effectif est gelé, donc
         // le "dépassement" (gate de fin côté Suivi) ne peut pas avancer. On force la
         // reprise avant la fin pour un état terminal cohérent (enPause=false).
@@ -222,6 +249,42 @@ public class ExamenServiceImpl implements ExamenService {
         Examen examen = trouverEntite(id);
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         return calculerConflitsEvaluateurs(examen);
+    }
+
+    /**
+     * #276 — les stations dont le barème rend {@code noteMax} inatteignable.
+     *
+     * <p>Sert deux appelants : le refus de {@link #changerStatut} (autoritaire) et
+     * la ligne bloquante du pre-flight de Lancement (informative, AVANT le clic).
+     * Un seul calcul pour les deux, sinon l'écran et le serveur finissent par ne
+     * plus dire la même chose.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<BaremeIncompletResponse> listerBaremesIncomplets(Long id) {
+        Examen examen = trouverEntite(id);
+        matiereAccessChecker.checkAccess(examen.getMatiereId());
+        return calculerBaremesIncomplets(examen);
+    }
+
+    private List<BaremeIncompletResponse> calculerBaremesIncomplets(Examen examen) {
+        List<BaremeIncompletResponse> out = new ArrayList<>();
+        for (Station station : examen.getStations()) {
+            GrilleEvaluation grille = station.getGrille();
+            if (grille == null || grille.getNoteMax() == null) {
+                continue;   // pas de grille : déjà couvert par « Une grille par station »
+            }
+            if (!grille.isNoteMaxAtteignable()) {
+                out.add(BaremeIncompletResponse.builder()
+                        .stationId(station.getId())
+                        .stationNom(station.getNom())
+                        .grilleId(grille.getId())
+                        .noteMax(grille.getNoteMax())
+                        .maxAtteignable(grille.getMaxAtteignable())
+                        .build());
+            }
+        }
+        return out;
     }
 
     /**

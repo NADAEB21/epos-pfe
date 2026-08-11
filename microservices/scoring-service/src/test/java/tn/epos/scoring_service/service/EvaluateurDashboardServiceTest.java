@@ -33,7 +33,10 @@ import static org.mockito.Mockito.*;
  * Couvre chaque méthode publique et les branches non triviales :
  *   buildDashboard / resolveSessionStatut / buildSessions / buildPlanning /
  *   getGroupeDetail / getGroupeSuivant / saisirNotation / validerEtudiant /
- *   validerGroupe / validerLot.
+ *   validerGroupe / avancerGroupe.
+ *
+ * `validerLot` a été SUPPRIMÉ : un lot ne se valide pas, il se clôture seul quand son
+ * dernier groupe est validé (voir la suite validerGroupe).
  *
  * getGroupeDetail/getGroupeSuivant/validerGroupe remplacent l'ancien
  * getLotDetail(stationId, lotNumero, evaluateurId), ambigu dès qu'un
@@ -59,6 +62,9 @@ class EvaluateurDashboardServiceTest {
     // Vraie horloge (pas un mock) pinnée Africa/Tunis comme ClockConfig, pour que
     // le temps effectif du service s'aligne sur les debutCreneau construits ici.
     @Spy private Clock clock = Clock.system(ZoneId.of("Africa/Tunis"));
+
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
 
     @InjectMocks
     private EvaluateurDashboardService service;
@@ -88,6 +94,13 @@ class EvaluateurDashboardServiceTest {
                     }
                     return item.weigh(inv.getArgument(2));
                 });
+        // #213 — le garde d'écriture exige que l'évaluateur tienne la station.
+        // EVAL_ID tient STATION_ID dans toute cette classe : c'est le cas NORMAL,
+        // et sans ce stub chaque test de notation échouerait sur le garde au lieu
+        // de tester ce qu'il prétend tester. Les tests du garde lui-même stubent
+        // explicitement l'absence de rotation.
+        lenient().when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, STATION_ID))
+                .thenReturn(true);
     }
 
     // ─── shared helpers ──────────────────────────────────────────────────────
@@ -1090,6 +1103,83 @@ class EvaluateurDashboardServiceTest {
             verify(notationItemRepository).save(any(NotationItem.class));
         }
 
+        /**
+         * #213 — l'auteur doit être ENREGISTRÉ, pas déduit.
+         *
+         * <p>Avant, « qui a noté ? » se lisait sur {@code rotation.evaluateur_id},
+         * donc sur le propriétaire de la station : toute saisie faite par
+         * quelqu'un d'autre était attribuée au mauvais évaluateur. Reproduit en
+         * direct sur l'examen 53 (note 9.5 saisie par l'évaluateur 6, attribuée
+         * au 3). Une traçabilité fausse est pire qu'absente — elle accuse.
+         */
+        @Test
+        @DisplayName("#213/ADR-0017 — la note retient QUI l'a saisie : après suppléance, c'est le REMPLAÇANT")
+        void saisirNotation_devraitEnregistrerLAuteurReel() {
+            // Le remplaçant : la suppléance lui a réaffecté la rotation, il passe donc
+            // le garde. Sans cet enregistrement, sa note serait attribuée au partant.
+            final Long REMPLACANT = 999L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(REMPLACANT, STATION_ID))
+                    .thenReturn(true);
+            ExamenParticipation p = participation(1L); p.setId(100L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(200L);
+            Notation n = new Notation(); n.setId(1L); n.setGrilleId(1L); n.setVerouillee(false);
+
+            when(participationRepository.findByEtudiantIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(100L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(200L)).thenReturn(Optional.of(n));
+            when(notationItemRepository.findByNotationIdAndItemId(1L, 5L)).thenReturn(Optional.empty());
+            when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+
+            service.saisirNotation(
+                    new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f), REMPLACANT);
+
+            // Le fait, pas la déduction : c'est bien l'appelant qui est retenu.
+            assertThat(n.getSaisiPar()).isEqualTo(REMPLACANT);
+        }
+
+        /**
+         * #213 — LE trou : reproduit en direct avant correctif (l'évaluateur 6 a
+         * noté 9.5 sur la station 87, qui appartient au 3, HTTP 200).
+         *
+         * <p>Un garde existait pourtant — {@code createAssignment} exige une
+         * rotation (évaluateur, station) — mais uniquement sur le chemin FROID,
+         * emprunté seulement si l'assignment n'existe pas encore. Or
+         * {@code presence-et-demarrer} les crée tous au démarrage du lot : en
+         * conditions réelles il ne tournait jamais. D'où un garde explicite en
+         * tête de méthode, avant toute résolution.
+         */
+        @Test
+        @DisplayName("#213 — noter sur la station d'un AUTRE évaluateur est refusé")
+        void saisirNotation_surStationDAutrui_devraitEtreRefuse() {
+            final Long INTRUS = 6L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
+                    .thenReturn(false); // il ne tient pas cette station
+
+            SaisirNotationRequest req = new SaisirNotationRequest(1L, STATION_ID, 1L, 5L, 9.5f);
+            assertThatThrownBy(() -> service.saisirNotation(req, INTRUS))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("pas affecté à la station");
+
+            // Rien n'a été écrit : le garde tombe AVANT toute résolution.
+            verifyNoInteractions(notationItemRepository);
+        }
+
+        @Test
+        @DisplayName("#213 — verrouiller la note d'un étudiant sur la station d'autrui est refusé")
+        void validerEtudiant_surStationDAutrui_devraitEtreRefuse() {
+            final Long INTRUS = 6L;
+            when(rotationRepository.existsByEvaluateurIdAndStationId(INTRUS, STATION_ID))
+                    .thenReturn(false);
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, INTRUS, req))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
         @Test
         @DisplayName("Notation verrouillée → BusinessException")
         void notationVerrouillee() {
@@ -1461,6 +1551,11 @@ class EvaluateurDashboardServiceTest {
             Notation nA = new Notation(); nA.setId(10L);
             Notation nB = new Notation(); nB.setId(11L);
 
+            // #213 — ce test valide sur DEUX stations : l'évaluateur doit tenir les
+            // deux, sinon le garde d'écriture tombe sur la seconde (station 99).
+            when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, 99L))
+                    .thenReturn(true);
+
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
             when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
@@ -1718,78 +1813,16 @@ class EvaluateurDashboardServiceTest {
     }
 
     // =========================================================================
-    // validerLot — #211 : cascade NEUTRALISÉE. Recalcul d'oversight (admin) qui
-    // DÉRIVE lot.statut de l'état stocké des rotations, sans JAMAIS écrire de
-    // statut de rotation (ADR-0014 §4).
+    // `validerLot` est SUPPRIMÉ — la suite « ValiderLotLogic » qui vivait ici est retirée
+    // avec lui, et rien n'est perdu : ce qui compte est la clôture AUTOMATIQUE du lot, déjà
+    // couverte dans la suite validerGroupe ci-dessus par
+    //   - validerGroupe_dernierGroupe_clotureLot  (dernière rotation → lot TERMINE)
+    //   - « d'autres rotations du lot restent actives → lot NON clôturé »
+    //
+    // Ces deux tests décrivent le vrai modèle : personne ne valide un lot, le lot se ferme
+    // quand son dernier groupe est validé. Les tests supprimés vérifiaient un recalcul
+    // d'oversight sans appelant, qui de surcroît marquait TERMINE un lot sans aucune rotation.
     // =========================================================================
-
-    @Nested
-    @DisplayName("validerLot()")
-    class ValiderLotLogic {
-
-        @Test
-        @DisplayName("Toutes rotations TERMINE (restantes=0) → lot TERMINE, aucune rotation écrite")
-        void validerLot_deriveTermine() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(0L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
-            verify(lotRepository).save(lot);
-            // #211 : la neutralisation garantit qu'AUCUNE rotation n'est forcée.
-            verify(rotationRepository, never()).save(any(Rotation.class));
-        }
-
-        @Test
-        @DisplayName("Des rotations restent non terminées → lot EN_COURS, aucune rotation écrite")
-        void validerLot_deriveEnCours() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(3L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.EN_COURS);
-            verify(lotRepository).save(lot);
-            verify(rotationRepository, never()).save(any(Rotation.class));
-        }
-
-        @Test
-        @DisplayName("Diffuse le statut DÉRIVÉ du lot via WebSocket après validation")
-        void validerLot_broadcastStatut() {
-            Lot lot = new Lot();
-            lot.setId(10L); lot.setEvaluateurId(EVAL_ID);
-            lot.setStatut(LotStatus.EN_COURS);
-
-            when(lotRepository.findById(10L)).thenReturn(Optional.of(lot));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(0L);
-
-            service.validerLot(10L, EVAL_ID);
-
-            verify(messagingTemplate).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
-        }
-
-        @Test
-        @DisplayName("Lot introuvable → ResourceNotFoundException")
-        void validerLot_lotIntrouvable() {
-            when(lotRepository.findById(99L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> service.validerLot(99L, EVAL_ID))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Lot introuvable");
-        }
-    }
 
     /**
      * Filtre par examen (#189) — et surtout le garde-fou qui a manqué.

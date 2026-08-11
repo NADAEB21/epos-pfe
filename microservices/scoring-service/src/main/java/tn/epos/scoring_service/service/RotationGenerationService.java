@@ -60,11 +60,24 @@ public class RotationGenerationService {
     private final IRotationAssignmentRepository   assignmentRepository;
     private final INotationRepository             notationRepository;
     private final LotOuvertureService             lotOuvertureService;
+    /**
+     * #274 — rend LOCAL un contrôle qui était DISTANT.
+     *
+     * <p>Ces deux méthodes n'étaient pas ouvertes : {@code getExamForGeneration} appelle
+     * {@code GET /api/examens/{id}}, que exam-service borne déjà par matière — un responsable
+     * étranger recevait donc un refus. Mais ce refus voyageait sur le réseau : l'autorisation
+     * tombait avec exam-service, exactement ce qu'ADR-0015 proscrit sur un chemin du jour J. La
+     * garde locale est posée AVANT l'appel distant, et rend un 403 franc au lieu d'un 400
+     * enveloppé dans un message de transport.
+     */
+    private final MatiereAccessGuard              matiereAccessGuard;
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
         Lot lot = lotRepository.findById(lotId)
                 .orElseThrow(() -> new BusinessException("Lot introuvable : " + lotId));
+
+        matiereAccessGuard.checkExamenAccess(lot.getExamenId());
 
         ExamGenerationView exam = examServiceClient.getExamForGeneration(lot.getExamenId());
 
@@ -118,8 +131,9 @@ public class RotationGenerationService {
         // (dont 56 verrouillées) et les 16 notation_items détruits par un seul appel.
         //
         // Le seul garde-fou existant (lot EN_COURS, plus haut) ne protège rien : le lot
-        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE qu'au validerLot
-        // de l'évaluateur. La régénération est donc armée exactement quand elle détruit
+        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE que lorsque sa
+        // DERNIÈRE rotation est validée — clôture automatique dans
+        // EvaluateurDashboardService.validerGroupe. La régénération est donc armée quand elle détruit
         // le plus. On refuse dès qu'UNE notation existe (fail closed) : dès qu'un
         // évaluateur a saisi quoi que ce soit, le planning n'est plus un état dérivé
         // qu'on peut reconstruire en silence.
@@ -273,6 +287,8 @@ public class RotationGenerationService {
      */
     @Transactional
     public ResetRotationsResult resetRotationsForExam(Long examenId) {
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
         if (!"EN_COURS".equals(exam.statut())) {
             throw new BusinessException(

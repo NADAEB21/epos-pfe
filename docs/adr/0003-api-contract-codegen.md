@@ -1,9 +1,29 @@
 # ADR 0003: API contract — OpenAPI single-source + codegen
 
 - **Date:** 2026-05-13
-- **Status:** Proposed — ratify end of Sprint 2 once gateway lands
+- **Status:** ⛔ **LAPSED — never adopted** (marked 2026-08-01; original status read
+  « Proposed — ratify end of Sprint 2 once gateway lands »)
 - **Deciders:** Nada (lead architect), Feten, Aziz
 - **Related:** ADR-0001 (mobile stack), issue #13 (gateway)
+
+## §0 — ⚠️ Ce qui s'est réellement passé (ajouté le 2026-08-01)
+
+**Rien de cet ADR n'a été construit.** Vérifié contre le dépôt : pas de
+`docs/openapi/epos.yaml`, pas de répertoire `generated/` dans `frontend-web` ni dans
+`epos_mobile`, aucune étape openapi-generator en CI, pas de `springdoc` dans le pom du
+gateway. Le point de ratification (« end of Sprint 2 ») est passé depuis deux mois et
+les deux clients ont été écrits **à la main**.
+
+**La dérive que cet ADR prédisait s'est produite**, et a été payée au prix qu'il annonçait :
+les DTO snake_case de scoring-service ont imposé des modèles frontend calqués à la main, et
+le champ `ouvertA` → colonne `ouverta` a coûté une session de débogage (PR #258). Ces
+corrections ont été faites manuellement, au cas par cas.
+
+Cet ADR reste dans le corpus comme trace du compromis assumé : à l'échelle d'un PFE à deux
+clients et un seul développeur backend, le coût d'installation du codegen n'a jamais trouvé
+sa fenêtre. **Ne pas le « reprendre » sans re-décider** — si le besoin revient (équipe
+élargie, contrat qui casse en production), écrire un ADR successeur qui cite les incidents
+ci-dessus comme données d'entrée.
 
 ## Context
 EPOS now has two frontend clients (Flutter mobile, Angular PWA web) consuming the same backend microservices (auth, exam, scoring). Hand-maintaining DTOs in both **Dart** and **TypeScript** is a silent-drift hazard: a backend field rename can ship green if neither client validates against a contract.

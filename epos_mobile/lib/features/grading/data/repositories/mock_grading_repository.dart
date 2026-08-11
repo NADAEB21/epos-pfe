@@ -158,6 +158,11 @@ class MockGradingRepository implements GradingRepository {
     );
   }
 
+  /// #307 — en mode maquette l'envoi réussit toujours ; il n'y a pas de réseau
+  /// à échouer. Même effet que `saveNotation`.
+  @override
+  Future<void> pushNotation(Notation notation) => saveNotation(notation);
+
   @override
   Future<void> saveNotations(List<Notation> notations) async {
     for (final n in notations) {

@@ -44,6 +44,20 @@ public interface IRotationRepository extends JpaRepository<Rotation, Long> {
      Optional<Rotation> findByEvaluateurIdAndStationId(Long evaluateurId, Long stationId);
 
     /**
+     * #213 — « cet évaluateur tient-il cette station ? », en EXISTENCE et non en
+     * unicité.
+     *
+     * <p>Le garde d'écriture utilisait d'abord {@code findByEvaluateurIdAndStationId},
+     * qui renvoie un {@code Optional} : en conditions réelles un évaluateur a
+     * PLUSIEURS rotations sur sa station (une par groupe qui y passe — 268 et 271
+     * sur la station 87), et la requête explosait en
+     * {@code NonUniqueResultException} — soit la classe de crash de #214. Les
+     * tests unitaires ne pouvaient pas le voir : ils stubent un Optional, donc la
+     * forme même que la réalité n'a pas. Trouvé en direct.
+     */
+    boolean existsByEvaluateurIdAndStationId(Long evaluateurId, Long stationId);
+
+    /**
      * Nombre de rotations déjà générées pour un lot (issue #188).
      *
      * <p>Le front doit savoir, AU CHARGEMENT, si un lot possède déjà un planning : sans

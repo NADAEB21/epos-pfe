@@ -5,6 +5,9 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
   CreateEtudiantRequest,
+  UpdateEtudiantRequest,
+  Convocation,
+  EnvoiConvocationsResult,
   CreateParticipationRequest,
   DemarrageResult,
   EtudiantSummary,
@@ -13,6 +16,8 @@ import {
   ImportEtudiantRow,
   ImportResult,
   LotSummary,
+  RemplacerEvaluateurRequest,
+  SubstitutionResult,
   NotationAdjustmentSummary,
   NotationItemSummary,
   NotationSummary,
@@ -133,6 +138,60 @@ export class ScoringApiService {
   }
 
   /**
+   * Patch a directory record (PUT /etudiants/{id} — SUPER_ADMIN or
+   * RESPONSABLE_MATIERE). #227: this is what makes a missing or mistyped e-mail
+   * fixable in place, instead of forcing a full roster re-import to change one
+   * cell.
+   *
+   * <p>The backend treats an ABSENT field as "leave unchanged" and an EMPTY
+   * STRING as "erase", so callers send only what they mean to touch — passing
+   * `{ email }` alone cannot damage the student's name. Do NOT spread a whole
+   * EtudiantSummary in here "to be safe": that is what made the old endpoint a
+   * data-loss vector (#215).
+   *
+   * <p>The directory is shared across exams, so an address corrected here is
+   * corrected for every exam that student sits.
+   */
+  updateEtudiant(id: number, body: UpdateEtudiantRequest): Observable<EtudiantSummary> {
+    return this.http
+      .put<ApiResponse<EtudiantSummary>>(`${this.baseUrl}/etudiants/${id}`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * The exam's convocations, already derived server-side (#227) — lot, day and
+   * arrival time included, in the official listing order (#256).
+   *
+   * <p>This replaced a client-side derivation on purpose: the e-mail sender has
+   * to compute the same arrival time, and keeping a second copy of that rule in
+   * TypeScript guaranteed the screen and the student's e-mail would eventually
+   * disagree. Read it, don't recompute it.
+   */
+  listConvocations(examenId: number): Observable<Convocation[]> {
+    return this.http
+      .get<ApiResponse<Convocation[]>>(`${this.baseUrl}/convocations/examens/${examenId}`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Sends each reachable student their convocation and records when.
+   *
+   * <p>Always resolves with a per-student breakdown rather than a bare success:
+   * students with no address are counted separately (they are exactly the ones
+   * needing a paper slip), and `simule` tells the caller whether anything
+   * actually left — mail is DISABLED by default so a demo can't spam a real
+   * promotion.
+   */
+  envoyerConvocations(examenId: number): Observable<EnvoiConvocationsResult> {
+    return this.http
+      .post<ApiResponse<EnvoiConvocationsResult>>(
+        `${this.baseUrl}/convocations/examens/${examenId}/envoyer`,
+        null,
+      )
+      .pipe(map((r) => r.data));
+  }
+
+  /**
    * Enrol a student onto an exam (POST /participations — RESPONSABLE_MATIERE
    * allowed). The participation is the only student↔exam link. Returns the
    * created enrolment (carrying its id, needed to remove it later).
@@ -167,6 +226,31 @@ export class ScoringApiService {
     return this.http
       .delete<ApiResponse<void>>(`${this.baseUrl}/participations/${participationId}`)
       .pipe(map(() => void 0));
+  }
+
+  /**
+   * ADR-0017 §3 / #296 — remplacer l'évaluateur d'une station EN PLEINE épreuve.
+   *
+   * <p>Seules les rotations non terminées changent de main : le travail déjà
+   * validé reste au nom de son auteur. Le serveur refuse (400) si la personne
+   * tient déjà une autre station de la même vague, et (404) si la vague n'a pas
+   * démarré — auquel cas il faut réaffecter la station, pas suppléer.
+   *
+   * <p>N'existait qu'au backend depuis ADR-0017 : aucun écran ne l'appelait,
+   * donc la seule sortie d'un examinateur injoignable était une requête à la
+   * main. C'est ce que #296 corrige.
+   */
+  remplacerEvaluateur(
+    lotId: number,
+    stationId: number,
+    body: RemplacerEvaluateurRequest,
+  ): Observable<SubstitutionResult> {
+    return this.http
+      .post<ApiResponse<SubstitutionResult>>(
+        `${this.baseUrl}/lots/${lotId}/stations/${stationId}/remplacer-evaluateur`,
+        body,
+      )
+      .pipe(map((r) => r.data));
   }
 
   /**

@@ -88,15 +88,14 @@ class ApiConstants {
   static const String saisirNotation = '/evaluateur/notations/saisir';
 
   // === Validation ===
+  // Deux grains, et deux seulement : un ETUDIANT, puis le GROUPE.
+  // « Valider le lot » n'existe plus — le lot se cloture tout seul quand la derniere
+  // rotation passe TERMINE (backend validerGroupe). L'ancien validerLot(lotId) et le
+  // doublon validerRotation(rotationId) ont ete supprimes : aucun appelant.
   static String validerEtudiant(int etudiantId, int stationId) =>
       '/evaluateur/etudiants/$etudiantId/stations/$stationId/valider';
 
-  // static String validerLot(int lotId) => '/evaluateur/lots/$lotId/valider';
-  // Remplace validerLot(lotId) et validerRotation(rotationId)
   static String validerGroupe(int rotationId) => '/evaluateur/rotations/$rotationId/valider';
-
-  static String validerRotation(int rotationId) =>
-      '/evaluateur/rotations/$rotationId/valider';
 
   // === Timeouts ===
   static const Duration connectTimeout = Duration(seconds: 20);

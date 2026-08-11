@@ -56,6 +56,9 @@ class RotationGenerationServiceTest {
     @Mock private INotationRepository notationRepository;
     @Mock private LotOuvertureService lotOuvertureService;
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks private RotationGenerationService service;
 
     private final List<Rotation> savedRotations = new ArrayList<>();
@@ -128,7 +131,8 @@ class RotationGenerationServiceTest {
                     10L + i, i + 1, List.of(1000L + i)));
         }
         return new ExamGenerationView(
-                EXAM_ID, date, heure, launchedAt, duree, battement, capacite, statut, stations);
+                EXAM_ID, "Examen test", date, heure, launchedAt, duree, battement, capacite,
+                statut, stations);
     }
 
     private List<ExamenParticipation> participations(int present, int absent) {
@@ -547,8 +551,8 @@ class RotationGenerationServiceTest {
      * notation_items / notation_adjustments. Mesuré sur la vraie base (lot 13, en
      * transaction annulée) : <b>56 des 57 notations — dont 56 VERROUILLÉES — et les 16
      * notation_items détruits par un seul appel.</b> Le bouton « Régénérer les rotations »
-     * était armé pendant toute la fenêtre de notation (le lot reste EN_COURS jusqu'au
-     * validerLot de l'évaluateur).
+     * était armé pendant toute la fenêtre de notation (le lot reste EN_COURS jusqu'à la
+     * validation de son DERNIER groupe, qui le clôture automatiquement).
      *
      * <p>Invariant : dès qu'UNE notation existe, la génération refuse et n'écrit RIEN.
      */

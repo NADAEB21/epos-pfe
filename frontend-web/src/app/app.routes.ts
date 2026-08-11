@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { ExamenWorkspaceStore } from './features/examens/examen-workspace.store';
+import { ExamenWorkspaceStore } from './features/examens/workspace/examen-workspace.store';
 import {
   authGuard,
   guestGuard,
@@ -21,45 +21,49 @@ const workspaceTabs: Routes = [
   {
     path: 'vue-ensemble',
     loadComponent: () =>
-      import('./features/examens/vue-ensemble.component').then((m) => m.VueEnsembleComponent),
+      import('./features/examens/workspace/vue-ensemble.component').then((m) => m.VueEnsembleComponent),
   },
   {
     path: 'stations-grilles',
     loadComponent: () =>
-      import('./features/examens/stations-grilles.component').then(
+      import('./features/examens/preparation/stations-grilles.component').then(
         (m) => m.StationsGrillesComponent,
       ),
   },
   {
     path: 'etudiants',
     loadComponent: () =>
-      import('./features/examens/etudiants.component').then((m) => m.EtudiantsComponent),
+      import('./features/examens/preparation/etudiants.component').then((m) => m.EtudiantsComponent),
   },
   {
     path: 'lots',
     loadComponent: () =>
-      import('./features/examens/lots.component').then((m) => m.LotsComponent),
+      import('./features/examens/preparation/lots.component').then((m) => m.LotsComponent),
   },
   {
     path: 'convocations',
     loadComponent: () =>
-      import('./features/examens/convocations.component').then((m) => m.ConvocationsComponent),
+      import('./features/examens/preparation/convocations.component').then((m) => m.ConvocationsComponent),
   },
-  { path: 'planning', ...stub('Planning') },
+  {
+    path: 'planning',
+    loadComponent: () =>
+      import('./features/examens/preparation/planning.component').then((m) => m.PlanningComponent),
+  },
   {
     path: 'lancement',
     loadComponent: () =>
-      import('./features/examens/lancement.component').then((m) => m.LancementComponent),
+      import('./features/examens/jour-j/lancement.component').then((m) => m.LancementComponent),
   },
   {
     path: 'suivi',
     loadComponent: () =>
-      import('./features/examens/suivi.component').then((m) => m.SuiviComponent),
+      import('./features/examens/jour-j/suivi.component').then((m) => m.SuiviComponent),
   },
   {
     path: 'resultats',
     loadComponent: () =>
-      import('./features/examens/resultats.component').then((m) => m.ResultatsComponent),
+      import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
   { path: 'analyses-ia', ...stub('Analyses IA') },
 ];
@@ -125,7 +129,7 @@ export const routes: Routes = [
             // parent's status-aware tabs + lifecycle bar.
             providers: [ExamenWorkspaceStore],
             loadComponent: () =>
-              import('./features/examens/examen-workspace.component').then(
+              import('./features/examens/workspace/examen-workspace.component').then(
                 (m) => m.ExamenWorkspaceComponent,
               ),
             children: workspaceTabs,
@@ -133,14 +137,24 @@ export const routes: Routes = [
           {
             path: 'bibliotheque',
             loadComponent: () =>
-              import('./features/examens/bibliotheque.component').then(
+              import('./features/bibliotheque/bibliotheque.component').then(
                 (m) => m.BibliothequeComponent,
               ),
           },
 
-          // Mon equipe
-          { path: 'equipe/evaluateurs', ...stub('Evaluateurs') },
-          { path: 'equipe/co-responsables', ...stub('Co-responsables') },
+          // Mon equipe — one component, scope via route data (#259 / S5)
+          {
+            path: 'equipe/evaluateurs',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'evaluateurs' },
+          },
+          {
+            path: 'equipe/co-responsables',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'co-responsables' },
+          },
 
           // Parametres (matiere-scoped)
           { path: 'parametres/matiere', ...stub('Ma matiere') },
@@ -161,8 +175,17 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/admin/admin-home.component').then((m) => m.AdminHomeComponent),
           },
-          { path: 'utilisateurs', ...stub('Utilisateurs (tous)') },
-          { path: 'matieres', ...stub('Matieres (catalogue)') },
+          {
+            path: 'utilisateurs',
+            loadComponent: () =>
+              import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
+            data: { scope: 'admin' },
+          },
+          {
+            path: 'matieres',
+            loadComponent: () =>
+              import('./features/admin/matieres.component').then((m) => m.MatieresComponent),
+          },
           { path: 'templates', ...stub('Templates globaux') },
           { path: 'examens', ...stub('Examens (oversight)') },
         ],

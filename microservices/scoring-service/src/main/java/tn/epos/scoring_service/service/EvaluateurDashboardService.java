@@ -56,6 +56,11 @@ public class EvaluateurDashboardService {
     /** Horloge injectable ADR-0010. */
     private final Clock clock;
 
+    // Plus de garde de matière ici, et ce n'est pas un oubli : `validerLot` était le seul acte
+    // RESP/ADMIN de cette classe, et il est supprimé. Tout ce qui reste est un acte d'ÉVALUATEUR,
+    // borné par `verifierProprietaire` / `verifierAffectationStation` (#213) — strict, sans
+    // exemption de rôle. Le périmètre par matière n'y ajouterait rien.
+
     /** BF6.1 — Template STOMP pour le push WebSocket. */
     private final SimpMessagingTemplate          messagingTemplate;
 
@@ -229,6 +234,35 @@ public class EvaluateurDashboardService {
         }
     }
 
+    /**
+     * #213 — garde du chemin d'ÉCRITURE : on ne note que sur SA station.
+     *
+     * <p>Le garde existait déjà, mais sur le mauvais chemin :
+     * {@code createAssignment} exige une rotation {@code (évaluateur, station)}
+     * et lève sinon — sauf qu'il ne s'exécute que si l'assignment n'existe pas
+     * encore. Or {@code presence-et-demarrer} les crée tous au démarrage du lot.
+     * En conditions réelles le chemin froid n'est donc JAMAIS emprunté, et le
+     * contrôle ne tournait jamais. Prouvé en direct : l'évaluateur 6 a noté 9.5
+     * sur la station 87, qui appartient au 3.
+     *
+     * <p><b>Le prédicat est « avoir une rotation sur cette station », pas
+     * l'égalité avec un titulaire.</b> Une station peut compter PLUSIEURS
+     * évaluateurs (l'affectation est une liste), donc une égalité stricte
+     * refuserait un co-titulaire légitime. C'est aussi ce qui rend le garde
+     * compatible avec la suppléance (ADR-0017) : celle-ci réaffecte
+     * {@code rotation.evaluateurId}, donc le remplaçant passe le garde
+     * immédiatement, sans traitement particulier.
+     */
+    private void verifierAffectationStation(Long evaluateurId, Long stationId) {
+        if (!rotationRepository.existsByEvaluateurIdAndStationId(evaluateurId, stationId)) {
+            throw new AccessDeniedException(
+                    "Vous n'êtes pas affecté à la station " + stationId
+                            + " : la notation d'un étudiant appartient à l'évaluateur qui tient la "
+                            + "station. En cas de remplacement, le responsable doit d'abord vous "
+                            + "affecter à cette station (ADR-0017).");
+        }
+    }
+
     private LotDetailResponse toGroupeDetailResponse(Rotation rotation) {
         Lot lot = (rotation.getStudentGroup() != null) ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) {
@@ -291,6 +325,9 @@ public class EvaluateurDashboardService {
     // =========================================================================
 
     public void saisirNotation(SaisirNotationRequest request, Long evaluateurId) {
+        // #213 — on ne note que sur SA station. Voir verifierAffectationStation :
+        // le contrôle existant ne vivait que sur le chemin froid, jamais emprunté.
+        verifierAffectationStation(evaluateurId, request.getStationId());
         ExamenParticipation participation = resolverParticipation(request.getEtudiantId(), request.getStationId());
 
         // ADR-0015 — garde feuille LOCALE et INCONDITIONNELLE. L'ancienne version interrogeait
@@ -328,11 +365,20 @@ public class EvaluateurDashboardService {
             newItem.setNotation(notation);
             notationItemRepository.save(newItem);
         }
+        // #213 — on ENREGISTRE l'auteur au lieu de le déduire de la rotation.
+        // La déduction désignait le propriétaire de la station, donc la mauvaise
+        // personne dès que quelqu'un d'autre écrivait.
+        notation.setSaisiPar(evaluateurId);
+        notationRepository.save(notation);
+
         recalculerScoreFinal(notation);
         broadcastScore(notation, request.getStationId());
     }
 
     public void validerEtudiant(Long etudiantId, Long stationId, Long evaluateurId, ValiderEtudiantRequest request) {
+        // #213 — verrouiller la note d'un étudiant est une écriture, et la plus
+        // définitive : même garde que la saisie.
+        verifierAffectationStation(evaluateurId, stationId);
         ExamenParticipation participation = resolverParticipation(etudiantId, stationId);
         RotationAssignment assignment = rotationAssignmentRepository
                 .findByParticipationIdAndStationId(participation.getId(), stationId)
@@ -351,6 +397,13 @@ public class EvaluateurDashboardService {
         // (EtudiantLotResponse.commentaire, jamais rempli jusqu'ici).
         notation.setCommentaire(request.getCommentaire());
         notation.setVerouillee(true);
+        // #213 — qui verrouille est une décision, pas une déduction : c'est
+        // l'acte qui rend la note définitive côté évaluateur (ADR-0013).
+        notation.setVerrouillePar(evaluateurId);
+        if (notation.getSaisiPar() == null) {
+            // Validation d'un étudiant noté absent : aucune saisie n'a précédé.
+            notation.setSaisiPar(evaluateurId);
+        }
         notationRepository.save(notation);
 
         // #FIX multi-station : l'absence saisie ici concerne CETTE station
@@ -392,23 +445,29 @@ public class EvaluateurDashboardService {
         return total;
     }
 
-    public void validerLot(Long lotId, Long evaluateurId) {
-        Lot lot = lotRepository.findById(lotId).orElseThrow(() -> new ResourceNotFoundException("Lot introuvable"));
-
-        // #211 — cascade NEUTRALISÉE. L'ancienne version forçait TOUTES les
-        // rotations du lot à TERMINE : un admin clôturant un lot terminait ainsi
-        // de force les stations d'autres évaluateurs encore en cours de notation
-        // (perte de données silencieuse). ADR-0014 §4 : le statut du lot se DÉRIVE
-        // de l'état réel des rotations — on ne l'IMPOSE jamais, et on n'écrit
-        // AUCUN statut de rotation ici. Ce point de terminaison "Valider lot"
-        // (réservé admin/responsable) n'est donc plus qu'un recalcul d'oversight.
-        long restantes = rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lotId, RotationStatus.TERMINE);
-        LotStatus derive = (restantes == 0) ? LotStatus.TERMINE : LotStatus.EN_COURS;
-        lot.setStatut(derive);
-        lotRepository.save(lot);
-        broadcastLotStatus(lotId, derive.name());
-    }
-
+    // =========================================================================
+    // « VALIDER UN LOT » — SUPPRIMÉ. Ne pas le réintroduire.
+    //
+    // Personne ne clôture un lot à la main : le lot se clôture TOUT SEUL. Voir la fin de
+    // validerGroupe ci-dessous — dès que la dernière rotation du lot passe TERMINE, le lot
+    // passe TERMINE. Le dernier évaluateur qui valide son dernier groupe ferme la vague, ce
+    // qui est exactement le moment où elle est finie.
+    //
+    // Ce qu'était `validerLot(lotId, evaluateurId)`, et pourquoi il ne reste rien :
+    //   * à l'origine il forçait TOUTES les rotations du lot à TERMINE. #211 a supprimé cette
+    //     cascade : un admin « clôturant » un lot terminait de force les stations de collègues
+    //     encore en train de noter — perte de données silencieuse (ADR-0014 §4 : le statut du
+    //     lot se DÉRIVE de l'état réel des rotations, on ne l'IMPOSE jamais) ;
+    //   * il ne restait donc qu'un recalcul de ce que validerGroupe calcule déjà ;
+    //   * son paramètre `evaluateurId` n'était même plus lu ;
+    //   * ZÉRO appelant : `frontend-web` ne contient aucun littéral « /valider », et côté
+    //     Flutter la constante était commentée (« Remplace validerLot et validerRotation ») ;
+    //   * et il était FAUX : `countByStudentGroup_Lot_IdAndStatutNot(..., TERMINE)` vaut 0
+    //     quand le lot n'a AUCUNE rotation, donc l'appeler sur un lot jamais démarré le
+    //     marquait TERMINE. Mesuré en direct sur un examen encore en CONFIGURE.
+    //
+    // Le vocabulaire restait celui d'un modèle disparu : « valider » servait à trois grains
+    // (un étudiant, un groupe, un lot) alors que seuls les deux premiers sont des actes.
     // =========================================================================
 // VALIDER GROUPE — remplace "Valider lot" côté évaluateur.
 // Verrouille toutes les notations du groupe COURANT (cette rotation), marque
@@ -431,6 +490,7 @@ public class EvaluateurDashboardService {
             notationRepository.findByAssignmentId(a.getId()).ifPresent(n -> {
                 if (!Boolean.TRUE.equals(n.getVerouillee())) {
                     n.setVerouillee(true);
+                    n.setVerrouillePar(evaluateurId); // #213 — même ici : le filet a un auteur
                     notationRepository.save(n);
                 }
             });
@@ -589,6 +649,7 @@ public class EvaluateurDashboardService {
                     return PlanningCellResponse.builder()
                             .heure(r.getDebutCreneau().format(TIME_FMT))
                             .lotNumero(r.getStudentGroup() != null ? r.getStudentGroup().getLot().getNumeroLot() : 0)
+                            .groupeNumero(r.getStudentGroup() != null ? r.getStudentGroup().getNumeroGroupe() : null)
                             .statut(mapRotationStatutToPlanningStatut(r)).build();
                 }).collect(Collectors.toList());
     }

@@ -40,6 +40,14 @@ class NotationServiceTest {
     @Mock
     private EvaluateurScopeChecker scopeChecker;
 
+    /**
+     * #274 — mocké et permissif par défaut : le périmètre de matière a ses propres tests
+     * ({@code MatiereScopeCheckerTest}, {@code MatiereAccessGuardTest}). Ici on teste le
+     * périmètre ÉVALUATEUR, qui est une autre garde.
+     */
+    @Mock
+    private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks
     private NotationService notationService;
 
@@ -57,12 +65,16 @@ class NotationServiceTest {
         notation.setGrilleId(11L);
         // timestamp géré par @PrePersist — pas de setter manuel nécessaire
 
-        // Par défaut l'appelant est non contraint (SUPER_ADMIN / RESPONSABLE) :
-        // les tests métier existants ne testent pas le périmètre évaluateur,
-        // couvert séparément par la classe Nested "Scope évaluateur (#85, #91)"
-        // et par EvaluateurScopeCheckerTest. lenient() car certains tests
-        // (findById, findByAssignment) ne consultent pas le checker.
-        lenient().when(scopeChecker.isUnrestricted()).thenReturn(true);
+        // Par défaut l'appelant LIT hors périmètre (SUPER_ADMIN / RESPONSABLE) : les tests
+        // métier existants ne testent pas le périmètre évaluateur, couvert séparément par la
+        // classe Nested "Scope évaluateur (#85, #91)" et par EvaluateurScopeCheckerTest.
+        // lenient() car certains tests (findById, findByAssignment) ne consultent pas le checker.
+        //
+        // #274 — c'est bien `peutLireHorsPerimetre` et non le défunt `isUnrestricted` : les
+        // écritures ne consultent plus le même booléen. Ce stub ne couvre donc QUE les filtres
+        // de liste ; sur les chemins d'écriture, `checkOwnership` est mocké et ne lève rien,
+        // ce que les tests de refus expriment par un `doThrow(...)` explicite.
+        lenient().when(scopeChecker.peutLireHorsPerimetre()).thenReturn(true);
     }
 
     @Nested
@@ -504,7 +516,7 @@ class NotationServiceTest {
         void findAll_evaluateurContraint_devraitFiltrer() {
             Notation mine = owned(42L);
             Notation other = owned(99L);
-            when(scopeChecker.isUnrestricted()).thenReturn(false);
+            when(scopeChecker.peutLireHorsPerimetre()).thenReturn(false);
             when(repository.findAll()).thenReturn(List.of(mine, other));
             when(scopeChecker.isCaller(42L)).thenReturn(true);
             when(scopeChecker.isCaller(99L)).thenReturn(false);

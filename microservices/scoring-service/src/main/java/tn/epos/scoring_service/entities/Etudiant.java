@@ -21,7 +21,7 @@ public class Etudiant {
     private String numero_inscription;
     private String nom;
     private String prenom;
-
+    private String email; 
 
     @OneToMany(mappedBy = "etudiant")
     private List<ExamenParticipation> participations;

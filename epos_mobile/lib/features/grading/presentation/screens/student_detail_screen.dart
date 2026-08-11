@@ -523,7 +523,7 @@ class _CritereRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'x${item.ponderation.toInt()}',
+                'x${ScoreUtils.fmtPoints(item.ponderation)}',
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppTheme.primary,
@@ -537,8 +537,7 @@ class _CritereRow extends StatelessWidget {
               child: Text(
                 absent
                     ? '—'
-                    : '${sousTotal.toStringAsFixed(sousTotal == sousTotal.truncateToDouble() ? 0 : 1)}'
-                    '/${item.ponderation.toInt()}',
+                    : '${ScoreUtils.fmtPoints(sousTotal)}/${ScoreUtils.fmtPoints(item.ponderation)}',
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   fontSize: 12,
@@ -621,7 +620,7 @@ class _CritereRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
-              'x${item.ponderation.toInt()}',
+              'x${ScoreUtils.fmtPoints(item.ponderation)}',
               style: const TextStyle(
                 fontSize: 11,
                 color: AppTheme.primary,
@@ -640,8 +639,8 @@ class _CritereRow extends StatelessWidget {
                   : notation == null
                   ? '—'
                   : item.type == TypeCritere.binaire
-                  ? '${itemScore.toInt()}/${item.ponderation.toInt()}'
-                  : '${itemScore.toStringAsFixed(1)}/${item.valeurMax.toInt()}',
+                  ? '${ScoreUtils.fmtPoints(itemScore)}/${ScoreUtils.fmtPoints(item.ponderation)}'
+                  : '${itemScore.toStringAsFixed(1)}/${ScoreUtils.fmtPoints(item.valeurMax)}',
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 12,

@@ -46,9 +46,18 @@ public class SuiviProgressionService {
     private final INotationRepository           notationRepository;
     /** ADR-0010 — même horloge que celle qui a horodaté l'ouverture, sinon la durée ment. */
     private final Clock                         clock;
+    /** #274 — le tableau de conduite d'une épreuve se lit dans SA matière. */
+    private final MatiereAccessGuard            matiereAccessGuard;
 
     @Transactional(readOnly = true)
     public SuiviProgressionResponse getProgression(Long examenId) {
+        // #274 — lecture, mais lecture EXAMEN-CLÉ : le périmètre se vérifie en une résolution,
+        // sans parcourir de liste. On applique donc le niveau écriture, comme le fait déjà
+        // exam-service sur `GET /api/examens/{id}` (`ExamenServiceImpl.trouverParId`). Le Suivi
+        // nomme les étudiants, les évaluateurs et leur avancement : ce n'est pas de la
+        // supervision agrégée, c'est le détail d'une épreuve qui n'appartient pas à l'appelant.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
         List<Lot> lots = lotRepository.findByExamenId(examenId).stream()
                 .sorted(Comparator.comparing(l -> l.getNumeroLot() != null ? l.getNumeroLot() : 0))
                 .toList();

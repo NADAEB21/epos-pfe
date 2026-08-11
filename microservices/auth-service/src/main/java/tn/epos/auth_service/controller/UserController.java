@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tn.epos.common.dto.ApiResponse;
+import tn.epos.auth_service.config.JwtAuthenticationDetails;
+import tn.epos.auth_service.dto.DeactivationRequest;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
 import tn.epos.auth_service.dto.UserResponse;
@@ -113,13 +115,47 @@ public class UserController {
     }
 
     /**
-     * DELETE /api/v1/users/{id}
-     * SUPER_ADMIN only.
+     * POST /api/v1/users/{id}/desactivation — retirer l'accès. SUPER_ADMIN seul.
+     *
+     * <p>#289 — remplace l'ancien {@code DELETE /users/{id}}, qui fermait le
+     * compte d'un collègue sans motif, sans trace de l'auteur et sans retour
+     * possible. Le verbe DELETE mentait doublement : rien n'est supprimé, et
+     * l'acte se raconte (motif, auteur) au lieu d'être un effacement muet.
+     * Deux garde-fous sont dans le service : ni soi-même, ni le dernier
+     * administrateur actif.
      */
-    @DeleteMapping("/{id}")
+    @PostMapping("/{id}/desactivation")
     @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long id) {
-        userService.deactivateUser(id);
-        return ResponseEntity.ok(ApiResponse.ok("User deactivated"));
+    public ResponseEntity<ApiResponse<Void>> desactiver(
+            @PathVariable Long id,
+            @Valid @RequestBody DeactivationRequest request,
+            Authentication authentication) {
+        userService.deactivateUser(id, request.motif(), acteurId(authentication));
+        return ResponseEntity.ok(ApiResponse.ok("Acces retire"));
+    }
+
+    /**
+     * POST /api/v1/users/{id}/reactivation — rouvrir un compte. SUPER_ADMIN seul.
+     *
+     * <p>#289 — il n'existait AUCUN chemin de retour : une erreur de ligne entre
+     * deux homonymes se réparait en base de données.
+     */
+    @PostMapping("/{id}/reactivation")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> reactiver(
+            @PathVariable Long id,
+            @Valid @RequestBody DeactivationRequest request,
+            Authentication authentication) {
+        userService.reactivateUser(id, request.motif(), acteurId(authentication));
+        return ResponseEntity.ok(ApiResponse.ok("Acces retabli"));
+    }
+
+    /** L'id porté par le JWT — l'auteur de l'acte, jamais sa cible. */
+    private Long acteurId(Authentication authentication) {
+        if (authentication != null
+                && authentication.getDetails() instanceof JwtAuthenticationDetails details) {
+            return details.getUserId();
+        }
+        return null;
     }
 }

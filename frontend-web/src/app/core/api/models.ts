@@ -210,6 +210,7 @@ export interface EtudiantSummary {
   nom?: string;
   prenom?: string;
   numero_inscription?: string;
+  email?: string;
 }
 
 /**
@@ -224,6 +225,7 @@ export interface CreateEtudiantRequest {
   nom: string;
   prenom: string;
   numero_inscription: string;
+  email?: string;
 }
 
 /**
@@ -235,6 +237,7 @@ export interface ImportEtudiantRow {
   nom: string;
   prenom: string;
   numero_inscription: string;
+  email: string;
 }
 
 /** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
@@ -257,7 +260,76 @@ export interface ImportResult {
   enrolled: number;
   alreadyEnrolled: number;
   errors: number;
+  /**
+   * #227 — addresses this file actually filled in. Sits OUTSIDE the four-way
+   * partition and does not sum into `total`: re-importing the roster just to add
+   * the missing e-mails puts every row on `alreadyEnrolled`, which otherwise
+   * reads exactly like "nothing happened".
+   */
+  emailsRenseignes: number;
   rows: ImportRowResult[];
+}
+
+/**
+ * Body for PUT /etudiants/{id}. Every field is optional and the backend reads
+ * ABSENT as "leave unchanged" — so `{ email }` alone patches only the address.
+ * An EMPTY STRING is the explicit "erase this". Never send fields you don't mean
+ * to write (#215).
+ */
+/**
+ * One convocation, DERIVED SERVER-SIDE (#227). The arrival time used to be
+ * computed in the Angular component; the e-mail sender needs the same rule, and
+ * two implementations of one business rule in two languages drift. The backend
+ * owns it now and this is the read model — never recompute `heureConvocation`
+ * here, or the screen and the student's e-mail can disagree.
+ */
+export interface Convocation {
+  participationId: number;
+  etudiantId: number | null;
+  nom: string | null;
+  prenom: string | null;
+  numero_inscription: string | null;
+  email: string | null;
+  ordre_import: number | null;
+  lotId: number | null;
+  lotNumero: number | null;
+  /** yyyy-MM-dd — the student's own day (lot.jour, else the exam date). */
+  jour: string | null;
+  /** "HH:mm" — when to show up. */
+  heureConvocation: string | null;
+  /** ISO instant, or null if this student's convocation was never sent. */
+  convocationEnvoyeeA: string | null;
+}
+
+/** Per-student outcome of a send. `statut`: ENVOYE | SANS_ADRESSE | ECHEC. */
+export interface EnvoiLigne {
+  participationId: number;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  statut: 'ENVOYE' | 'SANS_ADRESSE' | 'ECHEC';
+  message: string | null;
+}
+
+/**
+ * Outcome of sending an exam's convocations. `simule` is true when the mail
+ * transport is off (the DEFAULT) — nothing actually left, and the UI must say
+ * so rather than claim success.
+ */
+export interface EnvoiConvocationsResult {
+  total: number;
+  envoyes: number;
+  sansAdresse: number;
+  echecs: number;
+  simule: boolean;
+  lignes: EnvoiLigne[];
+}
+
+export interface UpdateEtudiantRequest {
+  nom?: string;
+  prenom?: string;
+  numero_inscription?: string;
+  email?: string;
 }
 
 /**
@@ -291,6 +363,12 @@ export interface ParticipationSummary {
   est_present: boolean | null;
   etudiantId: number | null;
   lotId: number | null;
+  /**
+   * #256/#227 — 1-based position in the imported roster sheet. The supervisor
+   * ruled the sheet's row order IS the official listing order, and convocations
+   * are that listing. `null` for students added by hand, who sort last.
+   */
+  ordre_import?: number | null;
 }
 
 /**
@@ -360,6 +438,51 @@ export interface ConflitEvaluateur {
   examenId: number;
   examenNom: string;
   evaluateurIds: number[];
+}
+
+/**
+ * ADR-0017 §3 / #296 — corps de la suppléance en pleine épreuve
+ * (POST /lots/{lotId}/stations/{stationId}/remplacer-evaluateur).
+ *
+ * Le motif est OBLIGATOIRE côté serveur (@NotBlank, ≤500) : une suppléance
+ * doit pouvoir s'expliquer après coup, comme un réajustement de note
+ * (ADR-0013). Un champ facultatif serait vide neuf fois sur dix.
+ */
+export interface RemplacerEvaluateurRequest {
+  nouvelEvaluateurId: number;
+  motif: string;
+}
+
+/**
+ * Bilan d'une suppléance. `rotationsTransferees` et `rotationsConservees`
+ * arrivent séparément parce que c'est LA question du responsable : le travail
+ * déjà fait reste-t-il au nom de celui qui l'a fait ? Oui — seules les
+ * rotations non terminées changent de main.
+ */
+export interface SubstitutionResult {
+  lotId: number;
+  stationId: number;
+  ancienEvaluateur: number;
+  nouvelEvaluateur: number;
+  rotationsTransferees: number;
+  rotationsConservees: number;
+  message: string;
+}
+
+/**
+ * #276/#280 — one station whose grille does not let a faultless student reach
+ * the announced noteMax (GET /examens/{id}/baremes-incomplets). Non-empty =
+ * launching would silently cap the whole cohort; the backend refuses it at
+ * changerStatut (ADR-0015 freezes the definition at launch). noteMax and
+ * maxAtteignable come separately so the row can say « 10 points saisis sur
+ * 20 » — the phrase the responsable can act on.
+ */
+export interface BaremeIncomplet {
+  stationId: number;
+  stationNom: string;
+  grilleId: number;
+  noteMax: number;
+  maxAtteignable: number;
 }
 
 /**
@@ -628,6 +751,50 @@ export interface MatiereResponse {
   id: number;
   code: string;
   libelle: string;
+  /**
+   * #134 — false = matière RETIRÉE du catalogue. La liste serveur reste
+   * complète (les libellés des examens et rôles historiques en dépendent) ;
+   * ce sont les PICKERS qui excluent les retirées. Jamais de DELETE :
+   * matiere_id traverse les services en clé logique (ADR-0006).
+   */
+  active: boolean;
+  /** #134 — provenance du retrait (qui, quand, pourquoi), même doctrine que #289. */
+  retiredAt?: string | null;
+  retiredBy?: number | null;
+  retirementMotif?: string | null;
+}
+
+/** Body for POST/PUT /matieres (auth-service MatiereRequest). #134. */
+export interface MatiereRequest {
+  code: string;
+  libelle: string;
+}
+
+/** #134 — one row of the bulk import payload (no client-side constraints: the server verdicts per row). */
+export interface MatiereImportRow {
+  code: string;
+  libelle: string;
+}
+
+/** #134 — per-row verdict of POST /matieres/import. `ligne` is 1-based in the sent payload. */
+export interface MatiereImportRowResult {
+  ligne: number;
+  code: string;
+  statut: 'CREATED' | 'DUPLICATE' | 'ERROR';
+  message: string;
+}
+
+export interface MatiereImportResult {
+  crees: number;
+  doublons: number;
+  erreurs: number;
+  rows: MatiereImportRowResult[];
+}
+
+/** One (role, matière) grant — mirrors auth-service RoleAssignmentDto. */
+export interface RoleAssignment {
+  role: import('../auth/auth.models').RoleType;
+  matiereId: number | null;
 }
 
 export interface UserResponse {
@@ -637,4 +804,34 @@ export interface UserResponse {
   prenom: string;
   isActive: boolean;
   createdAt: string | null;
+  /**
+   * #294 — fin du verrou TEMPORAIRE (3 mots de passe ratés), ou null. À ne pas
+   * confondre avec `isActive`, qui ne porte plus QUE le retrait administratif :
+   * les deux causes partageaient un drapeau avant la V2, et leurs remèdes sont
+   * opposés (attendre vs voir l'administration).
+   */
+  lockedUntil?: string | null;
+  /**
+   * #289 — le « pourquoi » d'un compte fermé. Null sur les comptes fermés avant
+   * la V3 : l'écran le dit honnêtement plutôt que d'inventer un motif.
+   */
+  deactivatedAt?: string | null;
+  deactivatedBy?: number | null;
+  deactivationMotif?: string | null;
+  /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
+  roles: RoleAssignment[];
+}
+
+/**
+ * Body for POST /users (auth-service UserCreateRequest). Password policy is
+ * validated server-side too: min 8, at least one uppercase and one digit.
+ * There is NO email infrastructure — the creator hands the password to the
+ * person directly, which is why the UI generates and displays it once.
+ */
+export interface UserCreateRequest {
+  email: string;
+  password: string;
+  nom: string;
+  prenom: string;
+  roles: RoleAssignment[];
 }

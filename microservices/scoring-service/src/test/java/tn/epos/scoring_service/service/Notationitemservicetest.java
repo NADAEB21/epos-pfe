@@ -37,6 +37,9 @@ class NotationItemServiceTest {
     @Mock
     private ExamServiceClient examServiceClient;
 
+    @Mock
+    private tn.epos.scoring_service.config.EvaluateurScopeChecker scopeChecker;
+
     @InjectMocks
     private NotationItemService notationItemService;
 
@@ -419,6 +422,102 @@ class NotationItemServiceTest {
             notationItemService.delete(1L);
 
             verify(repository).deleteById(1L);
+        }
+    }
+
+    /**
+     * #218 — la porte de service. Ce service portait le garde de VERROU (#23)
+     * mais aucun garde de PROPRIÉTÉ, contrairement à NotationService. Un
+     * évaluateur refusé par le garde du dashboard (#213) obtenait donc le même
+     * effet ici : vérifié en direct, 8,5 → 1,0 sur la station d'un collègue,
+     * HTTP 200, et sans être attribué.
+     */
+    @Nested
+    @org.junit.jupiter.api.DisplayName("#218 garde de propriété")
+    class GardeDeProprieteTests {
+
+        /** Rattache la notation à une rotation tenue par {@code evaluateurId}. */
+        private void rattacherA(Long evaluateurId) {
+            tn.epos.scoring_service.entities.Rotation rot =
+                    new tn.epos.scoring_service.entities.Rotation();
+            rot.setId(70L);
+            rot.setEvaluateurId(evaluateurId);
+            tn.epos.scoring_service.entities.RotationAssignment ra =
+                    new tn.epos.scoring_service.entities.RotationAssignment();
+            ra.setId(80L);
+            ra.setRotation(rot);
+            notation.setAssignment(ra);
+        }
+
+        @Test
+        @org.junit.jupiter.api.DisplayName("update : un critère de la station d'autrui est refusé")
+        void update_surStationDAutrui_devraitEtreRefuse() {
+            rattacherA(3L);
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+            org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("hors perimetre"))
+                    .when(scopeChecker).checkOwnership(3L);
+
+            NotationItem details = new NotationItem();
+            details.setValeur(1.0f);
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> notationItemService.update(1L, details))
+                    .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+            // Rien n'est écrit : le garde tombe AVANT toute modification.
+            verify(repository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+        }
+
+        @Test
+        @org.junit.jupiter.api.DisplayName("update : le titulaire de la station passe")
+        void update_parLeTitulaire_devraitPasser() {
+            rattacherA(3L);
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+            when(examServiceClient.getItemIdsForGrille(11L)).thenReturn(java.util.Set.of(100L));
+            when(repository.save(org.mockito.ArgumentMatchers.any(NotationItem.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+
+            NotationItem details = new NotationItem();
+            details.setValeur(9.0f);
+
+            NotationItem res = notationItemService.update(1L, details);
+
+            org.assertj.core.api.Assertions.assertThat(res.getValeur()).isEqualTo(9.0f);
+            // checkOwnership n'a pas levé : la propriété a bien été CONSULTÉE.
+            verify(scopeChecker, org.mockito.Mockito.atLeastOnce()).checkOwnership(3L);
+        }
+
+        @Test
+        @org.junit.jupiter.api.DisplayName("save : créer un critère chez autrui est refusé")
+        void save_surStationDAutrui_devraitEtreRefuse() {
+            rattacherA(3L);
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+            org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("hors perimetre"))
+                    .when(scopeChecker).checkOwnership(3L);
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> notationItemService.save(item))
+                    .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+            verify(repository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+        }
+
+        @Test
+        @org.junit.jupiter.api.DisplayName("delete : supprimer un critère chez autrui est refusé")
+        void delete_surStationDAutrui_devraitEtreRefuse() {
+            rattacherA(3L);
+            when(repository.findById(1L)).thenReturn(Optional.of(item));
+            when(notationRepository.findById(5L)).thenReturn(Optional.of(notation));
+            org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("hors perimetre"))
+                    .when(scopeChecker).checkOwnership(3L);
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> notationItemService.delete(1L))
+                    .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+            verify(repository, org.mockito.Mockito.never()).deleteById(1L);
         }
     }
 }

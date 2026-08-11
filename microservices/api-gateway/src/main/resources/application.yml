@@ -38,7 +38,11 @@ spring:
         - id: scoring-service
           uri: lb://scoring-service
           predicates:
-            - Path=/api/v1/etudiants/**,/api/v1/participations/**,/api/v1/lots/**,/api/v1/notations/**,/api/v1/notation-items/**,/api/v1/assignments/**,/api/v1/rotations/**,/api/v1/student-groups/**,/api/v1/evaluateur/**,/api/v1/reclamations/**
+            # ⚠️ Cette liste est un ALLOWLIST : un nouveau contrôleur du scoring
+            # est invisible (404 au gateway) tant que son préfixe n'est pas ajouté
+            # ici — le service peut être parfaitement sain et la route introuvable.
+            # /convocations = #227.
+            - Path=/api/v1/etudiants/**,/api/v1/participations/**,/api/v1/lots/**,/api/v1/notations/**,/api/v1/notation-items/**,/api/v1/assignments/**,/api/v1/rotations/**,/api/v1/student-groups/**,/api/v1/evaluateur/**,/api/v1/reclamations/**,/api/v1/convocations/**
           filters:
             - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
 

@@ -53,6 +53,9 @@ class SuiviProgressionServiceTest {
     @Spy private Clock clock = Clock.fixed(
             MAINTENANT.atZone(ZoneId.of("Africa/Tunis")).toInstant(), ZoneId.of("Africa/Tunis"));
 
+    /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
+    @Mock private MatiereAccessGuard matiereAccessGuard;
+
     @InjectMocks private SuiviProgressionService service;
 
     // ---------------------------------------------------------------- fixtures

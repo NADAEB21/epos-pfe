@@ -116,6 +116,34 @@ class GradingRepositoryImpl implements GradingRepository {
     );
   }
 
+  // ── #307 — envoi PUR, utilisé UNIQUEMENT par SyncService ─────────────────
+  //
+  // Aucun repli local, aucune erreur avalée : si l'envoi n'aboutit pas, on
+  // lève. C'est ce qui permet à la synchronisation de distinguer « c'est
+  // parti » de « je n'ai pas pu », et donc de ne supprimer que ce que le
+  // serveur a confirmé.
+  //
+  // Rejouable sans risque : le backend retrouve le NotationItem existant et le
+  // met à jour (EvaluateurDashboardService.saisirNotation) — pas de doublon.
+  @override
+  Future<void> pushNotation(Notation notation) async {
+    if (notation.stationId == null || notation.grilleId == null) {
+      throw ArgumentError(
+        'stationId et grilleId sont requis pour envoyer une notation',
+      );
+    }
+    await _apiClient.post(
+      ApiConstants.saisirNotation,
+      data: {
+        'etudiantId': notation.etudiantId,
+        'stationId':  notation.stationId,
+        'grilleId':   notation.grilleId,
+        'itemId':     notation.itemId,
+        'valeur':     notation.valeur,
+      },
+    );
+  }
+
   // ── Batch sync (appelé par SyncService) ──────────────────────────────────
   @override
   Future<void> saveNotations(List<Notation> notations) async {

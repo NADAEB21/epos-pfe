@@ -40,7 +40,10 @@ class GatewayJwtServiceTest {
 
         assertThat(claims.getSubject()).isEqualTo("user@epos.tn");
         assertThat(claims.get("userId", Long.class)).isEqualTo(7L);
-        assertThat(claims.get("authorities", List.class)).containsExactly("ROLE_EVALUATEUR");
+
+        @SuppressWarnings("unchecked")
+        List<String> authorities = (List<String>) claims.get("authorities", List.class);
+        assertThat(authorities).containsExactly("ROLE_EVALUATEUR");
     }
 
     @Test

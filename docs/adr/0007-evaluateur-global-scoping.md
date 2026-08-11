@@ -8,6 +8,33 @@
   ADR 0006 (matière as cross-service logical FK), issue #86 (scoring
   per-matière enforcement — separate, still open)
 
+## §0 — ⚠️ PARTIELLEMENT AMENDÉ PAR ADR-0018 D2 ET D5 (ajouté le 2026-07-31)
+
+**Lisez ce paragraphe avant d'implémenter quoi que ce soit à partir de cet ADR.**
+
+Cet ADR est daté du **2026-05-31**, soit **deux mois avant ADR-0018**. Sa description de
+`isUnrestricted()` — « `SUPER_ADMIN` and `RESPONSABLE_MATIERE` short-circuit to unrestricted
+(legitimate cross-examiner **corrections** and oversight) » — ne distingue **pas la lecture de
+l'écriture**. C'est exactement la conflation qu'ADR-0018 D2 a été écrit pour corriger.
+
+**Ce qui est amendé :**
+
+- **ADR-0018 D2** scinde la question : `isUnrestricted()` garde son sens (ignorer la règle de
+  propriété **évaluateur**) — ce qui est correct pour un responsable agissant **dans sa propre
+  matière**. Le prédicat de matière manquant devient `checkMatiereAccess(examenId)`.
+- **`SUPER_ADMIN` ne franchit `checkMatiereAccess` qu'en LECTURE.** En écriture, le périmètre
+  facultaire **n'est pas admis du tout** par ce prédicat — **ADR-0018 D5**, règle gouvernante.
+- Le mot « **corrections** » de la ligne ci-dessous nomme donc une ÉCRITURE que D5 retire au
+  super-administrateur. Corriger une note relève de l'autorité **pédagogique** du responsable.
+
+⚠️ **Le piège précis :** cet ADR **décrit les gardes du code telles qu'elles étaient livrées** ;
+il ne faut pas les lire comme une décision de conception. Reprendre #85 / #86 / #91 depuis cet ADR
+seul reconduirait un élargissement d'écriture que la doctrine a depuis retiré.
+
+**Ce qui reste pleinement en vigueur :** la décision centrale de l'ADR — `EVALUATEUR` est de portée
+**globale**, et sa propriété se juge **par rotation, pas par matière**. Rien de ce qui précède ne la
+touche.
+
 ## Context
 
 EPOS has three roles (`RoleType.java`, auth-service): `SUPER_ADMIN`,
@@ -57,6 +84,11 @@ Two candidate models were on the table:
      caller owns.
    - `SUPER_ADMIN` and `RESPONSABLE_MATIERE` short-circuit to unrestricted
      (legitimate cross-examiner corrections and oversight).
+     ⚠️ **Amendé le 2026-07-31 — voir §0.** « corrections » = une ÉCRITURE.
+     Depuis **ADR-0018 D5**, seul le `RESPONSABLE_MATIERE` (dans sa matière)
+     corrige ; pour `SUPER_ADMIN` ce court-circuit ne vaut qu'en **LECTURE**
+     (ADR-0018 D2 : `checkMatiereAccess` est un élargisseur de lecture,
+     jamais une autorisation d'écriture).
 
 4. **Binding an évaluateur to a station stays in exam-service**
    (`PATCH /api/stations/{id}/evaluateurs`), done pre-exam by the responsable.

@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
+import tn.epos.scoring_service.dto.EtudiantDTO;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
 
@@ -40,6 +41,7 @@ class EtudiantControllerTest {
 
     private ObjectMapper objectMapper;
     private Etudiant etudiant;
+    private static final String TEST_EMAIL = "mohamed.benali@example.com";
 
     @BeforeEach
     void setUp() {
@@ -50,6 +52,7 @@ class EtudiantControllerTest {
         etudiant.setNom("Ben Ali");
         etudiant.setPrenom("Mohamed");
         etudiant.setNumero_inscription("2024-001");
+        etudiant.setEmail(TEST_EMAIL);
     }
 
     // ─── GET /api/etudiants ───────────────────────────────────────────────────
@@ -68,7 +71,8 @@ class EtudiantControllerTest {
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data[0].id").value(1))
                     .andExpect(jsonPath("$.data[0].nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$.data[0].prenom").value("Mohamed"));
+                    .andExpect(jsonPath("$.data[0].prenom").value("Mohamed"))
+                    .andExpect(jsonPath("$.data[0].email").value(TEST_EMAIL));
 
             verify(etudiantService, times(1)).getAllEtudiants();
         }
@@ -100,7 +104,8 @@ class EtudiantControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.id").value(1))
                     .andExpect(jsonPath("$.data.nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$.data.numero_inscription").value("2024-001"));
+                    .andExpect(jsonPath("$.data.numero_inscription").value("2024-001"))
+                    .andExpect(jsonPath("$.data.email").value(TEST_EMAIL));
         }
 
         @Test
@@ -122,15 +127,19 @@ class EtudiantControllerTest {
 
         @Test
         @DisplayName("201 - Étudiant créé avec succès")
-        void create_devraitRetourner200() throws Exception {
+        void create_devraitRetourner201() throws Exception {
             when(etudiantService.saveEtudiant(any(Etudiant.class))).thenReturn(etudiant);
+
+            EtudiantDTO requestDto = new EtudiantDTO(null, "Ben Ali", "Mohamed", "2024-001", TEST_EMAIL);
 
             mockMvc.perform(post("/api/etudiants")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(etudiant)))
-                    .andExpect(status().isCreated()) // Status is now 201 Created
+                            .content(objectMapper.writeValueAsString(requestDto)))
+                    .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.nom").value("Ben Ali"))
-                    .andExpect(jsonPath("$.data.prenom").value("Mohamed"));
+                    .andExpect(jsonPath("$.data.prenom").value("Mohamed"))
+                    .andExpect(jsonPath("$.data.numero_inscription").value("2024-001"))
+                    .andExpect(jsonPath("$.data.email").value(TEST_EMAIL));
 
             verify(etudiantService, times(1)).saveEtudiant(any(Etudiant.class));
         }
@@ -142,24 +151,68 @@ class EtudiantControllerTest {
     @DisplayName("PUT /api/etudiants/{id}")
     class Update {
 
+        /**
+         * #215/#227 — un appelant étroit (la saisie rapide d'e-mail sur les
+         * convocations, l'édition en ligne du roster) n'envoie QUE l'adresse.
+         * L'ancienne version recopiait tous les champs du DTO et effaçait donc
+         * le nom, le prénom et le numéro d'inscription au passage.
+         */
+        @Test
+        @DisplayName("PUT partiel : n'écrase PAS les champs absents du corps")
+        void update_partiel_neDoitPasEffacerLesAutresChamps() throws Exception {
+            when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
+            when(etudiantService.saveEtudiant(any(Etudiant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            mockMvc.perform(put("/api/etudiants/1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"nouvelle@etu.tn\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.email").value("nouvelle@etu.tn"))
+                    // Intacts — c'est tout l'objet du test.
+                    .andExpect(jsonPath("$.data.nom").value("Ben Ali"))
+                    .andExpect(jsonPath("$.data.prenom").value("Mohamed"))
+                    .andExpect(jsonPath("$.data.numero_inscription").value("2024-001"));
+        }
+
+        @Test
+        @DisplayName("PUT avec e-mail vide : effacement EXPLICITE, autorisé")
+        void update_emailVide_devraitEffacer() throws Exception {
+            when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
+            when(etudiantService.saveEtudiant(any(Etudiant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // null = "je n'y touche pas" ; "" = "retire-la". Une adresse fausse
+            // est pire que pas d'adresse : il faut pouvoir la retirer.
+            mockMvc.perform(put("/api/etudiants/1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.email").value(""))
+                    .andExpect(jsonPath("$.data.nom").value("Ben Ali"));
+        }
+
         @Test
         @DisplayName("200 - Étudiant mis à jour")
         void update_devraitRetourner200() throws Exception {
+            String newEmail = "ali.bensalah@example.com";
             Etudiant updated = new Etudiant();
             updated.setId(1L);
             updated.setNom("Ben Salah");
             updated.setPrenom("Ali");
             updated.setNumero_inscription("2024-002");
+            updated.setEmail(newEmail);
 
             when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
             when(etudiantService.saveEtudiant(any(Etudiant.class))).thenReturn(updated);
 
+            EtudiantDTO updateDto = new EtudiantDTO(1L, "Ben Salah", "Ali", "2024-002", newEmail);
+
             mockMvc.perform(put("/api/etudiants/1")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(updated)))
+                            .content(objectMapper.writeValueAsString(updateDto)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.nom").value("Ben Salah"))
-                    .andExpect(jsonPath("$.data.prenom").value("Ali"));
+                    .andExpect(jsonPath("$.data.prenom").value("Ali"))
+                    .andExpect(jsonPath("$.data.email").value(newEmail));
         }
 
         @Test
@@ -181,13 +234,13 @@ class EtudiantControllerTest {
     class Delete {
 
         @Test
-        @DisplayName("200 - Étudiant supprimé") // Changed from 204 to 200
-        void delete_devraitRetourner204() throws Exception {
+        @DisplayName("200 - Étudiant supprimé")
+        void delete_devraitRetourner200() throws Exception {
             when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
             doNothing().when(etudiantService).deleteEtudiant(1L);
 
             mockMvc.perform(delete("/api/etudiants/1"))
-                    .andExpect(status().isOk()); // We return ApiResponse now
+                    .andExpect(status().isOk());
 
             verify(etudiantService, times(1)).deleteEtudiant(1L);
         }

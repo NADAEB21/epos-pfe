@@ -57,55 +57,28 @@ public class RotationAssignmentService {
                 .toList();
     }
 
-    // Créer un assignment. Lie la rotation parente (et la participation) à
-    // partir des ids fournis : sans ce lien la chaîne d'appartenance
-    // Notation -> RotationAssignment -> Rotation.evaluateurId resterait brisée
-    // et le périmètre évaluateur (#85, #91) serait inopérant sur les données
-    // créées via l'API.
-    public RotationAssignment save(RotationAssignment assignment, Long rotationId, Long participationId) {
-        if (rotationId != null) {
-            Rotation rotation = rotationRepository.findById(rotationId)
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "Rotation non trouvée avec l'id : " + rotationId));
-            assignment.setRotation(rotation);
-        }
-        if (participationId != null) {
-            ExamenParticipation participation = participationRepository.findById(participationId)
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "Participation non trouvée avec l'id : " + participationId));
-            assignment.setParticipation(participation);
-        }
-        return repository.save(assignment);
-    }
-
-    // Supprimer un assignment
-    public void delete(Long id) {
-        repository.deleteById(id);
-    }
-
-    // Mettre à jour un assignment
-    public RotationAssignment update(Long id, RotationAssignment details) {
-        return repository.findById(id).map(a -> {
-            a.setPresenceConfirmee(details.getPresenceConfirmee());
-            a.setTempsAdditionnel(details.getTempsAdditionnel());
-            // #215 sémantique PATCH : le PUT ne peuple PAS rotation/participation
-            // — les copier à null briserait la chaîne
-            // Notation -> Assignment -> Rotation.evaluateurId (note invisible au périmètre).
-            if (details.getRotation() != null) {
-                a.setRotation(details.getRotation());
-            }
-            if (details.getParticipation() != null) {
-                a.setParticipation(details.getParticipation());
-            }
-            return repository.save(a);
-        }).orElseThrow(() -> new ResourceNotFoundException("Assignment non trouvé avec l'id : " + id));
-    }
-
-    // Confirmer rapidement la présence
-    public RotationAssignment confirmerPresence(Long id, boolean present) {
-        RotationAssignment a = repository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Assignment non trouvé avec l'id : " + id));
-        a.setPresenceConfirmee(present);
-        return repository.save(a);
-    }
+    // =========================================================================
+    // ÉCRITURE BRUTE SUPPRIMÉE (#218, #86) — ne pas la réintroduire.
+    //
+    // `save`, `update`, `delete` et `confirmerPresence` ont été retirés avec les
+    // endpoints POST/PUT/DELETE /api/assignments et PATCH /api/assignments/{id}/presence.
+    //
+    // Un assignment est le PRODUIT de la génération du circuit (carré latin,
+    // RotationGenerationService) : c'est de l'état dérivé, pas une ressource qu'on
+    // rédige. Aucun des quatre n'avait de garde — mesuré en direct le 2026-08-11,
+    // l'évaluateur 3 a retourné la présence sur la rotation de l'évaluateur 6
+    // (PATCH → 200, présence t → f). Et zéro appelant : aucun littéral
+    // « /assignments » dans `frontend-web/src` ni dans `epos_mobile/lib`.
+    //
+    // `confirmerPresence` était le seul des quatre à avoir un usage plausible, et il
+    // aurait exigé une garde COMPOSITE (l'évaluateur doit posséder la rotation ; le
+    // responsable doit être dans la matière) — un primitif « OU » qu'aucun autre
+    // chemin ne réclame. La présence a d'ailleurs déjà son acte, utilisé lui :
+    //   PATCH /api/lots/{lotId}/presence  →  LotAssignmentService.markPresence
+    // borné à la matière (#274) et posé sur le LOT, c'est-à-dire au grain où le
+    // responsable travaille réellement le jour J.
+    //
+    // Les lectures ci-dessus sont conservées et restent filtrées au périmètre de
+    // l'évaluateur.
+    // =========================================================================
 }

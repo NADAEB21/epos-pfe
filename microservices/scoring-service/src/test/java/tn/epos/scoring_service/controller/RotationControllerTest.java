@@ -120,50 +120,39 @@ class RotationControllerTest {
         }
     }
 
+    // =========================================================================
+    // POST / PUT / DELETE /api/rotations — SUPPRIMES (#86, #219).
+    // Les tests qui verifiaient leurs 200/201 partent avec eux ; ceux-ci verifient
+    // que les routes N'EXISTENT PLUS. Une rotation est de l'etat DERIVE : le seul
+    // chemin d'ecriture est la generation, deja bornee a la matiere (#274).
+    // =========================================================================
     @Nested
-    @DisplayName("POST /api/rotations")
-    class Create {
-        @Test
-        @DisplayName("201 - Rotation créée avec succès")
-        void create_devraitRetourner200() throws Exception {
-            when(rotationService.save(any(Rotation.class))).thenReturn(rotation);
+    @DisplayName("Ecritures brutes — SUPPRIMEES")
+    class EcrituresSupprimees {
 
-            // Send DTO, not Entity
+        @Test
+        @DisplayName("POST /api/rotations n'existe plus")
+        void postSupprime() throws Exception {
             mockMvc.perform(post("/api/rotations")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(rotationDto)))
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.data.statut").value("EN_ATTENTE"));
+                            .content("{}"))
+                    .andExpect(status().isMethodNotAllowed());
         }
-    }
 
-    @Nested
-    @DisplayName("PUT /api/rotations/{id}")
-    class Update {
         @Test
-        @DisplayName("200 - Rotation mise à jour")
-        void update_devraitRetourner200() throws Exception {
-            when(rotationService.update(eq(1L), any(Rotation.class))).thenReturn(rotation);
-
+        @DisplayName("PUT /api/rotations/{id} n'existe plus — plus aucun moyen d'ecrire statut a la main")
+        void putSupprime() throws Exception {
             mockMvc.perform(put("/api/rotations/1")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(rotationDto)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.id").value(1));
+                            .content("{}"))
+                    .andExpect(status().isMethodNotAllowed());
         }
-    }
 
-    @Nested
-    @DisplayName("DELETE /api/rotations/{id}")
-    class Delete {
         @Test
-        @DisplayName("200 - Rotation supprimée")
-        void delete_devraitRetourner204() throws Exception {
-            doNothing().when(rotationService).delete(1L);
-
+        @DisplayName("DELETE /api/rotations/{id} n'existe plus — plus de cascade sur les notations verrouillees")
+        void deleteSupprime() throws Exception {
             mockMvc.perform(delete("/api/rotations/1"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true));
+                    .andExpect(status().isMethodNotAllowed());
         }
     }
 }

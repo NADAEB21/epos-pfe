@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -98,6 +99,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error("No such endpoint: " + ex.getResourcePath()));
+    }
+
+    /**
+     * 405 — méthode non autorisée sur un chemin qui existe (#286, instance scoring).
+     *
+     * <p>Sans ce mappage, {@code HttpRequestMethodNotSupportedException} tombait dans le
+     * fourre-tout ci-dessous : appeler une méthode inexistante sur un chemin connu répondait
+     * <b>500</b>, donc « le serveur est cassé » au lieu de « cette méthode n'existe pas ».
+     *
+     * <p>Trouvé en supprimant les écritures brutes de {@code /api/rotations} et
+     * {@code /api/assignments} (#86, #218) : les tests qui vérifient que ces routes n'existent
+     * plus recevaient 500. Le voisin {@code NoResourceFoundException} → 404 était déjà là ;
+     * c'est la même famille et il manquait la moitié « méthode ».
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiResponse.error("Méthode " + ex.getMethod() + " non autorisée sur ce chemin"));
     }
 
     // 500 - Erreur inattendue (last-resort fallback)

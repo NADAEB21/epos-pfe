@@ -659,7 +659,7 @@ class _LotActuelCard extends StatelessWidget {
                 final i = entry.key;
                 return Padding(
                   padding: EdgeInsets.only(right: i == cellules.length - 1 ? 0 : 10),
-                  child: _GroupeChip(cell: entry.value, rang: i + 1, isDark: isDark),
+                  child: _GroupeChip(cell: entry.value, isDark: isDark),
                 );
               }).toList(),
             ),
@@ -672,14 +672,21 @@ class _LotActuelCard extends StatelessWidget {
 
 class _GroupeChip extends StatelessWidget {
   final PlanningCell cell;
-  final int rang; // repli si groupeNumero absent (ancien backend)
   final bool isDark;
-  const _GroupeChip({required this.cell, required this.rang, required this.isDark});
+  const _GroupeChip({required this.cell, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     final c = _C(isDark);
-    final label = 'G${cell.groupeNumero ?? rang}';
+    // groupeNumero absent (backend anterieur a ce champ) => on affiche « G? ».
+    //
+    // On NE retombe PAS sur le rang de la cellule dans la liste : le carre latin fait
+    // TOURNER les groupes, donc la position d'un passage n'est pas son numero de groupe.
+    // Un « G1 » affiche pour le groupe 3 serait plausible et faux — precisement le repli
+    // qu'ADR-0015 a supprime ailleurs (le « Station <id> » invente). Ici l'evaluateur voit
+    // que l'information manque, et l'heure juste en dessous identifie le passage sans
+    // ambiguite. Cas reel : une APK plus recente que le backend deploye.
+    final label = cell.groupeNumero != null ? 'G${cell.groupeNumero}' : 'G?';
     final Color couleur;
     final Widget indicateur;
 

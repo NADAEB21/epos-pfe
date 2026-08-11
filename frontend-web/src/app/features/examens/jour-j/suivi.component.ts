@@ -32,9 +32,14 @@ export interface Slot {
   debutMs: number; // absolute planned start (ms epoch, local)
   debutLabel: string; // HH:mm
   /**
-   * The rotation's real completion signal. EN_ATTENTE until the évaluateur
-   * validates its lot, then TERMINE (scoring validerLot). #184 uses this to
-   * distinguish a truly-finished slot from one whose créneau merely elapsed.
+   * The rotation's real completion signal. EN_ATTENTE until the évaluateur validates this
+   * GROUP at their station (scoring `validerGroupe`, `POST /evaluateur/rotations/{id}/valider`),
+   * then TERMINE. #184 uses this to distinguish a truly-finished slot from one whose créneau
+   * merely elapsed.
+   *
+   * NOT "validates its lot" — nobody validates a lot. The lot closes itself once its last
+   * rotation turns TERMINE, inside `validerGroupe`. The old `validerLot` endpoint has been
+   * deleted; this comment described it.
    */
   statut: RotationStatus;
 }

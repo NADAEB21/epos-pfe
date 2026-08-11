@@ -15,9 +15,6 @@ abstract class GradingRepository {
   /// Charge le PROCHAIN groupe planifié pour cet évaluateur (même station).
   Future<Lot> getGroupeSuivant(int rotationId);
 
-  /// Valide uniquement la rotation (session) de l'évaluateur actuel
-  /// Future<void> validerRotation(int rotationId);
-
   /// Sauvegarde une notation (création ou mise à jour).
   ///
   /// Chemin de SAISIE : « essaie en ligne, sinon garde en local ». Un échec

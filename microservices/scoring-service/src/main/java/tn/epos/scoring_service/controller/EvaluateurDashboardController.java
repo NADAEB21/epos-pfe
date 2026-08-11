@@ -22,7 +22,14 @@ import tn.epos.scoring_service.service.EvaluateurDashboardService;
  *   - GET  /api/evaluateur/stations/{stationId}/lots/{n}     → GradingRepository.getLot()
  *   - POST /api/evaluateur/notations/saisir                  → GradingRepository.saveNotation()
  *   - POST /api/evaluateur/etudiants/{id}/stations/{id}/valider → GradingRepository.validerEtudiant()
- *   - POST /api/evaluateur/lots/{id}/valider                 → GradingRepository.validerLot()
+ *   - POST /api/evaluateur/rotations/{id}/valider             → GradingRepository.validerGroupe()
+ *   - POST /api/evaluateur/rotations/{id}/suivant             → l'évaluateur ouvre le groupe suivant
+ *
+ * <p><b>« Valider un LOT » n'existe plus, et personne ne clôture un lot à la main.</b>
+ * {@link EvaluateurDashboardService#validerGroupe} clôture le lot <b>tout seul</b> dès que sa
+ * dernière rotation passe {@code TERMINE} : le dernier évaluateur qui valide son dernier groupe
+ * ferme la vague. L'ancien {@code POST /lots/{id}/valider} a été supprimé — voir le commentaire
+ * de suppression dans {@code EvaluateurDashboardService}.
  *
  * Sécurité : accessible aux trois rôles (EVALUATEUR en production,
  * SUPER_ADMIN et RESPONSABLE_MATIERE pour les tests et la supervision).
@@ -127,23 +134,6 @@ public class EvaluateurDashboardController {
         dashboardService.validerEtudiant(etudiantId, stationId, evaluateurId, request);
         return ResponseEntity.ok(
                 ApiResponse.ok("Notes verrouillées pour l'étudiant " + etudiantId));
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // POST /api/evaluateur/lots/{lotId}/valider
-    //
-    // Marque le lot comme TERMINE (tous les étudiants validés).
-    // Correspond à GradingRepository.validerLot(lotId) Flutter.
-    // ──────────────────────────────────────────────────────────────────────────
-    @PostMapping("/lots/{lotId}/valider")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Void>> validerLot(
-            @PathVariable Long lotId,
-            @AuthenticationPrincipal Jwt jwt) {
-
-        Long evaluateurId = extractUserId(jwt);
-        dashboardService.validerLot(lotId, evaluateurId);
-        return ResponseEntity.ok(ApiResponse.ok("Lot " + lotId + " validé"));
     }
 
     // ── Utilitaire ───────────────────────────────────────────────────────────

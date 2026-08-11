@@ -131,8 +131,9 @@ public class RotationGenerationService {
         // (dont 56 verrouillées) et les 16 notation_items détruits par un seul appel.
         //
         // Le seul garde-fou existant (lot EN_COURS, plus haut) ne protège rien : le lot
-        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE qu'au validerLot
-        // de l'évaluateur. La régénération est donc armée exactement quand elle détruit
+        // reste EN_COURS pendant TOUTE la notation et ne passe TERMINE que lorsque sa
+        // DERNIÈRE rotation est validée — clôture automatique dans
+        // EvaluateurDashboardService.validerGroupe. La régénération est donc armée quand elle détruit
         // le plus. On refuse dès qu'UNE notation existe (fail closed) : dès qu'un
         // évaluateur a saisi quoi que ce soit, le planning n'est plus un état dérivé
         // qu'on peut reconstruire en silence.

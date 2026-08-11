@@ -657,7 +657,9 @@ class _GradingFooter extends StatelessWidget {
               ),
             ),
 
-          // ── Boutons Valider lot / Lot suivant ──────────────────────────────
+          // ── Boutons « Valider groupe » / « Groupe suivant » ────────────────
+          // (le commentaire disait « Valider lot » : ce bouton n'a jamais existe ici,
+          //  et l'endpoint de validation de lot est supprime — le lot se cloture seul.)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(

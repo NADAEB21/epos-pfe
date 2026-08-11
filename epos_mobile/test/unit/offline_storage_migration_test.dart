@@ -181,11 +181,11 @@ void main() {
       }
     }
 
-    test('installation neuve : le schéma v2 est créé directement', () async {
+    test('installation neuve : le schéma v3 est créé directement', () async {
       await semer(n: 1);
       final rows = await service.getPendingNotations();
       expect(rows.single.status, PendingStatus.pending);
-      expect(OfflineStorageService.schemaVersion, 2);
+      expect(OfflineStorageService.schemaVersion, 3);
     });
 
     test('une note bloquée SORT de la file d\'envoi mais RESTE en base',
@@ -262,5 +262,63 @@ void main() {
       expect(labels.length, 1);
       expect(labels[2], 'Station 2 — Galénique');
     });
+  });
+
+  group('#244 — cache de grille (Phase 2 offline)', () {
+    late OfflineStorageService service;
+
+    setUp(() async {
+      OfflineStorageService.debugDbPath =
+          _newDbPath('grille_${DateTime.now().microsecondsSinceEpoch}.db');
+      service = OfflineStorageService.instance;
+    });
+
+    test('aucune entrée pour une station jamais mise en cache', () async {
+      expect(await service.getCachedGrille(999), isNull);
+    });
+
+    test('cacheGrille puis getCachedGrille renvoie le même JSON', () async {
+      const json = '{"id":5,"nom":"Titrimétrie","noteMax":20.0,"items":[]}';
+      await service.cacheGrille(5, json);
+
+      final cached = await service.getCachedGrille(5);
+      expect(cached, isNotNull);
+      expect(cached!.grilleJson, json);
+      expect(cached.cachedAtMs, greaterThan(0));
+    });
+
+    test('un second appel REMPLACE l\'entrée (upsert par station)', () async {
+      await service.cacheGrille(5, '{"nom":"v1"}');
+      await service.cacheGrille(5, '{"nom":"v2"}');
+
+      final cached = await service.getCachedGrille(5);
+      expect(cached!.grilleJson, '{"nom":"v2"}');
+    });
+
+    test('deux stations différentes ne se marchent pas dessus', () async {
+      await service.cacheGrille(5, '{"nom":"station5"}');
+      await service.cacheGrille(9, '{"nom":"station9"}');
+
+      expect((await service.getCachedGrille(5))!.grilleJson, contains('station5'));
+      expect((await service.getCachedGrille(9))!.grilleJson, contains('station9'));
+    });
+
+    test('la migration v1→v3 crée la table grille_cache sans perdre les notes',
+            () async {
+          // Réutilise le même scénario que le groupe "migration v1 → v2" plus haut :
+          // une base v1 authentique avec des notes doit ressortir en v3, notes
+          // intactes ET nouvelle table disponible.
+          final path = _newDbPath('migration_v1_vers_v3.db');
+          await _creerBaseV1AvecNotes(path, nombre: 2);
+
+          OfflineStorageService.debugDbPath = path;
+          final svc = OfflineStorageService.instance;
+
+          final pending = await svc.getPendingNotations();
+          expect(pending.length, 2, reason: 'les notes v1 doivent survivre à v1→v3');
+
+          await svc.cacheGrille(1, '{"nom":"après migration"}');
+          expect((await svc.getCachedGrille(1))!.grilleJson, contains('après migration'));
+        });
   });
 }

@@ -650,6 +650,7 @@ public class EvaluateurDashboardService {
                     return PlanningCellResponse.builder()
                             .heure(r.getDebutCreneau().format(TIME_FMT))
                             .lotNumero(r.getStudentGroup() != null ? r.getStudentGroup().getLot().getNumeroLot() : 0)
+                            .groupeNumero(r.getStudentGroup() != null ? r.getStudentGroup().getNumeroGroupe() : null)
                             .statut(mapRotationStatutToPlanningStatut(r)).build();
                 }).collect(Collectors.toList());
     }

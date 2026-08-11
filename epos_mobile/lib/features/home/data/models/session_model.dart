@@ -118,6 +118,7 @@ class PlanningCellModel extends PlanningCell {
     required super.heure,
     required super.lotNumero,
     required super.statut,
+    super.groupeNumero,
   });
 
   factory PlanningCellModel.fromJson(Map<String, dynamic> json) {
@@ -125,6 +126,7 @@ class PlanningCellModel extends PlanningCell {
       heure:     json['heure']     as String,
       lotNumero: json['lotNumero'] as int,
       statut:    _parseStatut(json['statut'] as String),
+      groupeNumero: json['groupeNumero'] as int?,
     );
   }
 

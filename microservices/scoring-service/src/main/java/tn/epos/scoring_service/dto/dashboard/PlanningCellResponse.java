@@ -22,4 +22,8 @@ public class PlanningCellResponse {
     private String heure;       // format "HH:mm"
     private int    lotNumero;
     private String statut;      // "TERMINE" | "A_VENIR" | "AUCUN"
+    /** Numéro du groupe (1..K) qui passe à cette heure, dans ce lot — pour
+     *  la carte de détail "Lot en cours" côté mobile. Null pour un backend
+     *  antérieur ou une rotation sans groupe résolu. */
+    private Integer groupeNumero;
 }

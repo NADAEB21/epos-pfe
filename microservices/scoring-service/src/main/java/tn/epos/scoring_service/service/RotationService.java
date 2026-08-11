@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.entities.Rotation;
-import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.repositories.IRotationRepository;
 
 import java.util.List;
@@ -50,35 +49,33 @@ public class RotationService {
                 .toList();
     }
 
-    // Créer une rotation
-    public Rotation save(Rotation rotation) {
-        return rotationRepository.save(rotation);
-    }
-
-    // Supprimer une rotation
-    public void delete(Long id) {
-        rotationRepository.deleteById(id);
-    }
-
-    // Mettre à jour une rotation
-    public Rotation update(Long id, Rotation details) {
-        return rotationRepository.findById(id).map(rotation -> {
-            rotation.setOrdrePassage(details.getOrdrePassage());
-            rotation.setDebutCreneau(details.getDebutCreneau());
-            rotation.setStatut(details.getStatut());
-            // #215 sémantique PATCH : ne pas écraser à null les identifiants
-            // structurels (évaluateur, station) ni le groupe — le PUT ne peuple
-            // studentGroup que si studentGroupId est fourni.
-            if (details.getEvaluateurId() != null) {
-                rotation.setEvaluateurId(details.getEvaluateurId());
-            }
-            if (details.getStationId() != null) {
-                rotation.setStationId(details.getStationId());
-            }
-            if (details.getStudentGroup() != null) {
-                rotation.setStudentGroup(details.getStudentGroup());
-            }
-            return rotationRepository.save(rotation);
-        }).orElseThrow(() -> new ResourceNotFoundException("Rotation non trouvée avec l'id : " + id));
-    }
+    // =========================================================================
+    // ÉCRITURE BRUTE SUPPRIMÉE (#86, #219) — ne pas la réintroduire.
+    //
+    // `save`, `update` et `delete` ont été retirés avec les endpoints
+    // POST/PUT/DELETE /api/rotations. Trois raisons, dans cet ordre :
+    //
+    // 1. UNE ROTATION EST DE L'ÉTAT DÉRIVÉ, pas une ressource qu'on rédige.
+    //    Le circuit est construit par RotationGenerationService (carré latin) à partir
+    //    des présents. Écrire une rotation à la main produit un circuit incohérent que
+    //    rien ne rattrape.
+    // 2. `update` laissait ÉCRIRE `statut` À LA MAIN. C'est exactement le maquillage
+    //    qu'ADR-0014 §4 interdit (« le statut se DÉRIVE de l'état réel, on ne l'IMPOSE
+    //    jamais ») — et le Javadoc de LotOuvertureService affirmait que cet état « ne
+    //    peut pas être maquillé à la main via PUT /api/lots/{id} ». C'était vrai pour
+    //    les lots, faux pour les rotations : la porte était juste à côté.
+    // 3. `delete` était un `deleteById` nu : il emportait en cascade les notations du
+    //    groupe, VERROUILLÉES comprises, avec leur piste d'audit (#219).
+    //
+    // Et aucune garde ne les protégeait : mesuré en direct le 2026-08-11, un
+    // responsable de Toxicologie a modifié la rotation 276 d'un examen de Chimie
+    // (PUT → 200, ordre_passage 2 → 99). Zéro appelant dans les deux clients — aucun
+    // littéral d'écriture vers /api/rotations dans `frontend-web/src`, rien côté Flutter.
+    //
+    // Le seul chemin légitime reste la GÉNÉRATION, déjà bornée à la matière (#274) :
+    //   POST /api/rotations/lots/{lotId}/generer
+    //   POST /api/rotations/examens/{examenId}/reset
+    // Les lectures ci-dessus sont conservées et restent filtrées au périmètre de
+    // l'évaluateur.
+    // =========================================================================
 }

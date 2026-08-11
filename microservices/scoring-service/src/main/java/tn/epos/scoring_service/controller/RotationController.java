@@ -7,9 +7,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.scoring_service.dto.RotationDTO;
-import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.repositories.IRotationRepository;
-import tn.epos.scoring_service.repositories.IStudentGroupRepository;
 import tn.epos.scoring_service.service.RotationService;
 
 import java.util.List;
@@ -21,7 +19,6 @@ public class RotationController {
     private static final String NOT_FOUND_MSG = "Rotation non trouvée";
 
     @Autowired private RotationService          rotationService;
-    @Autowired private IStudentGroupRepository  studentGroupRepository;
     @Autowired private IRotationRepository      rotationRepository;
 
     @GetMapping
@@ -70,49 +67,18 @@ public class RotationController {
         return ResponseEntity.ok(ApiResponse.ok(rotationRepository.countByStudentGroupLotId(lotId)));
     }
 
-    @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationDTO>> create(@RequestBody RotationDTO dto) {
-        Rotation entity = new Rotation();
-        entity.setEvaluateurId(dto.evaluateurId());
-        entity.setStationId(dto.stationId());
-        entity.setOrdrePassage(dto.ordrePassage());
-        entity.setDebutCreneau(dto.debutCreneau());
-        entity.setStatut(dto.statut());
-
-        // Lier le StudentGroup → clé pour le planning et la chaîne JPQL de notation
-        if (dto.studentGroupId() != null) {
-            studentGroupRepository.findById(dto.studentGroupId())
-                    .ifPresent(entity::setStudentGroup);
-        }
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.ok("Rotation créée",
-                        RotationDTO.fromEntity(rotationService.save(entity))));
-    }
-
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<RotationDTO>> update(
-            @PathVariable Long id, @RequestBody RotationDTO dto) {
-        Rotation entity = new Rotation();
-        entity.setEvaluateurId(dto.evaluateurId());
-        entity.setStationId(dto.stationId());
-        entity.setOrdrePassage(dto.ordrePassage());
-        entity.setDebutCreneau(dto.debutCreneau());
-        entity.setStatut(dto.statut());
-        if (dto.studentGroupId() != null) {
-            studentGroupRepository.findById(dto.studentGroupId())
-                    .ifPresent(entity::setStudentGroup);
-        }
-        return ResponseEntity.ok(ApiResponse.ok("Rotation mise à jour",
-                RotationDTO.fromEntity(rotationService.update(id, entity))));
-    }
-
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        rotationService.delete(id);
-        return ResponseEntity.ok(ApiResponse.ok("Rotation supprimée"));
-    }
+    // =========================================================================
+    // POST / PUT / DELETE /api/rotations — SUPPRIMES (#86, #219). Ne pas reintroduire.
+    //
+    // Une rotation est de l'ETAT DERIVE : le circuit est construit par
+    // RotationGenerationService (carre latin) a partir des presents. Ces trois portes
+    // laissaient le rediger a la main, sans aucune garde, et `PUT` laissait meme ecrire
+    // `statut` directement — le maquillage qu'ADR-0014 §4 interdit. Zero appelant dans
+    // les deux clients. Voir le bloc de suppression dans RotationService pour le detail
+    // et la mesure en direct.
+    //
+    // Le seul chemin d'ecriture legitime, deja borne a la matiere (#274) :
+    //   POST /api/rotations/lots/{lotId}/generer
+    //   POST /api/rotations/examens/{examenId}/reset
+    // =========================================================================
 }

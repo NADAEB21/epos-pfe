@@ -52,6 +52,10 @@ class ExamenServiceImplTest {
     @Mock
     private MatiereAccessChecker matiereAccessChecker;
 
+    /** #306 — qui lance. Le mock rend null par defaut : lance_par reste nul, pas d'echec. */
+    @Mock
+    private tn.epos.exam_service.config.CallerIdentity callerIdentity;
+
     @InjectMocks
     private ExamenServiceImpl examenService;
 
@@ -349,6 +353,47 @@ class ExamenServiceImplTest {
 
             assertThat(result).isNotNull();
             verify(examenRepository).save(any());
+        }
+
+        /**
+         * #306 / ADR-0024 — le lancement enregistre son AUTEUR, à côté de son instant.
+         *
+         * <p>`launched_at` (ADR-0010) disait QUAND l'acte le plus lourd du produit avait eu lieu ;
+         * rien ne disait PAR QUI. C'est le pendant de `lot.ouvert_par` côté scoring — le lanceur
+         * ne désigne le conducteur que par défaut, tant qu'aucune vague n'a été ouverte.
+         */
+        @Test
+        @DisplayName("#306 — le passage à EN_COURS enregistre QUI a lancé")
+        void changerStatut_enCours_enregistreLeLanceur() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(callerIdentity.getCallerUserId()).thenReturn(9L);
+
+            examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(examenBrouillon.getLancePar()).isEqualTo(9L);
+            assertThat(examenBrouillon.getLaunchedAt())
+                    .as("les deux moitiés du même fait")
+                    .isNotNull();
+        }
+
+        /**
+         * Une identité absente ne doit PAS refuser le lancement : c'est une trace, pas une garde.
+         * Le droit d'agir a déjà été tranché par checkAccess (#274).
+         */
+        @Test
+        @DisplayName("#306 — lanceur non identifiable : l'examen se lance, lance_par reste null")
+        void changerStatut_enCours_sansAuteur_lanceQuandMeme() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(callerIdentity.getCallerUserId()).thenReturn(null);
+
+            examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(examenBrouillon.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+            assertThat(examenBrouillon.getLancePar()).isNull();
         }
 
         @Test
@@ -880,6 +925,10 @@ class ExamenServiceImplTest {
 
             assertThat(result.getStatut()).isEqualTo(StatutExamen.CONFIGURE);
             assertThat(result.getLaunchedAt()).isNull();
+            // #306 — l'auteur part AVEC l'horodatage : les deux moitiés du même fait. Les garder
+            // désynchronisés désignerait comme lanceur quelqu'un qui n'a pas lancé la session en
+            // cours, et un relancement par une autre personne hériterait de son nom.
+            assertThat(result.getLancePar()).isNull();
             assertThat(result.getPausedAt()).isNull();
             assertThat(result.isEnPause()).isFalse();
             assertThat(result.getTotalPauseSec()).isZero();

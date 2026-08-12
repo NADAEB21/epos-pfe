@@ -53,6 +53,13 @@ public class ExamenResponse {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime launchedAt;
 
+    /**
+     * #306 / ADR-0024 — qui a lance l'epreuve (FK logique auth_db.users).
+     * Le web resout l'identifiant en nom avec l'annuaire qu'il charge deja : scoring et
+     * exam n'appellent PAS auth pour un libelle.
+     */
+    private Long lancePar;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
 

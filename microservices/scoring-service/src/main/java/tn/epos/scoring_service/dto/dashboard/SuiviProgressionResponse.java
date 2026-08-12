@@ -73,6 +73,24 @@ public class SuiviProgressionResponse {
         private LocalDateTime ouvertA;
 
         /**
+         * #306 / ADR-0024 — QUI a ouvert cette vague : l'identifiant de l'auteur du dernier acte
+         * de conduite, c'est-à-dire <b>le conducteur</b> de l'épreuve en ce moment.
+         *
+         * <p>Répond à la question qu'aucun écran ne savait poser : deux co-responsables peuvent
+         * conduire la même épreuve — l'un dans la salle, l'autre chez lui — et jusqu'ici ni l'un
+         * ni l'autre n'était informé de l'existence du second. Le Suivi peut désormais afficher
+         * « conduite par X depuis HH:mm ».
+         *
+         * <p>On renvoie l'<b>identifiant</b>, pas un nom : scoring n'a aucun client vers auth et
+         * n'en gagne pas un pour un libellé. Le web résout l'id avec l'annuaire qu'il charge
+         * déjà (il le fait pour les évaluateurs).
+         *
+         * <p>{@code null} pour une vague ouverte avant la migration V18, ou si le jeton ne
+         * portait pas de claim {@code userId} : on affiche alors « — », jamais un nom deviné.
+         */
+        private Long ouvertPar;
+
+        /**
          * #252 — temps écoulé depuis l'ouverture, en secondes, <b>calculé par le SERVEUR</b>.
          * {@code null} si la vague n'a pas d'horodatage (ouverte avant V9) : le client affiche
          * « — », il n'invente rien.

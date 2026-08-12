@@ -147,6 +147,8 @@ public class SuiviProgressionService {
                 .id(lot.getId())
                 .numeroLot(lot.getNumeroLot())
                 .ouvertA(lot.getOuvertA())
+                // #306 — les deux moitiés du même fait : quand, et par qui.
+                .ouvertPar(lot.getOuvertPar())
                 .ecouleSec(ecouleSec)
                 .groupesTermines((int) termines)
                 .groupesTotal(parGroupe.size())

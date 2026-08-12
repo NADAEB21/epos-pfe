@@ -72,6 +72,12 @@ one). Today the dangerous door is the only one labelled.
 
 ## Decision
 
+> ⛔ **Marker (2026-08-13, Nada) : la garde « refused while engaged » de D1 et TOUT D3 ne
+> sont PAS retenus** — un administrateur n'a aucune raison réelle de désactiver un compte en
+> pleine épreuve, et la garde aurait coûté à `auth-service` ses premiers appels sortants pour
+> un non-scénario. Détail et conséquences dans **ADR-0024 §0**. Le reste de cette ADR (les
+> deux actes nommés, D2, la sémantique départ-pas-éjection) reste en vigueur.
+
 ### D1 — Two named acts, not one
 
 | act | who | when | effect on live sessions | guard |

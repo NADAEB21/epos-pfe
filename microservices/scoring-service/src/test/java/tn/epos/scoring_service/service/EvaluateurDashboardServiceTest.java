@@ -1,5 +1,6 @@
 package tn.epos.scoring_service.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -58,6 +59,7 @@ class EvaluateurDashboardServiceTest {
     @Mock private ExamServiceClient              examServiceClient;
     @Mock private ExamDefinitionSnapshotService  examDefinitionSnapshot;
     @Mock private SimpMessagingTemplate          messagingTemplate;
+    @Mock private ObjectMapper objectMapper;
 
     // Vraie horloge (pas un mock) pinnée Africa/Tunis comme ClockConfig, pour que
     // le temps effectif du service s'aligne sur les debutCreneau construits ici.
@@ -939,6 +941,56 @@ class EvaluateurDashboardServiceTest {
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
 
             assertThatThrownBy(() -> service.getGroupeDetail(1L, EVAL_ID))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("getGrilleStation() — #244")
+    class GetGrilleStation {
+
+        @Test
+        @DisplayName("200 — retourne la grille figée pour la station de l'évaluateur")
+        void happy() throws Exception {
+            Rotation r = new Rotation();
+            r.setId(1L); r.setStationId(STATION_ID); r.setEvaluateurId(EVAL_ID);
+            Lot lot = new Lot(); lot.setExamenId(99L);
+            StudentGroup sg = new StudentGroup(); sg.setLot(lot);
+            r.setStudentGroup(sg);
+
+            ExamGrilleSnapshot snap = ExamGrilleSnapshot.builder()
+                    .grilleId(5L).nom("Titrimétrie").noteMax(20.0).itemsJson("[]").build();
+
+            when(rotationRepository.findFirstByEvaluateurIdAndStationIdOrderByIdDesc(EVAL_ID, STATION_ID))
+                    .thenReturn(Optional.of(r));
+            when(examDefinitionSnapshot.resolveGrille(99L, STATION_ID)).thenReturn(snap);
+            when(objectMapper.readTree("[]"))
+                    .thenReturn(new com.fasterxml.jackson.databind.ObjectMapper().readTree("[]"));
+
+            GrilleSnapshotDTO dto = service.getGrilleStation(STATION_ID, EVAL_ID);
+
+            assertThat(dto.nom()).isEqualTo("Titrimétrie");
+            assertThat(dto.noteMax()).isEqualTo(20.0);
+        }
+
+        @Test
+        @DisplayName("#213 — évaluateur non affecté à la station → AccessDeniedException")
+        void horsPerimetre() {
+            when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, STATION_ID))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> service.getGrilleStation(STATION_ID, EVAL_ID))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("pas affecté à la station");
+        }
+
+        @Test
+        @DisplayName("aucune rotation résolvable pour retrouver l'examen → ResourceNotFoundException")
+        void aucuneRotation() {
+            when(rotationRepository.findFirstByEvaluateurIdAndStationIdOrderByIdDesc(EVAL_ID, STATION_ID))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getGrilleStation(STATION_ID, EVAL_ID))
                     .isInstanceOf(ResourceNotFoundException.class);
         }
     }

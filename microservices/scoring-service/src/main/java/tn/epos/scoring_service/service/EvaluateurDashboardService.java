@@ -1,5 +1,6 @@
 package tn.epos.scoring_service.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -44,6 +45,7 @@ public class EvaluateurDashboardService {
     private final IExamenParticipationRepository participationRepository;
     private final IStudentGroupRepository        studentGroupRepository;
     private final ExamServiceClient              examServiceClient;
+    private final ObjectMapper objectMapper;
 
     /**
      * ADR-0015 — définition figée dans {@code scoring_db}. Remplace les lectures réseau pour le
@@ -146,6 +148,26 @@ public class EvaluateurDashboardService {
             }
         }
         return new ArrayList<>(lotsParId.values());
+    }
+
+    /**
+     * #244 — grille figée (ADR-0015), servie depuis scoring-service pour que
+     * l'écran de notation mobile n'appelle plus jamais exam-service.
+     */
+    @Transactional(readOnly = true)
+    public GrilleSnapshotDTO getGrilleStation(Long stationId, Long evaluateurId) {
+        // Réutilise le garde #213 existant plutôt que d'en réécrire un second
+        // (même raison que #218 : deux mécanismes de propriété finiraient par diverger).
+        verifierAffectationStation(evaluateurId, stationId);
+
+        Long examenId = rotationRepository
+                .findFirstByEvaluateurIdAndStationIdOrderByIdDesc(evaluateurId, stationId)
+                .map(r -> r.getStudentGroup().getLot().getExamenId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Aucune rotation pour résoudre l'examen de la station " + stationId));
+
+        ExamGrilleSnapshot snap = examDefinitionSnapshot.resolveGrille(examenId, stationId);
+        return GrilleSnapshotDTO.fromEntity(snap, objectMapper);
     }
 
     // =========================================================================

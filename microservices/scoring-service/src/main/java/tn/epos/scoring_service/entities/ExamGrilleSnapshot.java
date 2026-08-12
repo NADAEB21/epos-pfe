@@ -15,7 +15,6 @@ public class ExamGrilleSnapshot {
     @Column(name = "examen_id", nullable = false)
     private Long examenId;
 
-    /** Une station a une seule grille figée — clé d'unicité, comme ExamStationSnapshot. */
     @Column(name = "station_id", nullable = false, unique = true)
     private Long stationId;
 
@@ -36,5 +35,7 @@ public class ExamGrilleSnapshot {
     private LocalDateTime capturedAt;
 
     @PrePersist
-    void onCreate() { if (capturedAt == null) capturedAt = LocalDateTime.now(); }
+    protected void onCreate() {
+        if (this.capturedAt == null) this.capturedAt = LocalDateTime.now();
+    }
 }

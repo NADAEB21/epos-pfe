@@ -11,8 +11,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.ExamStationSnapshot;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamItemSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamStationSnapshotRepository;
 
@@ -39,6 +41,7 @@ class ExamDefinitionMaterialiserTest {
     @Mock  private ExamServiceClient examServiceClient;
     @Mock  private ExamStationSnapshotRepository stationSnapshotRepository;
     @Mock  private ExamItemSnapshotRepository itemSnapshotRepository;
+    @Mock private ExamGrilleSnapshotRepository grilleSnapshotRepository;
     @InjectMocks private ExamDefinitionMaterialiser materialiser;
 
     private static final Long EXAMEN = 2L;
@@ -200,15 +203,93 @@ class ExamDefinitionMaterialiserTest {
         }
     }
 
+    @Nested
+    @DisplayName("materialiseGrille()")
+    class Grille {
+
+        private static final String NOM_GRILLE = "Grille Station 3 — Titrimétrie";
+
+        private com.fasterxml.jackson.databind.JsonNode grilleJson() throws Exception {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                    "{\"id\":5,\"nom\":\"" + NOM_GRILLE + "\",\"noteMax\":20.0,"
+                            + "\"items\":[{\"id\":1,\"libelle\":\"x\",\"ponderation\":2.0}]}");
+        }
+
+        @Test
+        @DisplayName("fige la grille renvoyée par la variante STRICTE du client")
+        void figeLaGrilleStrict() throws Exception {
+            when(examServiceClient.getGrilleStrict(STATION)).thenReturn(grilleJson());
+            when(grilleSnapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamGrilleSnapshot out = materialiser.materialiseGrille(EXAMEN, STATION);
+
+            assertThat(out.getExamenId()).isEqualTo(EXAMEN);
+            assertThat(out.getStationId()).isEqualTo(STATION);
+            assertThat(out.getNom()).isEqualTo(NOM_GRILLE);
+            assertThat(out.getNoteMax()).isEqualTo(20.0);
+            assertThat(out.getItemsJson()).contains("\"id\":1");
+        }
+
+        @Test
+        @DisplayName("items absent → itemsJson vaut '[]', jamais une chaîne vide illisible")
+        void itemsAbsent_devientTableauVide() throws Exception {
+            com.fasterxml.jackson.databind.JsonNode data =
+                    new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readTree("{\"id\":5,\"nom\":\"Vide\",\"noteMax\":20.0}");
+            when(examServiceClient.getGrilleStrict(STATION)).thenReturn(data);
+            when(grilleSnapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamGrilleSnapshot out = materialiser.materialiseGrille(EXAMEN, STATION);
+
+            assertThat(out.getItemsJson()).isEqualTo("[]");
+        }
+
+        @Test
+        @DisplayName("n'écrit RIEN si le client échoue")
+        void nEcritRienSiLeClientEchoue() {
+            when(examServiceClient.getGrilleStrict(STATION))
+                    .thenThrow(new BusinessException("exam-service injoignable"));
+
+            assertThatThrownBy(() -> materialiser.materialiseGrille(EXAMEN, STATION))
+                    .isInstanceOf(BusinessException.class);
+            verify(grilleSnapshotRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("course perdue : relit le gagnant")
+        void coursePerdueRelitLeGagnant() throws Exception {
+            ExamGrilleSnapshot gagnant = ExamGrilleSnapshot.builder()
+                    .examenId(EXAMEN).stationId(STATION).nom(NOM_GRILLE).build();
+            when(examServiceClient.getGrilleStrict(STATION)).thenReturn(grilleJson());
+            when(grilleSnapshotRepository.save(any()))
+                    .thenThrow(new DataIntegrityViolationException("unique violation"));
+            when(grilleSnapshotRepository.findByStationId(STATION)).thenReturn(Optional.of(gagnant));
+
+            assertThat(materialiser.materialiseGrille(EXAMEN, STATION).getNom()).isEqualTo(NOM_GRILLE);
+        }
+
+        @Test
+        @DisplayName("course sans gagnant lisible : propage l'erreur d'origine")
+        void courseSansGagnantPropage() throws Exception {
+            when(examServiceClient.getGrilleStrict(STATION)).thenReturn(grilleJson());
+            when(grilleSnapshotRepository.save(any()))
+                    .thenThrow(new DataIntegrityViolationException("unique violation"));
+            when(grilleSnapshotRepository.findByStationId(STATION)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> materialiser.materialiseGrille(EXAMEN, STATION))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+    }
+
     /**
      * Régression du défaut latent HIGH de session 21 : la matérialisation DOIT vivre dans un bean
      * distinct, sinon {@code REQUIRES_NEW} est appliqué via {@code this}, ne traverse pas le proxy
      * Spring et devient inerte — ce qui annulait à la fois le rattrapage de course et la durabilité.
      */
     @Test
-    @DisplayName("les deux écritures portent REQUIRES_NEW (le proxy doit être traversé)")
+    @DisplayName("les trois écritures portent REQUIRES_NEW (le proxy doit être traversé)")
     void lesEcrituresPortentRequiresNew() throws NoSuchMethodException {
-        for (String m : List.of("materialiseStation", "materialiseItems")) {
+        for (String m : List.of("materialiseStation", "materialiseItems", "materialiseGrille")) {
             var annotation = ExamDefinitionMaterialiser.class
                     .getMethod(m, Long.class, Long.class)
                     .getAnnotation(org.springframework.transaction.annotation.Transactional.class);

@@ -9,8 +9,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.ExamStationSnapshot;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamItemSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamStationSnapshotRepository;
 
@@ -37,6 +39,7 @@ class ExamDefinitionSnapshotServiceTest {
     @Mock private ExamItemSnapshotRepository itemSnapshotRepository;
     @Mock private ExamServiceClient examServiceClient;
     @Mock private ExamDefinitionMaterialiser materialiser;
+    @Mock private ExamGrilleSnapshotRepository grilleSnapshotRepository;
     @InjectMocks private ExamDefinitionSnapshotService service;
 
     private static final Long EXAMEN = 2L;
@@ -148,6 +151,47 @@ class ExamDefinitionSnapshotServiceTest {
     }
 
     @Nested
+    @DisplayName("resolveGrille() — chemin STRICT (utilisé par le chemin de notation)")
+    class ResolveGrille {
+
+        private static ExamGrilleSnapshot grilleSnap() {
+            return ExamGrilleSnapshot.builder()
+                    .examenId(EXAMEN).stationId(STATION).grilleId(GRILLE)
+                    .nom(NOM).noteMax(20.0).itemsJson("[]").build();
+        }
+
+        @Test
+        @DisplayName("grille déjà figée : lit le snapshot, aucun appel réseau")
+        void litLeSnapshotSansReseau() {
+            when(grilleSnapshotRepository.findByStationId(STATION)).thenReturn(Optional.of(grilleSnap()));
+
+            assertThat(service.resolveGrille(EXAMEN, STATION).getNom()).isEqualTo(NOM);
+            verifyNoInteractions(materialiser, examServiceClient);
+        }
+
+        @Test
+        @DisplayName("grille non figée : matérialise à la première utilisation")
+        void materialiseALaPremiereUtilisation() {
+            when(grilleSnapshotRepository.findByStationId(STATION)).thenReturn(Optional.empty());
+            when(materialiser.materialiseGrille(EXAMEN, STATION)).thenReturn(grilleSnap());
+
+            assertThat(service.resolveGrille(EXAMEN, STATION).getNom()).isEqualTo(NOM);
+            verify(materialiser).materialiseGrille(EXAMEN, STATION);
+        }
+
+        @Test
+        @DisplayName("échec de matérialisation : propage — jamais de repli silencieux (grille = chemin d'écriture)")
+        void propageLEchec() {
+            when(grilleSnapshotRepository.findByStationId(STATION)).thenReturn(Optional.empty());
+            when(materialiser.materialiseGrille(EXAMEN, STATION))
+                    .thenThrow(new BusinessException("exam-service injoignable"));
+
+            assertThatThrownBy(() -> service.resolveGrille(EXAMEN, STATION))
+                    .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("resolveItems()")
     class Items {
 
@@ -207,11 +251,12 @@ class ExamDefinitionSnapshotServiceTest {
 
     /** #183 « dé-lancer » doit purger le snapshot, sinon une grille modifiée serait notée sur la copie périmée. */
     @Test
-    @DisplayName("invalidateExam() purge les DEUX tables du snapshot")
-    void invalidatePurgeLesDeuxTables() {
+    @DisplayName("invalidateExam() purge les TROIS tables du snapshot")
+    void invalidatePurgeLesTroisTables() {
         service.invalidateExam(EXAMEN);
 
         verify(stationSnapshotRepository).deleteByExamenId(EXAMEN);
         verify(itemSnapshotRepository).deleteByExamenId(EXAMEN);
+        verify(grilleSnapshotRepository).deleteByExamenId(EXAMEN);
     }
 }

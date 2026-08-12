@@ -8,10 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
-import tn.epos.scoring_service.dto.dashboard.EvaluateurDashboardResponse;
-import tn.epos.scoring_service.dto.dashboard.LotDetailResponse;
-import tn.epos.scoring_service.dto.dashboard.SaisirNotationRequest;
-import tn.epos.scoring_service.dto.dashboard.ValiderEtudiantRequest;
+import tn.epos.scoring_service.dto.dashboard.*;
 import tn.epos.scoring_service.service.EvaluateurDashboardService;
 
 /**
@@ -76,6 +73,14 @@ public class EvaluateurDashboardController {
             @PathVariable Long rotationId, @AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(ApiResponse.ok(
                 dashboardService.getGroupeDetail(rotationId, extractUserId(jwt))));
+    }
+
+    // Réutilise la garde de propriété déjà écrite pour #213 (existsByEvaluateurIdAndStationId), plutôt que d'en inventer une seconde.
+    @GetMapping("/stations/{stationId}/grille")
+    public ResponseEntity<ApiResponse<GrilleSnapshotDTO>> getGrilleStation(
+            @PathVariable Long stationId, @AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                dashboardService.getGrilleStation(stationId, extractUserId(jwt))));
     }
 
     /**

@@ -1178,6 +1178,13 @@ class _GradingAppBar extends StatelessWidget {
                 _badge(state.lot.label, bold: true),
                 const SizedBox(width: 8),
                 _badge('${state.lot.etudiants.length} étudiants'),
+                // (#244) — la grille sert au chemin d'ÉCRITURE : l'évaluateur
+                // doit savoir qu'il travaille sur une copie locale, pas sur du repli
+                // silencieux (même doctrine qu'ADR-0015 pour "Intitulé indisponible").
+                if (state.grille.depuisCache) ...[
+                  const SizedBox(width: 8),
+                  _badge('Grille hors-ligne'),
+                ],
                 const Spacer(),
                 // BF6.1 — Indicateur de connexion WebSocket temps réel
                 _WsStatusBadge(),

@@ -154,6 +154,35 @@ class EvaluateurDashboardControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("GET /api/evaluateur/stations/{stationId}/grille")
+    class GetGrilleStation {
+        @Test
+        @DisplayName("200 - Retourne la grille figée")
+        void devraitRetourner200() throws Exception {
+            GrilleSnapshotDTO dto = new GrilleSnapshotDTO(5L, "Titrimétrie", 20.0,
+                    objectMapper.readTree("[]"));
+            when(dashboardService.getGrilleStation(1L, EVAL_ID)).thenReturn(dto);
+
+            mockMvc.perform(get("/api/evaluateur/stations/1/grille")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.nom").value("Titrimétrie"))
+                    .andExpect(jsonPath("$.data.noteMax").value(20.0));
+        }
+
+        @Test
+        @DisplayName("403 - Si l'évaluateur n'est pas affecté à la station")
+        void horsPerimetre_devraitRetourner403() throws Exception {
+            when(dashboardService.getGrilleStation(anyLong(), anyLong()))
+                    .thenThrow(new AccessDeniedException("Vous n'êtes pas affecté à la station 1."));
+
+            mockMvc.perform(get("/api/evaluateur/stations/1/grille")
+                            .with(jwt().jwt(j -> j.claim("userId", EVAL_ID))))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
     // =========================================================================
     // POST /api/evaluateur/rotations/{rotationId}/suivant  (#209 : un ACTE, donc un POST)
     // =========================================================================

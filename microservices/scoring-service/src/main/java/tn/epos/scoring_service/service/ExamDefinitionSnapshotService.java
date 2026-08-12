@@ -6,8 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.ExamStationSnapshot;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamItemSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamStationSnapshotRepository;
 
@@ -51,6 +53,7 @@ public class ExamDefinitionSnapshotService {
 
     private final ExamStationSnapshotRepository stationSnapshotRepository;
     private final ExamItemSnapshotRepository itemSnapshotRepository;
+    private final ExamGrilleSnapshotRepository grilleSnapshotRepository;
 
     /** Consulté UNIQUEMENT par le chemin d'affichage, pour son état de santé. */
     private final ExamServiceClient examServiceClient;
@@ -146,6 +149,12 @@ public class ExamDefinitionSnapshotService {
                 .collect(Collectors.toMap(ExamItemSnapshot::getItemId, Function.identity()));
     }
 
+    @Transactional
+    public ExamGrilleSnapshot resolveGrille(Long examenId, Long stationId) {
+        return grilleSnapshotRepository.findByStationId(stationId)
+                .orElseGet(() -> materialiser.materialiseGrille(examenId, stationId));
+    }
+
     /**
      * Weighted score for one graded item — the single definition of the arithmetic.
      *
@@ -177,6 +186,7 @@ public class ExamDefinitionSnapshotService {
     public void invalidateExam(Long examenId) {
         stationSnapshotRepository.deleteByExamenId(examenId);
         itemSnapshotRepository.deleteByExamenId(examenId);
+        grilleSnapshotRepository.deleteByExamenId(examenId);   // ← ligne ajoutée
         log.info("ADR-0015 : snapshot de définition invalidé pour l'examen {} (re-copie au prochain usage)", examenId);
     }
 

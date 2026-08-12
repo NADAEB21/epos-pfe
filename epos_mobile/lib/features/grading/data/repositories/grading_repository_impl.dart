@@ -9,6 +9,9 @@
 //
 // Remplace entièrement grading_repository_impl.dart.
 
+import 'dart:async' show unawaited;
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../../../../core/constants/api_constants.dart';
@@ -28,7 +31,15 @@ class GradingRepositoryImpl implements GradingRepository {
   GradingRepositoryImpl({required ApiClient apiClient})
       : _apiClient = apiClient;
 
-  // ── GET /stations/{id}/grille ─────────────────────────────────────────────
+  // ── GET /stations/{id}/grille — offline-first (#244) ────────────
+  //
+  // Chemin nominal inchangé : appel réseau, parsing. Deux ajouts :
+  //   1. Succès  → écrit le body brut en cache local (best-effort, jamais
+  //      bloquant — même posture que _memoriserLibelles dans grading_bloc.dart).
+  //   2. Échec RÉSEAU (pas une erreur métier 4xx/5xx) → retombe sur la
+  //      dernière grille mise en cache pour CETTE station, si elle existe.
+  //      Sinon, l'erreur d'origine remonte inchangée : ne jamais inventer
+  //      une grille vide plutôt que de dire clairement "rien en cache".
   @override
   Future<Grille> getGrille(int stationId) async {
     try {
@@ -37,9 +48,50 @@ class GradingRepositoryImpl implements GradingRepository {
       );
       final body = response.data as Map<String, dynamic>;
       final data = body['data'] as Map<String, dynamic>;
-      return GrilleModel.fromJson(data);
+
+      final grille = GrilleModel.fromJson(data);
+      // Écrit APRÈS un parsing réussi : ne jamais figer en cache un payload
+      // qu'on ne sait pas relire.
+      unawaited(_cacheGrilleSafely(stationId, data));
+      return grille;
     } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      // Transitoire = indisponibilité SERVEUR (réseau coupé, ou 5xx — le cas
+      // réellement reproduit dans #244 : 503 renvoyé par la gateway quand
+      // exam-service est arrêté). Jamais un 4xx : un refus métier (403 non
+      // affecté, 404 introuvable) doit rester une vraie erreur, pas un repli
+      // silencieux vers une grille potentiellement obsolète.
+      final isTransient =
+          e.type == DioExceptionType.connectionError ||
+              e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.receiveTimeout ||
+              (e.type == DioExceptionType.badResponse &&
+                  statusCode != null && statusCode >= 500);
+
+      if (isTransient) {
+        try {
+          final cached = await OfflineStorageService.instance.getCachedGrille(stationId);
+          if (cached != null) {
+            final decoded = jsonDecode(cached.grilleJson) as Map<String, dynamic>;
+            return GrilleModel.fromJson(decoded, depuisCache: true);
+          }
+        } catch (_) {
+          // Cache indisponible/corrompu : on retombe sur l'erreur réseau
+          // d'origine plutôt que de propager une exception de second ordre.
+        }
+      }
       throw _handleError(e, 'Impossible de charger la grille');
+    }
+  }
+
+  /// Écrit la grille en cache. Silencieux par conception : un échec d'écriture
+  /// de CACHE ne doit jamais transformer un chargement réussi en erreur pour
+  /// l'évaluateur (même principe que _memoriserLibelles dans grading_bloc.dart).
+  Future<void> _cacheGrilleSafely(int stationId, Map<String, dynamic> data) async {
+    try {
+      await OfflineStorageService.instance.cacheGrille(stationId, jsonEncode(data));
+    } catch (_) {
+      // Confort hors-ligne uniquement.
     }
   }
 

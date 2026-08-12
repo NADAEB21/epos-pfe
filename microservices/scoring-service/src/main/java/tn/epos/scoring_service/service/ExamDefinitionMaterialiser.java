@@ -1,5 +1,6 @@
 package tn.epos.scoring_service.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -8,10 +9,12 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamServiceClient;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
 import tn.epos.scoring_service.entities.ExamStationSnapshot;
 import tn.epos.scoring_service.repositories.ExamItemSnapshotRepository;
 import tn.epos.scoring_service.repositories.ExamStationSnapshotRepository;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 
 import java.util.List;
 import java.util.Map;
@@ -45,6 +48,7 @@ public class ExamDefinitionMaterialiser {
     private final ExamServiceClient examServiceClient;
     private final ExamStationSnapshotRepository stationSnapshotRepository;
     private final ExamItemSnapshotRepository itemSnapshotRepository;
+    private final ExamGrilleSnapshotRepository grilleSnapshotRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ExamStationSnapshot materialiseStation(Long examenId, Long stationId) {
@@ -98,6 +102,35 @@ public class ExamDefinitionMaterialiser {
             List<ExamItemSnapshot> existing = itemSnapshotRepository.findByGrilleId(grilleId);
             if (existing.isEmpty()) throw race;
             return existing;
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ExamGrilleSnapshot materialiseGrille(Long examenId, Long stationId) {
+        JsonNode data = examServiceClient.getGrilleStrict(stationId);
+
+        // Grille sans items (cas toléré côté mobile, cf. GrilleModel.fromJson) :
+        // on stocke un tableau vide explicite, jamais "" ou "null" — sinon la
+        // relecture (ObjectMapper.readTree) plante au lieu d'afficher une grille
+        // simplement vide.
+        JsonNode itemsNode = data.path("items");
+        String itemsJson = (itemsNode.isMissingNode() || itemsNode.isNull())
+                ? "[]" : itemsNode.toString();
+
+        ExamGrilleSnapshot snapshot = ExamGrilleSnapshot.builder()
+                .examenId(examenId)
+                .stationId(stationId)
+                .grilleId(data.path("id").asLong())
+                .nom(data.path("nom").asText(""))
+                .noteMax(data.path("noteMax").asDouble(20.0))
+                .itemsJson(itemsJson)
+                .build();
+        try {
+            ExamGrilleSnapshot saved = grilleSnapshotRepository.save(snapshot);
+            log.info("ADR-0015 : grille de la station {} figée (examen {})", stationId, examenId);
+            return saved;
+        } catch (DataIntegrityViolationException race) {
+            return grilleSnapshotRepository.findByStationId(stationId).orElseThrow(() -> race);
         }
     }
 }

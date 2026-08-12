@@ -10,14 +10,18 @@ class Grille extends Equatable {
   final String             nom;
   final double             noteMax;
   final List<ItemEvaluation> items;
+  /// cache offline — true quand cette grille vient du
+  /// cache local sqflite plutôt que d'un appel réseau réussi.
+  final bool                 depuisCache;
 
   const Grille({
     required this.id,
     required this.nom,
     required this.noteMax,
     required this.items,
+    this.depuisCache = false,
   });
 
   @override
-  List<Object?> get props => [id, nom, noteMax, items];
+  List<Object?> get props => [id, nom, noteMax, items, depuisCache];
 }

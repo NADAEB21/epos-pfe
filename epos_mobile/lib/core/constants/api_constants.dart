@@ -74,8 +74,9 @@ class ApiConstants {
   // === Dashboard évaluateur ===
   static const String dashboard = '/evaluateur/dashboard';
 
-  // === Grille (exam-service via gateway) ===
-  static String stationGrille(int stationId) => '/stations/$stationId/grille';
+  // dans grading_bloc.dart, le Future.wait([getGrille, getGroupe]) ne touche plus jamais exam-service —
+  // les deux appels vont désormais vers scoring-service, qui tient la promesse d'ADR-0015 de bout en bout.
+  static String stationGrille(int stationId) => '/evaluateur/stations/$stationId/grille';
 
   // === Lot + étudiants (scoring-service via gateway) ===
   // static String lotDetail(int stationId, int lotNumero) => '/evaluateur/stations/$stationId/lots/$lotNumero';

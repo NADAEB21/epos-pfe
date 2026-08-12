@@ -371,6 +371,41 @@ public class ExamServiceClient {
     }
 
     /**
+     * Grille complète d'une station, sans repli. Suit le patron le plus COMPLET
+     * du client (fetchItemInfos), pas celui — incomplet — de
+     * getStationNomStrict : sans classerEchec/signalerSucces, un échec ici
+     * n'ouvrirait pas la fenêtre de repli immédiat pour les autres appels
+     * d'AFFICHAGE pendant la même panne.
+     */
+    public JsonNode getGrilleStrict(Long stationId) {
+        String bearerToken = currentBearerToken();
+        try {
+            JsonNode root = webClient.get()
+                    .uri("/api/stations/{id}/grille", stationId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            signalerSucces();
+
+            JsonNode data = root == null ? null : root.path("data");
+            if (data == null || data.isMissingNode() || data.isNull() || !data.path("id").isNumber()) {
+                throw new BusinessException("exam-service n'a pas fourni de grille pour la station "
+                        + stationId + " — définition non figée.");
+            }
+            return data;
+        } catch (WebClientResponseException e) {
+            classerEchec(e);
+            throw new BusinessException("exam-service a renvoyé " + e.getStatusCode().value()
+                    + " pour la grille de la station " + stationId + " — définition non figée.");
+        } catch (RuntimeException e) {
+            classerEchec(e);
+            throw new BusinessException("exam-service injoignable pour la grille de la station "
+                    + stationId + " — définition non figée : " + e.getMessage());
+        }
+    }
+
+    /**
      * Récupère le nom d'une station depuis l'exam-service.
      * Résultat non mis en cache (champ mutable si examen en brouillon).
      */

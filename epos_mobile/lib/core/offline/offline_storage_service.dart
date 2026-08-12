@@ -349,16 +349,6 @@ class OfflineStorageService implements PendingStore {
     );
   }
 
-  // ── clearAll() : ajouter la purge du cache grille ────────────────────────
-  Future<void> clearAll() async {
-    if (kIsWeb) return;
-    final db = await _database;
-    await db.delete(_tableNotations);
-    await db.delete(_tableSyncLog);
-    await db.delete(_tableLabels);
-    await db.delete(_tableGrilleCache);   // ← ajouté
-  }
-
   // ── Écriture ────────────────────────────────────────────────────────────
 
   /// Insère ou remplace une notation en attente.
@@ -528,6 +518,7 @@ class OfflineStorageService implements PendingStore {
     await db.delete(_tableNotations);
     await db.delete(_tableSyncLog);
     await db.delete(_tableLabels);
+    await db.delete(_tableGrilleCache); // (#244) le cache de grille part avec le reste
   }
 
   // ── Libellés lisibles (#307) ─────────────────────────────────────────────

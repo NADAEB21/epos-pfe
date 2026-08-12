@@ -553,6 +553,15 @@ export interface LotEnCoursProgression {
   numeroLot: number;
   /** Instant d'ouverture réel. Null pour une vague ouverte avant la migration V9. */
   ouvertA: string | null;
+
+  /**
+   * #306 — l'identifiant de QUI a ouvert cette vague : le conducteur de l'épreuve.
+   *
+   * Le backend renvoie l'id, pas un nom — scoring n'a aucun client vers auth et n'en gagne
+   * pas un pour un libellé. Le Suivi le résout avec l'annuaire qu'il charge déjà.
+   * `null` pour une vague ouverte avant la migration V18 : on affiche alors « — ».
+   */
+  ouvertPar: number | null;
   /**
    * #252 — secondes écoulées depuis l'ouverture, **calculées par le serveur**.
    *

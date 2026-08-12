@@ -46,6 +46,21 @@ public class Lot {
     @Column(name = "ouvert_a")
     private LocalDateTime ouvertA;
 
+    // #306 / ADR-0024 — QUI a ouvert cette vague. Pendant de `ouvertA` : le système savait
+    // quand, jamais par qui. Écrit uniquement par LotOuvertureService, comme `ouvertA`.
+    //
+    // C'est CETTE colonne qui désigne le CONDUCTEUR — l'auteur du dernier acte de conduite —
+    // et non `examens.lance_par`, qui ne sert que par défaut. Cas qui l'impose : B lance,
+    // rentre chez lui, C ouvre la vague suivante ; retenir le lanceur protègerait l'absent.
+    //
+    // ⚠️ Fait OBSERVÉ, jamais une permission : le droit d'agir se décide par la matière (#274).
+    //
+    // ⚠️ @Column EXPLICITE, même raison que `ouvertA` juste au-dessus : la stratégie de nommage
+    // par défaut n'examine jamais la dernière lettre, donc une majuscule finale isolée ne
+    // recevrait pas son underscore.
+    @Column(name = "ouvert_par")
+    private Long ouvertPar;
+
     @Enumerated(EnumType.STRING)
     private LotStatus statut;
 

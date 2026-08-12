@@ -15,6 +15,7 @@ import tn.epos.exam_service.entities.GrilleEvaluation;
 import tn.epos.exam_service.entities.Station;
 import java.util.ArrayList;
 import tn.epos.exam_service.enums.StatutExamen;
+import tn.epos.exam_service.config.CallerIdentity;
 import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
@@ -47,6 +48,8 @@ public class ExamenServiceImpl implements ExamenService {
     private final ExamenRepository examenRepository;
     private final MatiereAccessChecker matiereAccessChecker;
     private final Clock clock;
+    /** #306 — qui agit. exam-service n'avait aucun extracteur d'identite. */
+    private final CallerIdentity callerIdentity;
 
     @Value("${epos.upload.dir}")
     private String uploadDir;
@@ -230,7 +233,20 @@ public class ExamenServiceImpl implements ExamenService {
         // → EN_COURS qu'une fois, mais on garde le garde-fou explicite).
         if (nouveauStatut == StatutExamen.EN_COURS && examen.getLaunchedAt() == null) {
             examen.setLaunchedAt(LocalDateTime.now(clock));
-            log.info("Examen {} lancé à {} (launched_at)", id, examen.getLaunchedAt());
+            // #306 / ADR-0024 — et PAR QUI. Même garde « une seule fois » que l'horodatage :
+            // les deux moitiés du même fait, posées ensemble ou pas du tout.
+            //
+            // Une identité absente n'annule PAS le lancement : on préfère un `lance_par` nul,
+            // honnête, à une épreuve refusée parce que le jeton était atypique. C'est une trace,
+            // pas une garde — le droit d'agir a déjà été tranché plus haut par checkAccess (#274).
+            Long acteur = callerIdentity.getCallerUserId();
+            examen.setLancePar(acteur);
+            if (acteur == null) {
+                log.warn("Examen {} lancé sans auteur identifiable (claim userId absent du JWT) "
+                        + "— lance_par reste null plutôt que d'inventer une attribution.", id);
+            }
+            log.info("Examen {} lancé à {} par user={} (launched_at, lance_par)",
+                    id, examen.getLaunchedAt(), acteur);
         }
 
         log.info("Examen {} : statut changé {} → {}", id, examen.getStatut(), nouveauStatut);
@@ -385,11 +401,16 @@ public class ExamenServiceImpl implements ExamenService {
         // détruite (le reset est refusé dès qu'une notation existe).
         examen.setStatut(StatutExamen.CONFIGURE);
         examen.setLaunchedAt(null);
+        // #306 — l'auteur part AVEC l'horodatage. Les deux sont les deux moitiés d'un même
+        // fait : garder `lance_par` alors que `launched_at` est effacé désignerait comme
+        // lanceur quelqu'un qui n'a pas lancé la session en cours, et un relancement par
+        // quelqu'un d'autre hériterait silencieusement du nom du précédent.
+        examen.setLancePar(null);
         examen.setPausedAt(null);
         examen.setTotalPauseSec(0);
         examen.setEnPause(false);
 
-        log.info("Examen {} réinitialisé EN_COURS → CONFIGURE (launched_at + pause effacés)", id);
+        log.info("Examen {} réinitialisé EN_COURS → CONFIGURE (launched_at + lance_par + pause effacés)", id);
         return toResponse(examenRepository.save(examen), false);
     }
 
@@ -526,6 +547,7 @@ public class ExamenServiceImpl implements ExamenService {
         response.setPausedAt(examen.getPausedAt());
         response.setTotalPauseSec(examen.getTotalPauseSec());
         response.setLaunchedAt(examen.getLaunchedAt());
+        response.setLancePar(examen.getLancePar());   // #306 — quand ET par qui
         response.setCreatedAt(examen.getCreatedAt());
         response.setUpdatedAt(examen.getUpdatedAt());
 

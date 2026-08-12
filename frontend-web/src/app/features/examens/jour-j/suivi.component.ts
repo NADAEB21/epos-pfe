@@ -215,6 +215,36 @@ export class SuiviComponent {
   private readonly stationsCache = signal<StationSummary[]>([]);
   private readonly evaluateursCache = signal<UserResponse[]>([]);
 
+  /**
+   * #306 — annuaire COMPLET, pour nommer le conducteur.
+   *
+   * Pourquoi pas `evaluateursCache` : le conducteur est un RESPONSABLE. Il n'apparaît dans la
+   * liste filtrée `listUsers('EVALUATEUR')` que s'il porte aussi ce rôle — ce qui est le cas de
+   * certains comptes de test, et c'est précisément le genre de coïncidence qui fait passer une
+   * fonctionnalité pour correcte jusqu'au jour J.
+   */
+  private readonly annuaireCache = signal<UserResponse[]>([]);
+
+  /**
+   * #306 — « conduite par X » : le nom de l'auteur du DERNIER acte de conduite.
+   *
+   * Répond à ce qu'aucun écran ne savait dire : deux co-responsables peuvent conduire la même
+   * épreuve — l'un dans la salle, l'autre chez lui — et jusqu'ici ni l'un ni l'autre n'était
+   * informé de l'existence du second.
+   *
+   * Rend `null` si la vague est antérieure à la migration, si le jeton n'avait pas d'identité,
+   * ou si l'id n'est pas dans l'annuaire : on n'affiche alors RIEN plutôt qu'un « Utilisateur 2 »
+   * plausible et inutile.
+   */
+  readonly conducteurNom = computed<string | null>(() => {
+    const id = this.progression()?.lotOuvert?.ouvertPar;
+    if (id == null) return null;
+    const u = this.annuaireCache().find((x) => x.id === id);
+    if (!u) return null;
+    const nom = `${u.prenom ?? ''} ${u.nom ?? ''}`.trim();
+    return nom.length > 0 ? nom : null;
+  });
+
   // ---- #296 — suppléance d'un évaluateur en pleine épreuve (ADR-0017 §3) ----
   /** Station dont le panneau de remplacement est ouvert, ou null. */
   readonly remplacementStationId = signal<number | null>(null);
@@ -471,13 +501,17 @@ export class SuiviComponent {
     forkJoin({
       stations: this.examApi.listStations(examId),
       evaluateurs: this.directory.listUsers('EVALUATEUR'),
+      // #306 — l'annuaire complet : le conducteur est un responsable, absent de la
+      // liste filtree ci-dessus.
+      annuaire: this.directory.listUsers(),
       participations: this.scoring.listParticipations(examId),
       etudiants: this.scoring.listEtudiants(),
       // #208 — l'avancement, dérivé côté serveur. Chargé AVEC le reste : sans lui, les
       // couloirs se rendraient une fraction de seconde sans statut, donc en « à venir ».
       progression: this.scoring.getProgression(examId),
     }).subscribe({
-      next: ({ stations, evaluateurs, participations, etudiants, progression }) => {
+      next: ({ stations, evaluateurs, annuaire, participations, etudiants, progression }) => {
+        this.annuaireCache.set(annuaire);
         this.indexNames(participations, etudiants);
         this.progression.set(progression);
         const sorted = [...stations].sort(

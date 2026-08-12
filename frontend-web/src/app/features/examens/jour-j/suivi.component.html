@@ -77,6 +77,13 @@
               } @else {
                 Lot {{ lot.numeroLot }} · vague terminée
               }
+              <!-- #306 — QUI conduit. Deux co-responsables peuvent mener la même épreuve, l'un
+                   dans la salle et l'autre chez lui : sans ce nom, aucun des deux ne sait que
+                   l'autre existe. Omis (et non « — ») quand l'auteur est inconnu : une vague
+                   d'avant la migration n'a rien à annoncer. -->
+              @if (conducteurNom(); as conducteur) {
+                · conduite par <span class="font-medium">{{ conducteur }}</span>
+              }
               · <span class="text-gray-400">
                 {{ lot.groupesTermines }}/{{ lot.groupesTotal }} groupes bouclés
               </span>

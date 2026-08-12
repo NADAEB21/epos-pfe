@@ -925,6 +925,10 @@ class ExamenServiceImplTest {
 
             assertThat(result.getStatut()).isEqualTo(StatutExamen.CONFIGURE);
             assertThat(result.getLaunchedAt()).isNull();
+            // #306 — l'auteur part AVEC l'horodatage : les deux moitiés du même fait. Les garder
+            // désynchronisés désignerait comme lanceur quelqu'un qui n'a pas lancé la session en
+            // cours, et un relancement par une autre personne hériterait de son nom.
+            assertThat(result.getLancePar()).isNull();
             assertThat(result.getPausedAt()).isNull();
             assertThat(result.isEnPause()).isFalse();
             assertThat(result.getTotalPauseSec()).isZero();

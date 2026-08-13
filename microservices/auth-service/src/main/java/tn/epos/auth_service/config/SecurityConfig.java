@@ -26,6 +26,7 @@ import tn.epos.auth_service.service.UserDetailsServiceImpl;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final InternalAuthFilter internalAuthFilter;
     private final UserDetailsServiceImpl userDetailsService;
 
     // -------------------------------------------------------------------------
@@ -55,11 +56,16 @@ public class SecurityConfig {
                     ).permitAll()
                     // Actuator health check (used by Eureka / Docker health probes)
                     .requestMatchers("/actuator/health").permitAll()
+                    // #306 — inter-services : permitAll ICI parce que la décision
+                    // appartient à InternalAuthFilter (preuve dérivée de JWT_SECRET),
+                    // enregistré AVANT cette chaîne. Non routé par la gateway.
+                    .requestMatchers("/internal/**").permitAll()
                     // Everything else requires a valid JWT
                     .anyRequest().authenticated()
             )
             .authenticationProvider(authenticationProvider)
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(internalAuthFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

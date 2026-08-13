@@ -86,4 +86,30 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u.failedLoginAttempts FROM User u WHERE u.id = :userId")
     @QueryHints(@QueryHint(name = "jakarta.persistence.cache.retrieveMode", value = "BYPASS"))
     int getFailedLoginAttempts(@Param("userId") Long userId);
+
+    /** #306 — une ligne de la liste de révocation distribuée. */
+    interface RevocationRow {
+        Long getUserId();
+        java.time.LocalDateTime getInvalidBefore();
+    }
+
+    /**
+     * #306 — les révocations plus récentes que {@code since}. Les plus anciennes sont
+     * inutiles : un jeton émis avant elles est déjà mort d'expiration. C'est ce qui borne la
+     * liste distribuée à une poignée d'entrées.
+     */
+    @Query("SELECT u.id AS userId, u.tokensInvalidBefore AS invalidBefore FROM User u "
+            + "WHERE u.tokensInvalidBefore > :since")
+    List<RevocationRow> findRevocationsSince(@Param("since") java.time.LocalDateTime since);
+
+    /**
+     * #306 — pose l'estampille « jetons émis avant maintenant = morts » sans passer par
+     * l'entité managée : plusieurs appelants (retrait, rôles, mot de passe) tiennent déjà
+     * un {@code User} dans des états de session différents, et une écriture directe est
+     * insensible à ces différences.
+     */
+    @Modifying
+    @Query("UPDATE User u SET u.tokensInvalidBefore = :instant WHERE u.id = :userId")
+    void stampTokensInvalidBefore(@Param("userId") Long userId,
+                                  @Param("instant") java.time.LocalDateTime instant);
 }

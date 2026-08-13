@@ -80,7 +80,12 @@ jwt:
   # MUST be set via env. Minimum 32 bytes (256 bits) for HS256.
   # No default — application fails fast at startup if JWT_SECRET is missing.
   secret: ${JWT_SECRET:}
-  access-token-expiry-ms: 86400000    # 24 h
+  # #306 (filet A) — 4 h au lieu de 24 h : borne le pire cas si la liste de
+  # révocation venait à défaillir. PAS plus court : le renouvellement passe par
+  # le refresh silencieux (mobile: _JwtInterceptor sur 401 ; refresh token 7 j),
+  # et un TTL trop agressif fabriquerait des déconnexions en pleine station sur
+  # le Wi-Fi de la faculté (avertissement ADR-0023). Surchargeable par env.
+  access-token-expiry-ms: ${JWT_ACCESS_TOKEN_EXPIRY_MS:14400000}    # 4 h
   refresh-token-expiry-ms: 604800000  # 7 days
 
 # ─── Password hashing ─────────────────────────────────────────────────────────

@@ -252,15 +252,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   // ── Helpers privés ────────────────────────────────────────────────────────
 
-  /// BF6.1 — Récupère le token et initialise le WebSocketService.
-  /// En mode mock (_getAccessToken == null) : no-op silencieux.
+  /// BF6.1 + #306 — Initialise le WebSocketService avec le FOURNISSEUR de
+  /// jeton, pas un jeton figé : la connexion STOMP vit des heures et doit se
+  /// reconnecter avec un jeton frais après l'expiration de celui du login
+  /// (TTL 4 h). En mode mock (_getAccessToken == null) : no-op silencieux.
   Future<void> _startWebSocket() async {
-    if (_getAccessToken == null) return;
+    final provider = _getAccessToken;
+    if (provider == null) return;
     try {
-      final token = await _getAccessToken!();
-      if (token != null && token.isNotEmpty) {
-        WebSocketService.instance.init(token);
-      }
+      WebSocketService.instance.init(provider);
     } catch (e) {
       // Le WebSocket est optionnel (BF6.1 = "Should Have").
       // Un échec ici ne doit jamais bloquer le flux d'authentification.

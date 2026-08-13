@@ -49,7 +49,7 @@ public class TokenRevocationService {
     public TokenRevocationService(UserRepository userRepository,
                                   TokenRevocationList localList,
                                   Clock clock,
-                                  @Value("${jwt.access-token-expiry-ms:86400000}") long accessTokenExpiryMs) {
+                                  @Value("${jwt.access-token-expiry-ms:14400000}") long accessTokenExpiryMs) {
         this.userRepository = userRepository;
         this.localList = localList;
         this.clock = clock;

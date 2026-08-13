@@ -33,7 +33,7 @@ public class JwtService {
 
     public JwtService(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.access-token-expiry-ms:86400000}") long accessTokenExpiryMs,
+            @Value("${jwt.access-token-expiry-ms:14400000}") long accessTokenExpiryMs,
             @Value("${jwt.refresh-token-expiry-ms:604800000}") long refreshTokenExpiryMs) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException(

@@ -46,7 +46,11 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        # --enforce-lockfile : la CI installe EXACTEMENT les versions du
+        # pubspec.lock commité (empreintes sha256 incluses) au lieu de
+        # re-résoudre librement — la règle « pin your dependencies » de la
+        # Quality Gate, et la reproductibilité réelle des builds.
+        run: flutter pub get --enforce-lockfile
 
       # `dart analyze`, PAS `flutter analyze` : ce dernier exige le support des
       # symlinks (cassé sur certains postes Windows) et n'apporte rien de plus

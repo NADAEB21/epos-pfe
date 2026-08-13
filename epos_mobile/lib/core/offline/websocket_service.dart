@@ -80,7 +80,13 @@ class WebSocketService {
 
   bool _isConnected    = false;
   bool _shouldConnect  = false; // false = service arrêté intentionnellement
-  String? _accessToken;
+
+  // #306 — un FOURNISSEUR de jeton, pas un jeton figé. La connexion STOMP vit
+  // des heures ; avec le TTL d'accès raccourci à 4 h et le CONNECT fermé côté
+  // scoring, rejouer le jeton du login après son expiration bouclerait à
+  // l'infini sur un refus. Le fournisseur (ApiClient.getValidAccessToken) est
+  // relu à CHAQUE tentative et rafraîchit lui-même un jeton expiré.
+  Future<String?> Function()? _tokenProvider;
 
   // Souscriptions actives (stationId → StompUnsubscribe)
   final Map<int, StompUnsubscribe> _scoreSubscriptions = {};
@@ -102,10 +108,10 @@ class WebSocketService {
 
   // ── Démarrage ────────────────────────────────────────────────────────────
 
-  /// Initialise le service avec le token JWT de l'évaluateur connecté.
+  /// Initialise le service avec un fournisseur de jeton JWT (#306).
   /// À appeler après un login réussi.
-  void init(String accessToken) {
-    _accessToken   = accessToken;
+  void init(Future<String?> Function() tokenProvider) {
+    _tokenProvider = tokenProvider;
     _shouldConnect = true;
     _currentBackoff = _minBackoff;
 
@@ -130,9 +136,24 @@ class WebSocketService {
 
   // ── Connexion STOMP ──────────────────────────────────────────────────────
 
-  void _connect() {
+  Future<void> _connect() async {
     if (_client?.connected == true) return;
-    if (_accessToken == null) return;
+    final provider = _tokenProvider;
+    if (provider == null) return;
+
+    // #306 — jeton relu (et rafraîchi si besoin) à CHAQUE tentative, jamais
+    // celui du login. Un fournisseur en échec (hors ligne) ne bloque pas :
+    // la reconnexion à backoff retentera.
+    String? token;
+    try {
+      token = await provider();
+    } catch (e) {
+      debugPrint('[WS] Lecture du jeton impossible: $e');
+    }
+    if (token == null || token.isEmpty) {
+      if (_shouldConnect) _scheduleReconnect();
+      return;
+    }
 
     final wsUrl = ApiConstants.wsUrl;
 
@@ -140,7 +161,15 @@ class WebSocketService {
       config: StompConfig.sockJS(
         url: wsUrl,
         webSocketConnectHeaders: {
-          'Authorization': 'Bearer $_accessToken',
+          'Authorization': 'Bearer $token',
+        },
+        // #306 — le jeton doit AUSSI vivre dans la frame CONNECT : c'est elle que le
+        // backend authentifie (StompConnectAuthenticator), et sous SockJS en repli
+        // long-polling les en-têtes de poignée de main ne suivent pas toujours.
+        // Sans cette ligne, la connexion était en réalité ANONYME côté STOMP — elle
+        // ne tenait que par un repli fail-open que #306 supprime.
+        stompConnectHeaders: {
+          'Authorization': 'Bearer $token',
         },
         onConnect:         _onConnect,
         onDisconnect:      _onDisconnect,
@@ -310,7 +339,7 @@ class WebSocketService {
     _reconnectTimer?.cancel();
     _connectivitySub?.cancel();
     _disconnectClient();
-    _accessToken = null;
+    _tokenProvider = null;
     _scoreSubscriptions.clear();
     _lotSubscriptions.clear();
   }

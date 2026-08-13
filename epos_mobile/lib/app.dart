@@ -52,8 +52,16 @@ class _EposAppState extends State<EposApp> {
   @override
   void initState() {
     super.initState();
-    _authBloc    = AuthBloc(authRepository: widget.authRepository)
-      ..add(const AuthCheckRequested());
+    // #306 — LE CÂBLAGE QUI MANQUAIT (même famille que #307/SyncService) :
+    // sans getAccessToken, AuthBloc ne démarrait JAMAIS le WebSocket — l'app
+    // réelle n'avait aucune connexion STOMP, et personne ne le voyait.
+    // getValidAccessToken (pas getAccessToken) : le fournisseur rafraîchit un
+    // jeton expiré avant le CONNECT, désormais fermé côté scoring.
+    // Couvert par test/unit/ws_wiring_test.dart : ne pas retirer.
+    _authBloc    = AuthBloc(
+      authRepository: widget.authRepository,
+      getAccessToken: widget.apiClient?.getValidAccessToken,
+    )..add(const AuthCheckRequested());
     _sessionBloc = SessionBloc(repository: widget.sessionRepository);
     // BF1.3 / changement de mot de passe (écran Profil) — ProfileBloc a
     // besoin de l'AuthRepository pour appeler le vrai endpoint

@@ -40,8 +40,11 @@ eureka:
 
 jwt:
   secret: dGVzdC1zZWNyZXQta2V5LWZvci1jaS10ZXN0aW5nLW9ubHk=
-  expiration: 86400000
-  refresh-expiration: 604800000
+  # #306 — les VRAIS noms de propriété (les anciens `expiration` /
+  # `refresh-expiration` n'étaient lus par personne : les tests tournaient
+  # sur les valeurs par défaut des @Value sans que rien ne le dise).
+  access-token-expiry-ms: 14400000    # 4 h, aligné sur application.yml
+  refresh-token-expiry-ms: 604800000  # 7 jours
 
 app:
   mail:

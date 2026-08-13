@@ -18,6 +18,11 @@ on:
       - 'epos_mobile/**'
       - '.github/workflows/mobile-ci.yml'
 
+# Le jeton du job n'a besoin que de LIRE le dépôt ; sans ce bloc, GITHUB_TOKEN
+# naît avec les droits d'écriture par défaut — inutile ici, donc retiré.
+permissions:
+  contents: read
+
 jobs:
   analyze-and-test:
     runs-on: ubuntu-latest

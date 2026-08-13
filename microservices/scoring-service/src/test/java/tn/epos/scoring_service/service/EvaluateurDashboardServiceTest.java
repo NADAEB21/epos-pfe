@@ -1482,6 +1482,14 @@ class EvaluateurDashboardServiceTest {
     @DisplayName("validerEtudiant()")
     class ValiderEtudiantLogic {
 
+        /** #297 — un NotationItem réellement saisi, pour représenter une grille complète. */
+        private NotationItem itemSaisi(Long itemId, float valeur) {
+            NotationItem ni = new NotationItem();
+            ni.setItemId(itemId);
+            ni.setValeur(valeur);
+            return ni;
+        }
+
         @Test
         @DisplayName("Absent : score = 0, notation verrouillée, assignment.presenceConfirmee = false")
         void validerEtudiant_absent() {
@@ -1506,20 +1514,26 @@ class EvaluateurDashboardServiceTest {
             assertThat(ra.getPresenceConfirmee()).isFalse();
             verify(notationItemRepository).deleteAll(anyList());
             verify(rotationAssignmentRepository).save(ra);
+            // #297 — l'absence ne passe JAMAIS par la garde de complétude.
+            verify(examDefinitionSnapshot, never()).resolveItems(any(), any());
         }
 
         @Test
-        @DisplayName("Présent : notation verrouillée, assignment.presenceConfirmee = true")
-        void validerEtudiant_present() {
+        @DisplayName("#297 : présent + grille complète (tous critères saisis) → verrouillage accepté")
+        void validerEtudiant_present_grilleComplete() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
-            Notation n = new Notation(); n.setId(10L); n.setScore_final(12f);
+            Notation n = new Notation(); n.setId(10L); n.setScore_final(12f); n.setVerouillee(false);
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
             when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+            when(notationItemRepository.findByNotationId(10L))
+                    .thenReturn(List.of(itemSaisi(5L, 1f)));
 
             ValiderEtudiantRequest req = new ValiderEtudiantRequest();
             req.setAbsent(false);
@@ -1533,45 +1547,49 @@ class EvaluateurDashboardServiceTest {
         }
 
         @Test
-        @DisplayName("#212 note agrégée : participation.note = SOMME des score_final de toutes les stations notées")
-        void validerEtudiant_noteAgregeeCrossStation() {
+        @DisplayName("#297 : présent + critère manquant → refus, RIEN n'est persisté")
+        void validerEtudiant_present_critereManquant_refuse() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
-            Notation courante = new Notation(); courante.setId(10L); courante.setScore_final(7f);
+            Notation n = new Notation(); n.setId(10L); n.setVerouillee(false);
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
             when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
-            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(courante));
-            // Deux stations déjà notées pour CETTE participation : 7 (station courante) + 12.
-            Notation autreStation = new Notation(); autreStation.setId(11L); autreStation.setScore_final(12f);
-            when(notationRepository.findByParticipationId(1L))
-                    .thenReturn(List.of(courante, autreStation));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+            // Grille à DEUX critères notables, un seul saisi.
+            Map<Long, ExamItemSnapshot> deuxCriteres = new HashMap<>(definition(5L, 1.0, "NUMERIQUE"));
+            deuxCriteres.putAll(definition(6L, 2.0, "BINAIRE"));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L))).thenReturn(deuxCriteres);
+            when(notationItemRepository.findByNotationId(10L))
+                    .thenReturn(List.of(itemSaisi(5L, 1f))); // item 6 manque
 
             ValiderEtudiantRequest req = new ValiderEtudiantRequest();
             req.setAbsent(false);
             req.setGrilleId(1L);
-            service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
 
-            // 7 + 12 = 19, PAS 7 (pas de clobber par la seule station courante).
-            assertThat(p.getNote()).isEqualTo(19f);
-            verify(participationRepository).save(p);
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, EVAL_ID, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("1 critère")
+                    .hasMessageContaining("Prenom1 Nom1");
+
+            // Refus dur : rien n'est écrit.
+            assertThat(n.getVerouillee()).isFalse();
+            verify(notationRepository, never()).save(any(Notation.class));
+            verify(rotationAssignmentRepository, never()).save(any(RotationAssignment.class));
+            verify(participationRepository, never()).save(any(ExamenParticipation.class));
         }
 
-        /**
-         * #212 (dernier volet) — RÉÉCRIT, pas restauré : l'ancienne version affirmait
-         * l'écriture sur la PARTICIPATION — c'est-à-dire le clobber lui-même (une ligne
-         * partagée entre N stations, la dernière validation écrasait les autres, comme
-         * jadis est_present et note). Le commentaire vit désormais sur la Notation,
-         * par (participation, station), et la participation n'est plus touchée.
-         */
         @Test
-        @DisplayName("#212 : le commentaire vit sur la NOTATION (par station), plus sur la participation")
-        void validerEtudiant_commentaireEnregistre() {
+        @DisplayName("#297 : notation déjà verrouillée → second appel refusé, jamais réécrite en silence")
+        void validerEtudiant_dejaVerrouillee_refuse() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
             Notation n = new Notation(); n.setId(10L);
+            n.setVerouillee(true);
+            n.setVerrouillePar(999L);
+            n.setCommentaire("ancien commentaire");
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
@@ -1582,29 +1600,107 @@ class EvaluateurDashboardServiceTest {
             ValiderEtudiantRequest req = new ValiderEtudiantRequest();
             req.setAbsent(false);
             req.setGrilleId(1L);
+            req.setCommentaire("nouvelle tentative");
+
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, EVAL_ID, req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("réajustement");
+
+            assertThat(n.getVerrouillePar()).isEqualTo(999L);
+            assertThat(n.getCommentaire()).isEqualTo("ancien commentaire");
+            verify(notationRepository, never()).save(any(Notation.class));
+            // La garde de re-verrou précède la garde de complétude.
+            verify(examDefinitionSnapshot, never()).resolveItems(any(), any());
+        }
+
+        @Test
+        @DisplayName("#297 : notation déjà verrouillée + absent=true → refus quand même (l'absence ne réouvre pas)")
+        void validerEtudiant_dejaVerrouillee_absent_refuseAussi() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
+            Notation n = new Notation(); n.setId(10L);
+            n.setVerouillee(true);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            req.setAbsent(true);
+            req.setGrilleId(1L);
+
+            assertThatThrownBy(() -> service.validerEtudiant(1L, STATION_ID, EVAL_ID, req))
+                    .isInstanceOf(BusinessException.class);
+
+            verify(notationItemRepository, never()).deleteAll(anyList());
+        }
+
+        @Test
+        @DisplayName("#212 note agrégée : participation.note = SOMME des score_final de toutes les stations notées")
+        void validerEtudiant_noteAgregeeCrossStation() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
+            Notation courante = new Notation(); courante.setId(10L); courante.setScore_final(7f);
+            courante.setVerouillee(false);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(courante));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+            when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of(itemSaisi(5L, 1f)));
+            Notation autreStation = new Notation(); autreStation.setId(11L); autreStation.setScore_final(12f);
+            when(notationRepository.findByParticipationId(1L))
+                    .thenReturn(List.of(courante, autreStation));
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            req.setAbsent(false);
+            req.setGrilleId(1L);
+            service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
+
+            assertThat(p.getNote()).isEqualTo(19f);
+            verify(participationRepository).save(p);
+        }
+
+        @Test
+        @DisplayName("#212 : le commentaire vit sur la NOTATION (par station), plus sur la participation")
+        void validerEtudiant_commentaireEnregistre() {
+            ExamenParticipation p = participation(1L); p.setId(1L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
+            Notation n = new Notation(); n.setId(10L); n.setVerouillee(false);
+
+            when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
+                    .thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
+                    .thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+            when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of(itemSaisi(5L, 1f)));
+
+            ValiderEtudiantRequest req = new ValiderEtudiantRequest();
+            req.setAbsent(false);
+            req.setGrilleId(1L);
             req.setCommentaire("Bonne manipulation");
             service.validerEtudiant(1L, STATION_ID, EVAL_ID, req);
 
             assertThat(n.getCommentaire()).isEqualTo("Bonne manipulation");
-            assertThat(p.getCommentaire()).isNull();   // la ligne partagée n'est PLUS écrite
+            assertThat(p.getCommentaire()).isNull();
         }
 
-        /**
-         * #212 — LE test du clobber : deux stations, deux commentaires. Sous l'ancien
-         * modèle, la validation de la station B écrasait le commentaire de la station A
-         * sur la ligne partagée. Ici chacun survit sur SA notation.
-         */
         @Test
         @DisplayName("#212 : deux stations → deux commentaires, aucun n'écrase l'autre")
         void validerEtudiant_commentairesParStationNeSEcrasentPas() {
             ExamenParticipation p = participation(1L); p.setId(1L);
             RotationAssignment raA = new RotationAssignment(); raA.setId(55L);
             RotationAssignment raB = new RotationAssignment(); raB.setId(56L);
-            Notation nA = new Notation(); nA.setId(10L);
-            Notation nB = new Notation(); nB.setId(11L);
+            Notation nA = new Notation(); nA.setId(10L); nA.setVerouillee(false);
+            Notation nB = new Notation(); nB.setId(11L); nB.setVerouillee(false);
 
-            // #213 — ce test valide sur DEUX stations : l'évaluateur doit tenir les
-            // deux, sinon le garde d'écriture tombe sur la seconde (station 99).
             when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, 99L))
                     .thenReturn(true);
 
@@ -1616,6 +1712,12 @@ class EvaluateurDashboardServiceTest {
                     .thenReturn(Optional.of(raB));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(nA));
             when(notationRepository.findByAssignmentId(56L)).thenReturn(Optional.of(nB));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(2L)))
+                    .thenReturn(definition(6L, 1.0, "NUMERIQUE"));
+            when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of(itemSaisi(5L, 1f)));
+            when(notationItemRepository.findByNotationId(11L)).thenReturn(List.of(itemSaisi(6L, 1f)));
 
             ValiderEtudiantRequest reqA = new ValiderEtudiantRequest();
             reqA.setAbsent(false); reqA.setGrilleId(1L);
@@ -1639,12 +1741,16 @@ class EvaluateurDashboardServiceTest {
             RotationAssignment ra = new RotationAssignment(); ra.setId(55L);
             ra.setParticipation(p);
             Notation n = new Notation(); n.setId(10L); n.setScore_final(8f); n.setAssignment(ra);
+            n.setVerouillee(false);
 
             when(participationRepository.findByEtudiantIdAndStationId(anyLong(), anyLong()))
                     .thenReturn(Optional.of(p));
             when(rotationAssignmentRepository.findByParticipationIdAndStationId(1L, STATION_ID))
                     .thenReturn(Optional.of(ra));
             when(notationRepository.findByAssignmentId(55L)).thenReturn(Optional.of(n));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L)))
+                    .thenReturn(definition(5L, 1.0, "NUMERIQUE"));
+            when(notationItemRepository.findByNotationId(10L)).thenReturn(List.of(itemSaisi(5L, 1f)));
 
             ValiderEtudiantRequest req = new ValiderEtudiantRequest();
             req.setAbsent(false);
@@ -1703,14 +1809,6 @@ class EvaluateurDashboardServiceTest {
     @DisplayName("validerGroupe()")
     class ValiderGroupeLogic {
 
-        /**
-         * #209 — RÉÉCRIT, pas restauré : la version #207 de ce test exigeait que valider
-         * OUVRE le rang suivant. C'était le couplage qui « déplaçait » l'évaluateur : valider
-         * puis quitter l'écran ⇒ au retour, un AUTRE groupe, grille vide (vécu par Nada).
-         * Règle actée 2026-07-23 : valider = verrouiller, point ; seul le clic explicite
-         * « Groupe suivant » ({@code avancerGroupe}) avance. EN_COURS garde ses écrivains
-         * légitimes : l'ouverture de vague (LotOuvertureService) et l'avance explicite.
-         */
         @Test
         @DisplayName("#209 : valider VERROUILLE mais n'ouvre PAS le rang suivant")
         void validerGroupe_nAvancePlus() {
@@ -1730,74 +1828,66 @@ class EvaluateurDashboardServiceTest {
             service.validerGroupe(1L, EVAL_ID);
 
             assertThat(courante.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            // Le rang suivant n'a PAS bougé : il attend le clic de l'évaluateur.
             assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
             verify(rotationRepository, never()).save(suivante);
         }
 
         @Test
-        @DisplayName("Groupe validé, mais d'autres rotations du lot restent actives → lot NON clôturé")
-        void validerGroupe_lotResteOuvert() {
+        @DisplayName("#297 : un étudiant PRÉSENT sans verdict (jamais noté) bloque la validation, et il est nommé")
+        void validerGroupe_etudiantSansVerdict_refuse() {
             Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
             Rotation r = rotationWithLot(1L, lot, 1);
 
-            RotationAssignment ra = new RotationAssignment(); ra.setId(50L);
-            Notation n = new Notation(); n.setId(5L); n.setVerouillee(false);
+            ExamenParticipation p = participation(7L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(50L); ra.setParticipation(p);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
-            when(notationRepository.findByAssignmentId(50L)).thenReturn(Optional.of(n));
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(2L); // encore 2 rotations non terminées
+            when(notationRepository.findByAssignmentId(50L)).thenReturn(Optional.empty());
 
-            service.validerGroupe(1L, EVAL_ID);
+            assertThatThrownBy(() -> service.validerGroupe(1L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("aucun verdict")
+                    .hasMessageContaining("Prenom7 Nom7");
 
-            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            assertThat(n.getVerouillee()).isTrue();
-            verify(rotationRepository).save(r);
+            assertThat(r.getStatut()).isNotEqualTo(RotationStatus.TERMINE);
+            verify(rotationRepository, never()).save(r);
             verify(lotRepository, never()).save(any());
-            verify(messagingTemplate).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
         }
 
         @Test
-        @DisplayName("Dernière rotation active du lot → le lot est clôturé automatiquement (TERMINE)")
-        void validerGroupe_dernierGroupe_clotureLot() {
-            // 1. Setup
-            Lot lot = new Lot();
-            lot.setId(10L);
-            lot.setStatut(LotStatus.EN_COURS);
-            Rotation r = rotationWithLot(1L, lot, 4);
-
-            when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
-            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of());
-
-            // Simule que c'est la toute dernière rotation
-            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
-                    .thenReturn(0L);
-
-            // 2. Execution
-            service.validerGroupe(1L, EVAL_ID);
-
-            // 3. Verifications
-            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
-            assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
-            verify(lotRepository).save(lot);
-
-            // CORRECTION ICI : On vérifie qu'on a bien envoyé DEUX messages sur le topic du lot
-            // Le premier pour "EN_COURS" et le second pour "TERMINE"
-            verify(messagingTemplate, times(2)).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
-        }
-
-        @Test
-        @DisplayName("Verrouille toute notation non encore verrouillée du groupe")
-        void validerGroupe_verrouilleNotationsNonVerrouillees() {
-            Lot lot = new Lot(); lot.setId(10L);
+        @DisplayName("#297 : un étudiant présent noté mais PAS verrouillé bloque aussi la validation")
+        void validerGroupe_etudiantNoteNonVerrouille_refuse() {
+            Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
             Rotation r = rotationWithLot(1L, lot, 1);
 
-            RotationAssignment ra1 = new RotationAssignment(); ra1.setId(1L);
-            RotationAssignment ra2 = new RotationAssignment(); ra2.setId(2L);
-            Notation n1 = new Notation(); n1.setId(1L); n1.setVerouillee(false);
-            Notation n2 = new Notation(); n2.setId(2L); n2.setVerouillee(true); // déjà verrouillée
+            ExamenParticipation p = participation(8L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(51L); ra.setParticipation(p);
+            Notation n = new Notation(); n.setId(20L); n.setVerouillee(false);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
+            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
+            when(notationRepository.findByAssignmentId(51L)).thenReturn(Optional.of(n));
+
+            assertThatThrownBy(() -> service.validerGroupe(1L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Prenom8 Nom8");
+
+            verify(rotationRepository, never()).save(r);
+        }
+
+        @Test
+        @DisplayName("#297 : tous les étudiants déjà verrouillés → validation acceptée, aucun re-verrou")
+        void validerGroupe_tousVerrouilles_accepte() {
+            Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
+            Rotation r = rotationWithLot(1L, lot, 1);
+
+            ExamenParticipation p1 = participation(1L);
+            ExamenParticipation p2 = participation(2L);
+            RotationAssignment ra1 = new RotationAssignment(); ra1.setId(1L); ra1.setParticipation(p1);
+            RotationAssignment ra2 = new RotationAssignment(); ra2.setId(2L); ra2.setParticipation(p2);
+            Notation n1 = new Notation(); n1.setId(1L); n1.setVerouillee(true);
+            Notation n2 = new Notation(); n2.setId(2L); n2.setVerouillee(true);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra1, ra2));
@@ -1808,10 +1898,59 @@ class EvaluateurDashboardServiceTest {
 
             service.validerGroupe(1L, EVAL_ID);
 
-            assertThat(n1.getVerouillee()).isTrue();
-            verify(notationRepository).save(n1);
-            // n2 était déjà verrouillée → pas de save inutile
-            verify(notationRepository, never()).save(n2);
+            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
+            // #297 — validerGroupe ne verrouille plus rien lui-même : c'était déjà
+            // fait par validerEtudiant. Aucune écriture supplémentaire sur les notations.
+            verify(notationRepository, never()).save(any(Notation.class));
+            verify(rotationRepository).save(r);
+        }
+
+        @Test
+        @DisplayName("Groupe validé, mais d'autres rotations du lot restent actives → lot NON clôturé")
+        void validerGroupe_lotResteOuvert() {
+            Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
+            Rotation r = rotationWithLot(1L, lot, 1);
+
+            // #297 — validerGroupe exige désormais que le verdict soit déjà posé
+            // (par validerEtudiant) : la notation est ici déjà verrouillée.
+            ExamenParticipation p = participation(4L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(50L); ra.setParticipation(p);
+            Notation n = new Notation(); n.setId(5L); n.setVerouillee(true);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
+            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
+            when(notationRepository.findByAssignmentId(50L)).thenReturn(Optional.of(n));
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
+                    .thenReturn(2L);
+
+            service.validerGroupe(1L, EVAL_ID);
+
+            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
+            assertThat(n.getVerouillee()).isTrue(); // inchangé, déjà vrai avant l'appel
+            verify(rotationRepository).save(r);
+            verify(lotRepository, never()).save(any());
+            verify(messagingTemplate).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
+        }
+
+        @Test
+        @DisplayName("Dernière rotation active du lot → le lot est clôturé automatiquement (TERMINE)")
+        void validerGroupe_dernierGroupe_clotureLot() {
+            Lot lot = new Lot();
+            lot.setId(10L);
+            lot.setStatut(LotStatus.EN_COURS);
+            Rotation r = rotationWithLot(1L, lot, 4);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
+            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of());
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(10L, RotationStatus.TERMINE))
+                    .thenReturn(0L);
+
+            service.validerGroupe(1L, EVAL_ID);
+
+            assertThat(r.getStatut()).isEqualTo(RotationStatus.TERMINE);
+            assertThat(lot.getStatut()).isEqualTo(LotStatus.TERMINE);
+            verify(lotRepository).save(lot);
+            verify(messagingTemplate, times(2)).convertAndSend(eq("/topic/lots/10/status"), any(Object.class));
         }
 
         @Test

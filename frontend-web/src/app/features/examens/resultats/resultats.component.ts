@@ -658,14 +658,6 @@ export class ResultatsComponent {
     });
   }
 
-  private mentionFor(moyenne20: number | null): { mention: string; mentionClass: string } {
-    if (moyenne20 == null) return { mention: 'Non noté', mentionClass: 'bg-gray-100 text-gray-500' };
-    if (moyenne20 >= 16) return { mention: 'Très bien', mentionClass: 'bg-green-100 text-green-700' };
-    if (moyenne20 >= 14) return { mention: 'Bien', mentionClass: 'bg-emerald-50 text-emerald-700' };
-    if (moyenne20 >= 12) return { mention: 'Assez bien', mentionClass: 'bg-brand-50 text-brand-dark' };
-    if (moyenne20 >= 10) return { mention: 'Passable', mentionClass: 'bg-amber-50 text-amber-700' };
-    return { mention: 'Insuffisant', mentionClass: 'bg-red-100 text-red-700' };
-  }
 
   /** Client-side CSV export of the current classement — no backend round-trip. */
   exportCsv(): void {

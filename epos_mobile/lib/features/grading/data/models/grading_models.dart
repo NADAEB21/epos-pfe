@@ -149,7 +149,10 @@ class EtudiantModel extends Etudiant {
       nom:               json['nom']               as String,
       prenom:            json['prenom']             as String,
       numeroInscription: json['numeroInscription']  as String? ?? '',
-      numeroEchantillon: json['numeroEchantillon']  as int?,
+      // #325 — _parseEchantillon était écrit pour CETTE ligne mais n'y était
+      // pas branché : un `as int?` nu plantait si le serveur envoyait "5" en
+      // chaîne — précisément le cas que le helper documente.
+      numeroEchantillon: _parseEchantillon(json['numeroEchantillon']),
       absent:            json['absent']             as bool? ?? false,
       verrouille:        json['verrouille']         as bool? ?? false,
       commentaire:       json['commentaire']        as String?,

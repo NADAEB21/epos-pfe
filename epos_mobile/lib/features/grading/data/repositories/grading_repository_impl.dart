@@ -18,7 +18,6 @@ import '../../../../core/constants/api_constants.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/offline/connectivity_service.dart';
 import '../../../../core/offline/offline_storage_service.dart';
-import '../../../../core/offline/sync_service.dart';
 import '../../domain/entities/grille.dart';
 import '../../domain/entities/lot.dart';
 import '../../domain/entities/notation.dart';

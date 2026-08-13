@@ -1,7 +1,6 @@
 // lib/features/home/data/models/session_model.dart
 
 import '../../domain/entities/session.dart';
-import '../repositories/session_repository_impl.dart' show parseServerTimestamp;
 
 
 class SessionModel extends Session {

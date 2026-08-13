@@ -1,0 +1,61 @@
+name: EPOS Mobile CI
+
+# #325 — la CI certifiait un tiers du produit sans jamais le regarder : trois PR
+# mobiles de suite ont fusionné vertes avec des défauts qu'un seul `dart analyze`
+# aurait vus (#314 : fichier de test de 0 octet ; #323 : la branche ne compilait
+# pas ; #328 : rien ne l'aurait vu non plus). Ce workflow ferme ce trou.
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'epos_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+  # PRs : AUCUN filtre de base (même leçon que backend-ci.yml : les PR empilées
+  # passaient sous le pipeline avec un filtre `branches:`). Le filtre de chemins
+  # suffit : une PR purement backend/web ne déclenche pas ce job (critère #325).
+  pull_request:
+    paths:
+      - 'epos_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: epos_mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Épinglée = builds reproductibles. À faire avancer AVEC le poste de
+          # dev (flutter --version), pas indépendamment.
+          flutter-version: '3.44.6'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # `dart analyze`, PAS `flutter analyze` : ce dernier exige le support des
+      # symlinks (cassé sur certains postes Windows) et n'apporte rien de plus
+      # ici. Les warnings sont FATALS (comportement par défaut) : la base est à
+      # zéro warning depuis #325 — un import mort ou un symbole inconnu (le cas
+      # exact de #323) rend ce step rouge.
+      - name: Analyze (lib + tests)
+        run: dart analyze lib test
+
+      # Suites SAINES uniquement — décision explicite, pas un oubli (#325) :
+      #   - test/unit           : 43 tests, verts, la porte d'entrée obligatoire.
+      #   - test/widget + test/features + test/widget_test.dart : 5 tests en
+      #     échec PRÉEXISTANT (2 login_screen, 2 timer_anchor, 1 warning_banner)
+      #     — suivis par #333. Dès qu'ils sont réparés : élargir à `flutter
+      #     test` tout court (retirer la restriction de chemin).
+      # Un fichier *_test.dart vide ou sans main() est une erreur de CHARGEMENT
+      # → rouge (le cas exact de #314). Les parkings bloc_test volontaires sont
+      # suffixés .parked.dart et invisibles au runner.
+      - name: Test (suites saines)
+        run: flutter test test/unit

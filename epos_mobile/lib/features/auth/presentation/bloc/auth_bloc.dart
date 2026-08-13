@@ -15,8 +15,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
-import '../../../../core/offline/connectivity_service.dart';
-import '../../../../core/offline/offline_storage_service.dart';
 import '../../../../core/offline/websocket_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';

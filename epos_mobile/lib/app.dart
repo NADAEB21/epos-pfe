@@ -13,9 +13,7 @@ import 'features/home/presentation/bloc/session_bloc.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/profile/domain/entities/profile_settings.dart';
 import 'features/profile/presentation/bloc/profile_bloc.dart';
-import 'core/offline/connectivity_service.dart';
 import 'core/offline/offline_bloc.dart';
-import 'core/offline/sync_service.dart';
 
 class EposApp extends StatefulWidget {
   final AuthRepository    authRepository;

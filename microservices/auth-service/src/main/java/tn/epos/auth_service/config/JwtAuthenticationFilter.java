@@ -14,6 +14,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tn.epos.auth_service.service.JwtService;
+import tn.epos.common.security.revocation.TokenRevocationList;
 
 import java.io.IOException;
 import java.util.List;
@@ -26,6 +27,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
+    private final TokenRevocationList revocationList;
 
     @Override
     protected void doFilterInternal(
@@ -44,6 +46,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (!jwtService.isTokenValid(token)) {
             log.debug("Invalid JWT on request to {}", request.getRequestURI());
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // #306 — une signature valide ne suffit plus : un jeton émis AVANT la dernière
+        // révocation de son porteur (retrait, rôles, mot de passe) est mort. Même
+        // traitement qu'un jeton invalide — pas de contexte, donc 401 en aval.
+        if (revocationList.isRevoked(jwtService.extractUserId(token),
+                jwtService.extractIssuedAt(token))) {
+            log.debug("JWT révoqué (#306) sur {}", request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }

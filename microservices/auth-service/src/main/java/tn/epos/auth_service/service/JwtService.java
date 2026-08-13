@@ -125,6 +125,12 @@ public class JwtService {
         return (List<String>) parseClaims(token).get("authorities");
     }
 
+    /** #306 — l'instant d'émission ({@code iat}), comparé à l'estampille de révocation. */
+    public java.time.Instant extractIssuedAt(String token) {
+        Date issuedAt = parseClaims(token).getIssuedAt();
+        return issuedAt == null ? null : issuedAt.toInstant();
+    }
+
     // -------------------------------------------------------------------------
     // Authority string builder
     // -------------------------------------------------------------------------

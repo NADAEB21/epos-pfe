@@ -71,6 +71,16 @@ public class User {
     @Column(name = "deactivation_motif", length = 500)
     private String deactivationMotif;
 
+    /**
+     * #306 — les jetons d'accès émis AVANT cet instant sont révoqués, partout, dans la
+     * minute (distribution par {@code /internal/revocations}). Posé par le retrait d'accès,
+     * un changement de rôles, un changement/réinitialisation de mot de passe. Null = jamais
+     * révoqué. Ne PAS confondre avec {@link #isActive} : l'estampille tue les jetons déjà
+     * émis, {@code isActive} interdit d'en obtenir de nouveaux.
+     */
+    @Column(name = "tokens_invalid_before")
+    private LocalDateTime tokensInvalidBefore;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

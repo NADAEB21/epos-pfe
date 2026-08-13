@@ -43,9 +43,12 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/api/v1/auth/password-reset/confirm");
 
     private final GatewayJwtService jwtService;
+    private final tn.epos.common.security.revocation.TokenRevocationList revocationList;
 
-    public JwtAuthenticationFilter(GatewayJwtService jwtService) {
+    public JwtAuthenticationFilter(GatewayJwtService jwtService,
+                                   tn.epos.common.security.revocation.TokenRevocationList revocationList) {
         this.jwtService = jwtService;
+        this.revocationList = revocationList;
     }
 
     @Override
@@ -80,6 +83,15 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         @SuppressWarnings("unchecked")
         List<String> authorities = claims.get("authorities", List.class);
         if (userId == null || authorities == null) {
+            return unauthorized(exchange, "Invalid or expired token");
+        }
+
+        // #306 — un jeton émis AVANT la dernière révocation de son porteur est mort,
+        // même signé et non expiré. Même réponse qu'un jeton invalide : le client
+        // tentera le refresh, qui relit la base et donne la vraie consigne.
+        if (revocationList.isRevoked(userId,
+                claims.getIssuedAt() == null ? null : claims.getIssuedAt().toInstant())) {
+            log.debug("JWT révoqué (#306) pour l'utilisateur {} sur {}", userId, path);
             return unauthorized(exchange, "Invalid or expired token");
         }
 

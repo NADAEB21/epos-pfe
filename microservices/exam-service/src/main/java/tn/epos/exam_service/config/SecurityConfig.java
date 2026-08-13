@@ -13,8 +13,12 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.SecurityFilterChain;
 import tn.epos.common.security.HmacJwtDecoders;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
+import tn.epos.common.security.revocation.RevocationAwareJwtDecoder;
+import tn.epos.common.security.revocation.RevocationSyncClient;
+import tn.epos.common.security.revocation.TokenRevocationList;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 @Configuration
 @EnableWebSecurity
@@ -47,7 +51,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
         http
                 // CSRF disabled: stateless JWT API, tokens carried in Authorization header
                 // (no session cookie -> no CSRF attack surface). Same model as auth-service.
@@ -60,7 +64,7 @@ public class SecurityConfig {
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
-                                .decoder(jwtDecoder())
+                                .decoder(jwtDecoder)
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter())
                         )
                 );
@@ -68,13 +72,32 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtDecoder jwtDecoder() {
+    public JwtDecoder jwtDecoder(TokenRevocationList revocationList) {
         // auth-service signs with the HMAC algorithm JJWT picks for the secret's
         // length (HS256/384/512 at ≥32/48/64 bytes). HmacJwtDecoders mirrors that
         // selection so the resource server accepts whatever auth-service issues —
         // hard-coding HS256 here used to reject any secret ≥48 bytes ("Another
         // algorithm expected", see reference-jwt-algorithm-by-secret-length).
-        return HmacJwtDecoders.autoSelectByLength(jwtSecret);
+        //
+        // #306 — enveloppé : le jeton doit être postérieur à la dernière révocation
+        // de son porteur (même mécanisme que scoring, liste rapatriée d'auth-service).
+        return new RevocationAwareJwtDecoder(
+                HmacJwtDecoders.autoSelectByLength(jwtSecret), revocationList);
+    }
+
+    @Bean
+    public TokenRevocationList tokenRevocationList() {
+        return new TokenRevocationList();
+    }
+
+    /** #306 — voir la posture de panne dans {@link RevocationSyncClient}. */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public RevocationSyncClient revocationSyncClient(
+            TokenRevocationList revocationList,
+            @Value("${epos.auth.base-url:http://auth-service:8081}") String authBaseUrl,
+            @Value("${epos.revocation.refresh-ms:30000}") long refreshMs) {
+        return new RevocationSyncClient(
+                authBaseUrl, jwtSecret, revocationList, Duration.ofMillis(refreshMs));
     }
 
     @Bean

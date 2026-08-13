@@ -14,8 +14,12 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.SecurityFilterChain;
 import tn.epos.common.security.HmacJwtDecoders;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
+import tn.epos.common.security.revocation.RevocationAwareJwtDecoder;
+import tn.epos.common.security.revocation.RevocationSyncClient;
+import tn.epos.common.security.revocation.TokenRevocationList;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 @Configuration
 @EnableWebSecurity
@@ -68,11 +72,37 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtDecoder jwtDecoder() {
+    public JwtDecoder jwtDecoder(TokenRevocationList revocationList) {
         // Algorithm auto-selection by secret byte length — see HmacJwtDecoders
         // and reference-jwt-algorithm-by-secret-length. Hard-coding HS256 used
         // to reject any secret ≥48 bytes with "Another algorithm expected".
-        return HmacJwtDecoders.autoSelectByLength(jwtSecret);
+        //
+        // #306 — enveloppé : une signature valide ne suffit plus, le jeton doit être
+        // postérieur à la dernière révocation de son porteur. Ce bean étant AUSSI celui
+        // qu'injecte WebSocketSecurityConfig, la poignée de main STOMP est couverte
+        // par le même chemin.
+        return new RevocationAwareJwtDecoder(
+                HmacJwtDecoders.autoSelectByLength(jwtSecret), revocationList);
+    }
+
+    @Bean
+    public TokenRevocationList tokenRevocationList() {
+        return new TokenRevocationList();
+    }
+
+    /**
+     * #306 — rapatrie la liste de révocation depuis auth-service (démarrage immédiat,
+     * puis à intervalle fixe ; {@code destroyMethod="close"} arrête le fil démon).
+     * En panne d'auth : la dernière liste reçue reste appliquée — voir la posture
+     * détaillée dans {@link RevocationSyncClient}.
+     */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public RevocationSyncClient revocationSyncClient(
+            TokenRevocationList revocationList,
+            @Value("${epos.auth.base-url:http://auth-service:8081}") String authBaseUrl,
+            @Value("${epos.revocation.refresh-ms:30000}") long refreshMs) {
+        return new RevocationSyncClient(
+                authBaseUrl, jwtSecret, revocationList, Duration.ofMillis(refreshMs));
     }
 
     @Bean

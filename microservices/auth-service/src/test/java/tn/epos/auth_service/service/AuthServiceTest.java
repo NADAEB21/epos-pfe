@@ -49,6 +49,7 @@ class AuthServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
     @Mock private EmailService emailService;
+    @Mock private TokenRevocationService tokenRevocationService;
 
     /**
      * #294 — horloge FIXE : le verrou temporaire est une décision datée, et un
@@ -358,6 +359,79 @@ class AuthServiceTest {
         // Expired token must be marked revoked and persisted before throwing
         assertThat(expiredToken.getRevoked()).isTrue();
         verify(refreshTokenRepository).save(expiredToken);
+    }
+
+    // =========================================================================
+    // refresh() — #306/#217 : le refresh relit LE COMPTE, pas seulement le jeton
+    // =========================================================================
+
+    @Test
+    void refresh_compteDesactive_refuse_sansConsommerLeToken() {
+        // #306 — un compte retiré se réémettait un jeton neuf : le refresh ne
+        // consultait jamais isActive (moitié survivante de #217).
+        User user = activeUser();
+        user.setIsActive(false);
+        RefreshToken storedToken = RefreshToken.builder()
+                .id(10L).user(user).tokenHash("old-hash").familyId("fam-1")
+                .expiresAt(LocalDateTime.now().plusDays(7)).revoked(false)
+                .build();
+
+        when(jwtService.hashToken("raw-token")).thenReturn("old-hash");
+        when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(storedToken));
+
+        assertThatThrownBy(() -> authService.refresh("raw-token"))
+                .isExactlyInstanceOf(AccountLockedException.class)
+                .hasMessageContaining("désactivé");
+
+        // Refusé SANS consommer : le refus n'est pas une rotation.
+        assertThat(storedToken.getRevoked()).isFalse();
+        verify(refreshTokenRepository, never()).save(any());
+        verify(jwtService, never()).generateAccessToken(any(), any());
+    }
+
+    @Test
+    void refresh_compteVerrouille_refuse_avecLeDelai_sansConsommerLeToken() {
+        // #294/#306 — même consigne qu'au login : « réessayez dans N minute(s) »,
+        // et le refresh token SURVIT au refus — au déverrouillage la session
+        // reprend sans reconnexion.
+        User user = activeUser();
+        user.setLockedUntil(LocalDateTime.now(clock).plusMinutes(4));
+        RefreshToken storedToken = RefreshToken.builder()
+                .id(10L).user(user).tokenHash("old-hash").familyId("fam-1")
+                .expiresAt(LocalDateTime.now().plusDays(7)).revoked(false)
+                .build();
+
+        when(jwtService.hashToken("raw-token")).thenReturn("old-hash");
+        when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(storedToken));
+
+        assertThatThrownBy(() -> authService.refresh("raw-token"))
+                .isExactlyInstanceOf(AccountLockedException.class)
+                .hasMessageContaining("verrouillé")
+                .hasMessageContaining("minute");
+
+        assertThat(storedToken.getRevoked()).isFalse();
+        verify(refreshTokenRepository, never()).save(any());
+    }
+
+    @Test
+    void refresh_verrouExpire_passe() {
+        // Le verrou est TEMPORAIRE : une fois échu, le refresh reprend tout seul.
+        User user = activeUser();
+        user.setLockedUntil(LocalDateTime.now(clock).minusMinutes(1));
+        RefreshToken storedToken = RefreshToken.builder()
+                .id(10L).user(user).tokenHash("old-hash").familyId("fam-1")
+                .expiresAt(LocalDateTime.now().plusDays(7)).revoked(false)
+                .build();
+
+        when(jwtService.hashToken("raw-token")).thenReturn("old-hash");
+        when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(storedToken));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+        when(jwtService.generateAccessToken(any(), any())).thenReturn("new-access-token");
+        when(jwtService.generateRefreshTokenValue()).thenReturn("new-raw-refresh");
+        when(jwtService.hashToken("new-raw-refresh")).thenReturn("new-hash");
+
+        assertThat(authService.refresh("raw-token").getAccessToken())
+                .isEqualTo("new-access-token");
     }
 
     // =========================================================================

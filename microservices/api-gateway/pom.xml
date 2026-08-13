@@ -66,6 +66,15 @@
 			<version>8.7.0</version>
 		</dependency>
 
+		<!-- #306 — TokenRevocationList + RevocationSyncClient (JDK HttpClient, aucune
+		     dépendance servlet : sûr dans WebFlux). Tire spring-security-core en
+		     transitif, INERTE ici : sans starter-security ni @EnableWebFluxSecurity,
+		     aucune auto-configuration ne s'active. -->
+		<dependency>
+			<groupId>tn.epos</groupId>
+			<artifactId>epos-common</artifactId>
+		</dependency>
+
 		<!-- Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

@@ -635,6 +635,31 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         commentaire: event.commentaire,
       );
     } catch (e) {
+      // #297 / relecture #328 — un timeout APRÈS que le serveur a verrouillé
+      // (réseau de la faculté) laisse l'app locale croire à un échec. Un
+      // retap envoie alors un second appel, que le serveur refuse à bon
+      // droit avec « déjà verrouillée » (garde de re-verrou #297) : ce refus
+      // est la PREUVE que le premier appel a réussi, pas un échec. Le
+      // traiter comme les autres erreurs retirait l'étudiant de
+      // etudiantsValides alors qu'il l'est bel et bien côté serveur — l'écran
+      // mentait jusqu'au prochain rechargement (l'état s'y corrige tout
+      // seul, vérifié, mais l'instant de confusion en salle est évitable).
+      //
+      // Détection par CONTENU car le backend ne distingue pas ce refus des
+      // autres 400 par un code dédié — fragile si le message change, mais
+      // c'est le seul signal disponible sans toucher au contrat API.
+      final message = e.toString().replaceFirst('Exception: ', '');
+      final dejaVerrouilleeParAutrui = message.toLowerCase().contains('déjà verrouillée');
+
+      if (dejaVerrouilleeParAutrui) {
+        // Idempotent : on adopte l'état que le serveur a réellement — verrouillé —
+        // au lieu de rollback l'optimisme qui, ici, était CORRECT.
+        emit(current.copyWith(
+          etudiantsValides: {...current.etudiantsValides, event.etudiantId},
+        ));
+        return;
+      }
+
       // Défense en profondeur (divergence locale/serveur) : on annule
       // l'optimisme local. `current` est capturé PAR VALEUR en tête de la
       // méthode — copyWith() ci-dessous retombe donc déjà sur les champs
@@ -643,7 +668,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final rollback = Set<int>.from(current.etudiantsValides)..remove(event.etudiantId);
       emit(current.copyWith(
         etudiantsValides: rollback,
-        messageErreur: e.toString().replaceFirst('Exception: ', ''),
+        messageErreur: message,
       ));
     }
   }

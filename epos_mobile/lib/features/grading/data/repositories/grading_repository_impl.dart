@@ -290,7 +290,7 @@ class GradingRepositoryImpl implements GradingRepository {
     }
   }
 
-  /** Même helper que AuthRepositoryImpl — un seul contrat d'enveloppe d'erreur. */
+  // Même helper que AuthRepositoryImpl — un seul contrat d'enveloppe d'erreur.
   String? _extractErrorMessage(DioException e) {
     final data = e.response?.data;
     if (data is Map<String, dynamic> && data['message'] is String) {

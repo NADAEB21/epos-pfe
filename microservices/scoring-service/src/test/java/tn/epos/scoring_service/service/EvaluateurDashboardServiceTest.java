@@ -1666,6 +1666,13 @@ class EvaluateurDashboardServiceTest {
             verify(participationRepository).save(p);
         }
 
+        /**
+         * #212 (dernier volet) — RÉÉCRIT, pas restauré : l'ancienne version affirmait
+         * l'écriture sur la PARTICIPATION — c'est-à-dire le clobber lui-même (une ligne
+         * partagée entre N stations, la dernière validation écrasait les autres, comme
+         * jadis est_present et note). Le commentaire vit désormais sur la Notation,
+         * par (participation, station), et la participation n'est plus touchée.
+         */
         @Test
         @DisplayName("#212 : le commentaire vit sur la NOTATION (par station), plus sur la participation")
         void validerEtudiant_commentaireEnregistre() {
@@ -1692,6 +1699,11 @@ class EvaluateurDashboardServiceTest {
             assertThat(p.getCommentaire()).isNull();
         }
 
+        /**
+         * #212 — LE test du clobber : deux stations, deux commentaires. Sous l'ancien
+         * modèle, la validation de la station B écrasait le commentaire de la station A
+         * sur la ligne partagée. Ici chacun survit sur SA notation.
+         */
         @Test
         @DisplayName("#212 : deux stations → deux commentaires, aucun n'écrase l'autre")
         void validerEtudiant_commentairesParStationNeSEcrasentPas() {
@@ -1701,6 +1713,8 @@ class EvaluateurDashboardServiceTest {
             Notation nA = new Notation(); nA.setId(10L); nA.setVerouillee(false);
             Notation nB = new Notation(); nB.setId(11L); nB.setVerouillee(false);
 
+            // #213 — ce test valide sur DEUX stations : l'évaluateur doit tenir les
+            // deux, sinon le garde d'écriture tombe sur la seconde (station 99).
             when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, 99L))
                     .thenReturn(true);
 
@@ -1809,6 +1823,14 @@ class EvaluateurDashboardServiceTest {
     @DisplayName("validerGroupe()")
     class ValiderGroupeLogic {
 
+        /**
+         * #209 — RÉÉCRIT, pas restauré : la version #207 de ce test exigeait que valider
+         * OUVRE le rang suivant. C'était le couplage qui « déplaçait » l'évaluateur : valider
+         * puis quitter l'écran ⇒ au retour, un AUTRE groupe, grille vide (vécu par Nada).
+         * Règle actée 2026-07-23 : valider = verrouiller, point ; seul le clic explicite
+         * « Groupe suivant » ({@code avancerGroupe}) avance. EN_COURS garde ses écrivains
+         * légitimes : l'ouverture de vague (LotOuvertureService) et l'avance explicite.
+         */
         @Test
         @DisplayName("#209 : valider VERROUILLE mais n'ouvre PAS le rang suivant")
         void validerGroupe_nAvancePlus() {
@@ -1828,6 +1850,7 @@ class EvaluateurDashboardServiceTest {
             service.validerGroupe(1L, EVAL_ID);
 
             assertThat(courante.getStatut()).isEqualTo(RotationStatus.TERMINE);
+            // Le rang suivant n'a PAS bougé : il attend le clic de l'évaluateur.
             assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
             verify(rotationRepository, never()).save(suivante);
         }

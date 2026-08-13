@@ -605,7 +605,13 @@ public class EvaluateurDashboardService {
         Lot lot = rotation.getStudentGroup() != null ? rotation.getStudentGroup().getLot() : null;
         if (lot == null) return;
 
-        broadcastLotStatus(lot.getId(), "EN_COURS");
+        // #209 — valider N'AVANCE PLUS. La version #207 ouvrait ici le rang suivant :
+        // verrouiller et avancer étaient soudés, donc un évaluateur qui validait puis
+        // quittait l'écran retrouvait à son retour un AUTRE groupe, grille vide (vécu par
+        // Nada). Règle : valider = verrouiller, point ; seul le clic explicite « Groupe
+        // suivant » ({@link #avancerGroupe}) ouvre le rang suivant. L'évaluateur reste
+        // maître du rythme — y compris celui de ne pas encore avancer.
+        broadcastLotStatus(lot.getId(), "EN_COURS"); // refresh dashboard
 
         if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lot.getId(), RotationStatus.TERMINE) == 0) {
             lot.setStatut(LotStatus.TERMINE);

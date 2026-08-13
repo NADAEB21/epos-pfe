@@ -315,20 +315,40 @@ export class ResultatsComponent {
   ): CompletenessSummary {
     const totalStations = stations.length;
     const present = participations.filter((p) => p.est_present === true);
-    const noted = new Map(results.map((r) => [r.participationId, r]));
+    const byParticipation = new Map(results.map((r) => [r.participationId, r]));
+
     let nonNotes = 0;
     let partiels = 0;
-    for (const p of present) {
-      const r = noted.get(p.id);
-      if (!r || r.stationsNotees === 0) nonNotes++;
-      else if (totalStations > 0 && r.stationsNotees < totalStations) partiels++;
-    }
     let nonVerrouillees = 0;
+
+    for (const p of present) {
+      const r = byParticipation.get(p.id);
+      // #297 — MÊME critère que buildTable() : le VERROU, pas la simple
+      // présence d'une ligne de notation. Avant, la bannière comptait
+      // "stationsNotees" (notations existantes, verrouillées ou non) alors que
+      // le tableau exige lockedCount === stations.length pour attribuer un
+      // rang — un étudiant pouvait lire "0 partiel" en haut et "aucun rang"
+      // en bas pour LUI-MÊME. Les deux widgets doivent parler de la même
+      // notion de "verdict" : verrouillé, pas seulement saisi.
+      const lockedCount = r ? r.stations.filter((s) => s.verrouillee === true).length : 0;
+
+      if (lockedCount === 0) {
+        nonNotes++;
+      } else if (totalStations > 0 && lockedCount < totalStations) {
+        partiels++;
+      }
+    }
+
+    // Compteur auxiliaire affiché séparément dans la bannière : notes SAISIES
+    // mais pas encore verrouillées. Recoupe volontairement "partiels"
+    // ci-dessus (un étudiant partiel a le plus souvent une note en attente de
+    // verrou) — c'est un signal indicatif, pas une troisième catégorie disjointe.
     for (const r of results) {
       for (const s of r.stations) {
         if (s.score != null && s.verrouillee !== true) nonVerrouillees++;
       }
     }
+
     return { nonNotes, partiels, nonVerrouillees, presentTotal: present.length, totalStations };
   }
 
@@ -337,7 +357,6 @@ export class ResultatsComponent {
     stations: StationSummary[],
     noteMaxByStation: Map<number, number>,
   ): void {
-    // Column set = scored stations, ordered by their exam ordre.
     const stationMeta = new Map(stations.map((s) => [s.id, s]));
     const cols: StationCol[] = [...noteMaxByStation.keys()]
       .map((sid) => {
@@ -357,17 +376,27 @@ export class ResultatsComponent {
       const lockedByStation = new Map<number, boolean>();
       const notationIdByStation = new Map<number, number>();
       let totalMax = 0;
+      let lockedCount = 0;
       for (const s of r.stations) {
         if (s.stationId == null) continue;
         scoreByStation.set(s.stationId, s.score);
-        lockedByStation.set(s.stationId, s.verrouillee === true);
+        const locked = s.verrouillee === true;
+        lockedByStation.set(s.stationId, locked);
         if (s.notationId != null) notationIdByStation.set(s.stationId, s.notationId);
         if (s.score != null) totalMax += noteMaxByStation.get(s.stationId) ?? DEFAULT_NOTE_MAX;
+        if (locked) lockedCount++;
       }
-      const moyenne20 = totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
-      const { mention, mentionClass } = this.mentionFor(moyenne20);
+      // #297 — un verdict d'examen (moyenne, mention, rang) exige un verrou
+      // sur TOUTES les stations de l'examen, pas seulement celles déjà
+      // saisies. Avant : totalMax ne comptait que les stations SAISIES, donc
+      // une station jamais touchée disparaissait silencieusement du barème
+      // (45/60 au lieu de 45/80) — un re-barème que personne n'avait décidé,
+      // exactement le défaut nommé par le ticket.
+      const complete = stations.length > 0 && lockedCount === stations.length;
+      const moyenne20 = complete && totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
+      const { mention, mentionClass } = this.mentionFor(moyenne20, lockedCount, stations.length);
       return {
-        rang: 0, // assigned after sort
+        rang: 0, // assigné après tri, 0 = "pas de rang" pour un résultat incomplet
         participationId: r.participationId,
         etudiantId: r.etudiantId,
         nom: `${r.prenom ?? ''} ${r.nom ?? ''}`.trim() || 'Étudiant inconnu',
@@ -384,10 +413,31 @@ export class ResultatsComponent {
       };
     });
 
-    // Rank on the normalised /20 average (null averages sink to the bottom).
+    // #297 — un résultat sans verdict complet est affiché (le responsable
+    // doit pouvoir agir dessus) mais ne consomme JAMAIS un numéro de rang :
+    // il ne doit pas être classé contre des dossiers clos.
     rows.sort((a, b) => (b.moyenne20 ?? -1) - (a.moyenne20 ?? -1));
-    rows.forEach((row, i) => (row.rang = i + 1));
+    let rang = 0;
+    for (const row of rows) {
+      row.rang = row.moyenne20 != null ? ++rang : 0;
+    }
     this.rows.set(rows);
+  }
+
+  private mentionFor(
+    moyenne20: number | null,
+    lockedCount: number,
+    totalStations: number,
+  ): { mention: string; mentionClass: string } {
+    if (moyenne20 == null) {
+      const mention = lockedCount === 0 ? 'Non noté' : `Incomplet (${lockedCount}/${totalStations})`;
+      return { mention, mentionClass: 'bg-gray-100 text-gray-500' };
+    }
+    if (moyenne20 >= 16) return { mention: 'Très bien', mentionClass: 'bg-green-100 text-green-700' };
+    if (moyenne20 >= 14) return { mention: 'Bien', mentionClass: 'bg-emerald-50 text-emerald-700' };
+    if (moyenne20 >= 12) return { mention: 'Assez bien', mentionClass: 'bg-brand-50 text-brand-dark' };
+    if (moyenne20 >= 10) return { mention: 'Passable', mentionClass: 'bg-amber-50 text-amber-700' };
+    return { mention: 'Insuffisant', mentionClass: 'bg-red-100 text-red-700' };
   }
 
   isStationFail(row: ResultRow, col: StationCol): boolean {
@@ -629,10 +679,11 @@ export class ResultatsComponent {
       'Total',
       'Moyenne/20',
       'Mention',
+      'Etat', // #297 — l'export ne doit jamais laisser un chiffre parler seul
     ];
     const lines = this.rows().map((row) => {
       const cells = [
-        row.rang,
+        row.rang > 0 ? row.rang : '',
         row.nom,
         row.numeroInscription ?? '',
         row.numEchantillon ?? '',
@@ -643,6 +694,7 @@ export class ResultatsComponent {
         row.total,
         row.moyenne20 != null ? row.moyenne20.toFixed(2) : '',
         row.mention,
+        row.moyenne20 != null ? 'Complet' : 'Incomplet',
       ];
       return cells.map((c) => this.csvCell(c)).join(',');
     });

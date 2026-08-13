@@ -596,6 +596,26 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     final current = state;
     if (current is! GradingLoaded) return;
 
+    // #297 — même garde que le backend, appliquée AVANT l'appel réseau (la
+    // grille est déjà locale) pour que le refus s'affiche hors ligne. Jamais
+    // appliquée à un étudiant absent : l'absence ne bloque jamais.
+    if (!event.absent) {
+      final feuilles = ScoreUtils.feuilles(current.grille.items);
+      final notations = current.notations[event.etudiantId] ?? const {};
+      final manquants = feuilles.where((i) => !notations.containsKey(i.id)).length;
+      if (manquants > 0) {
+        final etudiant = current.lot.etudiants.firstWhere(
+              (e) => e.id == event.etudiantId,
+          orElse: () => current.lot.etudiants.first,
+        );
+        emit(current.copyWith(
+          messageErreur: 'Impossible de verrouiller : il reste $manquants critère(s) non noté(s) '
+              'pour ${etudiant.nomComplet}. Notez tous les critères, ou déclarez l\'étudiant absent.',
+        ));
+        return;
+      }
+    }
+
     final updatedNotations = event.absent
         ? (Map<int, Map<int, Notation>>.from(current.notations)
       ..remove(event.etudiantId))
@@ -606,13 +626,26 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       notations:        updatedNotations,
     ));
 
-    await _repository.validerEtudiant(
-      event.etudiantId,
-      current.stationId,
-      grilleId:    current.grilleId,
-      absent:      event.absent,
-      commentaire: event.commentaire,
-    );
+    try {
+      await _repository.validerEtudiant(
+        event.etudiantId,
+        current.stationId,
+        grilleId:    current.grilleId,
+        absent:      event.absent,
+        commentaire: event.commentaire,
+      );
+    } catch (e) {
+      // Défense en profondeur (divergence locale/serveur) : on annule
+      // l'optimisme local. `current` est capturé PAR VALEUR en tête de la
+      // méthode — copyWith() ci-dessous retombe donc déjà sur les champs
+      // d'origine de `current` (notations incluses) sans qu'il soit besoin de
+      // les repréciser explicitement.
+      final rollback = Set<int>.from(current.etudiantsValides)..remove(event.etudiantId);
+      emit(current.copyWith(
+        etudiantsValides: rollback,
+        messageErreur: e.toString().replaceFirst('Exception: ', ''),
+      ));
+    }
   }
 
   // ── Validation du groupe ─────────────────────────────────────────────────────
@@ -631,8 +664,14 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         // n'aurait jamais pu s'afficher.
         vagueTerminee: !current.lot.groupeSuivantDisponible,
       ));
-    } catch (_) {
-      emit(current.copyWith(lotEnCoursDeValidation: false));
+    } catch (e) {
+      // #297 — un refus (groupe incomplet) doit être VU, pas juste avalé :
+      // avant, catch(_) laissait le bouton s'arrêter de tourner sans aucune
+      // explication — ce qui rend un "refus dur" inutilisable en pratique.
+      emit(current.copyWith(
+        lotEnCoursDeValidation: false,
+        messageErreur: e.toString().replaceFirst('Exception: ', ''),
+      ));
     }
   }
 

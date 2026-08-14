@@ -174,7 +174,14 @@ void main() {
       ));
       await tester.pump();
 
-      expect(find.byType(Material), findsNothing);
+      // #333 : Scoper la recherche au sous-arbre du banner : Scaffold crée lui-même un
+      // Material interne, donc find.byType(Material) sans scope trouve toujours
+      // quelque chose et ne peut jamais échouer utilement.
+      final materialDuBanner = find.descendant(
+        of: find.byType(PassageWarningBanner),
+        matching: find.byType(Material),
+      );
+      expect(materialDuBanner, findsNothing);
       expect(find.textContaining('Fin de passage'), findsNothing);
     });
 

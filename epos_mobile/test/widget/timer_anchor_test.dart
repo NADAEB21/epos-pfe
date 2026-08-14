@@ -1,34 +1,24 @@
 // test/widget/timer_anchor_test.dart
 //
-// Finding #1 (session 19) — le compte à rebours de notation.
+// Finding #1 (session 19), RÉÉCRIT le 2026-08-14 (#333) contre le comportement
+// ACTUEL du minuteur.
 //
-// ⚠️ LIRE AVANT DE MODIFIER L'ASSERTION.
-// La formulation « naturelle » de ce test — *assert elapsed < dureeStationMin* —
-// est PIÉGÉE : elle passe au vert sur le défaut actuel. Le bug d'aujourd'hui
-// n'est pas « trop de temps écoulé », c'est « AUCUN temps écoulé » :
+// ⚠️ CE QUI A CHANGÉ DEPUIS LA VERSION D'ORIGINE DE CE TEST.
+// À l'origine ce test ancrait le compte à rebours sur `debutCreneau` (l'horaire
+// PLANIFIÉ), passé directement dans l'événement `GradingSessionStarted`. Depuis
+// #209 (ADR-0014-B), l'ancre du minuteur n'est plus le créneau planifié — c'est
+// `Rotation.debut_reel`, l'instant RÉEL où l'évaluateur a ouvert le groupe,
+// renvoyé par le serveur sur le `Lot` (voir grading_bloc.dart :
+// `_computeTempsRestant(lot.debutReel)`, plus jamais `event.debutCreneau`).
 //
-//   grading_bloc.dart:671   return _dureeStation; - elapsed;
-//                                              ^ point-virgule parasite
+// Le test échouait pour la MAUVAISE raison : il posait toujours `debutCreneau`
+// sur l'événement, une valeur que le bloc ignore désormais pour ce calcul.
+// `_FakeGradingRepo.getGroupe` renvoyait un `Lot` sans `debutReel` (donc null)
+// ⇒ repli systématique sur la durée pleine. Pas une régression : un ancrage
+// abandonné. On pose maintenant `debutReel` sur le `Lot` du repository
+// factice — exactement ce que fait le vrai backend depuis #209.
 //
-// Le `return` se termine sur `_dureeStation` ; `- elapsed;` est une instruction
-// morte (confirmé par `flutter analyze` : dead_code + unused_local_variable sur
-// `elapsed` ET sur `effectiveNow`). `_computeTempsRestant` renvoie donc TOUJOURS
-// la durée pleine de la station, quel que soit `debutCreneau`.
-// Conséquence terrain : le minuteur repart à 15:00 à chaque réouverture — le
-// symptôme même que #232/#234 prétendaient corriger.
-//
-// On assert donc que le temps écoulé EST bien soustrait (borne large, jamais
-// dérivée de `now` au moment de l'assertion → pas de flakiness).
-//
-// Doctrine (README §3) : ceci est une assertion de PLANCHER (l'évaluateur voit
-// le temps qui lui reste), pas de PLAFOND (on ne retire aucune session
-// expirée). Elle est donc compatible ADR-0014 et ne cimente pas le chronomètre.
-//
-// NB anchor : le « bon » comportement s'ancre sur `debutCreneau` (l'horaire
-// PRÉVU). Dès qu'un groupe avance hors planning (PACE ≠ PLAN), cet ancrage est
-// lui-même discutable — il n'existe aujourd'hui aucun horodatage de début RÉEL
-// (c'est le trou de #207). Ce test reste valable dans les deux cas : il vérifie
-// seulement que la soustraction a lieu.
+// Doctrine (README §3) : assertion de PLANCHER, jamais de PLAFOND.
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -38,23 +28,30 @@ import 'package:epos_mobile/features/grading/domain/repositories/grading_reposit
 import 'package:epos_mobile/features/grading/presentation/bloc/grading_bloc.dart';
 
 // ── Doublure — aucun réseau ────────────────────────────────────────────────
-// Calquée sur l'examen 2 / lot 28 / station 5 (eval3), grille 5 PLATE.
 class _FakeGradingRepo implements GradingRepository {
-  @override
-  Future<Grille> getGrille(int stationId) async => const Grille(
-        id: 5,
-        nom: "Identification d'un principe actif",
-        noteMax: 20,
-        items: [],
-      );
+  _FakeGradingRepo({this.debutReel, this.total = 4});
+
+  /// #209 — l'ancre RÉELLE du minuteur, portée par le Lot (jamais plus par
+  /// l'événement de session).
+  final DateTime? debutReel;
+  final int total;
 
   @override
-  Future<Lot> getGroupe(int rotationId) async => const Lot(
-        id: 28,
-        numero: 1,
-        total: 4,
-        etudiants: [],
-      );
+  Future<Grille> getGrille(int stationId) async => const Grille(
+    id: 5,
+    nom: "Identification d'un principe actif",
+    noteMax: 20,
+    items: [],
+  );
+
+  @override
+  Future<Lot> getGroupe(int rotationId) async => Lot(
+    id: 28,
+    numero: 1,
+    total: total,
+    etudiants: const [],
+    debutReel: debutReel,
+  );
 
   @override
   dynamic noSuchMethod(Invocation i) => throw UnimplementedError();
@@ -62,14 +59,14 @@ class _FakeGradingRepo implements GradingRepository {
 
 /// Démarre une session et renvoie le premier `GradingLoaded` émis.
 Future<GradingLoaded> _demarrer({
-  required DateTime? debutCreneau,
+  required DateTime? debutReel,
   int dureeMinutes = 15,
 }) async {
-  final bloc = GradingBloc(repository: _FakeGradingRepo());
+  final bloc = GradingBloc(repository: _FakeGradingRepo(debutReel: debutReel));
   final futureLoaded =
-      bloc.stream.firstWhere((s) => s is GradingLoaded).timeout(
-            const Duration(seconds: 10),
-          );
+  bloc.stream.firstWhere((s) => s is GradingLoaded).timeout(
+    const Duration(seconds: 10),
+  );
 
   bloc.add(GradingSessionStarted(
     rotationId: 141,
@@ -77,45 +74,36 @@ Future<GradingLoaded> _demarrer({
     lotNumero: 1,
     stationNom: "Identification d'un principe actif",
     grilleId: 5,
-    debutCreneau: debutCreneau,
     dureeMinutes: dureeMinutes,
   ));
 
   final loaded = await futureLoaded as GradingLoaded;
   // close() annule le Timer.periodic démarré par _startTimer. Pas de
-  // `testWidgets` ici, donc pas de FakeAsync : ce await ne peut pas figer
-  // (cf. NEXT_SESSION.md — le piège `await bloc.close()` sous testWidgets).
+  // `testWidgets` ici, donc pas de FakeAsync : cet await ne peut pas figer.
   await bloc.close();
   return loaded;
 }
 
 void main() {
-  group('finding #1 — ancrage du compte à rebours de passage', () {
+  group('#209 — ancrage du compte à rebours sur debut_reel', () {
     test(
-      'un passage commencé il y a 6 min affiche MOINS que la durée pleine '
-      '(le temps écoulé est réellement soustrait)',
-      () async {
-        // 6 min écoulées sur une station de 15 min → il doit rester ~9 min.
-        // Borne large (< 12 min) : on veut discriminer « soustrait » de « pas
-        // soustrait », pas mesurer la seconde exacte.
-        final debut = DateTime.now().subtract(const Duration(minutes: 6));
+      'un groupe ouvert il y a 6 min affiche MOINS que la durée pleine '
+          '(le temps écoulé est réellement soustrait)',
+          () async {
+        final ouvertureReelle =
+        DateTime.now().subtract(const Duration(minutes: 6));
 
-        final loaded = await _demarrer(debutCreneau: debut, dureeMinutes: 15);
+        final loaded =
+        await _demarrer(debutReel: ouvertureReelle, dureeMinutes: 15);
 
-        expect(
-          loaded.tempsRestant,
-          isNotNull,
-          reason: 'une session avec un debutCreneau doit porter un temps restant',
-        );
+        expect(loaded.tempsRestant, isNotNull,
+            reason: 'un groupe avec debutReel doit porter un temps restant');
         expect(
           loaded.tempsRestant!.inSeconds,
           lessThan(const Duration(minutes: 12).inSeconds),
-          reason: 'ÉCHEC ATTENDU sur develop ed13a33 : grading_bloc.dart:671 '
-              'renvoie _dureeStation sans soustraire elapsed (point-virgule '
-              'parasite) → 15:00 au lieu de ~9:00. Le minuteur repart à zéro '
-              'à chaque réouverture.',
+          reason: 'le temps écoulé depuis debutReel doit être soustrait de '
+              'la durée pleine.',
         );
-        // Borne basse : garde-fou contre une sur-correction (double soustraction).
         expect(
           loaded.tempsRestant!.inSeconds,
           greaterThan(const Duration(minutes: 6).inSeconds),
@@ -126,13 +114,12 @@ void main() {
 
     test(
       'la durée de station vient du serveur (dureeMinutes), pas de la constante 15',
-      () async {
-        // #233/#234 ont introduit `dureeStationMin` côté serveur. Une station
-        // de 20 min commencée il y a 6 min doit laisser ~14 min — impossible
-        // à obtenir si la constante 15 est encore utilisée.
-        final debut = DateTime.now().subtract(const Duration(minutes: 6));
+          () async {
+        final ouvertureReelle =
+        DateTime.now().subtract(const Duration(minutes: 6));
 
-        final loaded = await _demarrer(debutCreneau: debut, dureeMinutes: 20);
+        final loaded =
+        await _demarrer(debutReel: ouvertureReelle, dureeMinutes: 20);
 
         expect(
           loaded.tempsRestant!.inSeconds,
@@ -149,12 +136,9 @@ void main() {
     );
 
     test(
-      'sans debutCreneau, on retombe sur la durée pleine (pas de crash)',
-      () async {
-        // Chemin nominal dégradé : aucun créneau connu → durée pleine.
-        // C'est le SEUL cas où 15:00 est correct.
-        final loaded = await _demarrer(debutCreneau: null, dureeMinutes: 15);
-
+      'sans debutReel (groupe jamais ouvert), on retombe sur la durée pleine',
+          () async {
+        final loaded = await _demarrer(debutReel: null, dureeMinutes: 15);
         expect(loaded.tempsRestant, const Duration(minutes: 15));
       },
     );

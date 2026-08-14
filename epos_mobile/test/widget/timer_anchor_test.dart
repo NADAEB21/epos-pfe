@@ -62,19 +62,20 @@ Future<GradingLoaded> _demarrer({
   int dureeMinutes = 15,
 }) async {
   final bloc = GradingBloc(repository: _FakeGradingRepo(debutReel: debutReel));
-  final futureLoaded =
-  bloc.stream.firstWhere((s) => s is GradingLoaded).timeout(
-    const Duration(seconds: 10),
-  );
+  final futureLoaded = bloc.stream
+      .firstWhere((s) => s is GradingLoaded)
+      .timeout(const Duration(seconds: 10));
 
-  bloc.add(GradingSessionStarted(
-    rotationId: 141,
-    stationId: 5,
-    lotNumero: 1,
-    stationNom: "Identification d'un principe actif",
-    grilleId: 5,
-    dureeMinutes: dureeMinutes,
-  ));
+  bloc.add(
+    GradingSessionStarted(
+      rotationId: 141,
+      stationId: 5,
+      lotNumero: 1,
+      stationNom: "Identification d'un principe actif",
+      grilleId: 5,
+      dureeMinutes: dureeMinutes,
+    ),
+  );
 
   final loaded = await futureLoaded as GradingLoaded;
   // close() annule le Timer.periodic démarré par _startTimer. Pas de
@@ -85,45 +86,53 @@ Future<GradingLoaded> _demarrer({
 
 void main() {
   group('#209 — ancrage du compte à rebours sur debut_reel', () {
-    test(
-      'un groupe ouvert il y a 6 min affiche MOINS que la durée pleine '
-          '(le temps écoulé est réellement soustrait)',
-          () async {
-        final ouvertureReelle =
-        DateTime.now().subtract(const Duration(minutes: 6));
+    test('un groupe ouvert il y a 6 min affiche MOINS que la durée pleine '
+        '(le temps écoulé est réellement soustrait)', () async {
+      final ouvertureReelle = DateTime.now().subtract(
+        const Duration(minutes: 6),
+      );
 
-        final loaded =
-        await _demarrer(debutReel: ouvertureReelle, dureeMinutes: 15);
+      final loaded = await _demarrer(
+        debutReel: ouvertureReelle,
+        dureeMinutes: 15,
+      );
 
-        expect(loaded.tempsRestant, isNotNull,
-            reason: 'un groupe avec debutReel doit porter un temps restant');
-        expect(
-          loaded.tempsRestant!.inSeconds,
-          lessThan(const Duration(minutes: 12).inSeconds),
-          reason: 'le temps écoulé depuis debutReel doit être soustrait de '
-              'la durée pleine.',
-        );
-        expect(
-          loaded.tempsRestant!.inSeconds,
-          greaterThan(const Duration(minutes: 6).inSeconds),
-          reason: 'sur-correction : il ne doit pas rester moins de ~9 min',
-        );
-      },
-    );
+      expect(
+        loaded.tempsRestant,
+        isNotNull,
+        reason: 'un groupe avec debutReel doit porter un temps restant',
+      );
+      expect(
+        loaded.tempsRestant!.inSeconds,
+        lessThan(const Duration(minutes: 12).inSeconds),
+        reason:
+            'le temps écoulé depuis debutReel doit être soustrait de '
+            'la durée pleine.',
+      );
+      expect(
+        loaded.tempsRestant!.inSeconds,
+        greaterThan(const Duration(minutes: 6).inSeconds),
+        reason: 'sur-correction : il ne doit pas rester moins de ~9 min',
+      );
+    });
 
     test(
       'la durée de station vient du serveur (dureeMinutes), pas de la constante 15',
-          () async {
-        final ouvertureReelle =
-        DateTime.now().subtract(const Duration(minutes: 6));
+      () async {
+        final ouvertureReelle = DateTime.now().subtract(
+          const Duration(minutes: 6),
+        );
 
-        final loaded =
-        await _demarrer(debutReel: ouvertureReelle, dureeMinutes: 20);
+        final loaded = await _demarrer(
+          debutReel: ouvertureReelle,
+          dureeMinutes: 20,
+        );
 
         expect(
           loaded.tempsRestant!.inSeconds,
           greaterThan(const Duration(minutes: 12).inSeconds),
-          reason: 'une station de 20 min doit laisser plus de temps '
+          reason:
+              'une station de 20 min doit laisser plus de temps '
               "qu'une station de 15 min",
         );
         expect(
@@ -136,7 +145,7 @@ void main() {
 
     test(
       'sans debutReel (groupe jamais ouvert), on retombe sur la durée pleine',
-          () async {
+      () async {
         final loaded = await _demarrer(debutReel: null, dureeMinutes: 15);
         expect(loaded.tempsRestant, const Duration(minutes: 15));
       },

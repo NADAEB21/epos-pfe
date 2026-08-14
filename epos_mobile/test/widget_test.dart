@@ -36,11 +36,11 @@ Widget _pumpableApp() {
   return MultiBlocProvider(
     providers: [
       BlocProvider<AuthBloc>(create: (_) => AuthBloc(authRepository: authRepo)),
-      BlocProvider<ProfileBloc>(create: (_) => ProfileBloc(authRepository: authRepo)),
+      BlocProvider<ProfileBloc>(
+        create: (_) => ProfileBloc(authRepository: authRepo),
+      ),
     ],
-    child: const MaterialApp(
-      home: LoginScreen(),
-    ),
+    child: const MaterialApp(home: LoginScreen()),
   );
 }
 
@@ -51,16 +51,20 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('Login screen affiche les éléments de base', (WidgetTester tester) async {
+  testWidgets('Login screen affiche les éléments de base', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(_pumpableApp());
     await tester.pump();
 
-    expect(find.text('EPOS'),            findsOneWidget);
-    expect(find.text('Se connecter'),    findsOneWidget);
+    expect(find.text('EPOS'), findsOneWidget);
+    expect(find.text('Se connecter'), findsOneWidget);
     expect(find.text('Mot de passe oublié ?'), findsOneWidget);
   });
 
-  testWidgets('Login screen affiche une erreur avec mauvais identifiants', (WidgetTester tester) async {
+  testWidgets('Login screen affiche une erreur avec mauvais identifiants', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(_pumpableApp());
     await tester.pump();
 
@@ -69,10 +73,7 @@ void main() {
       find.byType(TextFormField).first,
       'mauvais@email.com',
     );
-    await tester.enterText(
-      find.byType(TextFormField).last,
-      'MauvaisPass1',
-    );
+    await tester.enterText(find.byType(TextFormField).last, 'MauvaisPass1');
 
     // Appuyer sur "Se connecter"
     await tester.tap(find.text('Se connecter'));

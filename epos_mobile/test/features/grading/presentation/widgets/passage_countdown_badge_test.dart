@@ -23,15 +23,18 @@ import 'package:epos_mobile/features/grading/presentation/widgets/passage_countd
 
 void main() {
   group('PassageCountdownStatus.compute (logique pure, sans widget)', () {
-    test('aucun avertissement tant que le délai de préavis n\'est pas atteint', () {
-      final status = PassageCountdownStatus.compute(
-        tempsRestant: const Duration(minutes: 5),
-        avertissementLeadSec: 120,
-        enPause: false,
-      );
-      expect(status.avertissementActif, isFalse);
-      expect(status.depasse, isFalse);
-    });
+    test(
+      'aucun avertissement tant que le délai de préavis n\'est pas atteint',
+      () {
+        final status = PassageCountdownStatus.compute(
+          tempsRestant: const Duration(minutes: 5),
+          avertissementLeadSec: 120,
+          enPause: false,
+        );
+        expect(status.avertissementActif, isFalse);
+        expect(status.depasse, isFalse);
+      },
+    );
 
     test('avertissement actif dans la fenêtre de préavis', () {
       final status = PassageCountdownStatus.compute(
@@ -52,14 +55,17 @@ void main() {
       expect(status.avertissementActif, isFalse);
     });
 
-    test('avertissementLeadSec = 0 désactive complètement la fonctionnalité', () {
-      final status = PassageCountdownStatus.compute(
-        tempsRestant: const Duration(seconds: 5),
-        avertissementLeadSec: 0,
-        enPause: false,
-      );
-      expect(status.avertissementActif, isFalse);
-    });
+    test(
+      'avertissementLeadSec = 0 désactive complètement la fonctionnalité',
+      () {
+        final status = PassageCountdownStatus.compute(
+          tempsRestant: const Duration(seconds: 5),
+          avertissementLeadSec: 0,
+          enPause: false,
+        );
+        expect(status.avertissementActif, isFalse);
+      },
+    );
 
     test('passage dépassé', () {
       final status = PassageCountdownStatus.compute(
@@ -84,15 +90,17 @@ void main() {
 
   group('PassageCountdownBadge (widget)', () {
     testWidgets('affiche "En pause" quand enPause est vrai', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(
-          body: PassageCountdownBadge(
-            tempsRestant: Duration(minutes: 2),
-            avertissementLeadSec: 120,
-            enPause: true,
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageCountdownBadge(
+              tempsRestant: Duration(minutes: 2),
+              avertissementLeadSec: 120,
+              enPause: true,
+            ),
           ),
         ),
-      ));
+      );
 
       // Un seul pump() : ce widget n'a pas d'animation dans son état "pause".
       await tester.pump();
@@ -102,15 +110,17 @@ void main() {
     });
 
     testWidgets('affiche le mm:ss quand hors avertissement', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(
-          body: PassageCountdownBadge(
-            tempsRestant: Duration(minutes: 3, seconds: 5),
-            avertissementLeadSec: 30,
-            enPause: false,
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageCountdownBadge(
+              tempsRestant: Duration(minutes: 3, seconds: 5),
+              avertissementLeadSec: 30,
+              enPause: false,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.pump();
 
@@ -119,16 +129,18 @@ void main() {
 
     testWidgets(
       'état avertissement actif : ne hang JAMAIS malgré la pulsation en boucle',
-          (tester) async {
-        await tester.pumpWidget(const MaterialApp(
-          home: Scaffold(
-            body: PassageCountdownBadge(
-              tempsRestant: Duration(seconds: 20),
-              avertissementLeadSec: 30,
-              enPause: false,
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: PassageCountdownBadge(
+                tempsRestant: Duration(seconds: 20),
+                avertissementLeadSec: 30,
+                enPause: false,
+              ),
             ),
           ),
-        ));
+        );
 
         // IMPORTANT : jamais pumpAndSettle() ici — l'animation de pulsation
         // (_Pulsing, ..repeat(reverse: true)) tourne indéfiniment tant que le
@@ -139,20 +151,25 @@ void main() {
         await tester.pump(const Duration(milliseconds: 350));
 
         expect(find.text('00:20'), findsOneWidget);
-        expect(find.byIcon(Icons.notifications_active_outlined), findsOneWidget);
+        expect(
+          find.byIcon(Icons.notifications_active_outlined),
+          findsOneWidget,
+        );
       },
     );
 
     testWidgets('affiche l\'état "dépassé" en rouge avec un +', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(
-          body: PassageCountdownBadge(
-            tempsRestant: Duration(seconds: -12),
-            avertissementLeadSec: 30,
-            enPause: false,
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageCountdownBadge(
+              tempsRestant: Duration(seconds: -12),
+              avertissementLeadSec: 30,
+              enPause: false,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.pump();
 
@@ -163,15 +180,17 @@ void main() {
 
   group('PassageWarningBanner (widget)', () {
     testWidgets('invisible hors fenêtre de préavis', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(
-          body: PassageWarningBanner(
-            tempsRestant: Duration(minutes: 5),
-            avertissementLeadSec: 60,
-            enPause: false,
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageWarningBanner(
+              tempsRestant: Duration(minutes: 5),
+              avertissementLeadSec: 60,
+              enPause: false,
+            ),
           ),
         ),
-      ));
+      );
       await tester.pump();
 
       // #333 : Scoper la recherche au sous-arbre du banner : Scaffold crée lui-même un
@@ -185,32 +204,39 @@ void main() {
       expect(find.textContaining('Fin de passage'), findsNothing);
     });
 
-    testWidgets('invisible pendant une pause même dans la fenêtre de préavis',
-            (tester) async {
-          await tester.pumpWidget(const MaterialApp(
-            home: Scaffold(
-              body: PassageWarningBanner(
-                tempsRestant: Duration(seconds: 10),
-                avertissementLeadSec: 60,
-                enPause: true,
-              ),
+    testWidgets('invisible pendant une pause même dans la fenêtre de préavis', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageWarningBanner(
+              tempsRestant: Duration(seconds: 10),
+              avertissementLeadSec: 60,
+              enPause: true,
             ),
-          ));
-          await tester.pump();
-
-          expect(find.textContaining('Fin de passage'), findsNothing);
-        });
-
-    testWidgets('visible et lisible dans la fenêtre de préavis', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: Scaffold(
-          body: PassageWarningBanner(
-            tempsRestant: Duration(seconds: 45),
-            avertissementLeadSec: 60,
-            enPause: false,
           ),
         ),
-      ));
+      );
+      await tester.pump();
+
+      expect(find.textContaining('Fin de passage'), findsNothing);
+    });
+
+    testWidgets('visible et lisible dans la fenêtre de préavis', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PassageWarningBanner(
+              tempsRestant: Duration(seconds: 45),
+              avertissementLeadSec: 60,
+              enPause: false,
+            ),
+          ),
+        ),
+      );
       await tester.pump();
 
       expect(find.textContaining('Fin de passage dans 45s'), findsOneWidget);

@@ -408,10 +408,34 @@ public class EvaluateurDashboardService {
         Notation notation = notationRepository.findByAssignmentId(assignment.getId())
                 .orElseGet(() -> createNotation(assignment, stationId, request.getGrilleId()));
 
+        // #297 — un second appel sur une notation DÉJÀ verrouillée ne doit
+        // jamais réécrire silencieusement verrouillePar/commentaire, ni
+        // retraverser la garde de complétude. Seul le canal audité (réajustement,
+        // ADR-0013 Part 2 — NotationReajustementService) peut changer une
+        // notation verrouillée. Ce trou préexistait à #297 ; comme la méthode
+        // est déjà retouchée ici, c'est le bon moment pour le fermer plutôt que
+        // de laisser cohabiter une porte silencieuse à côté du canal audité.
+        if (Boolean.TRUE.equals(notation.getVerouillee())) {
+            throw new BusinessException(
+                    "Notation déjà verrouillée pour " + nomEtudiant(participation.getEtudiant())
+                            + ". Utilisez le canal de réajustement (réclamation) pour la modifier.");
+        }
+
         if (request.isAbsent()) {
             notationItemRepository.deleteAll(notationItemRepository.findByNotationId(notation.getId()));
             notation.setScore_final(0.0f);
+        } else {
+            // #297 — refus DUR avant tout verrouillage. L'absence (branche
+            // ci-dessus) est la SEULE sortie qui contourne ce contrôle : elle est
+            // un verdict légitime et ne doit jamais être bloquée.
+            //
+            // Comme toute la classe est @Transactional, une BusinessException ici
+            // annule aussi la création de l'assignment/notation "coquille" faite
+            // plus haut par orElseGet : rien n'est persisté, y compris pas une
+            // notation fantôme non verrouillée. Fail-closed complet.
+            assertCompletudeAvantVerrouillage(participation, notation, request.getGrilleId());
         }
+
         // #212 (dernier volet) — le commentaire suit le même chemin que la présence : il
         // concerne CETTE station, donc il vit sur Notation (l'enregistrement par
         // (participation, station)), plus jamais sur la ligne partagée ExamenParticipation
@@ -449,6 +473,52 @@ public class EvaluateurDashboardService {
         participationRepository.save(participation);
 
         broadcastScore(notation, stationId);
+    }
+
+    /**
+     * #297 — refuse le verrouillage tant que des critères notables de la grille
+     * n'ont pas de valeur saisie. N'est JAMAIS appelée pour un étudiant absent
+     * (voir l'appelant) : l'absence est un verdict légitime qui ne bloque rien.
+     *
+     * <p>Passe TOUJOURS par {@link ExamDefinitionSnapshotService#resolveItems},
+     * jamais par {@code itemSnapshotRepository.findByGrilleId} directement.
+     * {@code findByGrilleId} rend une liste VIDE tant que la grille n'a jamais
+     * été touchée ; un comptage sur cette liste vide lirait « 0 attendu, 0 saisi
+     * → complet » — la garde laisserait passer exactement le cas qu'elle doit
+     * attraper : un étudiant jamais noté. C'est la même vérité vide qui a fait
+     * retirer {@code validerLot} (#315). {@code resolveItems} matérialise à la
+     * demande et échoue fort si la grille ne déclare vraiment aucun critère
+     * (ADR-0015) — c'est le même garde de feuille que {@code saisirNotation}.
+     *
+     * <p>Cas limite à connaître (pas un bug) : verrouiller à zéro critère saisi,
+     * sur une grille jamais touchée, pendant une panne d'exam-service. Le refus
+     * reste correct (fail-closed) mais le message sera celui d'ADR-0015
+     * (« snapshot non figé ») plutôt que « il reste N critères non notés ».
+     */
+    private void assertCompletudeAvantVerrouillage(ExamenParticipation participation, Notation notation, Long grilleId) {
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(participation.getExamen_id(), grilleId);
+
+        Set<Long> saisis = notationItemRepository.findByNotationId(notation.getId()).stream()
+                .map(NotationItem::getItemId)
+                .collect(Collectors.toSet());
+
+        Set<Long> manquants = new LinkedHashSet<>(definition.keySet());
+        manquants.removeAll(saisis);
+
+        if (!manquants.isEmpty()) {
+            throw new BusinessException(
+                    "Impossible de verrouiller : il reste " + manquants.size()
+                            + " critère(s) non noté(s) pour " + nomEtudiant(participation.getEtudiant())
+                            + ". Notez tous les critères, ou déclarez l'étudiant absent.");
+        }
+    }
+
+    private String nomEtudiant(Etudiant e) {
+        if (e == null) return "cet étudiant";
+        String full = ((e.getPrenom() != null ? e.getPrenom() : "") + " "
+                + (e.getNom() != null ? e.getNom() : "")).trim();
+        return full.isEmpty() ? "cet étudiant" : full;
     }
 
     /**
@@ -505,17 +575,28 @@ public class EvaluateurDashboardService {
             throw new BusinessException("Ce groupe est déjà validé pour cette station.");
         }
 
-        // Filet de sécurité : verrouille toute notation pas encore verrouillée
-        // (normalement déjà fait étudiant par étudiant via /valider).
+        // #297 — refus dur, PLUS de filet de sécurité silencieux. L'ancien code
+        // verrouillait ici toute notation non verrouillée (ifPresent) puis passait
+        // la rotation TERMINE sans condition : un étudiant sans AUCUNE notation
+        // était simplement ignoré, jamais nommé. Verrouiller est maintenant un
+        // acte contrôlé (validerEtudiant, cf. assertCompletudeAvantVerrouillage) :
+        // une notation absente ou non verrouillée ICI signifie que l'évaluateur ne
+        // l'a jamais validée — jamais qu'on peut le faire à sa place.
         List<RotationAssignment> assignments = rotationAssignmentRepository.findByRotationId(rotationId);
-        for (RotationAssignment a : assignments) {
-            notationRepository.findByAssignmentId(a.getId()).ifPresent(n -> {
-                if (!Boolean.TRUE.equals(n.getVerouillee())) {
-                    n.setVerouillee(true);
-                    n.setVerrouillePar(evaluateurId); // #213 — même ici : le filet a un auteur
-                    notationRepository.save(n);
-                }
-            });
+        List<String> sansVerdict = assignments.stream()
+                .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
+                .filter(a -> notationRepository.findByAssignmentId(a.getId())
+                        .map(n -> !Boolean.TRUE.equals(n.getVerouillee()))
+                        .orElse(true))
+                .map(a -> nomEtudiant(a.getParticipation().getEtudiant()))
+                .toList();
+
+        if (!sansVerdict.isEmpty()) {
+            throw new BusinessException(
+                    "Impossible de valider le groupe : aucun verdict pour "
+                            + String.join(", ", sansVerdict)
+                            + ". Verrouillez chaque étudiant restant (noté ou déclaré absent) "
+                            + "avant de valider le groupe.");
         }
 
         rotation.setStatut(RotationStatus.TERMINE);

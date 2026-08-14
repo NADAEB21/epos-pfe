@@ -596,6 +596,26 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     final current = state;
     if (current is! GradingLoaded) return;
 
+    // #297 — même garde que le backend, appliquée AVANT l'appel réseau (la
+    // grille est déjà locale) pour que le refus s'affiche hors ligne. Jamais
+    // appliquée à un étudiant absent : l'absence ne bloque jamais.
+    if (!event.absent) {
+      final feuilles = ScoreUtils.feuilles(current.grille.items);
+      final notations = current.notations[event.etudiantId] ?? const {};
+      final manquants = feuilles.where((i) => !notations.containsKey(i.id)).length;
+      if (manquants > 0) {
+        final etudiant = current.lot.etudiants.firstWhere(
+              (e) => e.id == event.etudiantId,
+          orElse: () => current.lot.etudiants.first,
+        );
+        emit(current.copyWith(
+          messageErreur: 'Impossible de verrouiller : il reste $manquants critère(s) non noté(s) '
+              'pour ${etudiant.nomComplet}. Notez tous les critères, ou déclarez l\'étudiant absent.',
+        ));
+        return;
+      }
+    }
+
     final updatedNotations = event.absent
         ? (Map<int, Map<int, Notation>>.from(current.notations)
       ..remove(event.etudiantId))
@@ -606,13 +626,51 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       notations:        updatedNotations,
     ));
 
-    await _repository.validerEtudiant(
-      event.etudiantId,
-      current.stationId,
-      grilleId:    current.grilleId,
-      absent:      event.absent,
-      commentaire: event.commentaire,
-    );
+    try {
+      await _repository.validerEtudiant(
+        event.etudiantId,
+        current.stationId,
+        grilleId:    current.grilleId,
+        absent:      event.absent,
+        commentaire: event.commentaire,
+      );
+    } catch (e) {
+      // #297 / relecture #328 — un timeout APRÈS que le serveur a verrouillé
+      // (réseau de la faculté) laisse l'app locale croire à un échec. Un
+      // retap envoie alors un second appel, que le serveur refuse à bon
+      // droit avec « déjà verrouillée » (garde de re-verrou #297) : ce refus
+      // est la PREUVE que le premier appel a réussi, pas un échec. Le
+      // traiter comme les autres erreurs retirait l'étudiant de
+      // etudiantsValides alors qu'il l'est bel et bien côté serveur — l'écran
+      // mentait jusqu'au prochain rechargement (l'état s'y corrige tout
+      // seul, vérifié, mais l'instant de confusion en salle est évitable).
+      //
+      // Détection par CONTENU car le backend ne distingue pas ce refus des
+      // autres 400 par un code dédié — fragile si le message change, mais
+      // c'est le seul signal disponible sans toucher au contrat API.
+      final message = e.toString().replaceFirst('Exception: ', '');
+      final dejaVerrouilleeParAutrui = message.toLowerCase().contains('déjà verrouillée');
+
+      if (dejaVerrouilleeParAutrui) {
+        // Idempotent : on adopte l'état que le serveur a réellement — verrouillé —
+        // au lieu de rollback l'optimisme qui, ici, était CORRECT.
+        emit(current.copyWith(
+          etudiantsValides: {...current.etudiantsValides, event.etudiantId},
+        ));
+        return;
+      }
+
+      // Défense en profondeur (divergence locale/serveur) : on annule
+      // l'optimisme local. `current` est capturé PAR VALEUR en tête de la
+      // méthode — copyWith() ci-dessous retombe donc déjà sur les champs
+      // d'origine de `current` (notations incluses) sans qu'il soit besoin de
+      // les repréciser explicitement.
+      final rollback = Set<int>.from(current.etudiantsValides)..remove(event.etudiantId);
+      emit(current.copyWith(
+        etudiantsValides: rollback,
+        messageErreur: message,
+      ));
+    }
   }
 
   // ── Validation du groupe ─────────────────────────────────────────────────────
@@ -631,8 +689,14 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         // n'aurait jamais pu s'afficher.
         vagueTerminee: !current.lot.groupeSuivantDisponible,
       ));
-    } catch (_) {
-      emit(current.copyWith(lotEnCoursDeValidation: false));
+    } catch (e) {
+      // #297 — un refus (groupe incomplet) doit être VU, pas juste avalé :
+      // avant, catch(_) laissait le bouton s'arrêter de tourner sans aucune
+      // explication — ce qui rend un "refus dur" inutilisable en pratique.
+      emit(current.copyWith(
+        lotEnCoursDeValidation: false,
+        messageErreur: e.toString().replaceFirst('Exception: ', ''),
+      ));
     }
   }
 

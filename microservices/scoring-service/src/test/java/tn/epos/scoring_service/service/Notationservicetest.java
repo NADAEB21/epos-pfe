@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.ExamenResultDTO;
 import tn.epos.scoring_service.entities.Etudiant;
@@ -315,14 +316,80 @@ class NotationServiceTest {
     @DisplayName("delete()")
     class Delete {
 
+        /**
+         * #332 — LA CAUSE (prouvée en direct, paire discriminante) : l'assignment managé
+         * re-cascade PERSIST sur la notation retirée (RotationAssignment.notation est un
+         * @OneToOne inverse cascade=ALL) et Hibernate dé-programme la suppression. Le lien
+         * inverse doit être rompu AVANT delete(). Ce test fige l'ordre : unlink puis delete.
+         * (Un mock ne peut pas reproduire la résurrection elle-même — elle vit dans le flush
+         * Hibernate ; la preuve d'effet réel est le test en direct du 2026-08-14.)
+         */
         @Test
-        @DisplayName("Doit appeler deleteById avec le bon ID")
-        void delete_devraitAppelerDeleteById() {
-            doNothing().when(repository).deleteById(1L);
+        @DisplayName("#332 : le lien inverse assignment→notation est rompu AVANT le delete (anti-résurrection)")
+        void delete_rompLeLienInverseAvantDelete() {
+            RotationAssignment assignment = new RotationAssignment();
+            Notation n = new Notation();
+            n.setId(1L);
+            n.setAssignment(assignment);
+            assignment.setNotation(n);
+
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            when(repository.existsById(1L)).thenReturn(false);
 
             notationService.delete(1L);
 
-            verify(repository, times(1)).deleteById(1L);
+            assertThat(assignment.getNotation()).isNull();
+            verify(repository).delete(n);
+        }
+
+        @Test
+        @DisplayName("Notation trouvée + réellement absente après flush → suppression confirmée")
+        void delete_devraitSupprimerEtVerifierLAbsence() {
+            when(repository.findById(1L)).thenReturn(Optional.of(notation));
+            // Répond à la relecture post-flush : la ligne n'existe plus (cas nominal).
+            when(repository.existsById(1L)).thenReturn(false);
+
+            notationService.delete(1L);
+
+            verify(repository).delete(notation);
+            verify(repository).flush();
+            verify(repository).existsById(1L);
+        }
+
+        @Test
+        @DisplayName("Notation introuvable → ResourceNotFoundException, aucun appel delete()")
+        void delete_notationIntrouvable_devraitLever() {
+            when(repository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> notationService.delete(99L))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("99");
+
+            verify(repository, never()).delete(any(Notation.class));
+            verify(repository, never()).flush();
+            verify(repository, never()).existsById(any());
+        }
+
+        /**
+         * #332 — LE test sentinelle demandé par le ticket : « supprime PUIS relit ». Reproduit
+         * exactement le symptôme live (delete() exécuté, flush() exécuté, mais la ligne survit)
+         * et vérifie que ce cas précis lève désormais une erreur HONNÊTE au lieu de répondre 200.
+         */
+        @Test
+        @DisplayName("Ligne encore présente après delete()+flush() (répro live #332) → erreur honnête, pas de 200 mensonger")
+        void delete_ligneEncorePresenteApresFlush_devraitLeverErreurHonnete() {
+            when(repository.findById(1L)).thenReturn(Optional.of(notation));
+            // Reproduit le bug observé en direct : la relecture post-flush trouve TOUJOURS la ligne.
+            when(repository.existsById(1L)).thenReturn(true);
+
+            assertThatThrownBy(() -> notationService.delete(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("échoué")
+                    .hasMessageContaining("1");
+
+            // delete() et flush() ont bien été tentés — on vérifie l'EFFET, pas seulement l'appel.
+            verify(repository).delete(notation);
+            verify(repository).flush();
         }
     }
 

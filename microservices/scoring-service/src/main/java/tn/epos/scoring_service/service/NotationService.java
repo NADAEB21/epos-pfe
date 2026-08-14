@@ -179,9 +179,56 @@ public class NotationService {
         return repository.save(notation);
     }
 
-    // Supprimer une notation
+    /**
+     * Supprime une notation de manière sécurisée (#332).
+     *
+     * <p>Ce correctif répond à un bug de "faux-succès" où l'appel répondait 200 alors que
+     * la ligne persistait en base. Bien que {@code deleteById(id)} effectue déjà un
+     * {@code findById} en interne, l'ordre de suppression SQL pouvait être retardé ou
+     * ignoré par le gestionnaire de persistance sans lever d'exception.
+     *
+     * <p>La solution implémente une stratégie de vérification d'effet :
+     * <ol>
+     *   <li>{@code @Transactional} : Regroupe l'action et sa vérification dans un même contexte.</li>
+     *   <li>{@code flush()} : Force l'exécution immédiate de l'ordre DELETE vers la base de données.</li>
+     *   <li><b>Vérification post-condition</b> : Relit l'existence de la ligne après le flush.
+     *       Si la ligne survit, une {@link BusinessException} est levée pour transformer
+     *       un échec silencieux en erreur explicite.</li>
+     * </ol>
+     *
+     * @param id Identifiant de la notation à supprimer.
+     * @throws ResourceNotFoundException si la notation n'existe pas.
+     * @throws BusinessException si la suppression échoue techniquement (vérifié via existsById).
+     */
+    @Transactional
     public void delete(Long id) {
-        repository.deleteById(id);
+        Notation notation = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
+
+        // #332 — LA CAUSE, prouvée en direct par paire discriminante (2026-08-14) : une
+        // notation SANS assignment se supprime, une notation AVEC assignment ressuscite.
+        // RotationAssignment.notation est un @OneToOne inverse en cascade=ALL : au flush,
+        // l'assignment resté MANAGÉ re-cascade PERSIST sur la notation qu'on vient de
+        // retirer — Hibernate « dé-programme » la suppression, aucun DELETE SQL ne part,
+        // aucune erreur, aucune trace. Rompre le lien inverse AVANT delete() supprime le
+        // chemin de résurrection. (Ne pas retirer cascade=ALL côté RotationAssignment :
+        // la purge des rotations s'en sert pour emporter les notations.)
+        if (notation.getAssignment() != null) {
+            notation.getAssignment().setNotation(null);
+        }
+
+        repository.delete(notation);
+
+        // Force l'envoi du DELETE SQL avant de tester la post-condition
+        repository.flush();
+
+        // Vérification de l'effet réel en base (La "leçon des sentinelles")
+        if (repository.existsById(id)) {
+            throw new BusinessException(
+                    "La suppression de la notation " + id + " a échoué silencieusement : "
+                            + "la ligne existe toujours après DELETE + flush (#332). "
+                            + "Aucune donnée n'a été modifiée côté application ; contactez le support technique.");
+        }
     }
 
     // #331 — `verouillee` n'est PLUS lu depuis le payload, quelle que soit sa valeur.

@@ -29,10 +29,13 @@
       }
     </div>
 
-    <!-- Matière -->
+    <!-- Matière. #304 — le sélecteur se rend dès qu'il y a AU MOINS UNE option
+         assignable : l'ancien seuil `> 1` confondait « une seule option » et
+         « aucun choix à faire », et faisait disparaître le formulaire entier
+         pour un responsable à 2 matières dont une retirée. -->
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Matière</label>
-      @if (matiereOptions().length > 1) {
+      @if (matiereOptions().length > 0) {
         <select
           formControlName="matiereId"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
@@ -45,7 +48,32 @@
         @if (form.controls.matiereId.touched && form.controls.matiereId.invalid) {
           <p class="text-xs text-status-danger mt-1">Sélectionnez une matière.</p>
         }
+        @if (matieresRetirees().length > 0) {
+          <p class="text-xs text-gray-500 mt-1">
+            @for (m of matieresRetirees(); track m.id) {
+              « {{ m.libelle }} » a été retirée du catalogue et n'est plus proposée.
+            }
+          </p>
+        }
+      } @else if (catalogueLoaded()) {
+        <!-- #304 — zéro matière assignable : DIRE le problème (le libellé de la
+             matière fermée affiché « comme si de rien n'était » était le mensonge). -->
+        <div role="alert" class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          @if (matieresRetirees().length > 0) {
+            @for (m of matieresRetirees(); track m.id) {
+              <p>Votre matière « {{ m.libelle }} » a été retirée du catalogue par l'administration.</p>
+            }
+            <p class="mt-1">
+              Aucun nouvel examen ne peut y être créé. Contactez l'administration si ce retrait
+              est une erreur.
+            </p>
+          } @else {
+            <p>Aucune matière de votre portée n'est disponible. Contactez l'administration.</p>
+          }
+        </div>
       } @else {
+        <!-- Catalogue non chargé (ou en échec) : libellé neutre historique — on
+             n'affirme jamais « retirée » sans avoir vu le catalogue. -->
         <p class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
           {{ soleMatiereLabel() }}
         </p>
@@ -139,7 +167,9 @@
       }
       @case ('validation') {
         <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
-          Certains champs sont invalides. Vérifiez le formulaire.
+          <!-- #303 — le refus nominatif du backend (« la matière X a été retirée… »)
+               prime sur le générique : il dit pourquoi ET quoi faire. -->
+          {{ serverMessage() ?? 'Certains champs sont invalides. Vérifiez le formulaire.' }}
         </div>
       }
       @case ('network') {

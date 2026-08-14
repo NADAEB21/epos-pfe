@@ -16,6 +16,7 @@ import 'features/grading/data/repositories/grading_repository_impl.dart';
 import 'features/grading/data/repositories/mock_grading_repository.dart';
 import 'features/grading/domain/repositories/grading_repository.dart';
 import 'features/home/data/repositories/mock_session_repository.dart';
+import 'features/profile/data/settings_store.dart';
 import 'features/home/data/repositories/session_repository_impl.dart';
 import 'features/home/domain/repositories/session_repository.dart';
 
@@ -69,12 +70,18 @@ void main() async {
   // Couvert par test/unit/sync_wiring_test.dart : ne pas retirer.
   SyncService.instance.init(gradingRepository);
 
+  // W4 — les réglages (langue, thème) sont lus AVANT le premier rendu pour
+  // qu'un évaluateur arabophone ne voie pas l'interface clignoter en français.
+  final settingsStore = await SettingsStore.open();
+
   runApp(
     EposApp(
       authRepository:    authRepository,
       sessionRepository: sessionRepository,
       gradingRepository: gradingRepository,
       apiClient:         apiClient,
+      settingsStore:     settingsStore,
+      initialSettings:   settingsStore.load(),
     ),
   );
 }

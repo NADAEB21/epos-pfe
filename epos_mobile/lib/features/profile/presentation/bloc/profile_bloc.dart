@@ -13,6 +13,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
 import '../../../auth/domain/repositories/auth_repository.dart';
+import '../../data/settings_store.dart';
 import '../../domain/entities/profile_settings.dart';
 
 // ========================
@@ -31,12 +32,8 @@ class ProfileLanguageChanged extends ProfileEvent {
   List<Object?> get props => [language];
 }
 
-class ProfileNotificationsToggled extends ProfileEvent {
-  final bool enabled;
-  const ProfileNotificationsToggled(this.enabled);
-  @override
-  List<Object?> get props => [enabled];
-}
+// W4 — ProfileNotificationsToggled supprimé avec l'interrupteur qu'il servait :
+// il ne pilotait aucun canal de notification (aucun consommateur du booléen).
 
 class ProfileThemeChanged extends ProfileEvent {
   final AppThemeMode themeMode;
@@ -99,37 +96,45 @@ class ProfilePasswordError extends ProfileState {
 class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
   final AuthRepository _authRepository;
 
-  ProfileBloc({required AuthRepository authRepository})
-      : _authRepository = authRepository,
-        super(const ProfileLoaded(ProfileSettings())) {
+  /// W4 — persistance des réglages. Nullable : les tests et le mode mock
+  /// peuvent s'en passer ; sans store, le comportement redevient « mémoire ».
+  final SettingsStore? _settingsStore;
+
+  ProfileBloc({
+    required AuthRepository authRepository,
+    SettingsStore? settingsStore,
+    ProfileSettings? initialSettings,
+  })  : _authRepository = authRepository,
+        _settingsStore = settingsStore,
+        super(ProfileLoaded(initialSettings ?? const ProfileSettings())) {
     on<ProfileLanguageChanged>(_onLanguageChanged);
-    on<ProfileNotificationsToggled>(_onNotificationsToggled);
     on<ProfileThemeChanged>(_onThemeChanged);
     on<ProfilePasswordChangeRequested>(_onPasswordChangeRequested);
     on<ProfilePasswordChangeDismissed>(_onPasswordChangeDismissed);
+  }
+
+  /// W4 — chaque changement s'écrit immédiatement (meilleur effort : un échec
+  /// d'écriture ne casse jamais le changement à l'écran).
+  void _persist(ProfileSettings settings) {
+    _settingsStore?.save(settings).catchError((_) {});
   }
 
   void _onLanguageChanged(
       ProfileLanguageChanged event,
       Emitter<ProfileState> emit,
       ) {
-    emit(ProfileLoaded(state.settings.copyWith(language: event.language)));
-  }
-
-  void _onNotificationsToggled(
-      ProfileNotificationsToggled event,
-      Emitter<ProfileState> emit,
-      ) {
-    emit(ProfileLoaded(
-      state.settings.copyWith(notificationsEnabled: event.enabled),
-    ));
+    final next = state.settings.copyWith(language: event.language);
+    _persist(next);
+    emit(ProfileLoaded(next));
   }
 
   void _onThemeChanged(
       ProfileThemeChanged event,
       Emitter<ProfileState> emit,
       ) {
-    emit(ProfileLoaded(state.settings.copyWith(themeMode: event.themeMode)));
+    final next = state.settings.copyWith(themeMode: event.themeMode);
+    _persist(next);
+    emit(ProfileLoaded(next));
   }
 
   /// Appelle le vrai backend (PUT /auth/change-password) via AuthRepository.

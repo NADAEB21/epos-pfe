@@ -11,6 +11,7 @@ import 'features/grading/domain/repositories/grading_repository.dart';
 import 'features/home/domain/repositories/session_repository.dart';
 import 'features/home/presentation/bloc/session_bloc.dart';
 import 'features/home/presentation/screens/home_screen.dart';
+import 'features/profile/data/settings_store.dart';
 import 'features/profile/domain/entities/profile_settings.dart';
 import 'features/profile/presentation/bloc/profile_bloc.dart';
 import 'core/offline/offline_bloc.dart';
@@ -21,12 +22,19 @@ class EposApp extends StatefulWidget {
   final GradingRepository gradingRepository;
   final ApiClient?        apiClient;
 
+  /// W4 — réglages persistés : lus AVANT runApp (main.dart), écrits par
+  /// ProfileBloc à chaque changement. Null en test : comportement mémoire.
+  final SettingsStore?    settingsStore;
+  final ProfileSettings?  initialSettings;
+
   const EposApp({
     super.key,
     required this.authRepository,
     required this.sessionRepository,
     required this.gradingRepository,
     this.apiClient,
+    this.settingsStore,
+    this.initialSettings,
   });
 
   @override
@@ -64,7 +72,13 @@ class _EposAppState extends State<EposApp> {
     // BF1.3 / changement de mot de passe (écran Profil) — ProfileBloc a
     // besoin de l'AuthRepository pour appeler le vrai endpoint
     // PUT /auth/change-password au lieu de l'ancienne validation mock.
-    _profileBloc = ProfileBloc(authRepository: widget.authRepository);
+    // W4 — les réglages arrivent déjà lus (main.dart) et chaque changement
+    // est écrit par le bloc : la langue et le thème survivent au lancement.
+    _profileBloc = ProfileBloc(
+      authRepository:  widget.authRepository,
+      settingsStore:   widget.settingsStore,
+      initialSettings: widget.initialSettings,
+    );
     _offlineBloc = OfflineBloc();
 
     _authBloc.stream.listen((state) {

@@ -54,7 +54,8 @@ export class AdminHomeComponent {
   readonly adminLinks: AdminLink[] = [
     { label: 'Utilisateurs', desc: 'Comptes & rôles (tous)', link: '/admin/utilisateurs' },
     { label: 'Matières', desc: 'Catalogue des matières', link: '/admin/matieres' },
-    { label: 'Templates globaux', desc: 'Modèles de grilles partagés', link: '/admin/templates' },
+    // « Templates globaux » supprimé (W2/ADR-0027) : rédiger un modèle est une
+    // autorité pédagogique (ADR-0018 D5) — l'écran promettait un acte interdit.
     { label: 'Examens', desc: 'Supervision toutes matières', link: '/admin/examens' },
   ];
 

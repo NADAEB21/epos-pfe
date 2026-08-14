@@ -18,9 +18,14 @@ import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
+import tn.epos.scoring_service.repositories.INotationItemRepository;
 import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
+import tn.epos.scoring_service.entities.ExamItemSnapshot;
+import tn.epos.scoring_service.entities.NotationItem;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,6 +55,12 @@ class NotationServiceTest {
     @Mock
     private MatiereAccessGuard matiereAccessGuard;
 
+    @Mock
+    private INotationItemRepository notationItemRepository;
+
+    @Mock
+    private ExamDefinitionSnapshotService examDefinitionSnapshot;
+
     @InjectMocks
     private NotationService notationService;
 
@@ -78,6 +89,46 @@ class NotationServiceTest {
         // ce que les tests de refus expriment par un `doThrow(...)` explicite.
         lenient().when(scopeChecker.peutLireHorsPerimetre()).thenReturn(true);
     }
+
+    // ─── shared helpers ──────────────────────────────────────────────────────
+    private Notation notationComplete(long evaluateurId, long examenId, long grilleId, boolean verrouillee) {
+        Etudiant e = new Etudiant();
+        e.setId(1L); e.setNom("Dupont"); e.setPrenom("Alice");
+
+        ExamenParticipation p = new ExamenParticipation();
+        p.setId(10L);
+        p.setExamen_id(examenId);
+        p.setEtudiant(e);
+
+        Rotation rotation = new Rotation();
+        rotation.setEvaluateurId(evaluateurId);
+
+        RotationAssignment assignment = new RotationAssignment();
+        assignment.setRotation(rotation);
+        assignment.setParticipation(p);
+
+        Notation n = new Notation();
+        n.setId(1L);
+        n.setVerouillee(verrouillee);
+        n.setGrilleId(grilleId);
+        n.setAssignment(assignment);
+        return n;
+    }
+
+    private Map<Long, ExamItemSnapshot> definition(long itemId, double ponderation, String type) {
+        return Map.of(itemId, ExamItemSnapshot.builder()
+                .examenId(99L).grilleId(11L).itemId(itemId)
+                .ponderation(ponderation).type(type)
+                .build());
+    }
+
+    private NotationItem itemSaisi(Long itemId, float valeur) {
+        NotationItem ni = new NotationItem();
+        ni.setItemId(itemId);
+        ni.setValeur(valeur);
+        return ni;
+    }
+
 
     @Nested
     @DisplayName("findAll()")
@@ -384,6 +435,21 @@ class NotationServiceTest {
             assertThat(result.getGrilleId()).isEqualTo(11L);           // préservé (NOT NULL)
             assertThat(result.getVerouillee()).isFalse();              // préservé
         }
+
+        @Test
+        @DisplayName("#331 : verouillee=true dans le payload est IGNORÉ — le PUT ne verrouille jamais")
+        void update_nePermetPlusDeVerrouillerViaLePayload() {
+            Notation details = new Notation();
+            details.setScore_final(15.0f);
+            details.setVerouillee(true); // ← tentative de contournement
+
+            when(repository.findById(1L)).thenReturn(Optional.of(notation)); // verouillee=false initial
+            when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Notation result = notationService.update(1L, details);
+
+            assertThat(result.getVerouillee()).isFalse();
+        }
     }
 
     @Nested
@@ -391,27 +457,34 @@ class NotationServiceTest {
     class Verrouiller {
 
         @Test
-        @DisplayName("Doit passer verouillee à true et sauvegarder")
+        @DisplayName("#331 : grille complète (tous critères saisis) → verrouillage accepté")
         void verrouiller_devraitVerrouillerEtSauvegarder() {
-            when(repository.findById(1L)).thenReturn(Optional.of(notation));
+            Notation n = notationComplete(1L, 99L, 11L, false);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            when(examDefinitionSnapshot.resolveItems(99L, 11L))
+                    .thenReturn(definition(5L, 2.0, "BINAIRE"));
+            when(notationItemRepository.findByNotationId(1L))
+                    .thenReturn(List.of(itemSaisi(5L, 1f)));
             when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
 
             Notation result = notationService.verrouiller(1L);
 
             assertThat(result.getVerouillee()).isTrue();
-            verify(repository).save(any(Notation.class));
+            verify(repository).save(n);
         }
 
         @Test
-        @DisplayName("Une notation déjà verrouillée reste verrouillée après un second appel")
+        @DisplayName("Un second appel sur une notation déjà verrouillée est idempotent (no-op, rien réécrit)")
         void verrouiller_devraitResterVerrouilleeSiDejaVerrouillee() {
             notation.setVerouillee(true);
             when(repository.findById(1L)).thenReturn(Optional.of(notation));
-            when(repository.save(any(Notation.class))).thenAnswer(inv -> inv.getArgument(0));
 
             Notation result = notationService.verrouiller(1L);
 
             assertThat(result.getVerouillee()).isTrue();
+            // Idempotent : ni la garde de complétude ni repository.save() ne sont sollicités.
+            verify(repository, never()).save(any(Notation.class));
+            verifyNoInteractions(examDefinitionSnapshot, notationItemRepository);
         }
 
         @Test
@@ -422,6 +495,73 @@ class NotationServiceTest {
             assertThatThrownBy(() -> notationService.verrouiller(99L))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("99");
+        }
+
+        // ── #331 — test sentinelle : coquille 0/N critères + verrouiller() → refus ──────────
+
+        @Test
+        @DisplayName("#331 : coquille 0/1 critère saisi → refus, rien n'est écrit")
+        void verrouiller_refuse_coquille_sansAucunCritereSaisi() {
+            Notation n = notationComplete(1L, 99L, 11L, false);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            when(examDefinitionSnapshot.resolveItems(99L, 11L))
+                    .thenReturn(definition(5L, 2.0, "BINAIRE"));
+            when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of());
+
+            assertThatThrownBy(() -> notationService.verrouiller(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("1 critère")
+                    .hasMessageContaining("Alice Dupont");
+
+            assertThat(n.getVerouillee()).isFalse();
+            verify(repository, never()).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("#331 : grille à 2 critères, 1 seul saisi → refus")
+        void verrouiller_refuse_critereManquant_partiel() {
+            Notation n = notationComplete(1L, 99L, 11L, false);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            Map<Long, ExamItemSnapshot> deuxCriteres = new HashMap<>(definition(5L, 1.0, "NUMERIQUE"));
+            deuxCriteres.putAll(definition(6L, 2.0, "BINAIRE"));
+            when(examDefinitionSnapshot.resolveItems(99L, 11L)).thenReturn(deuxCriteres);
+            when(notationItemRepository.findByNotationId(1L)).thenReturn(List.of(itemSaisi(5L, 1f)));
+
+            assertThatThrownBy(() -> notationService.verrouiller(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("1 critère");
+
+            verify(repository, never()).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("#331 : notation sans participation résolvable → refus fail-closed")
+        void verrouiller_refuse_sansParticipation() {
+            RotationAssignment assignment = new RotationAssignment(); // pas de participation
+            Notation n = new Notation();
+            n.setId(1L); n.setVerouillee(false); n.setGrilleId(11L); n.setAssignment(assignment);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+
+            assertThatThrownBy(() -> notationService.verrouiller(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("non rattachée à une participation");
+
+            verifyNoInteractions(examDefinitionSnapshot, notationItemRepository);
+            verify(repository, never()).save(any(Notation.class));
+        }
+
+        @Test
+        @DisplayName("#331 : notation sans grilleId → refus fail-closed")
+        void verrouiller_refuse_sansGrilleId() {
+            Notation n = notationComplete(1L, 99L, 11L, false);
+            n.setGrilleId(null);
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+
+            assertThatThrownBy(() -> notationService.verrouiller(1L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("sans grille associée");
+
+            verifyNoInteractions(examDefinitionSnapshot);
         }
     }
 

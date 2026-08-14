@@ -280,7 +280,21 @@ class GradingRepositoryImpl implements GradingRepository {
           return Exception(
               'Hors ligne. Les données seront synchronisées à la reconnexion.');
         }
-        return Exception('$message : ${e.message}');
+        // #297 — un refus de verrouillage (400) porte son message métier dans
+        // le corps JSON (ApiResponse.message), jamais dans e.message (générique
+        // Dio, du type "Http status error [400]"). Sans cette extraction, le
+        // refus détaillé du backend ("il reste 3 critères non notés pour...")
+        // n'atteignait jamais l'écran.
+        return Exception(_extractErrorMessage(e) ?? '$message : ${e.message}');
     }
+  }
+
+  // Même helper que AuthRepositoryImpl — un seul contrat d'enveloppe d'erreur.
+  String? _extractErrorMessage(DioException e) {
+    final data = e.response?.data;
+    if (data is Map<String, dynamic> && data['message'] is String) {
+      return data['message'] as String;
+    }
+    return null;
   }
 }

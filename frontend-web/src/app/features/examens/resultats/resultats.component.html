@@ -169,7 +169,7 @@
       <tbody class="divide-y divide-gray-50">
         @for (row of rows(); track row.participationId) {
           <tr class="hover:bg-gray-50/60">
-            <td class="px-3 py-2.5 tabular-nums text-gray-400">{{ row.rang }}</td>
+            <td class="px-3 py-2.5 tabular-nums text-gray-400">{{ row.rang > 0 ? row.rang : '—' }}</td>
             <td class="px-3 py-2.5">
               <div class="font-medium text-gray-900">{{ row.nom }}</div>
               @if (row.numeroInscription) {

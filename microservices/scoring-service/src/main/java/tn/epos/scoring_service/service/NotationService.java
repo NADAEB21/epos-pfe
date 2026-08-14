@@ -205,6 +205,18 @@ public class NotationService {
         Notation notation = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
 
+        // #332 — LA CAUSE, prouvée en direct par paire discriminante (2026-08-14) : une
+        // notation SANS assignment se supprime, une notation AVEC assignment ressuscite.
+        // RotationAssignment.notation est un @OneToOne inverse en cascade=ALL : au flush,
+        // l'assignment resté MANAGÉ re-cascade PERSIST sur la notation qu'on vient de
+        // retirer — Hibernate « dé-programme » la suppression, aucun DELETE SQL ne part,
+        // aucune erreur, aucune trace. Rompre le lien inverse AVANT delete() supprime le
+        // chemin de résurrection. (Ne pas retirer cascade=ALL côté RotationAssignment :
+        // la purge des rotations s'en sert pour emporter les notations.)
+        if (notation.getAssignment() != null) {
+            notation.getAssignment().setNotation(null);
+        }
+
         repository.delete(notation);
 
         // Force l'envoi du DELETE SQL avant de tester la post-condition

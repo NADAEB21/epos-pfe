@@ -316,6 +316,32 @@ class NotationServiceTest {
     @DisplayName("delete()")
     class Delete {
 
+        /**
+         * #332 — LA CAUSE (prouvée en direct, paire discriminante) : l'assignment managé
+         * re-cascade PERSIST sur la notation retirée (RotationAssignment.notation est un
+         * @OneToOne inverse cascade=ALL) et Hibernate dé-programme la suppression. Le lien
+         * inverse doit être rompu AVANT delete(). Ce test fige l'ordre : unlink puis delete.
+         * (Un mock ne peut pas reproduire la résurrection elle-même — elle vit dans le flush
+         * Hibernate ; la preuve d'effet réel est le test en direct du 2026-08-14.)
+         */
+        @Test
+        @DisplayName("#332 : le lien inverse assignment→notation est rompu AVANT le delete (anti-résurrection)")
+        void delete_rompLeLienInverseAvantDelete() {
+            RotationAssignment assignment = new RotationAssignment();
+            Notation n = new Notation();
+            n.setId(1L);
+            n.setAssignment(assignment);
+            assignment.setNotation(n);
+
+            when(repository.findById(1L)).thenReturn(Optional.of(n));
+            when(repository.existsById(1L)).thenReturn(false);
+
+            notationService.delete(1L);
+
+            assertThat(assignment.getNotation()).isNull();
+            verify(repository).delete(n);
+        }
+
         @Test
         @DisplayName("Notation trouvée + réellement absente après flush → suppression confirmée")
         void delete_devraitSupprimerEtVerifierLAbsence() {

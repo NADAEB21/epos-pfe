@@ -28,3 +28,6 @@ desktop.ini
 *.jar
 *.war
 *.ear
+
+# --- Sauvegardes locales (W9) : jamais dans git, donnees personnelles ---
+infrastructure/sauvegarde/backups/

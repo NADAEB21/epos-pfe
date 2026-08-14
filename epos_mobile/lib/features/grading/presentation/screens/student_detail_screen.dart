@@ -83,6 +83,19 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   bool _absent = false;
   final _remarqueController = TextEditingController();
 
+  // #335 — ROUVRIR NE MENT PLUS. Ces deux champs partaient de zéro à chaque
+  // ouverture alors que l'entité porte la vérité serveur : un étudiant déclaré
+  // ABSENT réapparaissait « Présent », sa remarque disparaissait — et
+  // re-verrouiller depuis cet écran aurait écrasé la vérité par les valeurs
+  // par défaut. Les notes, elles, étaient restaurées (notationExistante),
+  // c'est ce qui rendait le piège invisible.
+  @override
+  void initState() {
+    super.initState();
+    _absent = widget.etudiant.absent;
+    _remarqueController.text = widget.etudiant.commentaire ?? '';
+  }
+
   @override
   void dispose() {
     _remarqueController.dispose();

@@ -52,6 +52,9 @@ dependencies:
  
   # === Authentification & Sécurité ===
   flutter_secure_storage: ^9.0.0  # Stockage sécurisé des tokens JWT
+  # W4 — réglages (langue/thème) : PAS le coffre sécurisé, dont deleteAll()
+  # (déconnexion) effacerait aussi les préférences. Voir settings_store.dart.
+  shared_preferences: ^2.2.0
 
   # === Base de données locale (offline) ===
   sqflite: ^2.3.2             # SQLite pour Flutter

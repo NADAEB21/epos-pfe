@@ -15,6 +15,7 @@ import tn.epos.exam_service.entities.GrilleEvaluation;
 import tn.epos.exam_service.entities.Station;
 import java.util.ArrayList;
 import tn.epos.exam_service.enums.StatutExamen;
+import tn.epos.exam_service.catalogue.RetiredMatiereList;
 import tn.epos.exam_service.config.CallerIdentity;
 import tn.epos.exam_service.config.MatiereAccessChecker;
 import tn.epos.common.exception.BusinessException;
@@ -50,6 +51,8 @@ public class ExamenServiceImpl implements ExamenService {
     private final Clock clock;
     /** #306 — qui agit. exam-service n'avait aucun extracteur d'identite. */
     private final CallerIdentity callerIdentity;
+    /** #303 — copie locale des matières retirées (poller 30 s, voir RetiredMatiereSyncClient). */
+    private final RetiredMatiereList retiredMatiereList;
 
     @Value("${epos.upload.dir}")
     private String uploadDir;
@@ -58,6 +61,12 @@ public class ExamenServiceImpl implements ExamenService {
     @Override
     public ExamenResponse creer(ExamenRequest request) {
         log.info("Création d'un examen : {} - matiere_id={}", request.getNom(), request.getMatiereId());
+
+        // #303 — la fermeture du catalogue doit avoir un effet ICI : jusqu'à ce garde,
+        // une matière retirée acceptait création ET lancement (prouvé en direct dans le
+        // ticket). La vérité vient d'auth, dénormalisée par le poller #306-like — pas
+        // d'appel synchrone : le chemin d'écriture ne dépend jamais d'auth debout.
+        refuserSiMatiereRetiree(request.getMatiereId(), "Création impossible");
 
         Examen examen = Examen.builder()
                 .nom(request.getNom())
@@ -155,6 +164,10 @@ public class ExamenServiceImpl implements ExamenService {
             );
         }
 
+        // #303 — un brouillon ne peut pas être RE-CIBLÉ vers une matière fermée
+        // (la création directe y est refusée ; ce chemin-ci serait le contournement).
+        refuserSiMatiereRetiree(request.getMatiereId(), "Modification impossible");
+
         examen.setNom(request.getNom());
         examen.setMatiereId(request.getMatiereId());
         examen.setDateExamen(request.getDateExamen());
@@ -173,6 +186,15 @@ public class ExamenServiceImpl implements ExamenService {
         Examen examen = trouverEntite(id);
         matiereAccessChecker.checkAccess(examen.getMatiereId());
         validerTransitionStatut(examen.getStatut(), nouveauStatut);
+
+        // #303 — le LANCEMENT est la transition que la fermeture du catalogue doit
+        // arrêter : une matière déclarée close ne produit plus de nouvelles épreuves.
+        // Uniquement → EN_COURS : pause, reprise, TERMINE et ARCHIVE restent libres —
+        // fermer une matière est un départ, pas une éjection (même doctrine que les
+        // comptes, ADR-0023) : une épreuve déjà en cours se termine normalement.
+        if (nouveauStatut == StatutExamen.EN_COURS) {
+            refuserSiMatiereRetiree(examen.getMatiereId(), "Lancement impossible");
+        }
 
         // #265 — un évaluateur est un humain : engagé dans la salle d'un examen
         // EN_COURS, il ne peut pas servir une station d'un second examen lancé en
@@ -496,6 +518,25 @@ public class ExamenServiceImpl implements ExamenService {
     private Examen trouverEntite(Long id) {
         return examenRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Examen", id));
+    }
+
+    /**
+     * #303 — refuse un acte de PRODUCTION (créer, re-cibler, lancer) sur une matière que
+     * l'administration a retirée du catalogue. Refus NOMINATIF (le libellé voyage avec la
+     * liste — exam-service n'a pas de copie du catalogue) et ORIENTANT : il dit ce qui
+     * reste possible. Ne garde volontairement PAS pause/reprise/TERMINE/ARCHIVE — la
+     * fermeture d'une matière est un départ, pas une éjection (doctrine ADR-0023) :
+     * une épreuve déjà lancée se termine normalement.
+     */
+    private void refuserSiMatiereRetiree(Long matiereId, String acte) {
+        if (retiredMatiereList.isRetired(matiereId)) {
+            throw new BusinessException(String.format(
+                    "%s : la matière « %s » a été retirée du catalogue par l'administration. "
+                            + "Aucun nouvel examen ne peut y être créé ni lancé ; les épreuves "
+                            + "déjà en cours restent consultables et peuvent être terminées. "
+                            + "Contactez l'administration si ce retrait est une erreur.",
+                    acte, retiredMatiereList.libelleOf(matiereId)));
+        }
     }
 
      // Valide les transitions de statut autorisées.

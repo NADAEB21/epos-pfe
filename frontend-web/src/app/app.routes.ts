@@ -65,7 +65,8 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
-  { path: 'analyses-ia', ...stub('Analyses IA') },
+  // W2/ADR-0028 — l'onglet « Analyses IA » ne revient que lorsque le volet IA
+  // existera : un onglet vivant qui rend un bouchon est une promesse vide.
 ];
 
 export const routes: Routes = [
@@ -156,13 +157,18 @@ export const routes: Routes = [
             data: { scope: 'co-responsables' },
           },
 
-          // Parametres (matiere-scoped)
-          { path: 'parametres/matiere', ...stub('Ma matiere') },
+          // « Ma matière » : supprimée (W2/D3, S39) — aucun contenu légitime
+          // tant que les modèles de grilles ne sont pas « de matière »
+          // (ADR-0027). La recréer alors, avec un vrai contenu.
         ],
       },
 
       // Parametres (any web user)
-      { path: 'parametres/profil', ...stub('Mon profil') },
+      {
+        path: 'parametres/profil',
+        loadComponent: () =>
+          import('./features/profil/profil.component').then((m) => m.ProfilComponent),
+      },
 
       // Administration (SUPER_ADMIN only)
       {
@@ -186,8 +192,9 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/admin/matieres.component').then((m) => m.MatieresComponent),
           },
-          { path: 'templates', ...stub('Templates globaux') },
-          { path: 'examens', ...stub('Examens (oversight)') },
+          // « Templates globaux » : supprimé (W2/ADR-0027) — rédiger un modèle
+          // est une autorité PÉDAGOGIQUE (ADR-0018 D5), pas administrative.
+          { path: 'examens', ...stub('Examens (oversight)') }, // W13 (P1) — supervision lecture seule à construire
         ],
       },
     ],

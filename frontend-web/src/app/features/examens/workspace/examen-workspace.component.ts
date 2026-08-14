@@ -29,7 +29,8 @@ const TABS_LIVE: WorkspaceTab[] = [
 ];
 const TABS_DONE: WorkspaceTab[] = [
   { label: 'Résultats', segment: 'resultats' },
-  { label: 'Analyses IA', segment: 'analyses-ia' },
+  // « Analyses IA » retiré (W2, S39) : l'onglet rendait un bouchon sur CHAQUE
+  // examen fini. Il revient avec le volet IA — pas avant.
   { label: 'Stations & Grilles', segment: 'stations-grilles' },
   { label: 'Étudiants', segment: 'etudiants' },
 ];

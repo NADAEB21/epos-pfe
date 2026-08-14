@@ -56,9 +56,11 @@ export class SidebarComponent {
       });
     }
 
-    const parametres: NavItem[] = [{ label: 'Mon profil', link: '/parametres/profil' }];
-    if (isResponsable) parametres.push({ label: 'Ma matiere', link: '/parametres/matiere' });
-    groups.push({ title: 'Parametres', items: parametres });
+    // « Ma matière » supprimée (W2/D3) — voir ADR-0027 pour sa seule résurrection prévue.
+    groups.push({
+      title: 'Parametres',
+      items: [{ label: 'Mon profil', link: '/parametres/profil' }],
+    });
 
     if (isSuperAdmin) {
       groups.push({
@@ -67,7 +69,7 @@ export class SidebarComponent {
           { label: "Vue d'ensemble", link: '/admin', exact: true },
           { label: 'Utilisateurs', link: '/admin/utilisateurs' },
           { label: 'Matieres', link: '/admin/matieres' },
-          { label: 'Templates globaux', link: '/admin/templates' },
+          // « Templates globaux » supprimé (W2/ADR-0027 — autorité pédagogique).
           { label: 'Examens', link: '/admin/examens' },
         ],
       });

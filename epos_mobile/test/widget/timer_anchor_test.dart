@@ -29,12 +29,11 @@ import 'package:epos_mobile/features/grading/presentation/bloc/grading_bloc.dart
 
 // ── Doublure — aucun réseau ────────────────────────────────────────────────
 class _FakeGradingRepo implements GradingRepository {
-  _FakeGradingRepo({this.debutReel, this.total = 4});
+  _FakeGradingRepo({this.debutReel});
 
   /// #209 — l'ancre RÉELLE du minuteur, portée par le Lot (jamais plus par
   /// l'événement de session).
   final DateTime? debutReel;
-  final int total;
 
   @override
   Future<Grille> getGrille(int stationId) async => const Grille(
@@ -48,7 +47,7 @@ class _FakeGradingRepo implements GradingRepository {
   Future<Lot> getGroupe(int rotationId) async => Lot(
     id: 28,
     numero: 1,
-    total: total,
+    total: 4,
     etudiants: const [],
     debutReel: debutReel,
   );

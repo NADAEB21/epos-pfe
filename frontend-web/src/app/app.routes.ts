@@ -77,6 +77,27 @@ export const routes: Routes = [
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
+    // W10 — mot de passe oublié, étape 1 (email). Public, hors shell.
+    path: 'forgot-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./features/auth/forgot-password/forgot-password.component').then(
+        (m) => m.ForgotPasswordComponent,
+      ),
+  },
+  {
+    // W10 — étape 2 : la cible du lien envoyé par auth-service
+    // (app.mail.reset-base-url pointe ici par défaut, ?token=…). Un utilisateur
+    // connecté est renvoyé chez lui par guestGuard : son chemin à lui est
+    // « Mon profil » (W1), pas le flux oublié.
+    path: 'reset-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./features/auth/reset-password/reset-password.component').then(
+        (m) => m.ResetPasswordComponent,
+      ),
+  },
+  {
     // Authenticated but role-less for the web (pure EVALUATEUR) — sent here by
     // webAccessGuard. Rendered outside the shell (no sidebar).
     path: 'acces-refuse',

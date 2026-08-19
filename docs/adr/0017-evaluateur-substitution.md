@@ -81,6 +81,23 @@ in-app recovery. The guard and this ADR must land together.
    half-graded group behind and someone must finish it; not inheriting would strand exactly the
    students the substitution exists to serve.
 
+   **Amended 2026-08-19 (#347) — the handover must be COMPLETE.** The validate/advance
+   decoupling (#209) creates a seam this ADR had not seen: an évaluateur who validated their
+   last group **without clicking « Groupe suivant »** leaves the station with no `EN_COURS`
+   rotation, and the only act that opens the next rank (`avancerGroupe`) is guarded by
+   ownership of that `TERMINE` rotation — which §3 deliberately leaves with the departed
+   évaluateur. The substitute was locked out (no current session, advance refused); the only
+   recovery was the departed évaluateur's own phone, which the emergency-departure scenario
+   (case C) excludes by definition. Reproduced live (exam 77, station 101, 2026-08-18).
+
+   Therefore the substitution act itself opens the lowest-rank transferred rotation, **iff**
+   (a) no rotation of the station is `EN_COURS` — a working évaluateur is never paced from
+   outside (#248) — **and** (b) at least one rotation of the station is `TERMINE` — proof the
+   wave has started there, so a generated-but-unopened lot is never opened ahead of its wave
+   (`LotOuvertureService` remains the only wave-level opener, ADR-0014-B). Status only, like
+   `ouvrirRangInitial`: `debutReel` stays null until the substitute first opens the screen
+   (#209), so the students' time floor is anchored on an observed fact, not on the handover.
+
 4. **Grades already entered keep their author.** They carry `notations.saisi_par` (V15, #213), so a
    handover cannot repaint the departed évaluateur's work as the substitute's. **This is why
    authorship shipped first**; substitution without it would have silently rewritten who graded whom.

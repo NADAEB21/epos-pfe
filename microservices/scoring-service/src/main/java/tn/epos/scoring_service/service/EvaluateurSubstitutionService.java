@@ -17,6 +17,7 @@ import tn.epos.scoring_service.repositories.IRotationRepository;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -38,6 +39,19 @@ import java.util.List;
  * notes déjà saisies gardent leur {@code saisi_par} (V15, #213). C'est
  * précisément pour ça que la traçabilité a été livrée avant la suppléance :
  * l'inverse aurait repeint le travail du partant au nom du remplaçant.
+ *
+ * <p><b>La passation est COMPLÈTE (#347).</b> Le découplage valider/avancer (#209)
+ * crée un seam : un partant qui a validé son dernier groupe sans cliquer
+ * « Groupe suivant » laisse la station sans aucune rotation {@code EN_COURS}, et
+ * le seul acte qui ouvre le rang suivant ({@code avancerGroupe}) reste gardé par
+ * la propriété de sa rotation TERMINE — le remplaçant serait enfermé dehors.
+ * L'acte de suppléance ouvre donc lui-même le rang transféré le plus bas quand
+ * aucun groupe n'est ouvert ET que la vague a démarré à cette station (au moins
+ * une rotation {@code TERMINE}). Jamais quand un groupe est {@code EN_COURS} :
+ * un évaluateur au travail n'est pas bousculé, le rythme intra-lot reste
+ * évaluateur-seul (#248) — ici il n'y a personne au travail, c'est tout le
+ * problème. Et jamais sur un lot généré mais pas encore ouvert : ouvrir une
+ * vague reste l'acte exclusif de {@code LotOuvertureService} (ADR-0014-B).
  */
 @Slf4j
 @Service
@@ -125,6 +139,37 @@ public class EvaluateurSubstitutionService {
         }
         rotationRepository.saveAll(aTransferer);
 
+        // #347 — le seam « validé sans avancer » (#209) : plus aucun groupe ouvert sur la
+        // station, et le droit d'avancer (avancerGroupe) est resté au partant avec sa
+        // rotation TERMINE. On ouvre le rang transféré le plus bas — miroir exact de
+        // LotOuvertureService.ouvrirRangInitial : le STATUT seul, jamais debutReel, qui
+        // s'ancre au premier accès du remplaçant (#209, marquerDebutReel).
+        //
+        // Deux verrous, tous les deux nécessaires :
+        //   - « aucun EN_COURS » : un évaluateur au travail n'est jamais bousculé (#248) ;
+        //   - « au moins un TERMINE » (conservees > 0) : la preuve que la vague a démarré à
+        //     cette station. Sans elle, remplacer sur un lot GÉNÉRÉ mais pas encore ouvert
+        //     (tout EN_ATTENTE) ouvrirait une station en avance sur sa vague, et le garde
+        //     d'idempotence d'ouvrirLot (aDemarre) refuserait ensuite d'ouvrir le lot —
+        //     on troquerait un deadlock contre un autre.
+        Rotation ouverte = null;
+        boolean aucunGroupeOuvert = deLaStation.stream()
+                .noneMatch(r -> r.getStatut() == RotationStatus.EN_COURS);
+        if (conservees > 0 && aucunGroupeOuvert) {
+            ouverte = aTransferer.stream()
+                    .filter(r -> r.getStatut() == RotationStatus.EN_ATTENTE)
+                    .min(Comparator.comparing(Rotation::getOrdrePassage,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(null);
+            if (ouverte != null) {
+                ouverte.setStatut(RotationStatus.EN_COURS);
+                rotationRepository.save(ouverte);
+                log.info("Suppléance lot {} station {} : rotation {} (rang {}) OUVERTE pour le "
+                                + "remplaçant — le partant avait validé son dernier groupe sans avancer (#347).",
+                        lotId, stationId, ouverte.getId(), ouverte.getOrdrePassage());
+            }
+        }
+
         EvaluateurSubstitution trace = new EvaluateurSubstitution();
         trace.setLotId(lotId);
         trace.setStationId(stationId);
@@ -141,9 +186,14 @@ public class EvaluateurSubstitutionService {
                 lotId, stationId, ancien, nouvelEvaluateurId,
                 aTransferer.size(), conservees, decideParId, motif);
 
+        String bilan = aTransferer.size() + " groupe(s) transféré(s). " + conservees
+                + " groupe(s) déjà terminé(s) restent au nom de l'évaluateur précédent.";
+        if (ouverte != null) {
+            bilan += " Le groupe de rang " + ouverte.getOrdrePassage()
+                    + " a été ouvert pour le remplaçant : le partant avait validé son dernier "
+                    + "groupe sans passer au suivant.";
+        }
         return new SubstitutionResult(lotId, stationId, ancien, nouvelEvaluateurId,
-                aTransferer.size(), conservees,
-                aTransferer.size() + " groupe(s) transféré(s). " + conservees
-                        + " groupe(s) déjà terminé(s) restent au nom de l'évaluateur précédent.");
+                aTransferer.size(), conservees, bilan);
     }
 }

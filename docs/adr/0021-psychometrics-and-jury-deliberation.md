@@ -1,7 +1,9 @@
 # ADR 0021: Psychometrics data plane and jury deliberation — what ships before the AI, and what rater severity may claim
 
 - **Date:** 2026-07-30
-- **Status:** **Proposed**
+- **Status:** **Accepted** (2026-08-21 — accepted together with **ADR-0029** and **ADR-0030**, which
+  close the two questions this ADR explicitly left open: where the computation runs, and the shape of
+  the versioned deliberation barème)
 - **Deciders:** Nada (lead architect).
 - **Related:** **ADR-0008** (AI pivot to psychometrics — Accepted; this ADR sequences it and extends
   its index list once, explicitly), **ADR-0013** (audited réajustement — the only sanctioned change

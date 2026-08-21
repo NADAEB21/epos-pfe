@@ -34,6 +34,17 @@ spring:
           filters:
             - RewritePath=/api/v1/(?<segment>.*), /api/$\{segment}
 
+        # ai-service (#352, ADR-0029 D4) : route STATIQUE — pas de client
+        # Eureka Python ; le DNS compose est stable et le gateway reste
+        # l'unique porte. Le JwtAuthenticationFilter (GlobalFilter) valide le
+        # jeton et propage X-User-Id / X-User-Authorities comme partout.
+        - id: ai-service
+          uri: ${AI_SERVICE_URI:http://ai-service:8084}
+          predicates:
+            - Path=/api/v1/ai/**
+          filters:
+            - RewritePath=/api/v1/(?<segment>.*), /$\{segment}
+
         # scoring-service (stays the same, but verified)
         - id: scoring-service
           uri: lb://scoring-service

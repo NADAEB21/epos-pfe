@@ -1,0 +1,4 @@
+# Outils de test (CI #366 + local). Jamais installés dans l'image.
+-r requirements.txt
+pytest==8.3.4
+httpx==0.28.1

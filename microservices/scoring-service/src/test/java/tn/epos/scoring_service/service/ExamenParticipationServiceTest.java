@@ -45,6 +45,9 @@ class ExamenParticipationServiceTest {
     private Etudiant etudiantA;
     private Etudiant etudiantB;
 
+    // #350 — fusionné : deux @BeforeEach dans la même classe n'ont AUCUN ordre
+    // d'exécution garanti par JUnit 5 (java:S8745, BUG actif dans le profil
+    // Sonar way — c'était le seul finding qui faisait échouer la Quality Gate).
     @BeforeEach
     void setUp() {
         // ExamenParticipation : id, examen_id, num_echantillon, note, est_present, etudiant, lot
@@ -66,10 +69,7 @@ class ExamenParticipationServiceTest {
         participation.setEst_present(true);
         participation.setEtudiant(etudiant);
         participation.setLot(lot);
-    }
 
-    @BeforeEach
-    void setUpEtudiants() {
         etudiantA = new Etudiant();
         etudiantA.setId(20L);
         etudiantA.setNom("Karoui");

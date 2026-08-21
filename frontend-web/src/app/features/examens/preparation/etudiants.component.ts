@@ -6,6 +6,7 @@ import { forkJoin } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
+  BulkEnrolLigne, BulkEnrolResult,
   EtudiantSummary,
   ImportEtudiantRow,
   ImportResult,
@@ -123,7 +124,7 @@ export class EtudiantsComponent {
   readonly selectedIds = signal<Set<number>>(new Set());
   readonly bulkEnrolling = signal(false);
   readonly bulkError = signal<string | null>(null);
-  readonly bulkResult = signal<{ enrolled: number; alreadyEnrolled: number; errors: number } | null>(null);
+  readonly bulkResult = signal<BulkEnrolResult | null>(null);
   readonly selectedCount = computed(() => this.selectedIds().size);
 
   // ---- roster filters (text / présence / lot) -----------------------------
@@ -535,7 +536,7 @@ export class EtudiantsComponent {
     this.scoring.enrolParticipationsBulk(Number(this.id()), ids).subscribe({
       next: (res) => {
         this.bulkEnrolling.set(false);
-        this.bulkResult.set({ enrolled: res.enrolled, alreadyEnrolled: res.alreadyEnrolled, errors: res.errors });
+        this.bulkResult.set(res); // #350 — garde les lignes, pas seulement les compteurs
         this.selectedIds.set(new Set());
         this.refreshRoster(Number(this.id()));
       },
@@ -544,6 +545,11 @@ export class EtudiantsComponent {
         this.bulkError.set(this.httpMessage(err));
       },
     });
+  }
+
+  /** #350 — les lignes ERROR d'un bilan bulk, pour que le responsable sache QUI et POURQUOI. */
+  bulkErrorLignes(res: BulkEnrolResult): BulkEnrolLigne[] {
+    return res.lignes.filter((l) => l.statut === 'ERROR');
   }
 
   // ---- bulk import (CSV / Excel) ------------------------------------------

@@ -182,11 +182,31 @@
             <p role="alert" class="text-xs text-status-danger">{{ bulkError() }}</p>
           }
           @if (bulkResult(); as r) {
-            <p class="text-xs text-status-success">
-              {{ r.enrolled }} inscrit(s)
-              @if (r.alreadyEnrolled > 0) {, {{ r.alreadyEnrolled }} déjà inscrit(s)}
-              @if (r.errors > 0) {, {{ r.errors }} échec(s)}.
-            </p>
+            <div
+              class="rounded-lg border px-3 py-2 text-xs space-y-1.5"
+              [class.border-emerald-200]="r.errors === 0"
+              [class.bg-emerald-50]="r.errors === 0"
+              [class.text-emerald-800]="r.errors === 0"
+              [class.border-amber-200]="r.errors > 0"
+              [class.bg-amber-50]="r.errors > 0"
+              [class.text-amber-800]="r.errors > 0"
+            >
+              <p>
+                {{ r.enrolled }} inscrit(s)
+                @if (r.alreadyEnrolled > 0) {, {{ r.alreadyEnrolled }} déjà inscrit(s)}
+                @if (r.errors > 0) {, <strong>{{ r.errors }} échec(s)</strong>}.
+              </p>
+              @if (r.errors > 0) {
+                <ul class="list-disc pl-4 space-y-0.5">
+                  @for (l of bulkErrorLignes(r); track l.etudiantId) {
+                    <li>
+                      @if (l.nom || l.prenom) { {{ l.prenom }} {{ l.nom }} } @else { Étudiant #{{ l.etudiantId }} }
+                      — {{ l.message }}
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
           }
 
           <!-- select-all + count, sur le filtre ACTIF -->

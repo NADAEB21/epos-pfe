@@ -3,11 +3,14 @@ package tn.epos.scoring_service.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.scoring_service.dto.BulkEnrolResult;
+import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
+import tn.epos.scoring_service.repositories.IEtudiantRepository;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Inscriptions d'étudiants à un examen.
@@ -28,6 +31,9 @@ public class ExamenParticipationService {
 
     @Autowired
     private MatiereAccessGuard matiereAccessGuard;
+
+    @Autowired
+    private IEtudiantRepository etudiantRepository;
 
     public List<ExamenParticipation> getAll() {
         return repository.findAll();
@@ -85,5 +91,58 @@ public class ExamenParticipationService {
             matiereAccessGuard.checkExamenAccess(p.getExamen_id());
             repository.delete(p);
         });
+    }
+
+    /**
+     * #186 — inscription groupée depuis l'annuaire (sélection multiple côté web).
+     *
+     * <p>La garde de matière est posée AVANT la boucle, jamais dans le catch par ligne —
+     * même piège que #274 sur {@code EtudiantService.importStudents} : un catch générique
+     * transformerait un refus d'autorisation en une simple ligne « ERROR » du bilan.
+     *
+     * <p><b>Volontairement NON {@code @Transactional}</b> — même choix, pour la même
+     * raison, qu'{@code EtudiantService.importStudents} : chaque ligne doit être
+     * persistée indépendamment (chaque {@code save()} de repository Spring Data porte sa
+     * propre transaction), pour qu'une ligne en échec ne fasse pas échouer — ni annuler
+     * silencieusement au commit — les lignes déjà réussies du même lot.
+     *
+     * <p>Un « déjà inscrit » n'est jamais une erreur : il continue le lot, comme l'import CSV.
+     */
+    public BulkEnrolResult enrolBulk(Long examenId, List<Long> etudiantIds) {
+        matiereAccessGuard.checkExamenAccess(examenId);
+
+        // Dédoublonnage tout en gardant l'ordre de sélection — un double-clic ou une
+        // sélection incohérente côté client ne doit pas créer deux participations.
+        Set<Long> ids = etudiantIds == null ? Set.of() : new LinkedHashSet<>(etudiantIds);
+        List<BulkEnrolResult.BulkEnrolLigne> lignes = new ArrayList<>();
+
+        int enrolled = 0, alreadyEnrolled = 0, errors = 0;
+        for (Long etudiantId : ids) {
+            try {
+                if (repository.existsByExamenAndEtudiant(examenId, etudiantId)) {
+                    alreadyEnrolled++;
+                    lignes.add(new BulkEnrolResult.BulkEnrolLigne(
+                            etudiantId, null, null, "ALREADY_ENROLLED", "Déjà inscrit à cet examen."));
+                    continue;
+                }
+                Etudiant etudiant = etudiantRepository.findById(etudiantId)
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "Étudiant introuvable : " + etudiantId));
+
+                ExamenParticipation p = new ExamenParticipation();
+                p.setExamen_id(examenId);
+                p.setEtudiant(etudiant);
+                repository.save(p);
+
+                enrolled++;
+                lignes.add(new BulkEnrolResult.BulkEnrolLigne(
+                        etudiantId, etudiant.getNom(), etudiant.getPrenom(), "ENROLLED", "Inscrit."));
+            } catch (Exception ex) {
+                errors++;
+                lignes.add(new BulkEnrolResult.BulkEnrolLigne(
+                        etudiantId, null, null, "ERROR", "Échec : " + ex.getMessage()));
+            }
+        }
+        return new BulkEnrolResult(ids.size(), enrolled, alreadyEnrolled, errors, lignes);
     }
 }

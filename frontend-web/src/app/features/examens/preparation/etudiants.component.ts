@@ -119,6 +119,12 @@ export class EtudiantsComponent {
   readonly lots = signal<LotSummary[]>([]);
   readonly loading = signal(true);
   readonly error = signal(false);
+  // ---- #186 bulk enrolment (multi-select) ---------------------------------
+  readonly selectedIds = signal<Set<number>>(new Set());
+  readonly bulkEnrolling = signal(false);
+  readonly bulkError = signal<string | null>(null);
+  readonly bulkResult = signal<{ enrolled: number; alreadyEnrolled: number; errors: number } | null>(null);
+  readonly selectedCount = computed(() => this.selectedIds().size);
 
   // ---- roster filters (text / présence / lot) -----------------------------
   readonly rosterSearch = signal('');
@@ -376,12 +382,14 @@ export class EtudiantsComponent {
   openAddExisting(): void {
     this.addError.set(null);
     this.search.set('');
+    this.clearSelection();          // ← ajouté : état propre à chaque ouverture
     this.mode.set('existing');
   }
 
   cancelAdd(): void {
     this.mode.set('idle');
     this.addError.set(null);
+    this.clearSelection();          // ← ajouté : plus besoin de le faire dans le template
   }
 
   submitAddNew(): void {
@@ -405,10 +413,10 @@ export class EtudiantsComponent {
     this.addError.set(null);
     const examId = Number(this.id());
     this.scoring
-      .createEtudiant({ 
-        prenom: raw.prenom.trim(), 
-        nom: raw.nom.trim(), 
-        numero_inscription: numero, 
+      .createEtudiant({
+        prenom: raw.prenom.trim(),
+        nom: raw.nom.trim(),
+        numero_inscription: numero,
         email: raw.email.trim() // #227 Added
       })
       .subscribe({
@@ -461,13 +469,81 @@ export class EtudiantsComponent {
         next: (p) => {
           this.enrollingId.set(null);
           this.appendRow(p, e);
-          // Stay open so several students can be enrolled in a row.
-        },
+          this.selectedIds.update((s) => {
+            if (!s.has(e.id)) return s;
+            const next = new Set(s);
+            next.delete(e.id);
+            return next;
+          });
+        }, // retirer l'étudiant de selectedIds après un enrôlement réussi via le bouton "seul" (évite un compteur incohérent)
         error: (err: HttpErrorResponse) => {
           this.enrollingId.set(null);
           this.addError.set(this.httpMessage(err));
         },
       });
+  }
+
+  // ---- #186 bulk enrolment (multi-select) ---------------------------------
+
+  /** Select-all respects the ACTIVE search filter, not the whole directory. */
+  readonly allFilteredSelected = computed(() => {
+    const visible = this.filteredAvailable();
+    if (visible.length === 0) return false;
+    const sel = this.selectedIds();
+    return visible.every((e) => sel.has(e.id));
+  });
+
+  isSelected(id: number): boolean {
+    return this.selectedIds().has(id);
+  }
+
+  toggleSelect(id: number): void {
+    this.selectedIds.update((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  /** Select-all toggles the CURRENTLY FILTERED set only — never the whole directory. */
+  toggleSelectAllFiltered(): void {
+    const visible = this.filteredAvailable();
+    const allSelected = this.allFilteredSelected();
+    this.selectedIds.update((s) => {
+      const next = new Set(s);
+      for (const e of visible) allSelected ? next.delete(e.id) : next.add(e.id);
+      return next;
+    });
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set());
+    this.bulkError.set(null);
+    this.bulkResult.set(null);
+  }
+
+  /**
+   * #186 — inscrit toute la sélection en un seul appel. Un « déjà inscrit »
+   * n'interrompt jamais le lot (même contrat que l'import CSV, #227/#256).
+   */
+  enrolSelected(): void {
+    const ids = [...this.selectedIds()];
+    if (ids.length === 0 || this.bulkEnrolling()) return;
+    this.bulkEnrolling.set(true);
+    this.bulkError.set(null);
+    this.bulkResult.set(null);
+    this.scoring.enrolParticipationsBulk(Number(this.id()), ids).subscribe({
+      next: (res) => {
+        this.bulkEnrolling.set(false);
+        this.bulkResult.set({ enrolled: res.enrolled, alreadyEnrolled: res.alreadyEnrolled, errors: res.errors });
+        this.selectedIds.set(new Set());
+        this.refreshRoster(Number(this.id()));
+      },
+      error: (err: HttpErrorResponse) => {
+        this.bulkEnrolling.set(false);
+        this.bulkError.set(this.httpMessage(err));
+      },
+    });
   }
 
   // ---- bulk import (CSV / Excel) ------------------------------------------

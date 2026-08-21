@@ -7,6 +7,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.scoring_service.dto.BulkEnrolRequest;
+import tn.epos.scoring_service.dto.BulkEnrolResult;
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
@@ -77,6 +79,20 @@ public class ExamenParticipationController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Participation enregistrée",
                         ParticipationDTO.fromEntity(participationService.save(entity))));
+    }
+
+    /**
+     * #186 — inscription groupée : le responsable sélectionne N étudiants de
+     * l'annuaire dans l'onglet Étudiants et les inscrit en un seul appel.
+     * Mêmes droits que la création simple (POST /api/participations).
+     */
+    @PostMapping("/bulk")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<BulkEnrolResult>> createBulk(
+            @RequestParam Long examenId,
+            @RequestBody BulkEnrolRequest request) {
+        BulkEnrolResult result = participationService.enrolBulk(examenId, request.etudiantIds());
+        return ResponseEntity.ok(ApiResponse.ok("Inscription groupée terminée", result));
     }
 
     @PutMapping("/{id}")

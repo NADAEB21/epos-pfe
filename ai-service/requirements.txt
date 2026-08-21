@@ -1,0 +1,6 @@
+# Runtime du socle (#352) — épinglé exact, ADR-0029 D1. Toute montée de
+# version est un commit délibéré, jamais un effet de bord d'un rebuild.
+# numpy/pandas/scipy arrivent avec le moteur statistique (#357), pas avant.
+fastapi==0.115.6
+uvicorn==0.34.0
+psycopg[binary]==3.2.4

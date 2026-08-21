@@ -13,6 +13,7 @@ import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
+import tn.epos.scoring_service.repositories.IEtudiantRepository;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
 
 import java.util.List;
@@ -33,12 +34,16 @@ class ExamenParticipationServiceTest {
     /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
     @Mock private MatiereAccessGuard matiereAccessGuard;
 
+    @Mock private IEtudiantRepository etudiantRepository;
+
     @InjectMocks
     private ExamenParticipationService service;
 
     private ExamenParticipation participation;
     private Etudiant etudiant;
     private Lot lot;
+    private Etudiant etudiantA;
+    private Etudiant etudiantB;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +66,19 @@ class ExamenParticipationServiceTest {
         participation.setEst_present(true);
         participation.setEtudiant(etudiant);
         participation.setLot(lot);
+    }
+
+    @BeforeEach
+    void setUpEtudiants() {
+        etudiantA = new Etudiant();
+        etudiantA.setId(20L);
+        etudiantA.setNom("Karoui");
+        etudiantA.setPrenom("Sonia");
+
+        etudiantB = new Etudiant();
+        etudiantB.setId(21L);
+        etudiantB.setNom("Trabelsi");
+        etudiantB.setPrenom("Amine");
     }
 
     @Nested
@@ -191,6 +209,83 @@ class ExamenParticipationServiceTest {
             assertThat(service.update(404L, 1.0f, true)).isEmpty();
 
             verifyNoInteractions(matiereAccessGuard);
+        }
+    }
+
+    @Nested
+    @DisplayName("enrolBulk() — #186, inscription groupée")
+    class EnrolBulk {
+        @Test
+        @DisplayName("Vérifie le périmètre de matière AVANT toute écriture")
+        void enrolBulk_verifiePerimetreAvantEcriture() {
+            doThrow(new AccessDeniedException("matière hors périmètre"))
+                    .when(matiereAccessGuard).checkExamenAccess(53L);
+
+            assertThatThrownBy(() -> service.enrolBulk(53L, List.of(20L, 21L)))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verifyNoInteractions(etudiantRepository);
+            verify(repository, never()).existsByExamenAndEtudiant(any(), any());
+            verify(repository, never()).save(any(ExamenParticipation.class));
+        }
+
+        @Test
+        @DisplayName("Inscrit les nouveaux étudiants et compte les déjà-inscrits sans erreur")
+        void enrolBulk_inscritEtCompteDejaInscrits() {
+            when(repository.existsByExamenAndEtudiant(53L, 20L)).thenReturn(false);
+            when(repository.existsByExamenAndEtudiant(53L, 21L)).thenReturn(true);
+            when(etudiantRepository.findById(20L)).thenReturn(Optional.of(etudiantA));
+            when(repository.save(any(ExamenParticipation.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+
+            var result = service.enrolBulk(53L, List.of(20L, 21L));
+
+            assertThat(result.total()).isEqualTo(2);
+            assertThat(result.enrolled()).isEqualTo(1);
+            assertThat(result.alreadyEnrolled()).isEqualTo(1);
+            assertThat(result.errors()).isZero();
+            verify(repository, times(1)).save(any(ExamenParticipation.class));
+        }
+
+        @Test
+        @DisplayName("Un étudiant introuvable devient une ligne ERROR sans interrompre le lot")
+        void enrolBulk_etudiantIntrouvable_neBloquePasLeLot() {
+            when(repository.existsByExamenAndEtudiant(53L, 20L)).thenReturn(false);
+            when(repository.existsByExamenAndEtudiant(53L, 99L)).thenReturn(false);
+            when(etudiantRepository.findById(20L)).thenReturn(Optional.of(etudiantA));
+            when(etudiantRepository.findById(99L)).thenReturn(Optional.empty());
+            when(repository.save(any(ExamenParticipation.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+
+            var result = service.enrolBulk(53L, List.of(20L, 99L));
+
+            assertThat(result.enrolled()).isEqualTo(1);
+            assertThat(result.errors()).isEqualTo(1);
+            assertThat(result.lignes())
+                    .anySatisfy(l -> assertThat(l.statut()).isEqualTo("ERROR"));
+        }
+
+        @Test
+        @DisplayName("Dédoublonne les ids en double dans la sélection")
+        void enrolBulk_dedoublonneLesIds() {
+            when(repository.existsByExamenAndEtudiant(53L, 20L)).thenReturn(false);
+            when(etudiantRepository.findById(20L)).thenReturn(Optional.of(etudiantA));
+            when(repository.save(any(ExamenParticipation.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+
+            var result = service.enrolBulk(53L, List.of(20L, 20L, 20L));
+
+            assertThat(result.total()).isEqualTo(1);
+            verify(repository, times(1)).save(any(ExamenParticipation.class));
+        }
+
+        @Test
+        @DisplayName("Liste null → résultat vide, pas de NPE")
+        void enrolBulk_listeNulle_neLevePas() {
+            var result = service.enrolBulk(53L, null);
+
+            assertThat(result.total()).isZero();
+            verifyNoInteractions(etudiantRepository);
         }
     }
 

@@ -28,14 +28,7 @@ FROM items_evaluation i
 JOIN grilles_evaluation g ON g.id = i.grille_id
 JOIN stations           s ON s.id = g.station_id;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ai_reader') THEN
-        RAISE EXCEPTION 'Le rôle ai_reader n''existe pas — exécuter '
-            'infrastructure/init-db/init2-ai.sh AVANT de déployer cette version '
-            '(voir ai-service/README.md, § Amorçage).';
-    END IF;
-    GRANT CONNECT ON DATABASE exam_db TO ai_reader;
-    GRANT USAGE ON SCHEMA public TO ai_reader;
-    GRANT SELECT ON v_ai_criteres TO ai_reader;
-END $$;
+-- Les GRANT au rôle ai_reader (+ le contrôle d'existence du rôle) vivent dans
+-- db/vendor/postgresql/V11__ai_reader_grants.sql : DO $$ / pg_roles / GRANT
+-- sont du Postgres pur que le H2 des tests ne sait pas parser. Ce fichier-ci
+-- reste portable (la vue se crée aussi sur H2 — prouvé par la suite).

@@ -14,6 +14,8 @@ import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.repositories.IEtudiantRepository;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
+import tn.epos.common.exception.ConflictException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.Optional;
@@ -108,12 +110,13 @@ class EtudiantServiceTest {
     }
 
     @Nested
-    @DisplayName("saveEtudiant()")
+    @DisplayName("saveEtudiant() — #351, normalisation + unicité")
     class SaveEtudiant {
 
         @Test
         @DisplayName("Doit sauvegarder et retourner l'étudiant")
         void saveEtudiant_devraitSauvegarder() {
+            when(etudiantRepository.findByNumeroInscription("2024-001")).thenReturn(List.of());
             when(etudiantRepository.save(any(Etudiant.class))).thenReturn(etudiant);
 
             Etudiant result = etudiantService.saveEtudiant(etudiant);
@@ -122,6 +125,79 @@ class EtudiantServiceTest {
             assertThat(result.getNom()).isEqualTo("Ben Ali");
             assertThat(result.getPrenom()).isEqualTo("Mohamed");
             verify(etudiantRepository, times(1)).save(any(Etudiant.class));
+        }
+
+        @Test
+        @DisplayName("#351 — normalise le numéro (trim + majuscules) avant d'écrire")
+        void saveEtudiant_normaliseLeNumero() {
+            etudiant.setNumero_inscription("  s43-dup-a  ");
+            when(etudiantRepository.findByNumeroInscription("S43-DUP-A")).thenReturn(List.of());
+            when(etudiantRepository.save(any(Etudiant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Etudiant result = etudiantService.saveEtudiant(etudiant);
+
+            assertThat(result.getNumero_inscription()).isEqualTo("S43-DUP-A");
+        }
+
+        @Test
+        @DisplayName("#351 — refuse un numéro déjà pris par un AUTRE étudiant, nomme le doublon")
+        void saveEtudiant_refuseDoublon() {
+            Etudiant autre = new Etudiant();
+            autre.setId(2L);
+            autre.setNom("Khelifi");
+            autre.setPrenom("Yassine");
+            autre.setNumero_inscription("481");
+
+            etudiant.setNumero_inscription("481"); // etudiant (setUp) porte l'id 1L
+            when(etudiantRepository.findByNumeroInscription("481")).thenReturn(List.of(autre));
+
+            assertThatThrownBy(() -> etudiantService.saveEtudiant(etudiant))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("Khelifi")
+                    .hasMessageContaining("id 2");
+
+            verify(etudiantRepository, never()).save(any(Etudiant.class));
+        }
+
+        @Test
+        @DisplayName("#351 — une mise à jour peut garder SON PROPRE numéro inchangé")
+        void saveEtudiant_autoriseSonProprePropreNumero() {
+            // "etudiant" (id=1L, numero="2024-001") se retrouve lui-même dans le résultat
+            // de la recherche — c'est le cas normal d'une mise à jour qui ne touche pas
+            // au numéro : il ne doit pas se refuser à lui-même.
+            when(etudiantRepository.findByNumeroInscription("2024-001")).thenReturn(List.of(etudiant));
+            when(etudiantRepository.save(any(Etudiant.class))).thenReturn(etudiant);
+
+            Etudiant result = etudiantService.saveEtudiant(etudiant);
+
+            assertThat(result).isNotNull();
+            verify(etudiantRepository, times(1)).save(any(Etudiant.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("normaliserNumero() / verifierNumeroDisponible() — #351")
+    class NormalisationEtUnicite {
+
+        @Test
+        @DisplayName("normaliserNumero : trim + majuscules")
+        void normaliserNumero_trimEtMajuscules() {
+            assertThat(EtudiantService.normaliserNumero("  s43-dup-a  ")).isEqualTo("S43-DUP-A");
+        }
+
+        @Test
+        @DisplayName("normaliserNumero : null reste null")
+        void normaliserNumero_nullResteNull() {
+            assertThat(EtudiantService.normaliserNumero(null)).isNull();
+        }
+
+        @Test
+        @DisplayName("verifierNumeroDisponible : numéro vide ou null → aucune vérification")
+        void verifierNumeroDisponible_ignoreVide() {
+            etudiantService.verifierNumeroDisponible(null, null);
+            etudiantService.verifierNumeroDisponible("   ", null);
+
+            verifyNoInteractions(etudiantRepository);
         }
     }
 

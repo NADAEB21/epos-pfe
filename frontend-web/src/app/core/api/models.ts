@@ -673,6 +673,23 @@ export interface ExamenResult {
 }
 
 /**
+ * One station's grille barème AS IT ACTUALLY GRADED (scoring
+ * StationGrilleSnapshotDTO — GET /notations/examen/{examenId}/grilles, #355).
+ * Served from scoring's exam_grille_snapshot (ADR-0015), NOT the live
+ * exam-service grille, which may have moved since the exam. `items` carries the
+ * verbatim item tree captured at launch — same {@link GrilleItem} shape as the
+ * live endpoint. An exam launched before V19 has no snapshot rows: the list is
+ * empty and the Résultats screen falls back to the live grille, saying so.
+ */
+export interface StationGrilleSnapshot {
+  stationId: number;
+  grilleId: number | null;
+  nom: string;
+  noteMax: number | null;
+  items: GrilleItem[] | null;
+}
+
+/**
  * One scored criterion of a notation (scoring NotationItemDTO — GET
  * /notation-items/notation/{notationId}). The per-critère breakdown behind a
  * station's total, written by the mobile évaluateur app. Field names are

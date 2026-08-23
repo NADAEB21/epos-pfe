@@ -135,6 +135,104 @@
     </div>
   </div>
 
+<!-- #355 — Délibération par station (ADR-0021 D4) : distributions + concentration
+     d'échec, calculées sur les notations VERROUILLÉES (même règle de verdict que
+     le classement, #297). Servi par scoring seul — aucune dépendance IA. -->
+  <div class="mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h2 class="text-sm font-medium text-gray-500">
+        Délibération par station
+        <span class="ml-1 text-xs font-normal text-gray-400">— échec = note &lt; 50&nbsp;% du barème de la station</span>
+      </h2>
+      @if (baremeLiveStations().length > 0) {
+        <span role="status" class="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-800"
+          title="Le barème figé au lancement (snapshot) est indisponible pour ces stations — les chiffres s'appuient sur la grille actuelle, qui peut avoir changé depuis l'épreuve.">
+          Barème vivant utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — snapshot indisponible
+        </span>
+      }
+    </div>
+    @if (completeness(); as c) {
+      @if (c.totalStations > stationCols().length) {
+        <p role="status" class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {{ c.totalStations - stationCols().length }} station{{ c.totalStations - stationCols().length > 1 ? 's' : '' }}
+          de l'examen sans aucune notation — rien à délibérer là-dessus tant que rien n'est saisi.
+        </p>
+      }
+    }
+    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+      @for (d of deliberation(); track d.stationId) {
+        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <h3 class="text-sm font-medium text-gray-900">
+                <span class="text-gray-400">#{{ d.ordre }}</span> {{ d.nom }}
+              </h3>
+              <p class="text-xs text-gray-400">
+                / {{ d.noteMax }} ·
+                {{ d.nVerrouillees }} note{{ d.nVerrouillees > 1 ? 's' : '' }} verrouillée{{ d.nVerrouillees > 1 ? 's' : '' }}
+                @if (d.nEnCours > 0) {
+                  <span class="text-amber-600"> · {{ d.nEnCours }} en cours (non agrégée{{ d.nEnCours > 1 ? 's' : '' }})</span>
+                }
+              </p>
+            </div>
+            @if (d.tauxEchec != null) {
+              <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full tabular-nums"
+                [class]="d.nEchecs > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-50 text-emerald-700'">
+                {{ d.nEchecs }} échec{{ d.nEchecs > 1 ? 's' : '' }} / {{ d.nVerrouillees }}
+              </span>
+            }
+          </div>
+
+          @if (d.nVerrouillees === 0) {
+            <p class="text-sm text-gray-500 italic py-3">
+              Aucune notation verrouillée — pas de distribution à lire.
+              @if (d.nEnCours > 0) {
+                <span class="not-italic text-amber-700">{{ d.nEnCours }} note{{ d.nEnCours > 1 ? 's' : '' }} en attente de verrou.</span>
+              }
+            </p>
+          } @else {
+            <!-- Distribution — barres Tailwind (contrat identique aux composants F2/#356). -->
+            <div class="space-y-1 mb-3" role="img"
+              [attr.aria-label]="'Distribution des notes — ' + d.nom">
+              @for (bin of d.bins; track bin.label) {
+                <div class="flex items-center gap-2 text-xs tabular-nums">
+                  <span class="w-14 shrink-0 text-right text-gray-400">{{ bin.label }}</span>
+                  <div class="h-3 flex-1 rounded-sm bg-gray-100 overflow-hidden">
+                    <div class="h-full rounded-sm transition-all"
+                      [class]="bin.sousSeuil ? 'bg-red-400' : 'bg-brand'"
+                      [style.width.%]="bin.pct"></div>
+                  </div>
+                  <span class="w-5 shrink-0 text-gray-500">{{ bin.count > 0 ? bin.count : '' }}</span>
+                </div>
+              }
+            </div>
+            <p class="text-xs text-gray-500 tabular-nums mb-2">
+              Moyenne {{ d.moyenne | number: '1.1-1' }} · Médiane {{ d.mediane | number: '1.1-1' }} ·
+              Min {{ d.min | number: '1.0-1' }} · Max {{ d.max | number: '1.0-1' }}
+              <span class="text-gray-400">(sur {{ d.nVerrouillees }})</span>
+            </p>
+            @if (d.echecs.length > 0) {
+              <div class="border-t border-gray-100 pt-2">
+                <p class="text-xs text-gray-400 mb-1.5">En échec — cliquer ouvre le détail par critère et le réajustement :</p>
+                <div class="flex flex-wrap gap-1.5">
+                  @for (e of d.echecs; track e.participationId) {
+                    <button type="button"
+                      (click)="ouvrirCelluleDepuisDeliberation(e.participationId, d.stationId)"
+                      class="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-800 hover:bg-red-100 transition-colors"
+                      [title]="'Ouvrir le détail de ' + e.nom + ' — ' + d.nom">
+                      {{ e.nom }}
+                      <span class="font-medium tabular-nums">{{ e.score | number: '1.0-1' }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          }
+        </div>
+      }
+    </div>
+  </div>
+
   <div class="flex items-center justify-between mb-3">
     <h2 class="text-sm font-medium text-gray-500">
       Classement &middot; {{ stationCols().length }} stations
@@ -168,7 +266,8 @@
       </thead>
       <tbody class="divide-y divide-gray-50">
         @for (row of rows(); track row.participationId) {
-          <tr class="hover:bg-gray-50/60">
+          <!-- id = cible du défilement depuis une puce de délibération (#355). -->
+          <tr class="hover:bg-gray-50/60" [attr.id]="'resultat-row-' + row.participationId">
             <td class="px-3 py-2.5 tabular-nums text-gray-400">{{ row.rang > 0 ? row.rang : '—' }}</td>
             <td class="px-3 py-2.5">
               <div class="font-medium text-gray-900">{{ row.nom }}</div>

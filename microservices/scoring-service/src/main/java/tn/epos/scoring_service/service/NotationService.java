@@ -1,17 +1,23 @@
 package tn.epos.scoring_service.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.ExamenResultDTO;
+import tn.epos.scoring_service.dto.StationGrilleSnapshotDTO;
 import tn.epos.scoring_service.dto.StationScoreDTO;
 import tn.epos.scoring_service.entities.Etudiant;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
 import tn.epos.scoring_service.entities.ExamItemSnapshot;
@@ -55,6 +61,15 @@ public class NotationService {
 
     @Autowired
     private ExamDefinitionSnapshotService examDefinitionSnapshot;
+
+    // #355 — barèmes snapshotés servis à l'écran de délibération.
+    @Autowired
+    private ExamGrilleSnapshotRepository grilleSnapshotRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private static final Logger log = LoggerFactory.getLogger(NotationService.class);
 
     // Récupérer toutes les notations — filtrées au périmètre de l'évaluateur (#91)
     public List<Notation> findAll() {
@@ -136,6 +151,35 @@ public class NotationService {
         // Tri par total décroissant — le classement se lit directement.
         results.sort(Comparator.comparingDouble(ExamenResultDTO::totalScore).reversed());
         return results;
+    }
+
+    // #355 — les barèmes de l'examen tels qu'ils ont NOTÉ (exam_grille_snapshot,
+    // ADR-0015), en un appel pour tout l'examen. Sert l'écran de délibération :
+    // les distributions et le seuil d'échec se calculent contre le barème qui a
+    // réellement servi, pas contre la grille vivante d'exam-service (qui peut
+    // avoir bougé depuis, et dont la panne ne doit pas éteindre la délibération).
+    // Un examen d'avant V19 n'a pas de snapshot : liste vide, le web replie sur
+    // la grille vivante en le DISANT (jamais de repli silencieux).
+    @Transactional(readOnly = true)
+    public List<StationGrilleSnapshotDTO> getGrillesSnapshotByExamen(Long examenId) {
+        // #274 — même périmètre que getResultatsByExamen : la vue est examen-clé.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
+        List<StationGrilleSnapshotDTO> out = new ArrayList<>();
+        for (ExamGrilleSnapshot snap : grilleSnapshotRepository.findByExamenId(examenId)) {
+            try {
+                out.add(StationGrilleSnapshotDTO.fromEntity(snap, objectMapper));
+            } catch (BusinessException e) {
+                // Une ligne corrompue ne doit pas éteindre TOUTE la délibération :
+                // on la saute (le web replie sur la grille vivante pour CETTE
+                // station, badge à l'appui) et on le crie dans le log.
+                log.error("Snapshot de grille illisible (examen {}, station {}) — ligne sautée : {}",
+                        examenId, snap.getStationId(), e.getMessage());
+            }
+        }
+        out.sort(Comparator.comparing(StationGrilleSnapshotDTO::stationId,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        return out;
     }
 
     // Récupérer les notations d'une station (cross-service) — filtrées (#91)

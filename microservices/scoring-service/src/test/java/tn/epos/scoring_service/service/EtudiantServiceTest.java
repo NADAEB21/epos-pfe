@@ -161,7 +161,7 @@ class EtudiantServiceTest {
 
         @Test
         @DisplayName("#351 — une mise à jour peut garder SON PROPRE numéro inchangé")
-        void saveEtudiant_autoriseSonProprePropreNumero() {
+        void saveEtudiant_autoriseSonPropreNumero() {
             // "etudiant" (id=1L, numero="2024-001") se retrouve lui-même dans le résultat
             // de la recherche — c'est le cas normal d'une mise à jour qui ne touche pas
             // au numéro : il ne doit pas se refuser à lui-même.

@@ -240,6 +240,28 @@ export interface ImportEtudiantRow {
   email: string;
 }
 
+/** Per-student outcome of a bulk enrolment from the directory (#186). */
+export interface BulkEnrolLigne {
+  etudiantId: number;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'ENROLLED' | 'ALREADY_ENROLLED' | 'ERROR';
+  message: string | null;
+}
+
+/**
+ * Summary of a bulk enrolment (scoring BulkEnrolResult — #186, POST
+ * /participations/bulk?examenId=X). Same honesty contract as {@link ImportResult}:
+ * ALREADY_ENROLLED is never counted as an error.
+ */
+export interface BulkEnrolResult {
+  total: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  errors: number;
+  lignes: BulkEnrolLigne[];
+}
+
 /** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
 export interface ImportRowResult {
   ligne: number;

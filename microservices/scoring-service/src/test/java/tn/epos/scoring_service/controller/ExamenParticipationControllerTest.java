@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
+import tn.epos.scoring_service.dto.BulkEnrolResult;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
@@ -210,6 +211,31 @@ class ExamenParticipationControllerTest {
                     .andExpect(status().isBadRequest());
 
             verify(participationService, never()).save(any(ExamenParticipation.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /api/participations/bulk — #186")
+    class CreateBulk {
+
+        @Test
+        @DisplayName("200 - Inscription groupée effectuée, bilan renvoyé")
+        void createBulk_devraitRetourner200AvecBilan() throws Exception {
+            var ligne = new BulkEnrolResult.BulkEnrolLigne(20L, "Karoui", "Sonia", "ENROLLED", "Inscrit.");
+            var result = new BulkEnrolResult(2, 1, 1, 0, List.of(ligne));
+            when(participationService.enrolBulk(eq(10L), eq(List.of(20L, 21L)))).thenReturn(result);
+
+            mockMvc.perform(post("/api/participations/bulk")
+                            .param("examenId", "10")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"etudiantIds\":[20,21]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.total").value(2))
+                    .andExpect(jsonPath("$.data.enrolled").value(1))
+                    .andExpect(jsonPath("$.data.alreadyEnrolled").value(1));
+
+            verify(participationService, times(1)).enrolBulk(10L, List.of(20L, 21L));
         }
     }
 

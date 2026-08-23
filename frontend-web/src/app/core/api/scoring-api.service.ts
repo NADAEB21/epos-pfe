@@ -31,6 +31,7 @@ import {
   RotationAssignmentSummary,
   RotationSummary,
   SuiviProgression,
+  BulkEnrolResult,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -199,6 +200,19 @@ export class ScoringApiService {
   createParticipation(body: CreateParticipationRequest): Observable<ParticipationSummary> {
     return this.http
       .post<ApiResponse<ParticipationSummary>>(`${this.baseUrl}/participations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #186 — inscrit toute une sélection d'étudiants du répertoire en UN appel
+   * (POST /participations/bulk?examenId=X, RESPONSABLE_MATIERE allowed). Un
+   * « déjà inscrit » n'est jamais compté comme une erreur et n'interrompt jamais
+   * le lot — même contrat que {@link importEtudiants}.
+   */
+  enrolParticipationsBulk(examenId: number, etudiantIds: number[]): Observable<BulkEnrolResult> {
+    const params = new HttpParams().set('examenId', examenId);
+    return this.http
+      .post<ApiResponse<BulkEnrolResult>>(`${this.baseUrl}/participations/bulk`, { etudiantIds }, { params })
       .pipe(map((r) => r.data));
   }
 

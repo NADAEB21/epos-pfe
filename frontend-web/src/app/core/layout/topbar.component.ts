@@ -54,6 +54,12 @@ export class TopbarComponent {
     this.menuOpen.update((v) => !v);
   }
 
+  /** W1 — l'entrée « Mon profil » cesse d'être un bouton mort « À venir ». */
+  goToProfile(): void {
+    this.menuOpen.set(false);
+    this.router.navigateByUrl('/parametres/profil');
+  }
+
   closeMenu(): void {
     this.menuOpen.set(false);
   }

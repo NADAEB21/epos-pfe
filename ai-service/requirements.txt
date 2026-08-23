@@ -1,0 +1,10 @@
+# Runtime du socle (#352) — épinglé exact, ADR-0029 D1. Toute montée de
+# version est un commit délibéré, jamais un effet de bord d'un rebuild.
+# numpy/scipy portent le moteur statistique (#357) — substrat numérique
+# seulement, les formules restent écrites à la main. pandas écarté : rien
+# dans le moteur n'a besoin d'un dataframe (budget image ADR-0029 D7).
+fastapi==0.115.6
+uvicorn==0.34.0
+psycopg[binary]==3.2.4
+numpy==2.2.4
+scipy==1.15.2

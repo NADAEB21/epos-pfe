@@ -49,6 +49,7 @@ public class UserService {
     private final MatiereRepository matiereRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final TokenRevocationService tokenRevocationService;
     private final java.time.Clock clock;
 
     // -------------------------------------------------------------------------
@@ -240,6 +241,15 @@ public class UserService {
             auditService.log(user.getId(), user.getEmail(), AuditAction.ROLE_ASSIGNED,
                     "Assigned: " + describeRoles(toAdd), null);
         }
+        // #306 — le jeton porte les autorités EN CLAIR : tant qu'il vit, l'ancien jeu de
+        // rôles agit ("un rôle révoqué écrit encore", prouvé dans le ticket). Tout delta
+        // tue donc les jetons émis ; les refresh tokens, eux, restent valides — le refresh
+        // relit les rôles en base et réémet un jeton JUSTE, c'est exactement son travail.
+        if (!toRemove.isEmpty() || !toAdd.isEmpty()) {
+            LocalDateTime stamp = tokenRevocationService.revokeIssuedTokens(
+                    user.getId(), "changement de rôles");
+            user.setTokensInvalidBefore(stamp);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -281,6 +291,13 @@ public class UserService {
         user.setDeactivatedAt(LocalDateTime.now(clock));
         user.setDeactivatedBy(acteurId);
         user.setDeactivationMotif(motif);
+
+        // #306 — les jetons d'accès DÉJÀ ÉMIS meurent (distribution sous ~30 s), pas
+        // seulement les refresh. Le report sur l'entité est obligatoire : Hibernate
+        // écrit toutes les colonnes au flush, une entité restée à null écraserait
+        // l'estampille (contrat de revokeIssuedTokens).
+        LocalDateTime stamp = tokenRevocationService.revokeIssuedTokens(userId, "retrait d'accès");
+        user.setTokensInvalidBefore(stamp);
         userRepository.save(user);
 
         // Force all active sessions to expire immediately

@@ -31,9 +31,6 @@ class _T {
       'mon_compte':       'Mon Compte',
       'infos_perso':      'Informations personnelles',
       'langue':           'Langue',
-      'notifs':           'Notifications',
-      'notifs_on':        'Activées',
-      'notifs_off':       'Désactivées',
       'theme':            'Thème',
       'deconnexion':      'Se déconnecter',
       'confirm_deco':     'Déconnexion',
@@ -61,9 +58,6 @@ class _T {
       'mon_compte':       'My Account',
       'infos_perso':      'Personal information',
       'langue':           'Language',
-      'notifs':           'Notifications',
-      'notifs_on':        'Enabled',
-      'notifs_off':       'Disabled',
       'theme':            'Theme',
       'deconnexion':      'Log out',
       'confirm_deco':     'Log out',
@@ -91,9 +85,6 @@ class _T {
       'mon_compte':       'حسابي',
       'infos_perso':      'المعلومات الشخصية',
       'langue':           'اللغة',
-      'notifs':           'الإشعارات',
-      'notifs_on':        'مفعّلة',
-      'notifs_off':       'معطّلة',
       'theme':            'المظهر',
       'deconnexion':      'تسجيل الخروج',
       'confirm_deco':     'تسجيل الخروج',
@@ -305,6 +296,19 @@ class _ProfileHeader extends StatelessWidget {
               ),
             ),
           ],
+          // W4 — les rôles RÉELS sous l'identité (« Responsable de matière ·
+          // Évaluateur ») : la personne sait ce que la plateforme sait d'elle.
+          if (user != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              user!.displayRoles,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 12.5, fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -366,21 +370,9 @@ class _ProfileBody extends StatelessWidget {
                   context, state.settings.language, lang, isDark,
                 ),
               ),
-              _Divider(color: borderColor),
-              _SettingsTileWithSwitch(
-                icon:          Icons.notifications_outlined,
-                iconColor:     const Color(0xFFE6AC00),
-                title:         _T.get(lang, 'notifs'),
-                subtitle:      state.settings.notificationsEnabled
-                    ? _T.get(lang, 'notifs_on')
-                    : _T.get(lang, 'notifs_off'),
-                value:         state.settings.notificationsEnabled,
-                textPrimary:   textPrimColor,
-                textSecondary: textSecColor,
-                onChanged: (val) => context
-                    .read<ProfileBloc>()
-                    .add(ProfileNotificationsToggled(val)),
-              ),
+              // W4 — l'interrupteur « Notifications » est SUPPRIMÉ : il ne
+              // pilotait rien (aucun plugin, aucun consommateur du booléen) —
+              // il animait son propre libellé. Il reviendra avec un vrai canal.
               _Divider(color: borderColor),
               _SettingsTile(
                 icon:          Icons.brightness_6_outlined,
@@ -536,68 +528,6 @@ class _SettingsTile extends StatelessWidget {
             Icon(Icons.chevron_right, color: textSecondary, size: 20),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SettingsTileWithSwitch extends StatelessWidget {
-  final IconData   icon;
-  final Color      iconColor;
-  final String     title;
-  final String     subtitle;
-  final bool       value;
-  final Color      textPrimary;
-  final Color      textSecondary;
-  final ValueChanged<bool> onChanged;
-
-  const _SettingsTileWithSwitch({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.textPrimary,
-    required this.textSecondary,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600,
-                        color: textPrimary)),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style: TextStyle(fontSize: 12, color: textSecondary)),
-              ],
-            ),
-          ),
-          Switch(
-            value:           value,
-            onChanged:       onChanged,
-            activeColor:     AppTheme.primary,
-            activeTrackColor: AppTheme.primary.withValues(alpha: 0.3),
-          ),
-        ],
       ),
     );
   }
@@ -769,7 +699,11 @@ void _showAccountDialog(
                     ),
                     _InfoRow(
                       label:  _T.get(lang, 'poste'),
-                      value:  _T.get(lang, 'evaluateur'),
+                      // W4 — le VRAI cumul de rôles, plus un littéral constant :
+                      // un responsable qui évalue lisait « Évaluateur » tout
+                      // court — mal renseigné sur ses propres droits.
+                      // displayRoles avait été écrit pour cette ligne.
+                      value:  user?.displayRoles ?? '—',
                       isDark: isDark,
                     ),
                     const SizedBox(height: 20),

@@ -15,6 +15,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.common.exception.ConflictException;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -119,6 +120,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(ApiResponse.error("Méthode " + ex.getMethod() + " non autorisée sur ce chemin"));
+    }
+
+    // 409 - Doublon détecté explicitement AVANT écriture (#351, ex: numero_inscription
+    // déjà pris). Message NOMINATIF, contrairement au repli générique
+    // DataIntegrityViolationException ci-dessus, qui reste le filet pour la course
+    // concurrente échappant au pré-check (deux requêtes simultanées).
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConflict(ConflictException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ex.getMessage()));
     }
 
     // 500 - Erreur inattendue (last-resort fallback)

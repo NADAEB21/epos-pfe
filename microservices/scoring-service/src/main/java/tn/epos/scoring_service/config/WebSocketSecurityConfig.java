@@ -1,121 +1,46 @@
 package tn.epos.scoring_service.config;
 
 import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.config.ChannelRegistration;
-import org.springframework.messaging.simp.stomp.StompCommand;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
-import org.springframework.messaging.support.MessageHeaderAccessor;
-import org.springframework.security.authentication.AbstractAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import tn.epos.common.security.ScopedAuthoritiesConverter;
+import tn.epos.scoring_service.websocket.StompConnectAuthenticator;
+import tn.epos.scoring_service.websocket.WebSocketSessionRegistry;
 
 /**
- * BF6.1 — Sécurisation des connexions WebSocket STOMP avec JWT.
+ * BF6.1 + #306 — sécurisation des connexions WebSocket STOMP par JWT, désormais FERMÉE.
  *
- * <p>Le protocole STOMP expose une frame {@code CONNECT} sur laquelle le client
- * Flutter envoie son token JWT dans l'en-tête {@code Authorization: Bearer <token>}.
- * Cet intercepteur valide le token à la connexion et peuple le
- * {@link SecurityContextHolder} pour que les {@code @PreAuthorize} restent
- * fonctionnels sur les {@code @MessageMapping} éventuels.
+ * <p>La logique vit dans {@link StompConnectAuthenticator} (classe nommée, testée) ; cette
+ * configuration ne fait que le brancher. Deux changements de fond par rapport à BF6.1 :
+ * <ul>
+ *   <li>⛔ <b>le repli « connexion anonyme » a été supprimé</b> — il laissait entrer TOUTES les
+ *       connexions mobiles (le jeton n'était jamais dans la frame CONNECT, seulement dans la
+ *       poignée de main HTTP, que l'ancien code ne lisait pas). Sans identité, la révocation
+ *       (#306) n'aurait eu aucune prise sur les sessions ouvertes ;</li>
+ *   <li>le décodeur injecté est le {@code RevocationAwareJwtDecoder} du service : un jeton
+ *       révoqué est refusé À la connexion, et {@link tn.epos.scoring_service.websocket.WebSocketRevocationSweep}
+ *       débranche celles déjà établies.</li>
+ * </ul>
  *
- * <p>Les topics {@code /topic/**} sont en lecture seule côté client —
- * le serveur y pousse (via {@code SimpMessagingTemplate}) et les clients
- * se contentent de s'abonner. L'évaluateur ne peut pas publier sur un topic
- * d'une autre station car le scoring-service est le seul producteur.
- *
- * <p><b>Note d'architecture :</b> Spring Security WebSocket native
- * ({@code AbstractSecurityWebSocketMessageBrokerConfigurer}) requiert une
- * session HTTP partagée avec le WebSocket, incompatible avec le mode
- * stateless JWT + SockJS sans session. On utilise donc un intercepteur
- * de canal personnalisé, cohérent avec l'ADR « stateless auth » du projet.
+ * <p><b>Note d'architecture (inchangée) :</b> Spring Security WebSocket natif exige une session
+ * HTTP partagée, incompatible avec le mode stateless JWT + SockJS — d'où l'intercepteur de
+ * canal personnalisé.
  */
 @Configuration
 public class WebSocketSecurityConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final JwtDecoder              jwtDecoder;
-    private final JwtAuthenticationConverter jwtAuthConverter;
+    private final StompConnectAuthenticator authenticator;
 
-    public WebSocketSecurityConfig(JwtDecoder jwtDecoder) {
-        this.jwtDecoder       = jwtDecoder;
-        this.jwtAuthConverter = buildConverter();
-    }
-
-    /**
-     * Intercepte la frame STOMP CONNECT pour authentifier le client.
-     *
-     * <p>Le token est lu depuis l'en-tête {@code Authorization} de la frame
-     * CONNECT. En cas de token manquant ou invalide, la connexion est rejetée
-     * avec une {@link org.springframework.messaging.MessageDeliveryException}.
-     */
-    @Override
-    public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new ChannelInterceptor() {
-
-            @Override
-            public Message<?> preSend(Message<?> message, MessageChannel channel) {
-                StompHeaderAccessor accessor =
-                        MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-
-                if (accessor == null) {
-                    return message;
-                }
-
-                // Authentification uniquement à la frame CONNECT
-                if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-                    String authHeader = accessor.getFirstNativeHeader("Authorization");
-                    Authentication auth = resolveAuthentication(authHeader);
-                    if (auth != null) {
-                        accessor.setUser(auth);
-                        SecurityContextHolder.getContext().setAuthentication(auth);
-                    }
-                    // En cas d'échec de résolution, la connexion est établie
-                    // mais l'utilisateur n'est pas authentifié — les topics
-                    // /topic/** sont accessibles en lecture (données non sensibles
-                    // car pseudonymisées par etudiantId, pas par nom).
-                    // Pour un niveau de sécurité maximal, lever une exception ici.
-                }
-
-                return message;
-            }
-        });
-    }
-
-    // ── Utilitaires privés ────────────────────────────────────────────────────
-
-    private Authentication resolveAuthentication(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return null;
-        }
-        try {
-            String rawToken = authHeader.substring(7);
-            Jwt    jwt      = jwtDecoder.decode(rawToken);
-            AbstractAuthenticationToken auth =
-                    (AbstractAuthenticationToken) jwtAuthConverter.convert(jwt);
-            if (auth != null) {
-                auth.setAuthenticated(true);
-            }
-            return auth;
-        } catch (Exception e) {
-            // Token expiré ou invalide → connexion anonyme
-            return null;
-        }
-    }
-
-    /**
-     * Réutilise la même logique que {@link SecurityConfig} pour que les
-     * autorités STOMP et REST soient cohérentes (ROLE_EVALUATEUR, etc.).
-     */
-    private JwtAuthenticationConverter buildConverter() {
+    public WebSocketSecurityConfig(JwtDecoder jwtDecoder, WebSocketSessionRegistry registry) {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(new ScopedAuthoritiesConverter());
-        return converter;
+        this.authenticator = new StompConnectAuthenticator(jwtDecoder, converter, registry);
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(authenticator);
     }
 }

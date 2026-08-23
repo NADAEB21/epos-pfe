@@ -27,6 +27,16 @@ class PendingStatus {
   static const String blocked = 'BLOCKED';
 }
 
+/// offline cache — une entrée de grille mise en cache.
+/// `cachedAtMs` n'est pas encore exploité côté UI mais est conservé dès
+/// maintenant : le jour où l'app affiche "grille du 14/08 à 09h12", la
+/// colonne existe déjà plutôt que d'exiger une nouvelle migration.
+class GrilleCacheEntry {
+  final String grilleJson;
+  final int    cachedAtMs;
+  const GrilleCacheEntry({required this.grilleJson, required this.cachedAtMs});
+}
+
 /// Représente une notation en attente de synchronisation.
 class PendingNotation {
   final int?   id;          // PK locale (null avant insertion)
@@ -143,12 +153,14 @@ class OfflineStorageService implements PendingStore {
   Database? _db;
 
   static const String _dbName    = 'epos_offline.db';
-  // #307 — v2 : colonnes status / last_error / last_attempt_ms + table libellés.
-  static const int    _dbVersion = 2;
+  // v3 — (#244) : + table grille_cache. Additive, comme v1→v2 :
+  // aucune ligne existante n'est touchée.
+  static const int    _dbVersion = 3;
 
   static const String _tableNotations = 'pending_notations';
   static const String _tableSyncLog   = 'sync_log';
   static const String _tableLabels    = 'labels';
+  static const String _tableGrilleCache = 'grille_cache';
 
   /// #307 — chemin de base forcé, pour les tests. Permet d'exercer le VRAI
   /// SQLite (via `sqflite_common_ffi`) sur un fichier temporaire, y compris la
@@ -214,6 +226,18 @@ class OfflineStorageService implements PendingStore {
         )
       ''');
     }
+    // v2→v3 (#244) — table de cache de grille. CREATE TABLE IF NOT EXISTS :
+    // même précaution qu'ailleurs dans cette méthode si une migration
+    // partielle a déjà tourné une fois.
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $_tableGrilleCache (
+          station_id    INTEGER PRIMARY KEY,
+          grille_json   TEXT    NOT NULL,
+          cached_at_ms  INTEGER NOT NULL
+        )
+      ''');
+    }
   }
 
   /// Rejoue un ALTER sans casser si la colonne existe déjà. On n'avale QUE ce
@@ -267,11 +291,62 @@ class OfflineStorageService implements PendingStore {
       )
     ''');
 
+    // (#244) — installation neuve : la table existe dès le départ.
+    await db.execute('''
+      CREATE TABLE $_tableGrilleCache (
+        station_id    INTEGER PRIMARY KEY,
+        grille_json   TEXT    NOT NULL,
+        cached_at_ms  INTEGER NOT NULL
+      )
+    ''');
+
     // Index pour accélerer les requêtes de sync (etudiant × station × item)
     await db.execute('''
       CREATE INDEX idx_pending_etudiant_item
       ON $_tableNotations (etudiant_id, station_id, item_id)
     ''');
+  }
+
+  // ── Cache de grille (#244) ───────────────────────────────────────────────
+  //
+  // Best-effort, upsert par station_id : la dernière grille reçue avec succès
+  // remplace la précédente. Pas de TTL — une grille est gelée dès EN_COURS
+  // (ADR-0015), donc la fraîcheur du cache n'est jamais un enjeu de
+  // correction, seulement de disponibilité pendant une coupure.
+
+  /// Écrit (ou remplace) la grille mise en cache pour une station.
+  Future<void> cacheGrille(int stationId, String grilleJson) async {
+    if (kIsWeb) return;
+    final db = await _database;
+    await db.insert(
+      _tableGrilleCache,
+      {
+        'station_id':   stationId,
+        'grille_json':  grilleJson,
+        'cached_at_ms': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Dernière grille mise en cache pour cette station, ou `null` — soit
+  /// qu'elle n'a jamais été ouverte avec succès, soit que l'app tourne sur
+  /// le web (sqflite désactivé, même repli que le reste de ce service).
+  Future<GrilleCacheEntry?> getCachedGrille(int stationId) async {
+    if (kIsWeb) return null;
+    final db   = await _database;
+    final rows = await db.query(
+      _tableGrilleCache,
+      where:     'station_id = ?',
+      whereArgs: [stationId],
+      limit:     1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return GrilleCacheEntry(
+      grilleJson: row['grille_json'] as String,
+      cachedAtMs: row['cached_at_ms'] as int,
+    );
   }
 
   // ── Écriture ────────────────────────────────────────────────────────────
@@ -443,6 +518,7 @@ class OfflineStorageService implements PendingStore {
     await db.delete(_tableNotations);
     await db.delete(_tableSyncLog);
     await db.delete(_tableLabels);
+    await db.delete(_tableGrilleCache); // (#244) le cache de grille part avec le reste
   }
 
   // ── Libellés lisibles (#307) ─────────────────────────────────────────────

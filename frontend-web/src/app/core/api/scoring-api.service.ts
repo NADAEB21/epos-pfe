@@ -30,7 +30,9 @@ import {
   RepartitionResult,
   RotationAssignmentSummary,
   RotationSummary,
+  StationGrilleSnapshot,
   SuiviProgression,
+  BulkEnrolResult,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -63,6 +65,21 @@ export class ScoringApiService {
   getExamenResults(examenId: number): Observable<ExamenResult[]> {
     return this.http
       .get<ApiResponse<ExamenResult[]>>(`${this.baseUrl}/notations/examen/${examenId}/results`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * The exam's grille barèmes AS THEY GRADED (#355 — GET
+   * /notations/examen/{examenId}/grilles, scoring exam_grille_snapshot,
+   * ADR-0015). One batched call for every station of the exam — the Résultats
+   * screen computes its deliberation aggregates against these, not against the
+   * live exam-service grilles (which may have moved since, and whose outage
+   * must not blank the deliberation). Empty for pre-V19 exams (no snapshot):
+   * the caller falls back to the live grille and labels the fallback.
+   */
+  getExamenGrillesSnapshot(examenId: number): Observable<StationGrilleSnapshot[]> {
+    return this.http
+      .get<ApiResponse<StationGrilleSnapshot[]>>(`${this.baseUrl}/notations/examen/${examenId}/grilles`)
       .pipe(map((r) => r.data ?? []));
   }
 
@@ -199,6 +216,19 @@ export class ScoringApiService {
   createParticipation(body: CreateParticipationRequest): Observable<ParticipationSummary> {
     return this.http
       .post<ApiResponse<ParticipationSummary>>(`${this.baseUrl}/participations`, body)
+      .pipe(map((r) => r.data));
+  }
+
+  /**
+   * #186 — inscrit toute une sélection d'étudiants du répertoire en UN appel
+   * (POST /participations/bulk?examenId=X, RESPONSABLE_MATIERE allowed). Un
+   * « déjà inscrit » n'est jamais compté comme une erreur et n'interrompt jamais
+   * le lot — même contrat que {@link importEtudiants}.
+   */
+  enrolParticipationsBulk(examenId: number, etudiantIds: number[]): Observable<BulkEnrolResult> {
+    const params = new HttpParams().set('examenId', examenId);
+    return this.http
+      .post<ApiResponse<BulkEnrolResult>>(`${this.baseUrl}/participations/bulk`, { etudiantIds }, { params })
       .pipe(map((r) => r.data));
   }
 

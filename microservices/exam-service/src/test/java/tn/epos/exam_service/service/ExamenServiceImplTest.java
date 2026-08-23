@@ -52,6 +52,14 @@ class ExamenServiceImplTest {
     @Mock
     private MatiereAccessChecker matiereAccessChecker;
 
+    /** #306 — qui lance. Le mock rend null par defaut : lance_par reste nul, pas d'echec. */
+    @Mock
+    private tn.epos.exam_service.config.CallerIdentity callerIdentity;
+
+    /** #303 — le mock rend false par défaut : aucune matière retirée, comportement historique. */
+    @Mock
+    private tn.epos.exam_service.catalogue.RetiredMatiereList retiredMatiereList;
+
     @InjectMocks
     private ExamenServiceImpl examenService;
 
@@ -333,6 +341,80 @@ class ExamenServiceImplTest {
         }
     }
 
+    // #303 — MATIERE RETIREE
+
+    @Nested
+    @DisplayName("#303 — matière retirée : création/re-ciblage/lancement refusés, clôture libre")
+    class MatiereRetiree {
+
+        @Test
+        @DisplayName("creer() sur une matière retirée → refus NOMINATIF, rien n'est écrit")
+        void creer_matiereRetiree_refuse() {
+            when(retiredMatiereList.isRetired(1L)).thenReturn(true);
+            when(retiredMatiereList.libelleOf(1L)).thenReturn("Pharmacognosie");
+
+            assertThatThrownBy(() -> examenService.creer(examenRequest))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Création impossible")
+                    .hasMessageContaining("Pharmacognosie")
+                    .hasMessageContaining("retirée du catalogue");
+
+            verify(examenRepository, never()).save(any(Examen.class));
+        }
+
+        @Test
+        @DisplayName("modifier() ne peut pas RE-CIBLER un brouillon vers une matière retirée")
+        void modifier_versMatiereRetiree_refuse() {
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            examenRequest.setMatiereId(10L);
+            when(retiredMatiereList.isRetired(10L)).thenReturn(true);
+            when(retiredMatiereList.libelleOf(10L)).thenReturn("Pharmacognosie");
+
+            assertThatThrownBy(() -> examenService.modifier(1L, examenRequest))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Modification impossible");
+
+            verify(examenRepository, never()).save(any(Examen.class));
+        }
+
+        @Test
+        @DisplayName("le LANCEMENT (→ EN_COURS) est refusé, statut inchangé")
+        void lancement_matiereRetiree_refuse() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(retiredMatiereList.isRetired(1L)).thenReturn(true);
+            when(retiredMatiereList.libelleOf(1L)).thenReturn("Pharmacognosie");
+
+            assertThatThrownBy(() -> examenService.changerStatut(1L, StatutExamen.EN_COURS))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Lancement impossible")
+                    .hasMessageContaining("Pharmacognosie");
+
+            assertThat(examenBrouillon.getStatut()).isEqualTo(StatutExamen.CONFIGURE);
+            assertThat(examenBrouillon.getLaunchedAt()).isNull();
+            verify(examenRepository, never()).save(any(Examen.class));
+        }
+
+        /**
+         * Un départ, pas une éjection (doctrine ADR-0023) : une épreuve déjà lancée dans
+         * une matière fermée depuis doit pouvoir se TERMINER — bloquer la clôture
+         * piégerait l'examen EN_COURS pour toujours.
+         */
+        @Test
+        @DisplayName("→ TERMINE reste LIBRE sur une matière retirée (discriminant anti-surblocage)")
+        void cloture_matiereRetiree_passe() {
+            examenBrouillon.setStatut(StatutExamen.EN_COURS);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            ExamenResponse result = examenService.changerStatut(1L, StatutExamen.TERMINE);
+
+            assertThat(result.getStatut()).isEqualTo(StatutExamen.TERMINE);
+            // La liste n'est même pas consultée hors création/re-ciblage/lancement.
+            verify(retiredMatiereList, never()).isRetired(any());
+        }
+    }
+
     // CHANGER STATUT
 
     @Nested
@@ -349,6 +431,47 @@ class ExamenServiceImplTest {
 
             assertThat(result).isNotNull();
             verify(examenRepository).save(any());
+        }
+
+        /**
+         * #306 / ADR-0024 — le lancement enregistre son AUTEUR, à côté de son instant.
+         *
+         * <p>`launched_at` (ADR-0010) disait QUAND l'acte le plus lourd du produit avait eu lieu ;
+         * rien ne disait PAR QUI. C'est le pendant de `lot.ouvert_par` côté scoring — le lanceur
+         * ne désigne le conducteur que par défaut, tant qu'aucune vague n'a été ouverte.
+         */
+        @Test
+        @DisplayName("#306 — le passage à EN_COURS enregistre QUI a lancé")
+        void changerStatut_enCours_enregistreLeLanceur() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(callerIdentity.getCallerUserId()).thenReturn(9L);
+
+            examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(examenBrouillon.getLancePar()).isEqualTo(9L);
+            assertThat(examenBrouillon.getLaunchedAt())
+                    .as("les deux moitiés du même fait")
+                    .isNotNull();
+        }
+
+        /**
+         * Une identité absente ne doit PAS refuser le lancement : c'est une trace, pas une garde.
+         * Le droit d'agir a déjà été tranché par checkAccess (#274).
+         */
+        @Test
+        @DisplayName("#306 — lanceur non identifiable : l'examen se lance, lance_par reste null")
+        void changerStatut_enCours_sansAuteur_lanceQuandMeme() {
+            examenBrouillon.setStatut(StatutExamen.CONFIGURE);
+            when(examenRepository.findById(1L)).thenReturn(Optional.of(examenBrouillon));
+            when(examenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(callerIdentity.getCallerUserId()).thenReturn(null);
+
+            examenService.changerStatut(1L, StatutExamen.EN_COURS);
+
+            assertThat(examenBrouillon.getStatut()).isEqualTo(StatutExamen.EN_COURS);
+            assertThat(examenBrouillon.getLancePar()).isNull();
         }
 
         @Test
@@ -880,6 +1003,10 @@ class ExamenServiceImplTest {
 
             assertThat(result.getStatut()).isEqualTo(StatutExamen.CONFIGURE);
             assertThat(result.getLaunchedAt()).isNull();
+            // #306 — l'auteur part AVEC l'horodatage : les deux moitiés du même fait. Les garder
+            // désynchronisés désignerait comme lanceur quelqu'un qui n'a pas lancé la session en
+            // cours, et un relancement par une autre personne hériterait de son nom.
+            assertThat(result.getLancePar()).isNull();
             assertThat(result.getPausedAt()).isNull();
             assertThat(result.isEnPause()).isFalse();
             assertThat(result.getTotalPauseSec()).isZero();

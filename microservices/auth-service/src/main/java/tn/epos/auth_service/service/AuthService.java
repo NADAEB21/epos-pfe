@@ -57,6 +57,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final TokenRevocationService tokenRevocationService;
 
     // -------------------------------------------------------------------------
     // Login
@@ -179,11 +180,35 @@ public class AuthService {
             throw new InvalidTokenException("Refresh token has expired");
         }
 
+        User user = stored.getUser();
+
+        // #306/#217 — le refresh relisait le jeton, jamais LE COMPTE : un compte retiré ou
+        // verrouillé se réémettait un jeton d'accès neuf. Mêmes états et mêmes messages que
+        // login (b1/b2) — l'appelant est le même humain, la consigne doit être la même.
+        // Le refresh token présenté est déjà consommé plus haut si réutilisé ; ici on refuse
+        // SANS le consommer : au déverrouillage, la session reprend sans reconnexion.
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            auditService.log(user.getId(), user.getEmail(),
+                    AuditAction.LOGIN_FAILURE, "Refresh refusé : compte désactivé", null);
+            throw new AccountLockedException(
+                    "Compte désactivé. Contactez l'administration de la faculté.");
+        }
+        LocalDateTime maintenant = LocalDateTime.now(clock);
+        if (user.getLockedUntil() != null && maintenant.isBefore(user.getLockedUntil())) {
+            long minutes = Math.max(1, Duration.between(
+                    maintenant.atZone(clock.getZone()).toInstant(),
+                    user.getLockedUntil().atZone(clock.getZone()).toInstant()).toMinutes() + 1);
+            auditService.log(user.getId(), user.getEmail(),
+                    AuditAction.LOGIN_FAILURE, "Refresh refusé : compte verrouillé", null);
+            throw new AccountLockedException(
+                    "Compte temporairement verrouillé après plusieurs tentatives. "
+                            + "Réessayez dans " + minutes + " minute(s).");
+        }
+
         // Rotate: revoke the used token, issue a new one in the same family
         stored.setRevoked(true);
         refreshTokenRepository.save(stored);
 
-        User user = stored.getUser();
         List<UserRole> roles = userRoleRepository.findByUserId(user.getId());
         LoginResponse response = issueTokenPair(user, roles, stored.getFamilyId());
 
@@ -231,6 +256,11 @@ public class AuthService {
         }
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        // #306 — changer son mot de passe, c'est (aussi) chasser un éventuel porteur du
+        // jeton : les jetons d'accès émis avant l'acte meurent, pas seulement les refresh.
+        // Report sur l'entité obligatoire (contrat de revokeIssuedTokens).
+        user.setTokensInvalidBefore(
+                tokenRevocationService.revokeIssuedTokens(userId, "changement de mot de passe"));
         userRepository.save(user);
 
         // Force la reconnexion sur tous les appareils avec le nouveau mot de passe.
@@ -310,6 +340,10 @@ public class AuthService {
         user.setLockedUntil(null);
         user.setLockCount(0);
         user.setFailedLoginAttempts(0);
+        // #306 — même geste que changePassword : le scénario nominal d'une réinitialisation
+        // est précisément « quelqu'un d'autre tient peut-être ma session ».
+        user.setTokensInvalidBefore(tokenRevocationService.revokeIssuedTokens(
+                user.getId(), "réinitialisation de mot de passe"));
         userRepository.save(user);
 
         resetToken.setUsed(true);

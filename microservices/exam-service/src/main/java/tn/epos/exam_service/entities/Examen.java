@@ -106,6 +106,22 @@ public class Examen {
     @Column(name = "launched_at")
     private LocalDateTime launchedAt;
 
+    /**
+     * #306 / ADR-0024 — QUI a lancé l'épreuve. Pendant du {@code launchedAt} ci-dessus : le
+     * système savait quand, jamais par qui. Posé une seule fois au passage → EN_COURS.
+     *
+     * <p>⚠️ <b>Fait OBSERVÉ, pas une permission.</b> Ne jamais le lire comme une autorisation :
+     * le droit d'agir se décide par la matière (#274), pas par « c'est lui qui a lancé ». Et le
+     * lanceur n'est pas à lui seul « le conducteur » — celui-ci est l'auteur du DERNIER acte de
+     * conduite (l'ouverture de vague, {@code lot.ouvert_par} côté scoring), le lanceur ne servant
+     * que par défaut. Cas qui l'impose : B lance, rentre chez lui, C ouvre la vague suivante.
+     *
+     * <p>FK logique vers {@code auth_db.users}, sans FK SQL (cross-service, précédent ADR-0006).
+     * {@code null} = lancé avant la migration V9 — aucun auteur inventé rétroactivement.
+     */
+    @Column(name = "lance_par")
+    private Long lancePar;
+
     // chemin vers le fichier PDF (stockage serveur)
     @Column(name = "pdf_sujet_path")
     private String pdfSujetPath;

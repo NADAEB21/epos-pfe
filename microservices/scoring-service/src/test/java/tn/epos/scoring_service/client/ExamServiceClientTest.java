@@ -294,6 +294,80 @@ class ExamServiceClientTest {
         }
     }
 
+    @Nested
+    @DisplayName("getGrilleStrict() — #244")
+    class GetGrilleStrict {
+
+        @Test
+        @DisplayName("Retourne le JsonNode data de la grille, transmet le JWT")
+        void happyPath() {
+            List<ClientRequest> requests = new ArrayList<>();
+            String body = "{\"success\":true,\"data\":{\"id\":5,\"nom\":\"Titrimétrie\",\"noteMax\":20.0,\"items\":[]}}";
+            ExamServiceClient client = clientReturning(okJson(body), requests);
+
+            var data = client.getGrilleStrict(5L);
+
+            assertThat(data.path("nom").asText()).isEqualTo("Titrimétrie");
+            assertThat(requests.get(0).url().toString()).contains("/api/stations/5/grille");
+            assertThat(requests.get(0).headers().getFirst("Authorization"))
+                    .isEqualTo("Bearer fake-test-token");
+        }
+
+        @Test
+        @DisplayName("data sans id numérique → BusinessException, jamais de repli")
+        void dataInvalide_echoue() {
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"message\":\"x\"}}"), new ArrayList<>());
+
+            assertThatThrownBy(() -> client.getGrilleStrict(5L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("non figée");
+        }
+
+        @Test
+        @DisplayName("4xx → BusinessException avec le statut")
+        void quatreCent_BusinessException() {
+            ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false}").build();
+            ExamServiceClient client = clientReturning(notFound, new ArrayList<>());
+
+            assertThatThrownBy(() -> client.getGrilleStrict(5L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("404");
+        }
+
+        @Test
+        @DisplayName("Erreur réseau → BusinessException 'injoignable'")
+        void erreurReseau_BusinessException() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("refused"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            assertThatThrownBy(() -> client.getGrilleStrict(5L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("injoignable");
+        }
+
+        /**
+         * Corrige l'incohérence relevée dans l'audit précédent : getStationNomStrict
+         * n'alimentait PAS le suivi de santé. getGrilleStrict, lui, doit l'alimenter —
+         * sinon les autres appels d'AFFICHAGE (resolveStationNomPourAffichage) ne
+         * profitent pas du repli immédiat de 5s pendant la même panne.
+         */
+        @Test
+        @DisplayName("un échec ouvre la fenêtre de repli immédiat (classerEchec)")
+        void echecOuvreLaFenetreDeRepli() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("refused"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            assertThat(client.estProbablementInjoignable()).isFalse();
+            assertThatThrownBy(() -> client.getGrilleStrict(5L)).isInstanceOf(BusinessException.class);
+            assertThat(client.estProbablementInjoignable()).isTrue();
+        }
+    }
+
     // =========================================================================
     // getExamForGeneration
     // =========================================================================

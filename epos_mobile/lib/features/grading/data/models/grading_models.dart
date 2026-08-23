@@ -88,6 +88,7 @@ class GrilleModel extends Grille {
     required super.nom,
     required super.noteMax,
     required super.items,
+    super.depuisCache = false,
   });
 
   /// Réponse JSON de GET /stations/{id}/grille (enveloppée dans ApiResponse) :
@@ -97,7 +98,9 @@ class GrilleModel extends Grille {
   ///   "noteMax": 20.0,
   ///   "items": [ {...} ]   ← peut être null si grille vide
   /// }
-  factory GrilleModel.fromJson(Map<String, dynamic> json) {
+  /// [depuisCache] est passé explicitement par l'appelant (jamais déduit du
+  ///  JSON) : c'est le repository qui sait d'où vient le body, pas le parser.
+  factory GrilleModel.fromJson(Map<String, dynamic> json, {bool depuisCache = false}) {
     final rawItems = json['items'];
     final items = (rawItems is List ? rawItems : <dynamic>[])
         .map((i) => ItemEvaluationModel.fromJson(i as Map<String, dynamic>))
@@ -109,6 +112,7 @@ class GrilleModel extends Grille {
       nom:     json['nom'] as String? ?? '',
       noteMax: _toDouble(json['noteMax']),
       items:   items,
+      depuisCache: depuisCache,
     );
   }
 }
@@ -145,7 +149,10 @@ class EtudiantModel extends Etudiant {
       nom:               json['nom']               as String,
       prenom:            json['prenom']             as String,
       numeroInscription: json['numeroInscription']  as String? ?? '',
-      numeroEchantillon: json['numeroEchantillon']  as int?,
+      // #325 — _parseEchantillon était écrit pour CETTE ligne mais n'y était
+      // pas branché : un `as int?` nu plantait si le serveur envoyait "5" en
+      // chaîne — précisément le cas que le helper documente.
+      numeroEchantillon: _parseEchantillon(json['numeroEchantillon']),
       absent:            json['absent']             as bool? ?? false,
       verrouille:        json['verrouille']         as bool? ?? false,
       commentaire:       json['commentaire']        as String?,

@@ -1,19 +1,28 @@
 package tn.epos.scoring_service.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.ExamenResultDTO;
+import tn.epos.scoring_service.dto.StationGrilleSnapshotDTO;
 import tn.epos.scoring_service.dto.StationScoreDTO;
 import tn.epos.scoring_service.entities.Etudiant;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.RotationAssignment;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
+import tn.epos.scoring_service.entities.ExamItemSnapshot;
+import tn.epos.scoring_service.entities.NotationItem;
+import tn.epos.scoring_service.repositories.INotationItemRepository;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,6 +30,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class NotationService {
@@ -37,6 +49,27 @@ public class NotationService {
     /** #274 — la vue Résultats est examen-clé : elle se lit dans SA matière. */
     @Autowired
     private MatiereAccessGuard matiereAccessGuard;
+
+    // #331 — la garde de complétude (#297) doit s'appliquer sur TOUS les chemins de
+    // verrouillage. Duplication VOLONTAIREMENT minimale avec
+    // EvaluateurDashboardService.assertCompletudeAvantVerrouillage (un diff de Set, pas un
+    // algorithme à branches) : voir #331 pour l'arbitrage. Les deux copies appellent la
+    // MÊME source de vérité (ExamDefinitionSnapshotService#resolveItems), donc elles ne
+    // peuvent pas diverger sur CE QUI compte — seule la mécanique locale de comptage l'est.
+    @Autowired
+    private INotationItemRepository notationItemRepository;
+
+    @Autowired
+    private ExamDefinitionSnapshotService examDefinitionSnapshot;
+
+    // #355 — barèmes snapshotés servis à l'écran de délibération.
+    @Autowired
+    private ExamGrilleSnapshotRepository grilleSnapshotRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private static final Logger log = LoggerFactory.getLogger(NotationService.class);
 
     // Récupérer toutes les notations — filtrées au périmètre de l'évaluateur (#91)
     public List<Notation> findAll() {
@@ -120,6 +153,35 @@ public class NotationService {
         return results;
     }
 
+    // #355 — les barèmes de l'examen tels qu'ils ont NOTÉ (exam_grille_snapshot,
+    // ADR-0015), en un appel pour tout l'examen. Sert l'écran de délibération :
+    // les distributions et le seuil d'échec se calculent contre le barème qui a
+    // réellement servi, pas contre la grille vivante d'exam-service (qui peut
+    // avoir bougé depuis, et dont la panne ne doit pas éteindre la délibération).
+    // Un examen d'avant V19 n'a pas de snapshot : liste vide, le web replie sur
+    // la grille vivante en le DISANT (jamais de repli silencieux).
+    @Transactional(readOnly = true)
+    public List<StationGrilleSnapshotDTO> getGrillesSnapshotByExamen(Long examenId) {
+        // #274 — même périmètre que getResultatsByExamen : la vue est examen-clé.
+        matiereAccessGuard.checkExamenAccess(examenId);
+
+        List<StationGrilleSnapshotDTO> out = new ArrayList<>();
+        for (ExamGrilleSnapshot snap : grilleSnapshotRepository.findByExamenId(examenId)) {
+            try {
+                out.add(StationGrilleSnapshotDTO.fromEntity(snap, objectMapper));
+            } catch (BusinessException e) {
+                // Une ligne corrompue ne doit pas éteindre TOUTE la délibération :
+                // on la saute (le web replie sur la grille vivante pour CETTE
+                // station, badge à l'appui) et on le crie dans le log.
+                log.error("Snapshot de grille illisible (examen {}, station {}) — ligne sautée : {}",
+                        examenId, snap.getStationId(), e.getMessage());
+            }
+        }
+        out.sort(Comparator.comparing(StationGrilleSnapshotDTO::stationId,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        return out;
+    }
+
     // Récupérer les notations d'une station (cross-service) — filtrées (#91)
     public List<Notation> findByStation(Long stationId) {
         List<Notation> rows = repository.findByStationId(stationId);
@@ -161,11 +223,62 @@ public class NotationService {
         return repository.save(notation);
     }
 
-    // Supprimer une notation
+    /**
+     * Supprime une notation de manière sécurisée (#332).
+     *
+     * <p>Ce correctif répond à un bug de "faux-succès" où l'appel répondait 200 alors que
+     * la ligne persistait en base. Bien que {@code deleteById(id)} effectue déjà un
+     * {@code findById} en interne, l'ordre de suppression SQL pouvait être retardé ou
+     * ignoré par le gestionnaire de persistance sans lever d'exception.
+     *
+     * <p>La solution implémente une stratégie de vérification d'effet :
+     * <ol>
+     *   <li>{@code @Transactional} : Regroupe l'action et sa vérification dans un même contexte.</li>
+     *   <li>{@code flush()} : Force l'exécution immédiate de l'ordre DELETE vers la base de données.</li>
+     *   <li><b>Vérification post-condition</b> : Relit l'existence de la ligne après le flush.
+     *       Si la ligne survit, une {@link BusinessException} est levée pour transformer
+     *       un échec silencieux en erreur explicite.</li>
+     * </ol>
+     *
+     * @param id Identifiant de la notation à supprimer.
+     * @throws ResourceNotFoundException si la notation n'existe pas.
+     * @throws BusinessException si la suppression échoue techniquement (vérifié via existsById).
+     */
+    @Transactional
     public void delete(Long id) {
-        repository.deleteById(id);
+        Notation notation = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
+
+        // #332 — LA CAUSE, prouvée en direct par paire discriminante (2026-08-14) : une
+        // notation SANS assignment se supprime, une notation AVEC assignment ressuscite.
+        // RotationAssignment.notation est un @OneToOne inverse en cascade=ALL : au flush,
+        // l'assignment resté MANAGÉ re-cascade PERSIST sur la notation qu'on vient de
+        // retirer — Hibernate « dé-programme » la suppression, aucun DELETE SQL ne part,
+        // aucune erreur, aucune trace. Rompre le lien inverse AVANT delete() supprime le
+        // chemin de résurrection. (Ne pas retirer cascade=ALL côté RotationAssignment :
+        // la purge des rotations s'en sert pour emporter les notations.)
+        if (notation.getAssignment() != null) {
+            notation.getAssignment().setNotation(null);
+        }
+
+        repository.delete(notation);
+
+        // Force l'envoi du DELETE SQL avant de tester la post-condition
+        repository.flush();
+
+        // Vérification de l'effet réel en base (La "leçon des sentinelles")
+        if (repository.existsById(id)) {
+            throw new BusinessException(
+                    "La suppression de la notation " + id + " a échoué silencieusement : "
+                            + "la ligne existe toujours après DELETE + flush (#332). "
+                            + "Aucune donnée n'a été modifiée côté application ; contactez le support technique.");
+        }
     }
 
+    // #331 — `verouillee` n'est PLUS lu depuis le payload, quelle que soit sa valeur.
+    // Avant, ce PUT contredisait son propre commentaire (« ne se pilote que via
+    // /verrouiller, jamais via ce PUT ») en recopiant details.getVerouillee() trois
+    // lignes plus bas. C'était la seconde porte latérale de la garde #297.
     public Notation update(Long id, Notation details) {
         return repository.findById(id).map(n -> {
             scopeChecker.checkOwnership(resolveEvaluateurId(n));
@@ -185,21 +298,83 @@ public class NotationService {
             if (details.getGrilleId() != null) {
                 n.setGrilleId(details.getGrilleId());
             }
-            if (details.getVerouillee() != null) {
-                n.setVerouillee(details.getVerouillee());
-            }
+            // AUCUNE branche verouillee ici (#331).
             return repository.save(n);
         }).orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
     }
 
-    // Verrouiller une notation — seul l'évaluateur propriétaire (ou un appelant
-    // non contraint) peut verrouiller (#85, ADR 0007).
+    /**
+     * Verrouille une notation (#85, ADR 0007 pour la propriété).
+     *
+     * <p>#331 — applique désormais la même garde de complétude que #297
+     * ({@code EvaluateurDashboardService.validerEtudiant}) : jusqu'ici cette route la
+     * contournait entièrement — une coquille 0/N critères, verrouillée via ce PATCH,
+     * satisfaisait ensuite {@code validerGroupe}.
+     *
+     * <p>Un second appel sur une notation déjà verrouillée est un NO-OP idempotent (pas
+     * une erreur) : ni re-vérification, ni ré-écriture. Refuser purement et simplement le
+     * re-verrouillage sortirait du périmètre de ce ticket (qui porte sur la complétude, pas
+     * sur la re-verrouillabilité) et romprait un comportement déjà couvert par un test
+     * existant sans qu'aucun besoin métier ne le demande.
+     */
     public Notation verrouiller(Long id) {
         Notation n = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Notation non trouvée avec l'id : " + id));
         scopeChecker.checkOwnership(resolveEvaluateurId(n));
+
+        if (Boolean.TRUE.equals(n.getVerouillee())) {
+            return n;
+        }
+
+        assertCompletudeAvantVerrouillage(n);
+
         n.setVerouillee(true);
         return repository.save(n);
+    }
+
+    /**
+     * #331 — même RÈGLE que {@code EvaluateurDashboardService.assertCompletudeAvantVerrouillage},
+     * même source de vérité ({@link ExamDefinitionSnapshotService#resolveItems}), mécanique de
+     * comptage dupliquée à dessein (voir la javadoc de {@link #verrouiller}). Fail-closed : une
+     * notation dont la chaîne assignment → participation est incomplète ne peut pas être
+     * vérifiée, donc ne peut pas être verrouillée.
+     */
+    private void assertCompletudeAvantVerrouillage(Notation notation) {
+        if (notation.getAssignment() == null || notation.getAssignment().getParticipation() == null) {
+            throw new BusinessException(
+                    "Notation " + notation.getId() + " non rattachée à une participation : "
+                            + "verrouillage refusé (complétude non vérifiable).");
+        }
+        if (notation.getGrilleId() == null) {
+            throw new BusinessException(
+                    "Notation " + notation.getId() + " sans grille associée : verrouillage refusé.");
+        }
+
+        ExamenParticipation participation = notation.getAssignment().getParticipation();
+
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(participation.getExamen_id(), notation.getGrilleId());
+
+        Set<Long> saisis = notationItemRepository.findByNotationId(notation.getId()).stream()
+                .map(NotationItem::getItemId)
+                .collect(Collectors.toSet());
+
+        Set<Long> manquants = new LinkedHashSet<>(definition.keySet());
+        manquants.removeAll(saisis);
+
+        if (!manquants.isEmpty()) {
+            throw new BusinessException(
+                    "Impossible de verrouiller : il reste " + manquants.size()
+                            + " critère(s) non noté(s) pour " + nomEtudiant(participation.getEtudiant())
+                            + ". Notez tous les critères avant de verrouiller.");
+        }
+    }
+
+    private String nomEtudiant(Etudiant e) {
+        if (e == null) return "cet étudiant";
+        String full = ((e.getPrenom() != null ? e.getPrenom() : "") + " "
+                + (e.getNom() != null ? e.getNom() : "")).trim();
+        return full.isEmpty() ? "cet étudiant" : full;
     }
 
     // Résout l'évaluateur propriétaire via Notation -> RotationAssignment ->

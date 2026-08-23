@@ -1,0 +1,61 @@
+name: EPOS AI CI
+
+# Moitié workflow de #366, avancée avec le moteur N5 (#357) : le motif est
+# EXACTEMENT #325 — une CI qui certifie un tiers du produit sans jamais le
+# regarder. Sans ce job, la première vraie logique Python du dépôt (le moteur
+# statistique) fusionnerait verte sans qu'aucun pytest n'ait tourné.
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'ai-service/**'
+      - '.github/workflows/ai-ci.yml'
+  # PRs : AUCUN filtre de base (leçon des PR empilées, cf. mobile-ci.yml) ;
+  # le filtre de chemins suffit — une PR backend/web ne déclenche pas ce job.
+  pull_request:
+    paths:
+      - 'ai-service/**'
+      - '.github/workflows/ai-ci.yml'
+
+# Lecture seule — le jeton n'a besoin de rien d'autre (règle maison).
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        # Action FIRST-PARTY (github/actions) — le tag suffit, comme checkout ;
+        # seules les actions tierces sont épinglées au SHA (règle Sonar).
+        uses: actions/setup-python@v5
+        with:
+          # Alignée sur l'image du service (python:3.12-slim, ADR-0029 D1).
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ai-service/requirements-lock.txt
+
+      - name: Install dependencies
+        # requirements-lock.txt = résolution COMPLÈTE épinglée par empreintes
+        # sha256 (pip-compile --generate-hashes) — l'équivalent Python du
+        # --enforce-lockfile de mobile-ci.yml, exigé par la Quality Gate :
+        # --require-hashes refuse tout artefact non attendu, --only-binary
+        # interdit l'exécution d'un setup.py (wheels uniquement).
+        # Régénération : python -m piptools compile --generate-hashes
+        #   --output-file=requirements-lock.txt requirements-dev.txt
+        # (scalaire bloc `>-` : « :all: » contient « deux-points + espace »,
+        # que YAML lirait comme un mapping — panne de démarrage payée ici.)
+        run: >-
+          pip install --require-hashes --only-binary=:all:
+          -r requirements-lock.txt
+
+      - name: Test
+        # Le harnais F3 (#358) s'affiche SKIPPED tant que les fixtures de
+        # Feten ne sont pas livrées — un skip motivé, jamais un faux vert.
+        run: python -m pytest -q

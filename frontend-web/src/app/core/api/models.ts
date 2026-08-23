@@ -240,6 +240,28 @@ export interface ImportEtudiantRow {
   email: string;
 }
 
+/** Per-student outcome of a bulk enrolment from the directory (#186). */
+export interface BulkEnrolLigne {
+  etudiantId: number;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'ENROLLED' | 'ALREADY_ENROLLED' | 'ERROR';
+  message: string | null;
+}
+
+/**
+ * Summary of a bulk enrolment (scoring BulkEnrolResult — #186, POST
+ * /participations/bulk?examenId=X). Same honesty contract as {@link ImportResult}:
+ * ALREADY_ENROLLED is never counted as an error.
+ */
+export interface BulkEnrolResult {
+  total: number;
+  enrolled: number;
+  alreadyEnrolled: number;
+  errors: number;
+  lignes: BulkEnrolLigne[];
+}
+
 /** Per-row outcome echoed back by the import endpoint (backend ImportRowResult). */
 export interface ImportRowResult {
   ligne: number;
@@ -553,6 +575,15 @@ export interface LotEnCoursProgression {
   numeroLot: number;
   /** Instant d'ouverture réel. Null pour une vague ouverte avant la migration V9. */
   ouvertA: string | null;
+
+  /**
+   * #306 — l'identifiant de QUI a ouvert cette vague : le conducteur de l'épreuve.
+   *
+   * Le backend renvoie l'id, pas un nom — scoring n'a aucun client vers auth et n'en gagne
+   * pas un pour un libellé. Le Suivi le résout avec l'annuaire qu'il charge déjà.
+   * `null` pour une vague ouverte avant la migration V18 : on affiche alors « — ».
+   */
+  ouvertPar: number | null;
   /**
    * #252 — secondes écoulées depuis l'ouverture, **calculées par le serveur**.
    *
@@ -639,6 +670,23 @@ export interface ExamenResult {
   totalScore: number;
   stationsNotees: number;
   stations: StationScore[];
+}
+
+/**
+ * One station's grille barème AS IT ACTUALLY GRADED (scoring
+ * StationGrilleSnapshotDTO — GET /notations/examen/{examenId}/grilles, #355).
+ * Served from scoring's exam_grille_snapshot (ADR-0015), NOT the live
+ * exam-service grille, which may have moved since the exam. `items` carries the
+ * verbatim item tree captured at launch — same {@link GrilleItem} shape as the
+ * live endpoint. An exam launched before V19 has no snapshot rows: the list is
+ * empty and the Résultats screen falls back to the live grille, saying so.
+ */
+export interface StationGrilleSnapshot {
+  stationId: number;
+  grilleId: number | null;
+  nom: string;
+  noteMax: number | null;
+  items: GrilleItem[] | null;
 }
 
 /**

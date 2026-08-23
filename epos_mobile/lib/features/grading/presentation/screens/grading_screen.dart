@@ -718,32 +718,32 @@ class _GradingFooter extends StatelessWidget {
     final nonValides = state.lot.etudiants
         .where((e) => !state.etudiantsValides.contains(e.id))
         .toList();
+
     if (nonValides.isNotEmpty) {
+      // #297 — refus DUR : aucune option "continuer quand même". Les deux
+      // seules sorties honnêtes restent : noter l'étudiant restant, ou le
+      // déclarer absent depuis son écran de détail.
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title:   const Text('Étudiants non validés'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Groupe incomplet'),
           content: Text(
-            '${nonValides.length} étudiant(s) restants. Valider quand même ?',
+            'Aucun verdict pour : ${nonValides.map((e) => e.nomComplet).join(", ")}.\n\n'
+                'Notez chaque étudiant restant, ou déclarez-le absent, avant de valider le groupe.',
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                context.read<GradingBloc>().add(const GradingGroupeValide());
-              },
-              child: const Text('Confirmer'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Compris'),
             ),
           ],
         ),
       );
-    } else {
-      context.read<GradingBloc>().add(const GradingGroupeValide());
+      return;
     }
+
+    context.read<GradingBloc>().add(const GradingGroupeValide());
   }
 
   void _confirmerGroupeSuivant(BuildContext context) {
@@ -1178,6 +1178,13 @@ class _GradingAppBar extends StatelessWidget {
                 _badge(state.lot.label, bold: true),
                 const SizedBox(width: 8),
                 _badge('${state.lot.etudiants.length} étudiants'),
+                // (#244) — la grille sert au chemin d'ÉCRITURE : l'évaluateur
+                // doit savoir qu'il travaille sur une copie locale, pas sur du repli
+                // silencieux (même doctrine qu'ADR-0015 pour "Intitulé indisponible").
+                if (state.grille.depuisCache) ...[
+                  const SizedBox(width: 8),
+                  _badge('Grille hors-ligne'),
+                ],
                 const Spacer(),
                 // BF6.1 — Indicateur de connexion WebSocket temps réel
                 _WsStatusBadge(),

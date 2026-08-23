@@ -45,6 +45,7 @@ class UserServiceTest {
     @Mock private MatiereRepository matiereRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
+    @Mock private TokenRevocationService tokenRevocationService;
 
     /** #289 — la date du retrait est une donnée, pas un hasard : horloge fixe. */
     @Spy private java.time.Clock clock =
@@ -332,6 +333,46 @@ class UserServiceTest {
         assertThat(saved.get(0).getMatiereId()).isNull();
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void assignRoles_toutDelta_tueLesJetonsDejaEmis() {
+        // #306 — « un rôle révoqué écrit encore » : le jeton porte les autorités en
+        // clair, donc tout delta de rôles doit tuer les jetons émis. Les refresh
+        // tokens survivent : le refresh relit les rôles et réémet un jeton JUSTE.
+        User user = existingUser(1L);
+        // Calculé AVANT le when() : appeler le @Spy clock à l'intérieur d'un
+        // thenReturn() casse le stubbing en cours (UnfinishedStubbing).
+        java.time.LocalDateTime stamp = java.time.LocalDateTime.now(clock);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.RESPONSABLE_MATIERE).matiereId(1L).build()));
+        when(tokenRevocationService.revokeIssuedTokens(eq(1L), anyString())).thenReturn(stamp);
+
+        userService.assignRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        verify(tokenRevocationService).revokeIssuedTokens(eq(1L), anyString());
+        verify(refreshTokenRepository, never()).revokeAllByUserId(anyLong());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void assignRoles_deltaVide_neTueRien() {
+        // Le PUT idempotent (mêmes rôles renvoyés) ne doit PAS déconnecter la
+        // personne : aucun changement, aucune révocation.
+        User user = existingUser(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of(
+                UserRole.builder().user(user).role(RoleType.EVALUATEUR).build()));
+
+        userService.assignRoles(1L,
+                List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()),
+                authWith("ROLE_SUPER_ADMIN"));
+
+        verify(tokenRevocationService, never()).revokeIssuedTokens(anyLong(), anyString());
+    }
+
     // =========================================================================
     // #216 — target authorization: a RESPONSABLE_MATIERE must not be able to
     // rewrite/strip roles on accounts outside their authority (esp. SUPER_ADMIN).
@@ -537,6 +578,27 @@ class UserServiceTest {
         verify(refreshTokenRepository).revokeAllByUserId(1L);
         verify(auditService).logAttribue(eq(1L), anyString(), eq(AuditAction.USER_DEACTIVATED),
                 eq("Depart de la faculte"), isNull(), eq(99L));
+    }
+
+    @Test
+    void deactivateUser_tueLesJetonsDejaEmis_etReporteLEstampilleSurLEntite() {
+        // #306 — le retrait tue les jetons d'accès ÉMIS (pas seulement les refresh),
+        // et l'estampille est REPORTÉE sur l'entité : Hibernate écrit toutes les
+        // colonnes au flush — sans le report, le save() qui suit écraserait
+        // l'estampille à null (famille du piège #215).
+        User user = existingUser(1L);
+        java.time.LocalDateTime stamp = java.time.LocalDateTime.now(clock);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenReturn(user);
+        when(userRoleRepository.findByUserId(1L)).thenReturn(List.of());
+        when(tokenRevocationService.revokeIssuedTokens(eq(1L), anyString())).thenReturn(stamp);
+
+        userService.deactivateUser(1L, "Depart de la faculte", 99L);
+
+        verify(tokenRevocationService).revokeIssuedTokens(eq(1L), anyString());
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getTokensInvalidBefore()).isEqualTo(stamp);
     }
 
     @Test

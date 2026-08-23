@@ -14,7 +14,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import com.fasterxml.jackson.databind.JsonNode;
 import tn.epos.scoring_service.config.TestSecurityConfig;
+import tn.epos.scoring_service.dto.StationGrilleSnapshotDTO;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.service.NotationReajustementService;
 import tn.epos.scoring_service.service.NotationService;
@@ -89,6 +91,42 @@ class NotationControllerTest {
             when(service.findAll()).thenReturn(List.of());
 
             mockMvc.perform(get("/api/notations"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isEmpty());
+        }
+    }
+
+    // ─── GET /api/notations/examen/{examenId}/grilles (#355) ─────────────────
+
+    @Nested
+    @DisplayName("GET /api/notations/examen/{examenId}/grilles — #355")
+    class GetGrillesByExamen {
+
+        @Test
+        @DisplayName("200 - Sert les barèmes snapshotés avec items passés tels quels")
+        void getGrilles_devraitRetourner200AvecBaremes() throws Exception {
+            JsonNode items = objectMapper.readTree(
+                    "[{\"id\":3,\"libelle\":\"Hygiène des mains\",\"type\":\"BINAIRE\",\"ponderation\":5}]");
+            when(service.getGrillesSnapshotByExamen(77L)).thenReturn(List.of(
+                    new StationGrilleSnapshotDTO(101L, 201L, "Grille chimie", 20.0, items)));
+
+            mockMvc.perform(get("/api/notations/examen/77/grilles"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data[0].stationId").value(101))
+                    .andExpect(jsonPath("$.data[0].noteMax").value(20.0))
+                    .andExpect(jsonPath("$.data[0].items[0].libelle").value("Hygiène des mains"))
+                    .andExpect(jsonPath("$.data[0].items[0].ponderation").value(5));
+
+            verify(service, times(1)).getGrillesSnapshotByExamen(77L);
+        }
+
+        @Test
+        @DisplayName("200 - Examen sans snapshot → liste vide (le web replie sur la grille vivante)")
+        void getGrilles_sansSnapshot_devraitRetournerListeVide() throws Exception {
+            when(service.getGrillesSnapshotByExamen(77L)).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/notations/examen/77/grilles"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isEmpty());
         }

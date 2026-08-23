@@ -1,0 +1,69 @@
+name: EPOS Mobile CI
+
+# #325 — la CI certifiait un tiers du produit sans jamais le regarder : trois PR
+# mobiles de suite ont fusionné vertes avec des défauts qu'un seul `dart analyze`
+# aurait vus (#314 : fichier de test de 0 octet ; #323 : la branche ne compilait
+# pas ; #328 : rien ne l'aurait vu non plus). Ce workflow ferme ce trou.
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'epos_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+  # PRs : AUCUN filtre de base (même leçon que backend-ci.yml : les PR empilées
+  # passaient sous le pipeline avec un filtre `branches:`). Le filtre de chemins
+  # suffit : une PR purement backend/web ne déclenche pas ce job (critère #325).
+  pull_request:
+    paths:
+      - 'epos_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+
+# Le jeton du job n'a besoin que de LIRE le dépôt ; sans ce bloc, GITHUB_TOKEN
+# naît avec les droits d'écriture par défaut — inutile ici, donc retiré.
+permissions:
+  contents: read
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: epos_mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        # Épinglée au SHA du commit (= tag v2.9.1) : une action TIERCE référencée
+        # par tag est réécrivable par son mainteneur — c'est le point que la
+        # Quality Gate Sonar a levé (Security Rating C sur le code neuf).
+        uses: subosito/flutter-action@1508160852fb97248640997f7cfb38da241df0ba # v2.9.1
+        with:
+          # Épinglée = builds reproductibles. À faire avancer AVEC le poste de
+          # dev (flutter --version), pas indépendamment.
+          flutter-version: '3.44.6'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        # --enforce-lockfile : la CI installe EXACTEMENT les versions du
+        # pubspec.lock commité (empreintes sha256 incluses) au lieu de
+        # re-résoudre librement — la règle « pin your dependencies » de la
+        # Quality Gate, et la reproductibilité réelle des builds.
+        run: flutter pub get --enforce-lockfile
+
+      # `dart analyze`, PAS `flutter analyze` : ce dernier exige le support des
+      # symlinks (cassé sur certains postes Windows) et n'apporte rien de plus
+      # ici. Les warnings sont FATALS (comportement par défaut) : la base est à
+      # zéro warning depuis #325 — un import mort ou un symbole inconnu (le cas
+      # exact de #323) rend ce step rouge.
+      - name: Analyze (lib + tests)
+        run: dart analyze lib test
+
+      # #333 — les 5 échecs préexistants (2 login_screen, 2 timer_anchor,
+      # 1 warning_banner) sont réparés : le gate couvre désormais tout `test/`.
+      # Un fichier *_test.dart vide ou sans main() reste une erreur de
+      # CHARGEMENT → rouge (le cas exact de #314). Les parkings bloc_test
+      # volontaires restent suffixés .parked.dart, invisibles au runner.
+      - name: Test
+        run: flutter test

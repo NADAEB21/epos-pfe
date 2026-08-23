@@ -65,7 +65,8 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
-  { path: 'analyses-ia', ...stub('Analyses IA') },
+  // W2/ADR-0028 — l'onglet « Analyses IA » ne revient que lorsque le volet IA
+  // existera : un onglet vivant qui rend un bouchon est une promesse vide.
 ];
 
 export const routes: Routes = [
@@ -74,6 +75,27 @@ export const routes: Routes = [
     canActivate: [guestGuard],
     loadComponent: () =>
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
+  },
+  {
+    // W10 — mot de passe oublié, étape 1 (email). Public, hors shell.
+    path: 'forgot-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./features/auth/forgot-password/forgot-password.component').then(
+        (m) => m.ForgotPasswordComponent,
+      ),
+  },
+  {
+    // W10 — étape 2 : la cible du lien envoyé par auth-service
+    // (app.mail.reset-base-url pointe ici par défaut, ?token=…). Un utilisateur
+    // connecté est renvoyé chez lui par guestGuard : son chemin à lui est
+    // « Mon profil » (W1), pas le flux oublié.
+    path: 'reset-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./features/auth/reset-password/reset-password.component').then(
+        (m) => m.ResetPasswordComponent,
+      ),
   },
   {
     // Authenticated but role-less for the web (pure EVALUATEUR) — sent here by
@@ -156,13 +178,18 @@ export const routes: Routes = [
             data: { scope: 'co-responsables' },
           },
 
-          // Parametres (matiere-scoped)
-          { path: 'parametres/matiere', ...stub('Ma matiere') },
+          // « Ma matière » : supprimée (W2/D3, S39) — aucun contenu légitime
+          // tant que les modèles de grilles ne sont pas « de matière »
+          // (ADR-0027). La recréer alors, avec un vrai contenu.
         ],
       },
 
       // Parametres (any web user)
-      { path: 'parametres/profil', ...stub('Mon profil') },
+      {
+        path: 'parametres/profil',
+        loadComponent: () =>
+          import('./features/profil/profil.component').then((m) => m.ProfilComponent),
+      },
 
       // Administration (SUPER_ADMIN only)
       {
@@ -186,8 +213,9 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/admin/matieres.component').then((m) => m.MatieresComponent),
           },
-          { path: 'templates', ...stub('Templates globaux') },
-          { path: 'examens', ...stub('Examens (oversight)') },
+          // « Templates globaux » : supprimé (W2/ADR-0027) — rédiger un modèle
+          // est une autorité PÉDAGOGIQUE (ADR-0018 D5), pas administrative.
+          { path: 'examens', ...stub('Examens (oversight)') }, // W13 (P1) — supervision lecture seule à construire
         ],
       },
     ],

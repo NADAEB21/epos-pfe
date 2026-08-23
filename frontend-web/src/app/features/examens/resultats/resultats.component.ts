@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { forkJoin, of } from 'rxjs';
+import { catchError, forkJoin, of } from 'rxjs';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
@@ -10,6 +10,7 @@ import {
   NotationAdjustmentSummary,
   NotationItemSummary,
   ParticipationSummary,
+  StationGrilleSnapshot,
   StationSummary,
 } from '../../../core/api/models';
 import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
@@ -79,7 +80,55 @@ interface ResultRow {
   mentionClass: string;
 }
 
+/** One histogram bin of a station's locked-score distribution (#355). */
+interface DeliberationBin {
+  /** Bin range label, e.g. "8–12". */
+  label: string;
+  count: number;
+  /** Share of the station's locked notations, 0–100 (bar width). */
+  pct: number;
+  /** True when the whole bin sits under the échec threshold (score < noteMax/2). */
+  sousSeuil: boolean;
+}
+
+/** One failing student chip on a deliberation card — click opens their cell. */
+interface DeliberationEchec {
+  participationId: number;
+  nom: string;
+  score: number;
+}
+
+/**
+ * The deliberation reading of ONE station (#355, ADR-0021 D4 items 1–2):
+ * distribution + failure concentration, computed over LOCKED notations only —
+ * the same "verdict = verrou" rule as the ranking (#297). Unlocked scores are
+ * counted separately as `nEnCours`, never aggregated.
+ */
+interface StationDeliberation {
+  stationId: number;
+  nom: string;
+  ordre: number;
+  noteMax: number;
+  /** Locked notations — the n every aggregate below is computed on. */
+  nVerrouillees: number;
+  /** Scores saisis mais non verrouillés — affichés, jamais agrégés. */
+  nEnCours: number;
+  moyenne: number | null;
+  mediane: number | null;
+  min: number | null;
+  max: number | null;
+  /** Locked scores strictly under noteMax/2. */
+  nEchecs: number;
+  /** nEchecs / nVerrouillees, 0–100; null when nothing is locked. */
+  tauxEchec: number | null;
+  bins: DeliberationBin[];
+  /** The failing students, worst first — the réajustement entry points. */
+  echecs: DeliberationEchec[];
+}
+
 const DEFAULT_NOTE_MAX = 20;
+/** Histogram bin count for the per-station distributions (#355). */
+const DELIBERATION_BINS = 5;
 
 /**
  * Résultats — the post-exam scores board (TERMINE/ARCHIVE tab). Closes the
@@ -127,6 +176,14 @@ export class ResultatsComponent {
   /** Exam-level scoring-completeness summary for the warning banner. */
   readonly completeness = signal<CompletenessSummary | null>(null);
 
+  /**
+   * #355 — scored stations whose barème came from the LIVE exam-service grille
+   * because scoring had no snapshot for them (pre-V19 exam, or the snapshot
+   * endpoint failed). Non-empty → a badge names the degradation; the screen
+   * never falls back silently (leçon du 403 avalé).
+   */
+  readonly baremeLiveStations = signal<number[]>([]);
+
   // ---- per-critère deep-dive (lazy, per student×station) -----------------
   /** Currently expanded cell, keyed `${participationId}:${stationId}`; null = none. */
   readonly expandedKey = signal<string | null>(null);
@@ -172,6 +229,110 @@ export class ResultatsComponent {
     const c = this.completeness();
     return !!c && (c.nonNotes > 0 || c.partiels > 0 || c.nonVerrouillees > 0);
   });
+
+  /**
+   * #355 — the deliberation reading, ADR-0021 D4 items 1–2: per-station score
+   * distributions + failure concentration. Pure derivation over the rows the
+   * table already built (no extra fetch, no new failure mode). Aggregated over
+   * LOCKED notations only — same verdict rule as the ranking (#297); unlocked
+   * scores are shown as "en cours", never averaged. Cards are sorted by failure
+   * rate desc (the concentration reading), stations without any locked notation
+   * last, ties by station order.
+   */
+  readonly deliberation = computed<StationDeliberation[]>(() => {
+    const rows = this.rows();
+    return this.stationCols()
+      .map((col) => this.deliberationForStation(col, rows))
+      .sort((a, b) => {
+        if (a.tauxEchec == null && b.tauxEchec == null) return a.ordre - b.ordre;
+        if (a.tauxEchec == null) return 1;
+        if (b.tauxEchec == null) return -1;
+        return b.tauxEchec - a.tauxEchec || a.ordre - b.ordre;
+      });
+  });
+
+  private deliberationForStation(col: StationCol, rows: ResultRow[]): StationDeliberation {
+    const seuil = col.noteMax / 2;
+    const verrouillees: DeliberationEchec[] = [];
+    let nEnCours = 0;
+    for (const row of rows) {
+      const score = row.scoreByStation.get(col.stationId);
+      if (score == null) continue;
+      if (row.lockedByStation.get(col.stationId) === true) {
+        verrouillees.push({ participationId: row.participationId, nom: row.nom, score });
+      } else {
+        nEnCours++;
+      }
+    }
+
+    const scores = verrouillees.map((v) => v.score).sort((a, b) => a - b);
+    const n = scores.length;
+    const echecs = verrouillees.filter((v) => v.score < seuil).sort((a, b) => a.score - b.score);
+
+    return {
+      stationId: col.stationId,
+      nom: col.nom,
+      ordre: col.ordre,
+      noteMax: col.noteMax,
+      nVerrouillees: n,
+      nEnCours,
+      moyenne: n > 0 ? scores.reduce((s, v) => s + v, 0) / n : null,
+      mediane: n > 0 ? this.medianOf(scores) : null,
+      min: n > 0 ? scores[0] : null,
+      max: n > 0 ? scores[n - 1] : null,
+      nEchecs: echecs.length,
+      tauxEchec: n > 0 ? (echecs.length / n) * 100 : null,
+      bins: this.binsFor(scores, col.noteMax, seuil),
+      echecs,
+    };
+  }
+
+  /** Median of an ASCENDING-sorted non-empty score list. */
+  private medianOf(sorted: number[]): number {
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  /**
+   * Equal-width histogram over [0, noteMax]. A score equal to noteMax lands in
+   * the LAST bin (the classic right-edge case); `sousSeuil` marks bins lying
+   * entirely under the échec threshold so the template can color them.
+   */
+  private binsFor(scores: number[], noteMax: number, seuil: number): DeliberationBin[] {
+    const max = noteMax > 0 ? noteMax : DEFAULT_NOTE_MAX;
+    const width = max / DELIBERATION_BINS;
+    const counts = new Array<number>(DELIBERATION_BINS).fill(0);
+    for (const s of scores) {
+      const idx = Math.min(DELIBERATION_BINS - 1, Math.max(0, Math.floor(s / width)));
+      counts[idx]++;
+    }
+    const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+    return counts.map((count, i) => ({
+      label: `${fmt(i * width)}–${fmt((i + 1) * width)}`,
+      count,
+      pct: scores.length > 0 ? (count / scores.length) * 100 : 0,
+      sousSeuil: (i + 1) * width <= seuil,
+    }));
+  }
+
+  /**
+   * #355 — "réajustement à portée de clic" (ADR-0021 D4 item 4): a chip on a
+   * deliberation card opens that student×station cell — the per-critère
+   * breakdown with the réajustement panel already inside — and scrolls to it.
+   * One click from the failure reading to the sanctioned act; no new write UI.
+   */
+  ouvrirCelluleDepuisDeliberation(participationId: number, stationId: number): void {
+    const row = this.rows().find((r) => r.participationId === participationId);
+    const col = this.stationCols().find((c) => c.stationId === stationId);
+    if (!row || !col) return;
+    if (!this.isExpanded(row, col)) this.toggleCell(row, col);
+    // Après le rendu de la ligne dépliée — sinon la cible n'existe pas encore.
+    setTimeout(() => {
+      document
+        .getElementById(`resultat-row-${participationId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
 
   readonly minMaxLabel = computed(() => {
     const vals = this.rows()
@@ -247,14 +408,26 @@ export class ResultatsComponent {
     this.expandedKey.set(null);
     this.deepDives.set(new Map());
     this.grilleByStation.clear();
+    this.baremeLiveStations.set([]);
     // The roster (participations) gives the present-student denominator the
     // results endpoint can't — it only returns students who have ≥1 notation.
+    // #355 — the barèmes come FIRST from scoring's snapshots (what actually
+    // graded, ADR-0015); the call is fail-soft (empty on error) so a snapshot
+    // outage degrades to the live-grille path instead of blanking the screen.
     forkJoin({
       results: this.scoring.getExamenResults(examId),
-      stations: this.examApi.listStations(examId),
+      // Fail-soft (#355) : exam-service ne sert ici QUE des métadonnées
+      // d'affichage (noms de stations, ordre). Sa panne dégrade les en-têtes en
+      // « Station {id} » — elle n'a plus le droit d'éteindre la délibération.
+      stations: this.examApi
+        .listStations(examId)
+        .pipe(catchError(() => of([] as StationSummary[]))),
       participations: this.scoring.listParticipations(examId),
+      snapshots: this.scoring
+        .getExamenGrillesSnapshot(examId)
+        .pipe(catchError(() => of([] as StationGrilleSnapshot[]))),
     }).subscribe({
-      next: ({ results, stations, participations }) => {
+      next: ({ results, stations, participations, snapshots }) => {
         if (results.length === 0) {
           this.rows.set([]);
           this.stationCols.set([]);
@@ -268,29 +441,60 @@ export class ResultatsComponent {
         for (const r of results) {
           for (const s of r.stations) if (s.stationId != null) scoredStationIds.add(s.stationId);
         }
-        const scored = stations.filter((s) => scoredStationIds.has(s.id));
-        const grilleCalls = scored.map((s) =>
-          s.hasGrille ? this.examApi.getStationGrille(s.id) : of(null),
-        );
-        forkJoin(grilleCalls.length ? grilleCalls : [of(null)]).subscribe({
-          next: (grilles) => {
-            const noteMaxByStation = new Map<number, number>();
-            scored.forEach((s, i) => {
-              const g = grilles[i];
-              noteMaxByStation.set(s.id, g?.noteMax ?? DEFAULT_NOTE_MAX);
-              if (g) this.grilleByStation.set(s.id, g);
+
+        // #355 — snapshot first: one batched payload, keyed by stationId. The
+        // snapshot's items[] is the same GrilleItem tree the live endpoint
+        // returns (captured verbatim at launch), so the deep-dive join is
+        // source-agnostic. Keyed on the SCORED ids (from scoring), not on the
+        // exam-service station list — the barème path must not depend on it.
+        const snapByStation = new Map(snapshots.map((s) => [s.stationId, s]));
+        const noteMaxByStation = new Map<number, number>();
+        const manquantes: number[] = [];
+        for (const sid of scoredStationIds) {
+          const snap = snapByStation.get(sid);
+          if (snap) {
+            noteMaxByStation.set(sid, snap.noteMax ?? DEFAULT_NOTE_MAX);
+            this.grilleByStation.set(sid, {
+              id: snap.grilleId ?? 0,
+              nom: snap.nom,
+              noteMax: snap.noteMax,
+              items: snap.items ?? [],
             });
-            this.buildTable(results, stations, noteMaxByStation);
-            this.completeness.set(this.computeCompleteness(results, stations, participations));
-            this.loading.set(false);
-          },
-          error: () => {
-            // Grilles failed — still render with the default /20 denominator.
-            const noteMaxByStation = new Map<number, number>();
-            scored.forEach((s) => noteMaxByStation.set(s.id, DEFAULT_NOTE_MAX));
-            this.buildTable(results, stations, noteMaxByStation);
-            this.completeness.set(this.computeCompleteness(results, stations, participations));
-            this.loading.set(false);
+          } else {
+            manquantes.push(sid);
+          }
+        }
+
+        const terminer = () => {
+          this.buildTable(results, stations, noteMaxByStation);
+          this.completeness.set(this.computeCompleteness(results, stations, participations));
+          this.loading.set(false);
+        };
+
+        if (manquantes.length === 0) {
+          terminer();
+          return;
+        }
+        // Fallback (pre-V19 exam or snapshot row missing): the LIVE exam-service
+        // grille, and the badge SAYS so — never a silent substitution. Each call
+        // is fail-soft on its own: one station's failure (or exam-service down)
+        // degrades THAT station to the /20 default, not the whole screen.
+        this.baremeLiveStations.set(manquantes);
+        const metaById = new Map(stations.map((s) => [s.id, s]));
+        const grilleCalls = manquantes.map((sid) => {
+          const meta = metaById.get(sid);
+          return meta && meta.hasGrille === false
+            ? of(null)
+            : this.examApi.getStationGrille(sid).pipe(catchError(() => of(null)));
+        });
+        forkJoin(grilleCalls).subscribe({
+          next: (grilles) => {
+            manquantes.forEach((sid, i) => {
+              const g = grilles[i];
+              noteMaxByStation.set(sid, g?.noteMax ?? DEFAULT_NOTE_MAX);
+              if (g) this.grilleByStation.set(sid, g);
+            });
+            terminer();
           },
         });
       },
@@ -315,20 +519,40 @@ export class ResultatsComponent {
   ): CompletenessSummary {
     const totalStations = stations.length;
     const present = participations.filter((p) => p.est_present === true);
-    const noted = new Map(results.map((r) => [r.participationId, r]));
+    const byParticipation = new Map(results.map((r) => [r.participationId, r]));
+
     let nonNotes = 0;
     let partiels = 0;
-    for (const p of present) {
-      const r = noted.get(p.id);
-      if (!r || r.stationsNotees === 0) nonNotes++;
-      else if (totalStations > 0 && r.stationsNotees < totalStations) partiels++;
-    }
     let nonVerrouillees = 0;
+
+    for (const p of present) {
+      const r = byParticipation.get(p.id);
+      // #297 — MÊME critère que buildTable() : le VERROU, pas la simple
+      // présence d'une ligne de notation. Avant, la bannière comptait
+      // "stationsNotees" (notations existantes, verrouillées ou non) alors que
+      // le tableau exige lockedCount === stations.length pour attribuer un
+      // rang — un étudiant pouvait lire "0 partiel" en haut et "aucun rang"
+      // en bas pour LUI-MÊME. Les deux widgets doivent parler de la même
+      // notion de "verdict" : verrouillé, pas seulement saisi.
+      const lockedCount = r ? r.stations.filter((s) => s.verrouillee === true).length : 0;
+
+      if (lockedCount === 0) {
+        nonNotes++;
+      } else if (totalStations > 0 && lockedCount < totalStations) {
+        partiels++;
+      }
+    }
+
+    // Compteur auxiliaire affiché séparément dans la bannière : notes SAISIES
+    // mais pas encore verrouillées. Recoupe volontairement "partiels"
+    // ci-dessus (un étudiant partiel a le plus souvent une note en attente de
+    // verrou) — c'est un signal indicatif, pas une troisième catégorie disjointe.
     for (const r of results) {
       for (const s of r.stations) {
         if (s.score != null && s.verrouillee !== true) nonVerrouillees++;
       }
     }
+
     return { nonNotes, partiels, nonVerrouillees, presentTotal: present.length, totalStations };
   }
 
@@ -337,7 +561,6 @@ export class ResultatsComponent {
     stations: StationSummary[],
     noteMaxByStation: Map<number, number>,
   ): void {
-    // Column set = scored stations, ordered by their exam ordre.
     const stationMeta = new Map(stations.map((s) => [s.id, s]));
     const cols: StationCol[] = [...noteMaxByStation.keys()]
       .map((sid) => {
@@ -357,17 +580,27 @@ export class ResultatsComponent {
       const lockedByStation = new Map<number, boolean>();
       const notationIdByStation = new Map<number, number>();
       let totalMax = 0;
+      let lockedCount = 0;
       for (const s of r.stations) {
         if (s.stationId == null) continue;
         scoreByStation.set(s.stationId, s.score);
-        lockedByStation.set(s.stationId, s.verrouillee === true);
+        const locked = s.verrouillee === true;
+        lockedByStation.set(s.stationId, locked);
         if (s.notationId != null) notationIdByStation.set(s.stationId, s.notationId);
         if (s.score != null) totalMax += noteMaxByStation.get(s.stationId) ?? DEFAULT_NOTE_MAX;
+        if (locked) lockedCount++;
       }
-      const moyenne20 = totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
-      const { mention, mentionClass } = this.mentionFor(moyenne20);
+      // #297 — un verdict d'examen (moyenne, mention, rang) exige un verrou
+      // sur TOUTES les stations de l'examen, pas seulement celles déjà
+      // saisies. Avant : totalMax ne comptait que les stations SAISIES, donc
+      // une station jamais touchée disparaissait silencieusement du barème
+      // (45/60 au lieu de 45/80) — un re-barème que personne n'avait décidé,
+      // exactement le défaut nommé par le ticket.
+      const complete = stations.length > 0 && lockedCount === stations.length;
+      const moyenne20 = complete && totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
+      const { mention, mentionClass } = this.mentionFor(moyenne20, lockedCount, stations.length);
       return {
-        rang: 0, // assigned after sort
+        rang: 0, // assigné après tri, 0 = "pas de rang" pour un résultat incomplet
         participationId: r.participationId,
         etudiantId: r.etudiantId,
         nom: `${r.prenom ?? ''} ${r.nom ?? ''}`.trim() || 'Étudiant inconnu',
@@ -384,10 +617,31 @@ export class ResultatsComponent {
       };
     });
 
-    // Rank on the normalised /20 average (null averages sink to the bottom).
+    // #297 — un résultat sans verdict complet est affiché (le responsable
+    // doit pouvoir agir dessus) mais ne consomme JAMAIS un numéro de rang :
+    // il ne doit pas être classé contre des dossiers clos.
     rows.sort((a, b) => (b.moyenne20 ?? -1) - (a.moyenne20 ?? -1));
-    rows.forEach((row, i) => (row.rang = i + 1));
+    let rang = 0;
+    for (const row of rows) {
+      row.rang = row.moyenne20 != null ? ++rang : 0;
+    }
     this.rows.set(rows);
+  }
+
+  private mentionFor(
+    moyenne20: number | null,
+    lockedCount: number,
+    totalStations: number,
+  ): { mention: string; mentionClass: string } {
+    if (moyenne20 == null) {
+      const mention = lockedCount === 0 ? 'Non noté' : `Incomplet (${lockedCount}/${totalStations})`;
+      return { mention, mentionClass: 'bg-gray-100 text-gray-500' };
+    }
+    if (moyenne20 >= 16) return { mention: 'Très bien', mentionClass: 'bg-green-100 text-green-700' };
+    if (moyenne20 >= 14) return { mention: 'Bien', mentionClass: 'bg-emerald-50 text-emerald-700' };
+    if (moyenne20 >= 12) return { mention: 'Assez bien', mentionClass: 'bg-brand-50 text-brand-dark' };
+    if (moyenne20 >= 10) return { mention: 'Passable', mentionClass: 'bg-amber-50 text-amber-700' };
+    return { mention: 'Insuffisant', mentionClass: 'bg-red-100 text-red-700' };
   }
 
   isStationFail(row: ResultRow, col: StationCol): boolean {
@@ -608,14 +862,6 @@ export class ResultatsComponent {
     });
   }
 
-  private mentionFor(moyenne20: number | null): { mention: string; mentionClass: string } {
-    if (moyenne20 == null) return { mention: 'Non noté', mentionClass: 'bg-gray-100 text-gray-500' };
-    if (moyenne20 >= 16) return { mention: 'Très bien', mentionClass: 'bg-green-100 text-green-700' };
-    if (moyenne20 >= 14) return { mention: 'Bien', mentionClass: 'bg-emerald-50 text-emerald-700' };
-    if (moyenne20 >= 12) return { mention: 'Assez bien', mentionClass: 'bg-brand-50 text-brand-dark' };
-    if (moyenne20 >= 10) return { mention: 'Passable', mentionClass: 'bg-amber-50 text-amber-700' };
-    return { mention: 'Insuffisant', mentionClass: 'bg-red-100 text-red-700' };
-  }
 
   /** Client-side CSV export of the current classement — no backend round-trip. */
   exportCsv(): void {
@@ -629,10 +875,11 @@ export class ResultatsComponent {
       'Total',
       'Moyenne/20',
       'Mention',
+      'Etat', // #297 — l'export ne doit jamais laisser un chiffre parler seul
     ];
     const lines = this.rows().map((row) => {
       const cells = [
-        row.rang,
+        row.rang > 0 ? row.rang : '',
         row.nom,
         row.numeroInscription ?? '',
         row.numEchantillon ?? '',
@@ -643,6 +890,7 @@ export class ResultatsComponent {
         row.total,
         row.moyenne20 != null ? row.moyenne20.toFixed(2) : '',
         row.mention,
+        row.moyenne20 != null ? 'Complet' : 'Incomplet',
       ];
       return cells.map((c) => this.csvCell(c)).join(',');
     });

@@ -1,0 +1,107 @@
+<div class="max-w-3xl">
+  <h1 class="text-2xl font-semibold text-gray-900 mb-1">Mon profil</h1>
+  <p class="text-sm text-gray-500 mb-6">Votre identité, vos rôles et la sécurité de votre compte.</p>
+
+  @if (loading()) {
+    <div class="bg-white rounded-lg border border-gray-200 p-6 text-sm text-gray-500">Chargement…</div>
+  } @else if (loadError()) {
+    <div class="bg-white rounded-lg border border-red-200 p-6">
+      <p class="text-sm text-status-danger">Impossible de charger votre profil pour le moment.</p>
+      <p class="text-xs text-gray-500 mt-1">Vérifiez votre connexion puis rechargez la page.</p>
+    </div>
+  } @else {
+    @if (me(); as m) {
+    <!-- ── Qui je suis ─────────────────────────────────────────────────── -->
+    <section class="bg-white rounded-lg border border-gray-200 shadow-card p-6 mb-5">
+      <div class="flex items-center gap-4">
+        <div class="w-14 h-14 rounded-full bg-brand text-white flex items-center justify-center text-lg font-semibold">
+          {{ initials() }}
+        </div>
+        <div>
+          <div class="text-lg font-medium text-gray-900">{{ m.prenom }} {{ m.nom }}</div>
+          <div class="text-sm text-gray-500">{{ m.email }}</div>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mt-4">
+        L’adresse e-mail est votre identifiant de connexion — elle n’est pas modifiable.
+        Pour une correction de nom ou d’adresse, adressez-vous à l’administration.
+      </p>
+    </section>
+
+    <!-- ── Mes rôles et leurs portées ──────────────────────────────────── -->
+    <section class="bg-white rounded-lg border border-gray-200 shadow-card p-6 mb-5">
+      <h2 class="text-base font-semibold text-gray-900 mb-1">Mes rôles</h2>
+      <p class="text-xs text-gray-500 mb-4">
+        C’est ce qui détermine ce que vous voyez et ce que vous pouvez faire dans EPOS.
+      </p>
+      <ul class="space-y-3">
+        @for (r of displayRoles(); track r.label + r.scope) {
+          <li class="flex gap-3">
+            <span class="mt-1 w-2 h-2 rounded-full bg-brand shrink-0"></span>
+            <div>
+              <div class="text-sm font-medium text-gray-900">{{ r.label }}</div>
+              @if (r.scope) {
+                <div class="text-xs text-gray-500">{{ r.scope }}</div>
+              }
+            </div>
+          </li>
+        } @empty {
+          <li class="text-sm text-gray-500">Aucun rôle actif — contactez l’administration.</li>
+        }
+      </ul>
+    </section>
+
+    <!-- ── Changer mon mot de passe ────────────────────────────────────── -->
+    <section class="bg-white rounded-lg border border-gray-200 shadow-card p-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-1">Changer mon mot de passe</h2>
+      <p class="text-xs text-gray-500 mb-4">
+        Au moins 8 caractères, dont une majuscule et un chiffre. Après le changement, toutes vos
+        sessions sont fermées et vous vous reconnectez avec le nouveau mot de passe.
+      </p>
+
+      @if (pwDone()) {
+        <div class="rounded-lg bg-green-50 border border-green-200 p-4 text-sm text-brand-dark">
+          Mot de passe modifié. Vos sessions sont fermées — vous allez être redirigé·e vers la
+          page de connexion.
+        </div>
+      } @else {
+        <form [formGroup]="pwForm" (ngSubmit)="submitPassword()" class="space-y-4 max-w-md">
+          <div>
+            <label for="pw-current" class="block text-sm font-medium text-gray-700 mb-1">Mot de passe actuel</label>
+            <input
+              id="pw-current" type="password" formControlName="currentPassword" autocomplete="current-password"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label for="pw-new" class="block text-sm font-medium text-gray-700 mb-1">Nouveau mot de passe</label>
+            <input
+              id="pw-new" type="password" formControlName="newPassword" autocomplete="new-password"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label for="pw-confirm" class="block text-sm font-medium text-gray-700 mb-1">Confirmer le nouveau mot de passe</label>
+            <input
+              id="pw-confirm" type="password" formControlName="confirm" autocomplete="new-password"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+            />
+          </div>
+
+          @if (pwError(); as err) {
+            <p class="text-sm text-status-danger">{{ err }}</p>
+          }
+
+          <button
+            type="submit"
+            [disabled]="pwSubmitting()"
+            class="rounded-lg bg-brand text-white px-4 py-2 text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {{ pwSubmitting() ? 'Modification…' : 'Modifier le mot de passe' }}
+          </button>
+        </form>
+      }
+    </section>
+    }
+  }
+</div>

@@ -64,6 +64,31 @@ export class AuthService {
     );
   }
 
+  /**
+   * W10 — flux « mot de passe oublié », étape 1. Public et ANTI-ÉNUMÉRATION :
+   * le serveur répond 200 que l'adresse existe ou non — l'écran doit afficher
+   * le même message dans les deux cas, jamais « adresse inconnue ».
+   */
+  requestPasswordReset(email: string): Observable<void> {
+    return this.http
+      .post<ApiResponse<void>>(`${this.baseUrl}/password-reset/request`, { email })
+      .pipe(map(() => void 0));
+  }
+
+  /**
+   * W10 — étape 2 : consomme le code à usage unique (30 min) et pose le
+   * nouveau mot de passe. Le refus (code invalide/expiré/déjà utilisé) porte
+   * un message serveur à afficher tel quel.
+   */
+  confirmPasswordReset(token: string, newPassword: string): Observable<void> {
+    return this.http
+      .post<ApiResponse<void>>(`${this.baseUrl}/password-reset/confirm`, {
+        token,
+        newPassword,
+      })
+      .pipe(map(() => void 0));
+  }
+
   hydrate(): void {
     const access = this.tokens.getAccessToken();
     if (!access) return;

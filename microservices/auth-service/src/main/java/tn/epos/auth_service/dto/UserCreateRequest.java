@@ -1,6 +1,7 @@
 package tn.epos.auth_service.dto;
 
 import jakarta.validation.Valid;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -17,6 +18,9 @@ public class UserCreateRequest {
 
     @NotBlank
     @Email
+    // Ergonomie : creer un compte avec une adresse collee ne doit pas repondre 400.
+    // Le trim a lieu a la DESERIALISATION, donc avant @Email/@NotBlank.
+    @JsonDeserialize(using = TrimmedEmailDeserializer.class)
     private String email;
 
     @NotBlank

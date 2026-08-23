@@ -3,6 +3,7 @@ package tn.epos.auth_service.repository;
 import org.springframework.data.jpa.repository.JpaRepository;
 import tn.epos.auth_service.entity.Matiere;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface MatiereRepository extends JpaRepository<Matiere, Long> {
@@ -13,4 +14,7 @@ public interface MatiereRepository extends JpaRepository<Matiere, Long> {
      * l'unicité d'e-mail, #285).
      */
     Optional<Matiere> findByCodeIgnoreCase(String code);
+
+    /** #303 — les matières retirées, publiées aux pairs via /internal/matieres-retirees. */
+    List<Matiere> findByActiveFalse();
 }

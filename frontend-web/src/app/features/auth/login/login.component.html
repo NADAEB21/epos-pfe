@@ -60,6 +60,17 @@
       >
         {{ submitting() ? 'Connexion…' : 'Se connecter' }}
       </button>
+
+      <!-- W10 — l'issue de secours qui manquait : responsable/admin n'ont pas
+           l'app mobile, sans ce lien un mot de passe oublié était une impasse. -->
+      <p class="text-center">
+        <a
+          [routerLink]="['/forgot-password']"
+          class="text-sm text-gray-500 hover:text-brand transition-colors"
+        >
+          Mot de passe oublié ?
+        </a>
+      </p>
     </form>
   </div>
 </div>

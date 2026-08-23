@@ -40,29 +40,29 @@ extension AppThemeModeExtension on AppThemeMode {
   }
 }
 
+// W4 (S39) — `notificationsEnabled` supprimé : l'interrupteur ne pilotait
+// RIEN (aucun plugin, aucun consommateur — il animait son propre libellé).
+// Un réglage qui ne règle rien est une promesse vide ; il reviendra avec un
+// vrai canal de notification, pas avant.
 class ProfileSettings extends Equatable {
   final AppLanguage  language;
-  final bool         notificationsEnabled;
   final AppThemeMode themeMode;
 
   const ProfileSettings({
-    this.language             = AppLanguage.french,
-    this.notificationsEnabled = true,
-    this.themeMode            = AppThemeMode.light,
+    this.language  = AppLanguage.french,
+    this.themeMode = AppThemeMode.light,
   });
 
   ProfileSettings copyWith({
     AppLanguage?  language,
-    bool?         notificationsEnabled,
     AppThemeMode? themeMode,
   }) {
     return ProfileSettings(
-      language:             language             ?? this.language,
-      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
-      themeMode:            themeMode            ?? this.themeMode,
+      language:  language  ?? this.language,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 
   @override
-  List<Object?> get props => [language, notificationsEnabled, themeMode];
+  List<Object?> get props => [language, themeMode];
 }

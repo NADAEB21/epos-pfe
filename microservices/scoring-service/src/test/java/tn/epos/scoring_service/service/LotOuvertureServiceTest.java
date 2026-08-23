@@ -67,6 +67,8 @@ class LotOuvertureServiceTest {
 
     /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
     @Mock private MatiereAccessGuard matiereAccessGuard;
+    /** #306 — l'auteur de l'ouverture ; par defaut le mock rend null (non identifie). */
+    @Mock private tn.epos.scoring_service.config.EvaluateurScopeChecker scopeChecker;
 
     @InjectMocks private LotOuvertureService service;
 
@@ -468,6 +470,83 @@ class LotOuvertureServiceTest {
 
             verify(matiereAccessGuard).checkExamenAccess(EXAM_ID);
             verify(lotRepository, org.mockito.Mockito.atLeastOnce()).save(any(Lot.class));
+        }
+    }
+
+    /**
+     * #306 / ADR-0024 — l'ouverture d'une vague enregistre son AUTEUR.
+     *
+     * <p>C'est cette colonne qui rend « le conducteur » calculable : l'auteur du dernier acte de
+     * conduite. Sans elle, le système sait QUAND chaque vague s'est ouverte et jamais PAR QUI —
+     * donc deux co-responsables peuvent conduire la même épreuve sans que ni l'un ni l'autre ne
+     * soit informé de l'existence du second.
+     */
+    @Nested
+    @DisplayName("#306 — attribution de l'ouverture")
+    class Attribution {
+
+        private void vagueOuvrable(Lot lot) {
+            when(lotRepository.findById(lot.getId())).thenReturn(Optional.of(lot));
+            lenient().when(rotationRepository.countByStudentGroupLotId(lot.getId())).thenReturn(9L);
+            lotJamaisDemarre(lot.getId());
+            when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot));
+            when(rotationRepository.findByStudentGroup_Lot_IdAndOrdrePassage(lot.getId(), 1))
+                    .thenReturn(rangUn());
+        }
+
+        @Test
+        @DisplayName("« Lot suivant » enregistre QUI a ouvert, à côté de QUAND")
+        void ouvrirLot_enregistreLAuteur() {
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
+            vagueOuvrable(lot2);
+            when(scopeChecker.getCallerUserId()).thenReturn(42L);
+
+            service.ouvrirLot(LOT_2);
+
+            Lot sauve = lotSauvegarde();
+            assertThat(sauve.getOuvertPar()).isEqualTo(42L);
+            assertThat(sauve.getOuvertA())
+                    .as("les deux moitiés du même fait sont posées ensemble")
+                    .isEqualTo(T0);
+        }
+
+        /**
+         * Une identité absente ne doit pas faire échouer l'ouverture : c'est une TRACE, pas une
+         * garde. Le droit d'agir a déjà été tranché par le périmètre de matière (#274). Refuser
+         * d'ouvrir une vague parce qu'un jeton est atypique bloquerait une salle entière.
+         */
+        @Test
+        @DisplayName("Auteur non identifiable → ouverture quand même, ouvertPar reste null")
+        void ouvrirLot_sansAuteur_ouvreQuandMeme() {
+            Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
+            vagueOuvrable(lot2);
+            when(scopeChecker.getCallerUserId()).thenReturn(null);
+
+            service.ouvrirLot(LOT_2);
+
+            Lot sauve = lotSauvegarde();
+            assertThat(sauve.getOuvertPar())
+                    .as("aucune attribution inventée")
+                    .isNull();
+            assertThat(sauve.getOuvertA()).isEqualTo(T0);
+        }
+
+        /**
+         * L'ouverture AUTOMATIQUE de la première vague passe par le même chemin, donc elle est
+         * attribuée elle aussi — à celui qui a déclenché « Présence & démarrer ».
+         */
+        @Test
+        @DisplayName("La première vague, ouverte automatiquement, est attribuée elle aussi")
+        void premiereVague_estAttribuee() {
+            Lot lot1 = lot(LOT_1, 1, LotStatus.EN_COURS);
+            when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot1));
+            when(rotationRepository.findByStudentGroup_Lot_IdAndOrdrePassage(LOT_1, 1))
+                    .thenReturn(rangUn());
+            when(scopeChecker.getCallerUserId()).thenReturn(7L);
+
+            service.ouvrirSiPremiereVague(lot1);
+
+            assertThat(lotSauvegarde().getOuvertPar()).isEqualTo(7L);
         }
     }
 }

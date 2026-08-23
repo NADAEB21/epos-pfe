@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.common.exception.ResourceNotFoundException;
+import tn.epos.scoring_service.config.EvaluateurScopeChecker;
 import tn.epos.scoring_service.dto.websocket.LotStatusMessage;
 import tn.epos.scoring_service.entities.Lot;
 import tn.epos.scoring_service.entities.LotStatus;
@@ -71,6 +72,8 @@ public class LotOuvertureService {
     private final Clock                 clock;
     /** #274 — ouvrir une vague est un acte de conduite : il se borne à SA matière. */
     private final MatiereAccessGuard    matiereAccessGuard;
+    /** #306 — qui ouvre la vague : l'auteur du dernier acte de conduite. */
+    private final EvaluateurScopeChecker scopeChecker;
 
     // =========================================================================
     // ACTION RESPONSABLE — « Lot suivant »
@@ -207,6 +210,23 @@ public class LotOuvertureService {
         // ⚠️ Cette écriture, elle, touche bien Lot : contrairement à `statut` (surchargé,
         // il signifie « présence prise »), `ouvertA` n'a qu'un seul sens et qu'un seul auteur.
         lot.setOuvertA(LocalDateTime.now(clock));
+        // #306 / ADR-0024 — et PAR QUI. `ouvertA` et `ouvertPar` sont les deux moitiés du même
+        // fait : posées ensemble, ici, dans le seul endroit qui ouvre une vague.
+        //
+        // C'est cette écriture qui rend « le conducteur » calculable : l'auteur du dernier acte
+        // de conduite. Elle couvre les DEUX chemins d'ouverture — « Ouvrir le lot N » du
+        // responsable et l'ouverture automatique de la première vague — parce que les deux
+        // passent par ici.
+        //
+        // Une identité absente n'annule PAS l'ouverture : on préfère un `ouvertPar` nul, honnête,
+        // à une vague refusée. C'est une trace, pas une garde — le droit d'agir a déjà été
+        // tranché par le périmètre de matière (#274).
+        Long acteur = scopeChecker.getCallerUserId();
+        lot.setOuvertPar(acteur);
+        if (acteur == null) {
+            log.warn("Lot {} ouvert sans auteur identifiable (claim userId absent) — ouvert_par "
+                    + "reste null plutôt que d'inventer une attribution.", lot.getId());
+        }
         lotRepository.save(lot);
 
         diffuser(lot);

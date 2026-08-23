@@ -33,7 +33,7 @@ public class JwtService {
 
     public JwtService(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.access-token-expiry-ms:86400000}") long accessTokenExpiryMs,
+            @Value("${jwt.access-token-expiry-ms:14400000}") long accessTokenExpiryMs,
             @Value("${jwt.refresh-token-expiry-ms:604800000}") long refreshTokenExpiryMs) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException(
@@ -123,6 +123,12 @@ public class JwtService {
     @SuppressWarnings("unchecked")
     public List<String> extractAuthorities(String token) {
         return (List<String>) parseClaims(token).get("authorities");
+    }
+
+    /** #306 — l'instant d'émission ({@code iat}), comparé à l'estampille de révocation. */
+    public java.time.Instant extractIssuedAt(String token) {
+        Date issuedAt = parseClaims(token).getIssuedAt();
+        return issuedAt == null ? null : issuedAt.toInstant();
     }
 
     // -------------------------------------------------------------------------

@@ -67,6 +67,7 @@ class SuiviProgressionServiceTest {
         l.setNumeroLot(numero);
         l.setStatut(LotStatus.EN_COURS);   // = « présence prise », PAS « vague ouverte »
         l.setOuvertA(ouvertA);
+        l.setOuvertPar(ouvertA == null ? null : 2L);  // #306 — qui a ouvert cette vague
         return l;
     }
 

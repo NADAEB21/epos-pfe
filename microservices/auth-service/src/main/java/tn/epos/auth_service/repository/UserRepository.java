@@ -16,9 +16,33 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
-    Optional<User> findByEmail(String email);
+    /**
+     * #29 — recherche INSENSIBLE À LA CASSE. « Admin@epos.tn » doit retrouver
+     * « admin@epos.tn ».
+     *
+     * <p>C'était une requête dérivée nue, donc sensible à la casse : se connecter avec une
+     * majuscule échouait sur un mot de passe pourtant juste. Et la demande de réinitialisation,
+     * volontairement anti-énumération, répondait <b>200</b> sans jamais envoyer de courriel — la
+     * personne restait dehors sans apprendre pourquoi.
+     *
+     * <p>Le nom {@code findByEmail} est conservé : les appelants n'ont rien à changer, et surtout
+     * ils ne peuvent plus se tromper — la normalisation n'est plus quelque chose qu'un appelant
+     * doit penser à faire. L'écriture, elle, est canonicalisée par {@code User.@PrePersist} /
+     * {@code @PreUpdate}.
+     */
+    @Query("SELECT u FROM User u WHERE lower(u.email) = lower(:email)")
+    Optional<User> findByEmail(@Param("email") String email);
 
-    boolean existsByEmail(String email);
+    /**
+     * #285 — unicité vérifiée SANS la casse : sinon « Admin@epos.tn » passe alors que
+     * « admin@epos.tn » existe, et l'identité d'une personne se fourche en deux comptes.
+     *
+     * <p>Cette garde ne suffit pas à elle seule — deux créations simultanées la traversent
+     * toutes les deux. C'est l'index {@code uq_users_email_lower} (V5) qui ferme la fenêtre ;
+     * celle-ci sert à rendre le refus lisible (409) plutôt qu'une violation de contrainte brute.
+     */
+    @Query("SELECT COUNT(u) > 0 FROM User u WHERE lower(u.email) = lower(:email)")
+    boolean existsByEmail(@Param("email") String email);
 
     @Query("SELECT DISTINCT u FROM User u JOIN UserRole ur ON ur.user = u WHERE ur.role = :role")
     List<User> findByRole(@Param("role") RoleType role);
@@ -62,4 +86,30 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u.failedLoginAttempts FROM User u WHERE u.id = :userId")
     @QueryHints(@QueryHint(name = "jakarta.persistence.cache.retrieveMode", value = "BYPASS"))
     int getFailedLoginAttempts(@Param("userId") Long userId);
+
+    /** #306 — une ligne de la liste de révocation distribuée. */
+    interface RevocationRow {
+        Long getUserId();
+        java.time.LocalDateTime getInvalidBefore();
+    }
+
+    /**
+     * #306 — les révocations plus récentes que {@code since}. Les plus anciennes sont
+     * inutiles : un jeton émis avant elles est déjà mort d'expiration. C'est ce qui borne la
+     * liste distribuée à une poignée d'entrées.
+     */
+    @Query("SELECT u.id AS userId, u.tokensInvalidBefore AS invalidBefore FROM User u "
+            + "WHERE u.tokensInvalidBefore > :since")
+    List<RevocationRow> findRevocationsSince(@Param("since") java.time.LocalDateTime since);
+
+    /**
+     * #306 — pose l'estampille « jetons émis avant maintenant = morts » sans passer par
+     * l'entité managée : plusieurs appelants (retrait, rôles, mot de passe) tiennent déjà
+     * un {@code User} dans des états de session différents, et une écriture directe est
+     * insensible à ces différences.
+     */
+    @Modifying
+    @Query("UPDATE User u SET u.tokensInvalidBefore = :instant WHERE u.id = :userId")
+    void stampTokensInvalidBefore(@Param("userId") Long userId,
+                                  @Param("instant") java.time.LocalDateTime instant);
 }

@@ -9,6 +9,7 @@ import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.repositories.IEtudiantRepository;
 import tn.epos.scoring_service.repositories.IExamenParticipationRepository;
+import tn.epos.common.exception.ConflictException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,10 +45,6 @@ public class EtudiantService {
 
     public Optional<Etudiant> getEtudiantById(Long id) {
         return etudiantRepository.findById(id);
-    }
-
-    public Etudiant saveEtudiant(Etudiant etudiant) {
-        return etudiantRepository.save(etudiant);
     }
 
     public void deleteEtudiant(Long id) {
@@ -128,7 +125,7 @@ public class EtudiantService {
 
     /** Une ligne du fichier : trouve-ou-crée l'étudiant, puis l'inscrit. */
     private void traiterLigne(Long examenId, ImportEtudiantRequest row, int ligne, Bilan bilan) {
-        String numero = valeur(row.numero_inscription());
+        String numero = normaliserNumero(valeur(row.numero_inscription())); // #351
         String nom = valeur(row.nom());
         String prenom = valeur(row.prenom());
         String email = valeur(row.email());
@@ -337,5 +334,50 @@ public class EtudiantService {
             }
         }
         return out;
+    }
+
+    /**
+     * #351 — Normalise un numéro d'inscription (casse canonique TRIM + MAJUSCULES).
+     * garantir l'indépendance vis-à-vis du format de saisie.
+     *
+     * @param brut Le numéro tel que reçu de l'entrée (UI, CSV).
+     * @return Le numéro normalisé ou null.
+     * Centralisée ici, jamais dans un contrôleur : c'est la même doctrine « une seule porte » que MatiereAccessGuard.
+     */
+    public static String normaliserNumero(String brut) {
+        return brut == null ? null : brut.trim().toUpperCase();
+    }
+
+    /**
+     * #351 — refuse un numéro déjà attribué à un AUTRE étudiant. Package-visible /
+     * public pour rester testable isolément, mais son SEUL appelant de production
+     * est {@link #saveEtudiant}, jamais un contrôleur — sinon un futur appelant de
+     * saveEtudiant contournerait la vérification en silence (même piège que #274).
+     */
+    public void verifierNumeroDisponible(String numeroNormalise, Long excludeId) {
+        if (numeroNormalise == null || numeroNormalise.isBlank()) {
+            return;
+        }
+        etudiantRepository.findByNumeroInscription(numeroNormalise).stream()
+                .filter(e -> excludeId == null || !e.getId().equals(excludeId))
+                .findFirst()
+                .ifPresent(existing -> {
+                    throw new ConflictException("Le numéro d'inscription « " + numeroNormalise
+                            + " » est déjà utilisé par " + existing.getPrenom() + " "
+                            + existing.getNom() + " (id " + existing.getId() + ").");
+                });
+    }
+
+    /**
+     * #351 — SEULE porte d'écriture d'un Etudiant. Normalise puis vérifie AVANT
+     * persist : create (id null → toute fiche existante est un conflit) et update
+     * (id déjà posé → exclu de sa propre comparaison) passent tous les deux ici,
+     * qu'ils viennent du contrôleur, d'un futur endpoint, ou d'un test.
+     */
+    public Etudiant saveEtudiant(Etudiant etudiant) {
+        String numero = normaliserNumero(etudiant.getNumero_inscription());
+        etudiant.setNumero_inscription(numero);
+        verifierNumeroDisponible(numero, etudiant.getId());
+        return etudiantRepository.save(etudiant);
     }
 }

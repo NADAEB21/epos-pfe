@@ -11,6 +11,7 @@ import tn.epos.scoring_service.dto.ExamenResultDTO;
 import tn.epos.scoring_service.dto.NotationAdjustmentDTO;
 import tn.epos.scoring_service.dto.NotationDTO; // New Import
 import tn.epos.scoring_service.dto.ReajustementRequest;
+import tn.epos.scoring_service.dto.StationGrilleSnapshotDTO;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.service.NotationReajustementService;
 import tn.epos.scoring_service.service.NotationService;
@@ -81,6 +82,18 @@ public class NotationController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
     public ResponseEntity<ApiResponse<List<ExamenResultDTO>>> getResultsByExamen(@PathVariable Long examenId) {
         return ResponseEntity.ok(ApiResponse.ok(service.getResultatsByExamen(examenId)));
+    }
+
+    // #355 — les barèmes de l'examen tels qu'ils ont noté (exam_grille_snapshot,
+    // ADR-0015), pour l'écran de délibération. Frère de /examen/{id}/results :
+    // même préfixe gateway (/api/v1/notations/**), mêmes rôles, même garde de
+    // matière (dans le service). Un examen sans snapshot (d'avant V19) renvoie
+    // une liste vide — le web replie alors sur la grille vivante, en le disant.
+    @GetMapping("/examen/{examenId}/grilles")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<List<StationGrilleSnapshotDTO>>> getGrillesByExamen(
+            @PathVariable Long examenId) {
+        return ResponseEntity.ok(ApiResponse.ok(service.getGrillesSnapshotByExamen(examenId)));
     }
 
     @PostMapping

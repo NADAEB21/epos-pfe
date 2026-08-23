@@ -30,6 +30,7 @@ import {
   RepartitionResult,
   RotationAssignmentSummary,
   RotationSummary,
+  StationGrilleSnapshot,
   SuiviProgression,
   BulkEnrolResult,
 } from './models';
@@ -64,6 +65,21 @@ export class ScoringApiService {
   getExamenResults(examenId: number): Observable<ExamenResult[]> {
     return this.http
       .get<ApiResponse<ExamenResult[]>>(`${this.baseUrl}/notations/examen/${examenId}/results`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * The exam's grille barèmes AS THEY GRADED (#355 — GET
+   * /notations/examen/{examenId}/grilles, scoring exam_grille_snapshot,
+   * ADR-0015). One batched call for every station of the exam — the Résultats
+   * screen computes its deliberation aggregates against these, not against the
+   * live exam-service grilles (which may have moved since, and whose outage
+   * must not blank the deliberation). Empty for pre-V19 exams (no snapshot):
+   * the caller falls back to the live grille and labels the fallback.
+   */
+  getExamenGrillesSnapshot(examenId: number): Observable<StationGrilleSnapshot[]> {
+    return this.http
+      .get<ApiResponse<StationGrilleSnapshot[]>>(`${this.baseUrl}/notations/examen/${examenId}/grilles`)
       .pipe(map((r) => r.data ?? []));
   }
 

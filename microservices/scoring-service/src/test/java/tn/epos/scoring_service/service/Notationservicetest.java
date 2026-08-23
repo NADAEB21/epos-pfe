@@ -5,8 +5,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import tn.epos.common.exception.BusinessException;
@@ -18,6 +20,9 @@ import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Notation;
 import tn.epos.scoring_service.entities.Rotation;
 import tn.epos.scoring_service.entities.RotationAssignment;
+import tn.epos.scoring_service.dto.StationGrilleSnapshotDTO;
+import tn.epos.scoring_service.entities.ExamGrilleSnapshot;
+import tn.epos.scoring_service.repositories.ExamGrilleSnapshotRepository;
 import tn.epos.scoring_service.repositories.INotationItemRepository;
 import tn.epos.scoring_service.repositories.INotationRepository;
 import tn.epos.scoring_service.repositories.IRotationAssignmentRepository;
@@ -60,6 +65,14 @@ class NotationServiceTest {
 
     @Mock
     private ExamDefinitionSnapshotService examDefinitionSnapshot;
+
+    // #355 — barèmes snapshotés de l'écran de délibération.
+    @Mock
+    private ExamGrilleSnapshotRepository grilleSnapshotRepository;
+
+    // Réel (pas un mock) : le parsing de items_json fait partie du comportement testé.
+    @Spy
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private NotationService notationService;
@@ -732,6 +745,74 @@ class NotationServiceTest {
             List<Notation> result = notationService.findAll();
 
             assertThat(result).containsExactly(mine);
+        }
+    }
+
+    // ─── getGrillesSnapshotByExamen() — #355, écran de délibération ──────────
+
+    @Nested
+    @DisplayName("getGrillesSnapshotByExamen() — #355, barèmes snapshotés")
+    class GetGrillesSnapshotByExamen {
+
+        private ExamGrilleSnapshot snap(Long stationId, String itemsJson) {
+            ExamGrilleSnapshot s = new ExamGrilleSnapshot();
+            s.setExamenId(77L);
+            s.setStationId(stationId);
+            s.setGrilleId(stationId + 100);
+            s.setNom("Grille S" + stationId);
+            s.setNoteMax(20.0);
+            s.setItemsJson(itemsJson);
+            return s;
+        }
+
+        @Test
+        @DisplayName("#274 — la garde de matière passe AVANT toute lecture")
+        void gardeMatiere_avantLecture() {
+            doThrow(new AccessDeniedException("hors matiere"))
+                    .when(matiereAccessGuard).checkExamenAccess(77L);
+
+            assertThatThrownBy(() -> notationService.getGrillesSnapshotByExamen(77L))
+                    .isInstanceOf(AccessDeniedException.class);
+            verify(grilleSnapshotRepository, never()).findByExamenId(any());
+        }
+
+        @Test
+        @DisplayName("Mappe les snapshots, items parsés tels quels, triés par stationId")
+        void mappeEtTrieParStation() {
+            when(grilleSnapshotRepository.findByExamenId(77L)).thenReturn(List.of(
+                    snap(102L, "[{\"id\":9,\"libelle\":\"Critère B\"}]"),
+                    snap(101L, "[{\"id\":3,\"libelle\":\"Critère A\",\"type\":\"BINAIRE\",\"ponderation\":5}]")));
+
+            List<StationGrilleSnapshotDTO> out = notationService.getGrillesSnapshotByExamen(77L);
+
+            assertThat(out).hasSize(2);
+            assertThat(out.get(0).stationId()).isEqualTo(101L);
+            assertThat(out.get(0).noteMax()).isEqualTo(20.0);
+            assertThat(out.get(0).items().get(0).path("libelle").asText()).isEqualTo("Critère A");
+            assertThat(out.get(0).items().get(0).path("ponderation").asInt()).isEqualTo(5);
+            assertThat(out.get(1).stationId()).isEqualTo(102L);
+            verify(matiereAccessGuard).checkExamenAccess(77L);
+        }
+
+        @Test
+        @DisplayName("Une ligne au JSON corrompu est SAUTÉE, les autres servies (jamais tout éteindre)")
+        void ligneCorrompue_estSautee() {
+            when(grilleSnapshotRepository.findByExamenId(77L)).thenReturn(List.of(
+                    snap(101L, "{pas du json"),
+                    snap(102L, "[]")));
+
+            List<StationGrilleSnapshotDTO> out = notationService.getGrillesSnapshotByExamen(77L);
+
+            assertThat(out).hasSize(1);
+            assertThat(out.get(0).stationId()).isEqualTo(102L);
+        }
+
+        @Test
+        @DisplayName("Examen sans snapshot (avant V19) → liste vide, pas d'erreur")
+        void examenSansSnapshot_listeVide() {
+            when(grilleSnapshotRepository.findByExamenId(77L)).thenReturn(List.of());
+
+            assertThat(notationService.getGrillesSnapshotByExamen(77L)).isEmpty();
         }
     }
 }

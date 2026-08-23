@@ -49,7 +49,11 @@ jobs:
         # interdit l'exécution d'un setup.py (wheels uniquement).
         # Régénération : python -m piptools compile --generate-hashes
         #   --output-file=requirements-lock.txt requirements-dev.txt
-        run: pip install --require-hashes --only-binary :all: -r requirements-lock.txt
+        # (scalaire bloc `>-` : « :all: » contient « deux-points + espace »,
+        # que YAML lirait comme un mapping — panne de démarrage payée ici.)
+        run: >-
+          pip install --require-hashes --only-binary=:all:
+          -r requirements-lock.txt
 
       - name: Test
         # Le harnais F3 (#358) s'affiche SKIPPED tant que les fixtures de

@@ -14,6 +14,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
+import tn.epos.common.exception.ConflictException;
 import tn.epos.common.exception.ResourceNotFoundException;
 
 import java.util.Map;
@@ -64,6 +65,20 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().isSuccess()).isFalse();
         assertThat(response.getBody().getMessage()).contains("Conflit");
+    }
+
+    @Test
+    void handleConflict_returns409WithSpecificMessage() {
+        String errorMessage = "Le numéro d'inscription « 481 » est déjà utilisé par Yassine Khelifi (id 2).";
+
+        ResponseEntity<ApiResponse<Void>> response =
+                handler.handleConflict(new ConflictException(errorMessage));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isFalse();
+        // Contrairement à handleDataIntegrity, ici on vérifie que le message EXACT est transmis
+        assertThat(response.getBody().getMessage()).isEqualTo(errorMessage);
     }
 
     @Test

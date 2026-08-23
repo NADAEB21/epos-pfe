@@ -16,6 +16,8 @@ import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.dto.EtudiantDTO;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.service.EtudiantService;
+import tn.epos.common.exception.ConflictException;
+import static org.hamcrest.Matchers.containsString;
 
 import java.util.List;
 import java.util.Optional;
@@ -143,6 +145,23 @@ class EtudiantControllerTest {
 
             verify(etudiantService, times(1)).saveEtudiant(any(Etudiant.class));
         }
+
+        @Test
+        @DisplayName("409 - Numéro d'inscription déjà utilisé par un autre étudiant")
+        void create_numeroDejaUtilise_devraitRetourner409() throws Exception {
+            when(etudiantService.saveEtudiant(any(Etudiant.class)))
+                    .thenThrow(new ConflictException(
+                            "Le numéro d'inscription « 481 » est déjà utilisé par Yassine Khelifi (id 2)."));
+
+            EtudiantDTO requestDto = new EtudiantDTO(null, "Khelifi", "Yassine2", "481", null);
+
+            mockMvc.perform(post("/api/etudiants")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(requestDto)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.message").value(containsString("Khelifi")));
+        }
     }
 
     // ─── PUT /api/etudiants/{id} ─────────────────────────────────────────────
@@ -224,6 +243,21 @@ class EtudiantControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(etudiant)))
                     .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("409 - Impossible de renommer vers un numéro déjà pris par un autre étudiant")
+        void update_renommageVersNumeroExistant_devraitRetourner409() throws Exception {
+            when(etudiantService.getEtudiantById(1L)).thenReturn(Optional.of(etudiant));
+            when(etudiantService.saveEtudiant(any(Etudiant.class)))
+                    .thenThrow(new ConflictException(
+                            "Le numéro d'inscription « 481 » est déjà utilisé par Yassine Khelifi (id 2)."));
+
+            mockMvc.perform(put("/api/etudiants/1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"numero_inscription\":\"481\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(containsString("Khelifi")));
         }
     }
 

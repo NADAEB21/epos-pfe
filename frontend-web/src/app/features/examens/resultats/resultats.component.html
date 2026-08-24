@@ -212,34 +212,47 @@
 
           <!-- #359 — indices cohorte de la station (ai-service). Refus = texte du
                backend VERBATIM (contrat ADR-0029 D6) ; valeur = jamais sans son n
-               (le n d'un indice est SON effectif, pas nVerrouillees). -->
+               (le n d'un indice est SON effectif, pas nVerrouillees).
+               Bloc CONTENU (constat S46) : le style discret est réservé à l'état
+               ABSENT — l'indice qui existe se lit au poids normal. Fond neutre,
+               pas brand : une teinte verte jugerait, or seul le statut du backend
+               colore (concluant neutre / refus ambre). -->
+          @if (indicesEtat() === 'chargement') {
+            <div class="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 space-y-2" aria-hidden="true">
+              <div class="h-3 w-2/3 animate-pulse rounded bg-gray-200"></div>
+              <div class="h-3 w-1/2 animate-pulse rounded bg-gray-200"></div>
+            </div>
+          }
           @if (indicesEtat() === 'prets') {
-            <div class="mb-2 space-y-0.5 text-xs tabular-nums">
-              @if (alphaDe(d.stationId); as alpha) {
-                <p>
-                  <span class="text-gray-400">α de Cronbach :</span>
-                  @if (alpha.statut === 'CONCLUANT') {
-                    <span class="font-medium text-gray-700">{{ alpha.valeur | number: '1.2-2' }}</span>
-                    @if (alpha.ic) {
-                      <span class="text-gray-400"> [{{ alpha.ic[0] | number: '1.2-2' }}–{{ alpha.ic[1] | number: '1.2-2' }}]</span>
+            <div class="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 tabular-nums">
+              <p class="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">Indices cohorte</p>
+              <div class="space-y-1">
+                @if (alphaDe(d.stationId); as alpha) {
+                  <p class="text-xs">
+                    <span class="text-gray-500">α de Cronbach :</span>
+                    @if (alpha.statut === 'CONCLUANT') {
+                      <span class="text-sm font-semibold text-gray-900">{{ alpha.valeur | number: '1.2-2' }}</span>
+                      @if (alpha.ic) {
+                        <span class="text-gray-500"> [{{ alpha.ic[0] | number: '1.2-2' }}–{{ alpha.ic[1] | number: '1.2-2' }}]</span>
+                      }
+                      <span class="text-gray-500"> (n={{ alpha.n }})</span>
+                    } @else {
+                      <span class="ml-0.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800 italic">{{ alpha.raison }}</span>
                     }
-                    <span class="text-gray-400"> (n={{ alpha.n }})</span>
-                  } @else {
-                    <span class="text-gray-400 italic">{{ alpha.raison }}</span>
-                  }
-                </p>
-              }
-              @if (concentrationDe(d.stationId); as conc) {
-                <p>
-                  <span class="text-gray-400">Concentration d'échec :</span>
-                  @if (conc.statut === 'CONCLUANT') {
-                    <span class="font-medium text-gray-700">{{ (conc.valeur ?? 0) * 100 | number: '1.0-1' }}&nbsp;%</span>
-                    <span class="text-gray-400"> (n={{ conc.n }}{{ pLabel(conc) }})</span>
-                  } @else {
-                    <span class="text-gray-400 italic">{{ conc.raison }}</span>
-                  }
-                </p>
-              }
+                  </p>
+                }
+                @if (concentrationDe(d.stationId); as conc) {
+                  <p class="text-xs">
+                    <span class="text-gray-500">Concentration d'échec :</span>
+                    @if (conc.statut === 'CONCLUANT') {
+                      <span class="text-sm font-semibold text-gray-900">{{ (conc.valeur ?? 0) * 100 | number: '1.0-1' }}&nbsp;%</span>
+                      <span class="text-gray-500"> (n={{ conc.n }}{{ pLabel(conc) }})</span>
+                    } @else {
+                      <span class="ml-0.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800 italic">{{ conc.raison }}</span>
+                    }
+                  </p>
+                }
+              </div>
             </div>
           }
 
@@ -451,20 +464,20 @@
                                 @let ic = indiceCritereDe(l.itemId);
                                 <td class="px-3 py-2 text-center text-xs tabular-nums">
                                   @if (ic && ic.difficulte.statut === 'CONCLUANT') {
-                                    <span class="font-medium text-gray-700">{{ ic.difficulte.valeur | number: '1.2-2' }}</span>
+                                    <span class="font-medium text-gray-800">{{ ic.difficulte.valeur | number: '1.2-2' }}</span>
                                     <span class="text-gray-400"> (n={{ ic.difficulte.n }})</span>
                                   } @else if (ic) {
-                                    <span class="text-gray-400 italic">{{ ic.difficulte.raison }}</span>
+                                    <span class="text-amber-700 italic">{{ ic.difficulte.raison }}</span>
                                   } @else {
                                     <span class="text-gray-300">—</span>
                                   }
                                 </td>
                                 <td class="px-3 py-2 text-center text-xs tabular-nums">
                                   @if (ic && ic.discrimination.statut === 'CONCLUANT') {
-                                    <span class="font-medium text-gray-700">{{ ic.discrimination.valeur | number: '1.2-2' }}</span>
+                                    <span class="font-medium text-gray-800">{{ ic.discrimination.valeur | number: '1.2-2' }}</span>
                                     <span class="text-gray-400"> (n={{ ic.discrimination.n }})</span>
                                   } @else if (ic) {
-                                    <span class="text-gray-400 italic">{{ ic.discrimination.raison }}</span>
+                                    <span class="text-amber-700 italic">{{ ic.discrimination.raison }}</span>
                                   } @else {
                                     <span class="text-gray-300">—</span>
                                   }

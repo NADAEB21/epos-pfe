@@ -1,12 +1,16 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { catchError, forkJoin, of } from 'rxjs';
+import { AiApiService } from '../../../core/api/ai-api.service';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   ExamenResult,
   GrilleDetail,
   GrilleItem,
+  IndiceAi,
+  IndiceCritereAi,
+  IndicesExamen,
   NotationAdjustmentSummary,
   NotationItemSummary,
   ParticipationSummary,
@@ -160,6 +164,7 @@ const DELIBERATION_BINS = 5;
 export class ResultatsComponent {
   private readonly examApi = inject(ExamApiService);
   private readonly scoring = inject(ScoringApiService);
+  private readonly ai = inject(AiApiService);
   private readonly store = inject(ExamenWorkspaceStore);
 
   /** Inherited from the parent examens/:id route via withComponentInputBinding(). */
@@ -183,6 +188,63 @@ export class ResultatsComponent {
    * never falls back silently (leçon du 403 avalé).
    */
   readonly baremeLiveStations = signal<number[]>([]);
+
+  // ---- indices psychométriques (#359, ai-service) ------------------------
+  /**
+   * Abonnement SÉPARÉ du forkJoin principal, à dessein (ADR-0021 D4 : l'écran
+   * de délibération ne dépend JAMAIS du module IA). Une clé de plus dans le
+   * forkJoin hériterait du handler `error:` partagé — un catchError oublié
+   * dans un refactor futur éteindrait la délibération ; et forkJoin attend le
+   * bras le plus lent, donc un timeout ai-service retarderait toute la table.
+   * Modèle : loadAdjustments (l'historique auxiliaire, même posture).
+   *
+   * `absents` avale 403/409/501/503/réseau SANS distinction — le responsable
+   * n'a pas à connaître le mode de panne d'un module dont l'écran ne dépend
+   * pas ; la note grise le dit, le silence est interdit (leçon du 403 avalé).
+   */
+  readonly indices = signal<IndicesExamen | null>(null);
+  readonly indicesEtat = signal<'chargement' | 'absents' | 'prets'>('chargement');
+
+  /** station_id → concentration d'échec (cohorte), pour la carte de délibération. */
+  readonly indiceConcentrationParStation = computed<Map<number, IndiceAi>>(() => {
+    const m = new Map<number, IndiceAi>();
+    for (const s of this.indices()?.par_station ?? []) m.set(s.station_id, s.concentration_echec);
+    return m;
+  });
+
+  /** station_id → α de Cronbach de SA grille, pour la carte de délibération. */
+  readonly indiceAlphaParStation = computed<Map<number, IndiceAi>>(() => {
+    const m = new Map<number, IndiceAi>();
+    for (const g of this.indices()?.par_grille ?? []) m.set(g.station_id, g.alpha_cronbach);
+    return m;
+  });
+
+  /** item_id → indices cohorte du critère, pour les colonnes du deep-dive. */
+  readonly indicesParItem = computed<Map<number, IndiceCritereAi>>(() => {
+    const m = new Map<number, IndiceCritereAi>();
+    for (const c of this.indices()?.par_critere ?? []) m.set(c.item_id, c);
+    return m;
+  });
+
+  alphaDe(stationId: number): IndiceAi | null {
+    return this.indiceAlphaParStation().get(stationId) ?? null;
+  }
+
+  concentrationDe(stationId: number): IndiceAi | null {
+    return this.indiceConcentrationParStation().get(stationId) ?? null;
+  }
+
+  indiceCritereDe(itemId: number): IndiceCritereAi | null {
+    return this.indicesParItem().get(itemId) ?? null;
+  }
+
+  /** ", p=0,032" quand le test en porte une — construit ici pour éviter un @if
+   *  imbriqué dans une interpolation (famille NG5002). Virgule décimale (fr). */
+  pLabel(indice: IndiceAi): string {
+    const p = indice.details?.['p_value'];
+    if (typeof p !== 'number') return '';
+    return `, p=${p.toFixed(3).replace('.', ',')}`;
+  }
 
   // ---- per-critère deep-dive (lazy, per student×station) -----------------
   /** Currently expanded cell, keyed `${participationId}:${stationId}`; null = none. */
@@ -409,6 +471,7 @@ export class ResultatsComponent {
     this.deepDives.set(new Map());
     this.grilleByStation.clear();
     this.baremeLiveStations.set([]);
+    this.loadIndices(examId);
     // The roster (participations) gives the present-student denominator the
     // results endpoint can't — it only returns students who have ≥1 notation.
     // #355 — the barèmes come FIRST from scoring's snapshots (what actually
@@ -502,6 +565,19 @@ export class ResultatsComponent {
         this.error.set(true);
         this.loading.set(false);
       },
+    });
+  }
+
+  /** #359 — voir le commentaire des signaux `indices`/`indicesEtat`. */
+  private loadIndices(examId: number): void {
+    this.indices.set(null);
+    this.indicesEtat.set('chargement');
+    this.ai.getIndices(examId).subscribe({
+      next: (data) => {
+        this.indices.set(data);
+        this.indicesEtat.set('prets');
+      },
+      error: () => this.indicesEtat.set('absents'),
     });
   }
 

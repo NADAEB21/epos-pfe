@@ -28,7 +28,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$services = @("epos-auth-service", "epos-exam-service", "epos-scoring-service", "epos-api-gateway")
+# ai-service (#359) : lecteur de scoring/exam + proprietaire du cache ai_db -
+# il s'arrete et redemarre avec les autres. Filtre d'existence : une pile
+# anterieure au module IA n'a pas ce conteneur, le script doit rester utilisable.
+$services = @("epos-auth-service", "epos-exam-service", "epos-scoring-service", "epos-api-gateway", "epos-ai-service") |
+    Where-Object { (docker inspect --format "{{.Name}}" $_ 2>$null) }
 
 if (-not (Test-Path $BackupDir)) {
     Write-Error "Dossier introuvable : $BackupDir"
@@ -88,10 +92,25 @@ foreach ($dump in $dumps) {
     }
     docker exec $Container rm -f $tmp | Out-Null
 
+    # ai_db (#359) : DROP DATABASE a emporte le GRANT CONNECT, et pg_restore
+    # --no-owner rend les tables a l'admin - re-armer les droits d'ai_writer,
+    # sinon ai-service ne peut plus ecrire son cache apres restauration.
+    if ($db -eq "ai_db") {
+        docker exec $Container psql -U $User -d postgres -q -c "DO `$`$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ai_writer') THEN EXECUTE 'GRANT CONNECT ON DATABASE ai_db TO ai_writer'; END IF; END `$`$;"
+        docker exec $Container psql -U $User -d ai_db -q -c "DO `$`$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ai_writer') THEN EXECUTE 'GRANT USAGE, CREATE ON SCHEMA public TO ai_writer'; EXECUTE 'GRANT ALL ON ALL TABLES IN SCHEMA public TO ai_writer'; END IF; END `$`$;"
+    }
+
     $tables = (docker exec $Container psql -U $User -d $db -t -A -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public';").Trim()
     if ([int]$tables -lt 1) {
-        Write-Warning "ECHEC : $db ne contient aucune table apres restauration"
-        $echec = $true
+        if ($db -eq "ai_db") {
+            # Legitime : une sauvegarde prise avant la premiere utilisation du
+            # module IA n'a aucune table (le schema est pose par ai-service au
+            # premier besoin). Restaurer "rien" n'est pas un echec ici.
+            Write-Output "  ai_db : 0 table (sauvegarde anterieure au premier calcul - normal)"
+        } else {
+            Write-Warning "ECHEC : $db ne contient aucune table apres restauration"
+            $echec = $true
+        }
     } else {
         Write-Output "  $db : $tables table(s) restauree(s)"
     }

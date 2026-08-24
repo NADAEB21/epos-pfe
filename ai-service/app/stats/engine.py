@@ -38,22 +38,35 @@ from scipy.stats import binomtest
 from app.stats import bootstrap
 from app.stats.types import CONCLUANT, NON_CONCLUANT, Indice
 
-# ── Seuils (plan §5 ; SEUIL_CONCENTRATION est un choix documenté ici) ─────────
+# ── Seuils (plan §5 ; SEUIL_CONCENTRATION et SEUIL_N_SEVERITE sont NOS choix,
+#    documentés ici — aucun ADR ne les fixait ; sévérité alignée sur le
+#    plancher de la difficulté) ─────────────────────────────────────────────
 SEUIL_N_DIFFICULTE = 10
 SEUIL_N_DISCRIMINATION = 15
 SEUIL_N_ALPHA = 15
 SEUIL_K_ALPHA = 3
 SEUIL_N_CONCENTRATION = 10
+SEUIL_N_SEVERITE = 10
 
 # ── Gabarits de refus — texte EXACT, contrat d'interface (ADR-0029 D6) ───────
 def _refus_effectif(n: int, seuil: int) -> str:
     return f"non concluant — effectif insuffisant (n={n} < {seuil})"
 
 
+def _refus_comparaison(n: int, seuil: int) -> str:
+    # Les mots d'ADR-0021 D2 (« comparaison non concluante — effectif
+    # insuffisant »), avec le détail chiffré maison — réconciliation délibérée
+    # des deux gabarits, actée en #359.
+    return f"comparaison non concluante — effectif insuffisant (n={n} < {seuil})"
+
+
 REFUS_VARIANCE_NULLE = "non concluant — variance nulle (toutes les notes identiques)"
 REFUS_VALEUR_MAX_ABSENTE = "non calculable — barème sans valeur_max pour ce critère"
 REFUS_AUCUNE_AUTRE_STATION = "non concluant — aucune autre station notée pour comparer"
 REFUS_TROP_PEU_CRITERES = "non concluant — seulement {k} critère(s) notable(s) ({seuil} requis)"
+REFUS_SEUL_EVALUATEUR = (
+    "comparaison non concluante — un seul évaluateur a noté cette station"
+)
 
 
 def contribution(type_item: str, valeur: float, ponderation: float) -> float:
@@ -197,5 +210,63 @@ def concentration_echec(
             "p_value": p_value,
             "echecs_station": echecs_station,
             "n_autres": n_autres,
+        },
+    )
+
+
+def formule_ecart_moyennes(totaux: np.ndarray, indicateur: np.ndarray) -> float:
+    """moyenne(groupe 1) − moyenne(groupe 0). NaN si un groupe est vide (tirage dégénéré)."""
+    t = np.asarray(totaux, dtype=np.float64)
+    ind = np.asarray(indicateur, dtype=np.float64)
+    dans = t[ind == 1.0]
+    hors = t[ind == 0.0]
+    if len(dans) == 0 or len(hors) == 0:
+        return float("nan")
+    return float(dans.mean()) - float(hors.mean())
+
+
+def severite_evaluateur(
+    *, totaux_evaluateur: Sequence[float], totaux_autres: Sequence[float]
+) -> Indice:
+    """Sévérité INTRA-STATION d'un évaluateur (#359, ADR-0021 D1/D2) — jamais un palmarès.
+
+    Écart = moyenne(SES totaux pondérés) − moyenne(totaux des AUTRES évaluateurs
+    de la MÊME station) : même grille, même cohorte en rotation — la seule
+    comparaison statistiquement défendable (D2 ; une moyenne inter-stations
+    confondrait la sévérité avec la difficulté de la station). Total = somme
+    des contributions pondérées, comme la discrimination — vérifiable au
+    tableur, insensible aux réajustements total-niveau.
+
+    IC bootstrap sur l'échantillon POOLÉ avec indicateur d'appartenance (les
+    paires (total, groupe) sont rééchantillonnées ensemble — un tirage sans
+    l'un des deux groupes est écarté par le contrat NaN de ``ic_percentile``).
+
+    Signal DESCRIPTIF de délibération (D3) : il ne déclenche rien, il se lit.
+    """
+    n_eval = len(totaux_evaluateur)
+    n_autres = len(totaux_autres)
+    if n_eval < SEUIL_N_SEVERITE:
+        return Indice(
+            code="SEVERITE_EVALUATEUR", statut=NON_CONCLUANT, n=n_eval,
+            raison=_refus_comparaison(n_eval, SEUIL_N_SEVERITE),
+            details={"n_autres": n_autres},
+        )
+    if n_autres < SEUIL_N_SEVERITE:
+        return Indice(
+            code="SEVERITE_EVALUATEUR", statut=NON_CONCLUANT, n=n_eval,
+            raison=_refus_comparaison(n_autres, SEUIL_N_SEVERITE),
+            details={"n_autres": n_autres},
+        )
+    totaux = np.asarray(list(totaux_evaluateur) + list(totaux_autres), dtype=np.float64)
+    indicateur = np.asarray([1.0] * n_eval + [0.0] * n_autres, dtype=np.float64)
+    ecart = formule_ecart_moyennes(totaux, indicateur)
+    ic = bootstrap.ic_percentile([totaux, indicateur], formule_ecart_moyennes)
+    return Indice(
+        code="SEVERITE_EVALUATEUR", statut=CONCLUANT, n=n_eval,
+        valeur=float(ecart), ic=ic,
+        details={
+            "n_autres": n_autres,
+            "moyenne_evaluateur": float(np.mean(np.asarray(totaux_evaluateur, dtype=np.float64))),
+            "moyenne_autres": float(np.mean(np.asarray(totaux_autres, dtype=np.float64))),
         },
     )

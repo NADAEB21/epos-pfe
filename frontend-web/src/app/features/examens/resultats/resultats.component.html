@@ -150,7 +150,34 @@
           Barème vivant utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — snapshot indisponible
         </span>
       }
+      <!-- #359 — note DISCRÈTE, pas un bandeau : l'écran ne dépend jamais du module
+           IA (ADR-0021 D4) ; aucun chiffre affiché ne change de sens quand il manque.
+           Le silence, lui, est interdit (leçon du 403 avalé). -->
+      @if (indicesEtat() === 'absents') {
+        <span role="status" class="text-xs text-gray-400">
+          Indices psychométriques non disponibles
+        </span>
+      }
     </div>
+    <!-- #359 — les exclusions du moteur, DITES : deux dénominateurs cohabitent sur
+         les cartes (le n d'un indice exclut les détails incomplets) — l'écart se
+         lit ici au lieu de se découvrir. -->
+    @if (indicesEtat() === 'prets' && indices(); as ind) {
+      @if (ind.exclusions.detail_incomplet > 0 || ind.exclusions.sans_aucun_item > 0 || ind.exclusions.saisi_par_null > 0) {
+        <p class="mb-3 text-xs text-gray-400">
+          Indices calculés sur {{ ind.exclusions.notations_analysees }} notation{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }} verrouillée{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }}
+          @if (ind.exclusions.detail_incomplet > 0) {
+            · {{ ind.exclusions.detail_incomplet }} écartée{{ ind.exclusions.detail_incomplet > 1 ? 's' : '' }} des matrices (détail par critère incomplet)
+          }
+          @if (ind.exclusions.sans_aucun_item > 0) {
+            · {{ ind.exclusions.sans_aucun_item }} sans aucun détail (invisible{{ ind.exclusions.sans_aucun_item > 1 ? 's' : '' }} des indices)
+          }
+          @if (ind.exclusions.saisi_par_null > 0) {
+            · {{ ind.exclusions.saisi_par_null }} sans auteur (hors analyses évaluateur)
+          }
+        </p>
+      }
+    }
     @if (completeness(); as c) {
       @if (c.totalStations > stationCols().length) {
         <p role="status" class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -182,6 +209,39 @@
               </span>
             }
           </div>
+
+          <!-- #359 — indices cohorte de la station (ai-service). Refus = texte du
+               backend VERBATIM (contrat ADR-0029 D6) ; valeur = jamais sans son n
+               (le n d'un indice est SON effectif, pas nVerrouillees). -->
+          @if (indicesEtat() === 'prets') {
+            <div class="mb-2 space-y-0.5 text-xs tabular-nums">
+              @if (alphaDe(d.stationId); as alpha) {
+                <p>
+                  <span class="text-gray-400">α de Cronbach :</span>
+                  @if (alpha.statut === 'CONCLUANT') {
+                    <span class="font-medium text-gray-700">{{ alpha.valeur | number: '1.2-2' }}</span>
+                    @if (alpha.ic) {
+                      <span class="text-gray-400"> [{{ alpha.ic[0] | number: '1.2-2' }}–{{ alpha.ic[1] | number: '1.2-2' }}]</span>
+                    }
+                    <span class="text-gray-400"> (n={{ alpha.n }})</span>
+                  } @else {
+                    <span class="text-gray-400 italic">{{ alpha.raison }}</span>
+                  }
+                </p>
+              }
+              @if (concentrationDe(d.stationId); as conc) {
+                <p>
+                  <span class="text-gray-400">Concentration d'échec :</span>
+                  @if (conc.statut === 'CONCLUANT') {
+                    <span class="font-medium text-gray-700">{{ (conc.valeur ?? 0) * 100 | number: '1.0-1' }}&nbsp;%</span>
+                    <span class="text-gray-400"> (n={{ conc.n }}{{ pLabel(conc) }})</span>
+                  } @else {
+                    <span class="text-gray-400 italic">{{ conc.raison }}</span>
+                  }
+                </p>
+              }
+            </div>
+          }
 
           @if (d.nVerrouillees === 0) {
             <p class="text-sm text-gray-500 italic py-3">
@@ -347,6 +407,16 @@
                             <th class="px-3 py-2 font-medium text-center w-28">Note</th>
                             <th class="px-3 py-2 font-medium">Attendu</th>
                             <th class="px-3 py-2 font-medium">Commentaire</th>
+                            <!-- #359 — indices COHORTE (tous étudiants), pas ceux de
+                                 cette copie : le sous-titre le dit, sinon la colonne ment. -->
+                            @if (indicesEtat() === 'prets') {
+                              <th class="px-3 py-2 font-medium text-center">
+                                Difficulté <span class="block text-[10px] font-normal normal-case">cohorte</span>
+                              </th>
+                              <th class="px-3 py-2 font-medium text-center">
+                                Discrimination <span class="block text-[10px] font-normal normal-case">cohorte</span>
+                              </th>
+                            }
                           </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
@@ -377,6 +447,29 @@
                                 }
                               </td>
                               <td class="px-3 py-2 text-gray-500">{{ l.commentaire || '—' }}</td>
+                              @if (indicesEtat() === 'prets') {
+                                @let ic = indiceCritereDe(l.itemId);
+                                <td class="px-3 py-2 text-center text-xs tabular-nums">
+                                  @if (ic && ic.difficulte.statut === 'CONCLUANT') {
+                                    <span class="font-medium text-gray-700">{{ ic.difficulte.valeur | number: '1.2-2' }}</span>
+                                    <span class="text-gray-400"> (n={{ ic.difficulte.n }})</span>
+                                  } @else if (ic) {
+                                    <span class="text-gray-400 italic">{{ ic.difficulte.raison }}</span>
+                                  } @else {
+                                    <span class="text-gray-300">—</span>
+                                  }
+                                </td>
+                                <td class="px-3 py-2 text-center text-xs tabular-nums">
+                                  @if (ic && ic.discrimination.statut === 'CONCLUANT') {
+                                    <span class="font-medium text-gray-700">{{ ic.discrimination.valeur | number: '1.2-2' }}</span>
+                                    <span class="text-gray-400"> (n={{ ic.discrimination.n }})</span>
+                                  } @else if (ic) {
+                                    <span class="text-gray-400 italic">{{ ic.discrimination.raison }}</span>
+                                  } @else {
+                                    <span class="text-gray-300">—</span>
+                                  }
+                                </td>
+                              }
                             </tr>
                           }
                         </tbody>

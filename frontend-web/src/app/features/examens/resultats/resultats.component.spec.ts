@@ -4,12 +4,14 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { ResultatsComponent } from './resultats.component';
+import { AiApiService } from '../../../core/api/ai-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 import {
   ExamenResult,
   GrilleDetail,
+  IndicesExamen,
   ParticipationSummary,
   StationGrilleSnapshot,
   StationSummary,
@@ -25,6 +27,7 @@ import {
 describe('ResultatsComponent — #355 délibération', () => {
   let scoring: jasmine.SpyObj<ScoringApiService>;
   let examApi: jasmine.SpyObj<ExamApiService>;
+  let ai: jasmine.SpyObj<AiApiService>;
 
   const stations: StationSummary[] = [
     { id: 101, nom: 'Chimie analytique', ordre: 1, hasGrille: true },
@@ -101,6 +104,10 @@ describe('ResultatsComponent — #355 délibération', () => {
       'getStationGrille',
       'changerStatut',
     ]);
+    ai = jasmine.createSpyObj('AiApiService', ['getIndices']);
+    // Défaut : ai-service ABSENT — chaque spec existante exerce ainsi le
+    // fail-soft (#359, ADR-0021 D4 : l'écran ne dépend jamais du module IA).
+    ai.getIndices.and.returnValue(throwError(() => ({ status: 503 })));
 
     scoring.getExamenResults.and.returnValue(of(results));
     scoring.getExamenGrillesSnapshot.and.returnValue(of(snapshots));
@@ -119,6 +126,7 @@ describe('ResultatsComponent — #355 délibération', () => {
         provideHttpClientTesting(),
         { provide: ScoringApiService, useValue: scoring },
         { provide: ExamApiService, useValue: examApi },
+        { provide: AiApiService, useValue: ai },
         ExamenWorkspaceStore,
       ],
     });
@@ -297,5 +305,103 @@ describe('ResultatsComponent — #355 délibération', () => {
     expect(alice.rang).toBe(2);
     const carla = c.rows().find((r) => r.participationId === 3)!;
     expect(carla.rang).toBe(0); // note non verrouillée → toujours pas de verdict
+  });
+
+  // ---- #359 — indices psychométriques : fail-soft strict (ADR-0021 D4) ------
+
+  function indicesPayload(): IndicesExamen {
+    return {
+      examen_id: 77,
+      entrees_hash: 'a'.repeat(64),
+      moteur_version: 'n5-test',
+      exclusions: {
+        saisi_par_null: 1,
+        detail_incomplet: 2,
+        notations_analysees: 4,
+        sans_aucun_item: 1,
+      },
+      par_critere: [
+        {
+          item_id: 301,
+          libelle: 'Pesée',
+          type: 'NUMERIQUE',
+          grille_id: 201,
+          station_id: 101,
+          difficulte: {
+            code: 'DIFFICULTE', statut: 'CONCLUANT', n: 12,
+            valeur: 0.42, ic: [0.31, 0.55], raison: null, details: {},
+          },
+          discrimination: {
+            code: 'DISCRIMINATION', statut: 'NON_CONCLUANT', n: 8,
+            valeur: null, ic: null,
+            raison: 'non concluant — effectif insuffisant (n=8 < 15)', details: {},
+          },
+        },
+      ],
+      par_grille: [
+        {
+          grille_id: 201, station_id: 101,
+          alpha_cronbach: {
+            code: 'ALPHA_CRONBACH', statut: 'CONCLUANT', n: 15,
+            valeur: 0.71, ic: [0.58, 0.81], raison: null, details: { k: 4 },
+          },
+        },
+      ],
+      par_station: [
+        {
+          station_id: 101,
+          concentration_echec: {
+            code: 'CONCENTRATION_ECHEC', statut: 'CONCLUANT', n: 12,
+            valeur: 0.45, ic: null, raison: null,
+            details: { p_value: 0.032, taux_autres: 0.2 },
+          },
+        },
+      ],
+    };
+  }
+
+  it('#359 : ai-service ABSENT → l\'écran reste intact, error() reste false', () => {
+    // Le défaut du beforeEach est déjà un throwError 503 — on vérifie l'effet.
+    const c = create();
+    expect(c.error()).toBeFalse();
+    expect(c.rows().length).toBe(3); // la table s'est construite sans le module IA
+    expect(c.deliberation().length).toBeGreaterThan(0);
+    expect(c.indicesEtat()).toBe('absents');
+    expect(c.indices()).toBeNull();
+  });
+
+  it('#359 : 403 / 409 / 501 se replient sur le MÊME état absents (aucune distinction de panne)', () => {
+    for (const status of [403, 409, 501]) {
+      ai.getIndices.and.returnValue(throwError(() => ({ status })));
+      const c = create();
+      expect(c.indicesEtat()).withContext(`status ${status}`).toBe('absents');
+      expect(c.error()).toBeFalse();
+    }
+  });
+
+  it('#359 : payload nominal → prets, lookups par station et par item peuplés', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    expect(c.indicesEtat()).toBe('prets');
+    expect(c.alphaDe(101)?.valeur).toBeCloseTo(0.71, 5);
+    expect(c.concentrationDe(101)?.valeur).toBeCloseTo(0.45, 5);
+    expect(c.indiceCritereDe(301)?.difficulte.n).toBe(12);
+    expect(c.alphaDe(999)).toBeNull(); // station sans indice → null, jamais inventé
+  });
+
+  it('#359 : un refus reste un refus — la raison du backend est servie VERBATIM', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    const disc = c.indiceCritereDe(301)!.discrimination;
+    expect(disc.statut).toBe('NON_CONCLUANT');
+    expect(disc.valeur).toBeNull();
+    expect(disc.raison).toBe('non concluant — effectif insuffisant (n=8 < 15)');
+  });
+
+  it('#359 : pLabel formate la p-value à la française, vide sans p_value', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    expect(c.pLabel(c.concentrationDe(101)!)).toBe(', p=0,032');
+    expect(c.pLabel(c.alphaDe(101)!)).toBe('');
   });
 });

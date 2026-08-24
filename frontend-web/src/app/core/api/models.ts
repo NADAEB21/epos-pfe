@@ -883,3 +883,66 @@ export interface UserCreateRequest {
   prenom: string;
   roles: RoleAssignment[];
 }
+
+// ─── Module IA/BI (#359, ADR-0029) — snake_case verbatim du fil (convention scoring) ───
+
+/**
+ * Le résultat d'UN indice psychométrique, contrat de refus compris (ADR-0021 D2,
+ * ADR-0029 D6) : sous les effectifs minimaux, `statut` est NON_CONCLUANT et
+ * `raison` porte le gabarit français EXACT du backend — l'écran l'affiche
+ * VERBATIM, il ne compose jamais son propre texte (les seuils vivent côté
+ * moteur, le client ne les re-dérive pas).
+ */
+export interface IndiceAi {
+  code: string;
+  statut: 'CONCLUANT' | 'NON_CONCLUANT';
+  /** L'effectif de CET indice — généralement < nVerrouillees de la carte (les
+   * notations sans détail complet en sortent) : toujours affiché avec la valeur. */
+  n: number;
+  valeur: number | null;
+  /** IC 95 % bootstrap [lo, hi], null quand refusé ou inestimable. */
+  ic: [number, number] | null;
+  raison: string | null;
+  details: Record<string, unknown>;
+}
+
+/** Ce que le moteur a écarté — compté et DIT, jamais silencieux (#269). */
+export interface ExclusionsAi {
+  saisi_par_null: number;
+  detail_incomplet: number;
+  notations_analysees: number;
+  /** Notations verrouillées SANS AUCUN item — invisibles des vues (V23). */
+  sans_aucun_item: number;
+}
+
+export interface IndiceCritereAi {
+  item_id: number;
+  libelle: string;
+  type: string;
+  grille_id: number;
+  station_id: number;
+  difficulte: IndiceAi;
+  discrimination: IndiceAi;
+}
+
+export interface IndiceGrilleAi {
+  grille_id: number;
+  station_id: number;
+  alpha_cronbach: IndiceAi;
+}
+
+export interface IndiceStationAi {
+  station_id: number;
+  concentration_echec: IndiceAi;
+}
+
+/** GET /ai/examens/{id}/indices — servi depuis le cache ai_db (clé = entrees_hash). */
+export interface IndicesExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  exclusions: ExclusionsAi;
+  par_critere: IndiceCritereAi[];
+  par_grille: IndiceGrilleAi[];
+  par_station: IndiceStationAi[];
+}

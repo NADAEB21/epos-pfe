@@ -20,8 +20,9 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
-      # #353 — lu par init-db/init2-ai.sh (rôle ai_reader, base ai_db).
+      # #353/#359 — lus par init-db/init2-ai.sh (rôles ai_reader/ai_writer, base ai_db).
       - AI_READER_PASSWORD=${AI_READER_PASSWORD}
+      - AI_WRITER_PASSWORD=${AI_WRITER_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
@@ -234,6 +235,8 @@ services:
     environment:
       - AI_SCORING_DSN=host=postgres-db port=5432 dbname=scoring_db user=ai_reader password=${AI_READER_PASSWORD}
       - AI_EXAM_DSN=host=postgres-db port=5432 dbname=exam_db user=ai_reader password=${AI_READER_PASSWORD}
+      # #359 — cache des indices + journal : ai_writer n'a AUCUN droit hors ai_db.
+      - AI_DB_DSN=host=postgres-db port=5432 dbname=ai_db user=ai_writer password=${AI_WRITER_PASSWORD}
       - TZ=${APP_TIMEZONE:-Africa/Tunis}
     # Budget mémoire d'ADR-0029 D7 (poste facultaire + AWS t3).
     mem_limit: 512m

@@ -77,6 +77,11 @@ export const routes: Routes = [
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
+    path: 'dev/graphes',
+    loadComponent: () =>
+      import('./shared/graphes/graphes-harness.component').then((m) => m.GraphesHarnessComponent),
+  },
+  {
     // W10 — mot de passe oublié, étape 1 (email). Public, hors shell.
     path: 'forgot-password',
     canActivate: [guestGuard],

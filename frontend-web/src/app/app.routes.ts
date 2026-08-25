@@ -1,3 +1,4 @@
+import { isDevMode } from '@angular/core';
 import { Routes } from '@angular/router';
 import { ExamenWorkspaceStore } from './features/examens/workspace/examen-workspace.store';
 import {
@@ -77,7 +78,11 @@ export const routes: Routes = [
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
+    // #356 — harnais de vérification des composants de graphe, DEV SEULEMENT :
+    // en build de prod, canMatch écarte la route (404) — un bac à sable visible
+    // en prod serait une promesse vide de plus (doctrine W2/ADR-0028).
     path: 'dev/graphes',
+    canMatch: [() => isDevMode()],
     loadComponent: () =>
       import('./shared/graphes/graphes-harness.component').then((m) => m.GraphesHarnessComponent),
   },

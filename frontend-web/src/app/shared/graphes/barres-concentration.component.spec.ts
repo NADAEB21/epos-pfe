@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import * as echarts from 'echarts/core';
 import { provideEchartsCore } from 'ngx-echarts';
+import { loadEcharts } from './echarts-setup';
 import { BarresConcentrationComponent } from './barres-concentration.component';
 
 /**
@@ -13,7 +13,7 @@ describe('BarresConcentrationComponent — #356 (spec N4)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [BarresConcentrationComponent],
-      providers: [provideEchartsCore({ echarts })],
+      providers: [provideEchartsCore({ echarts: loadEcharts })],
     });
   });
 

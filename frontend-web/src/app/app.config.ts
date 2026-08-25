@@ -5,7 +5,6 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
 import { provideEchartsCore } from 'ngx-echarts';
-import * as echarts from 'echarts/core';
 
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth.interceptor';
@@ -43,6 +42,12 @@ export const appConfig: ApplicationConfig = {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
     }),
-    provideEchartsCore({ echarts }),
+    // #356, spec N4 règle 5 : init LAZY — l'import statique d'echarts/core ici
+    // mettait ~340 kB d'ECharts dans le bundle INITIAL de toutes les routes
+    // (login compris). La fabrique dynamique ne charge le chunk qu'au premier
+    // graphe réellement affiché.
+    provideEchartsCore({
+      echarts: () => import('./shared/graphes/echarts-setup').then((m) => m.loadEcharts()),
+    }),
   ],
 };

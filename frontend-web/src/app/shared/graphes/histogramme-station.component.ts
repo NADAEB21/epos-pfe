@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
-import { EChartsOption } from 'echarts';
-import { registerGraphesEcharts } from './echarts-setup';
-
-registerGraphesEcharts();
+// Type-only : effacé à la compilation — le VRAI chargement d'ECharts (et
+// l'enregistrement des modules) passe par la fabrique lazy de app.config
+// (echarts-setup.loadEcharts, spec N4 règle 5). Aucun import statique ici.
+import type { EChartsOption } from 'echarts';
 
 /**
  * Un bac déjà calculé par l'écran hôte (`resultats.component.ts`, méthode

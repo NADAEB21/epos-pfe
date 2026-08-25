@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import * as echarts from 'echarts/core';
 import { provideEchartsCore } from 'ngx-echarts';
+import { loadEcharts } from './echarts-setup';
 import { HistogrammeStationComponent } from './histogramme-station.component';
 
 /**
@@ -15,7 +15,9 @@ describe('HistogrammeStationComponent — #356 (spec N4)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [HistogrammeStationComponent],
-      providers: [provideEchartsCore({ echarts })],
+      // La même fabrique lazy que la prod (spec N4 règle 5) — les modules bar
+      // sont enregistrés par elle, comme au premier graphe réel.
+      providers: [provideEchartsCore({ echarts: loadEcharts })],
     });
   });
 

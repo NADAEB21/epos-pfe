@@ -6,9 +6,8 @@ import { BarresConcentrationComponent, BarreConcentrationLigne } from './barres-
  * Harnais de vérification #356 — « type storybook » demandé par l'AC :
  * chaque composant rendu sur DONNÉES FIXES, vérifiable seul, sans backend.
  *
- * Route de dev suggérée (non montée en prod) :
- *   { path: 'dev/graphes', loadComponent: () => import('.../graphes-harness.component')
- *       .then(m => m.GraphesHarnessComponent) }
+ * Monté sur `/dev/graphes` (app.routes.ts), gardé par `canMatch: isDevMode()` :
+ * accessible en `ng serve`, 404 en build de prod.
  *
  * Couvre : le nominal, les deux états obligatoires de chaque composant,
  * et le thème clair/sombre (bascule en direct — même instance de graphe,

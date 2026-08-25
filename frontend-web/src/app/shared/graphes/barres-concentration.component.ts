@@ -1,9 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { NgxEchartsDirective } from 'ngx-echarts';
-import { EChartsOption } from 'echarts';
-import { registerGraphesEcharts } from './echarts-setup';
-
-registerGraphesEcharts();
+// Type-only : effacé à la compilation — voir histogramme-station.component.ts.
+import type { EChartsOption } from 'echarts';
 
 /** Une ligne du classement — une station (délibération) ou toute autre
  *  entité classée à l'horizontale (BI, N10). */

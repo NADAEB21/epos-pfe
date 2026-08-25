@@ -65,9 +65,9 @@ d'abord un instrument SAIN pour que le contraste soit lisible.
 ## Les 3 défauts plantés — où les trouver, et valeurs visées
 
 Tous vivent dans l'examen nommé `IA-F1 — Cohorte de référence (défauts plantés) —
-seed<SEED>` (matière 1, Chimie thérapeutique — comme les autres scripts de démo
-du dépôt). L'identifiant réel de l'examen et des stations/items est imprimé par le
-script en fin de run (bloc « Identifiants clés »).
+seed<SEED>-<RUN_ID>` (matière 1, Chimie thérapeutique — comme les autres scripts
+de démo du dépôt). L'identifiant réel de l'examen et des stations/items est imprimé
+par le script en fin de run (bloc « Identifiants clés »).
 
 ### Défaut 1 — un critère où (presque) personne ne réussit
 
@@ -123,13 +123,13 @@ script en fin de run (bloc « Identifiants clés »).
   valide (jamais une moyenne globale entre examens différents).
 - **Effectif** : n = 18 par évaluateur, 36 au total sur la station.
 - **Indice attendu** : cet indice (sévérité/lenience évaluateur, D1/D2 d'ADR-0021)
-  n'est **pas encore implémenté** dans `app/stats/engine.py` au 21/08 (prévu N6,
-  #359 — colonne « — » dans le plan). Ce défaut est donc planté par anticipation :
-  quand N6 livre l'endpoint `/ai/examens/{id}/evaluateurs`, il doit retrouver un
-  écart moyen ≈ **+2 points/critère** (≈ +4/20 au total) entre les deux
-  évaluateurs sur cette station. En attendant, le script calcule et imprime
-  lui-même la moyenne observée par évaluateur et l'écart — c'est la preuve que
-  les données sont bien plantées comme annoncé, indépendamment de N6.
+  est livré depuis N6 (#359, PR #374) : `GET /ai/examens/{id}/evaluateurs` doit
+  retrouver un écart moyen ≈ **+2 points/critère** (≈ +4/20 au total) entre les
+  deux évaluateurs sur cette station — **vérifié au run réel** (voir la section
+  « Vérifié contre le moteur réel » : ±4.61/20, CONCLUANT, IC hors de 0). Le
+  script calcule et imprime aussi lui-même la moyenne observée par évaluateur et
+  l'écart — la preuve que les données sont plantées comme annoncé, indépendamment
+  du moteur.
 
 ### Item « normal » de contrôle (pas un défaut)
 
@@ -176,6 +176,35 @@ possible post-lancement est le cas C : suppléance nominative, motivée,
 tracée. F1 exerce donc réellement la suppléance ADR-0017 en passant — un
 bénéfice accessoire : la cohorte de référence sert aussi de preuve vivante
 que ce mécanisme fonctionne, sans que ce soit son but premier.
+
+## Vérifié contre le MOTEUR RÉEL (run du 2026-08-25, seed 20260821, examen 80 de la base de dev)
+
+Le premier run réel a été confronté aux endpoints N6 (`/ai/examens/{id}/indices`
+et `/evaluateurs`). Les trois défauts sont **retrouvés** :
+
+| Défaut | attendu | mesuré par le moteur |
+|---|---|---|
+| 1 — « Critère impossible » | p ≈ 0.05 | **p = 0.056** (CONCLUANT, n=36) |
+| 2 — « Critère sans lien » | r ≈ 0 | **r = −0.08** (CONCLUANT, n=36) |
+| 3 — sévérité intra-station | ≈ ±4/20 | **−4.61 / +4.61** (CONCLUANT, IC hors de 0, n=18+18) |
+
+108 notations analysées, **zéro exclusion** (aucun `saisi_par` NULL, aucun détail
+incomplet — le chemin API pur produit des données que les vues voient en entier).
+
+**Deux lectures à connaître AVANT la démo (sinon un juré les découvre pour vous) :**
+
+1. **Dans la Station Défauts, les items SAINS lisent une discrimination faible**
+   (« Geste conforme » : r ≈ −0.03 ; « Précision du geste » : r ≈ 0.27). Ce n'est
+   pas un bug du moteur ni du générateur : la discrimination corrèle l'item au
+   *reste* de sa station, et ce reste est dominé par les deux items plantés
+   (du bruit pur). Le **contraste sain se lit à la Station Témoin** (r = 0.24 à
+   0.69 selon l'item) — c'est elle, le repère à montrer au jury, pas les voisins
+   des défauts.
+2. **α de Cronbach raconte la même histoire en bonus** : Station Défauts
+   α ≈ 0.06 (les deux items plantés détruisent la cohérence interne — un
+   4ᵉ signal gratuit), Station Témoin α ≈ 0.59 (saine), Station Sévérité
+   **refusée** (k=2 < 3 critères — le contrat petits-N du moteur s'applique
+   aussi à la cohorte synthétique, et c'est voulu).
 
 ## Utilisation par N5 / N6 (moteur statistique)
 

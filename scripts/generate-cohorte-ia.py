@@ -47,6 +47,15 @@ import urllib.request
 import secrets
 from dataclasses import dataclass, field
 
+# Console Windows = cp1252 par défaut : incapable d'encoder « ≈ », « α », « → ».
+# Sans ceci, le bilan final — la raison d'être du run — plantait en
+# UnicodeEncodeError APRÈS avoir écrit toutes les données (prouvé au premier
+# run réel, 2026-08-25), et chaque accent sortait en mojibake. `errors="replace"`
+# garde le bilan vivant même sur une console exotique.
+for _stream in (sys.stdout, sys.stderr):
+    if _stream.encoding and _stream.encoding.lower().replace("-", "") != "utf8":
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # ─────────────────────────────────────────────────────────────────────────
 # Client HTTP minimal — même idiome que seed-demo.py / e2e_rotation_generation.py
 # (stdlib pur, aucune dépendance).

@@ -98,6 +98,10 @@ describe('ResultatsComponent — #355 délibération', () => {
       'getNotationItems',
       'listReajustements',
       'reajusterNotation',
+      // #359-bis : les specs DOM flushent l'effect du panneau réclamations
+      // (enfant du template) — son forkJoin exige ces deux méthodes.
+      'listReclamations',
+      'listEtudiants',
     ]);
     examApi = jasmine.createSpyObj('ExamApiService', [
       'listStations',
@@ -114,6 +118,8 @@ describe('ResultatsComponent — #355 délibération', () => {
     scoring.listParticipations.and.returnValue(of(participations));
     scoring.getNotationItems.and.returnValue(of([]));
     scoring.listReajustements.and.returnValue(of([]));
+    scoring.listReclamations.and.returnValue(of([]));
+    scoring.listEtudiants.and.returnValue(of([]));
     examApi.listStations.and.returnValue(of(stations));
     examApi.getStationGrille.and.returnValue(
       of({ id: 201, nom: 'Grille vivante', noteMax: 20, items: [] } as GrilleDetail),
@@ -403,5 +409,71 @@ describe('ResultatsComponent — #355 délibération', () => {
     const c = create();
     expect(c.pLabel(c.concentrationDe(101)!)).toBe(', p=0,032');
     expect(c.pLabel(c.alphaDe(101)!)).toBe('');
+  });
+
+  // ---- #359-bis (S46) — VISIBILITÉ : ce qui se REND, pas ce qui se calcule ---
+  // Constat de la passe navigateur de Nada : les indices étaient stylés comme
+  // l'état absent (gris minuscule) et devenaient introuvables. Ces specs
+  // épinglent le rendu DOM : le bloc contenu, le poids de lecture des valeurs,
+  // le refus en pastille ambre (texte backend VERBATIM), et l'état absent qui
+  // reste, LUI, discret.
+
+  function createDom(): { c: ResultatsComponent; el: HTMLElement } {
+    const fixture = TestBed.createComponent(ResultatsComponent);
+    const c = fixture.componentInstance;
+    (c as unknown as { id: () => string }).id = () => '77';
+    fixture.detectChanges(); // ngOnInit → load() (observables synchrones)
+    fixture.detectChanges(); // re-rendu après la pose des signaux
+    return { c, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('#359-bis : indices prêts → bloc « Indices cohorte » contenu, valeur au poids de lecture', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const { c, el } = createDom();
+    expect(c.indicesEtat()).toBe('prets');
+
+    const entetes = Array.from(el.querySelectorAll('p')).filter(
+      (p) => p.textContent?.trim() === 'Indices cohorte',
+    );
+    expect(entetes.length).withContext('un en-tête par carte porteuse d\'indices').toBeGreaterThan(0);
+
+    const bloc = entetes[0].closest('div.rounded-lg')!;
+    expect(bloc.className).withContext('le bloc est CONTENU (fond + bord)').toContain('bg-gray-50');
+    const valeur = Array.from(bloc.querySelectorAll('span.font-semibold')).find((s) =>
+      /0[.,]71/.test(s.textContent ?? ''),
+    );
+    expect(valeur).withContext('α rendu en font-semibold, pas en gris discret').toBeDefined();
+    expect(valeur!.className).toContain('text-gray-900');
+  });
+
+  it('#359-bis : un refus se rend en pastille ambre, texte backend VERBATIM dedans', () => {
+    const payload = indicesPayload();
+    payload.par_station[0].concentration_echec = {
+      code: 'CONCENTRATION_ECHEC', statut: 'NON_CONCLUANT', n: 4,
+      valeur: null, ic: null,
+      raison: 'non concluant — effectif insuffisant (n=4 < 10)', details: {},
+    };
+    ai.getIndices.and.returnValue(of(payload));
+    const { el } = createDom();
+
+    const pastille = Array.from(el.querySelectorAll('span')).find(
+      (s) => s.textContent?.trim() === 'non concluant — effectif insuffisant (n=4 < 10)',
+    );
+    expect(pastille).withContext('la raison du backend rendue telle quelle').toBeDefined();
+    expect(pastille!.className).toContain('bg-amber-50');
+    expect(pastille!.className).toContain('text-amber-800');
+  });
+
+  it('#359-bis : indices absents → AUCUN bloc sur les cartes, seule la note discrète', () => {
+    // Défaut du beforeEach : throwError 503 → absents.
+    const { c, el } = createDom();
+    expect(c.indicesEtat()).toBe('absents');
+
+    expect(el.textContent).not.toContain('Indices cohorte');
+    const note = Array.from(el.querySelectorAll('span[role="status"]')).find(
+      (s) => s.textContent?.trim() === 'Indices psychométriques non disponibles',
+    );
+    expect(note).withContext('le silence est interdit — la note discrète le dit').toBeDefined();
+    expect(note!.className).withContext('l\'état ABSENT, lui, reste discret').toContain('text-gray-400');
   });
 });

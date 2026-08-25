@@ -1,0 +1,36 @@
+{
+  "nom": "f3-8x4-nominal",
+  "commentaire": "Fixture de verite 8 etudiants x 4 criteres (2 binaires, 2 numeriques). Calculee par script et verifiee manuellement.",
+  "criteres": [
+    { "item_id": 1, "type": "BINAIRE",   "ponderation": 4.0,  "valeur_max": null },
+    { "item_id": 2, "type": "NUMERIQUE", "ponderation": 10.0, "valeur_max": 10.0 },
+    { "item_id": 3, "type": "BINAIRE",   "ponderation": 2.0,  "valeur_max": null },
+    { "item_id": 4, "type": "NUMERIQUE", "ponderation": 4.0,  "valeur_max": 4.0 }
+  ],
+  "notations": [
+    { "etudiant": "E1", "valeurs": { "1": 1, "2": 8, "3": 1, "4": 4 } },
+    { "etudiant": "E2", "valeurs": { "1": 1, "2": 6, "3": 0, "4": 2 } },
+    { "etudiant": "E3", "valeurs": { "1": 0, "2": 9, "3": 1, "4": 4 } },
+    { "etudiant": "E4", "valeurs": { "1": 1, "2": 5, "3": 1, "4": 2 } },
+    { "etudiant": "E5", "valeurs": { "1": 0, "2": 7, "3": 0, "4": 4 } },
+    { "etudiant": "E6", "valeurs": { "1": 1, "2": 4, "3": 1, "4": 0 } },
+    { "etudiant": "E7", "valeurs": { "1": 1, "2": 10, "3": 1, "4": 4 } },
+    { "etudiant": "E8", "valeurs": { "1": 0, "2": 3, "3": 0, "4": 2 } }
+  ],
+  "attendus": {
+    "difficulte": {
+      "1": 0.625,
+      "2": 0.650,
+      "3": 0.625,
+      "4": 0.6875
+    },
+    "discrimination": {
+      "1": 0.0331,
+      "2": 0.6299,
+      "3": 0.4843,
+      "4": 0.3488
+    },
+    "alpha_cronbach": 0.5214
+  },
+  "tolerance": 0.005
+}

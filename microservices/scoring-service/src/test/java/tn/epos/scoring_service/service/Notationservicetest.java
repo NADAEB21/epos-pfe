@@ -70,6 +70,11 @@ class NotationServiceTest {
     @Mock
     private ExamGrilleSnapshotRepository grilleSnapshotRepository;
 
+    // #361 — permissif : le recalcul délibéré a ses propres tests
+    // (BaremeDeliberationEngineTest) ; sans snapshot stubé il n'est jamais appelé.
+    @Mock
+    private BaremeDeliberationEngine baremeDeliberationEngine;
+
     // Réel (pas un mock) : le parsing de items_json fait partie du comportement testé.
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();

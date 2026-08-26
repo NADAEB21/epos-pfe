@@ -16,6 +16,9 @@ public interface ExamItemSnapshotRepository extends JpaRepository<ExamItemSnapsh
 
     Optional<ExamItemSnapshot> findByItemId(Long itemId);
 
+    /** #361 — validation des cibles d'un barème de délibération (ADR-0030 D2). */
+    List<ExamItemSnapshot> findByExamenId(Long examenId);
+
     /** For #183 "dé-lancer" invalidation: a relaunch must re-copy the definition. */
     void deleteByExamenId(Long examenId);
 }

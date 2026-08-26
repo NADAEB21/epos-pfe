@@ -371,6 +371,54 @@ public class ExamServiceClient {
     }
 
     /**
+     * Statut courant d'un examen, en STRICT — jumeau de {@link #getMatiereIdStrict}
+     * (même route, même traduction 403/401, même refus de deviner). Né pour la
+     * garde « examen clos seulement » du barème de délibération (ADR-0030 D1,
+     * #361) : une GARDE ne peut pas s'appuyer sur {@code getExamTiming}, dont le
+     * fail-soft rend {@code statut = null} en panne — la garde deviendrait
+     * ouvrante par défaut, la classe de défaut exacte que #274/ADR-0015
+     * interdisent. Ici : exam-service muet ⇒ l'écriture est refusée, bruyamment.
+     * Volontairement non mis en cache : le statut est mutable (clôture, archivage).
+     *
+     * @throws AccessDeniedException si exam-service refuse l'examen à cet appelant (403/401)
+     * @throws BusinessException     si exam-service est injoignable, répond une autre
+     *                               erreur, ou ne fournit pas de statut
+     */
+    public String getStatutStrict(Long examenId) {
+        String bearerToken = currentBearerToken();
+        JsonNode root;
+        try {
+            root = webClient.get()
+                    .uri("/api/examens/{id}", examenId)
+                    .headers(h -> h.setBearerAuth(bearerToken))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            int code = e.getStatusCode().value();
+            if (code == 403 || code == 401) {
+                throw new AccessDeniedException(
+                        "Accès interdit : l'examen " + examenId
+                                + " ne relève pas de vos matières (#274).");
+            }
+            throw new BusinessException("exam-service a renvoyé " + code
+                    + " pour l'examen " + examenId
+                    + " — statut invérifiable, écriture refusée (ADR-0030, ADR-0015).");
+        } catch (RuntimeException e) {
+            throw new BusinessException("exam-service injoignable pour l'examen " + examenId
+                    + " — statut invérifiable, écriture refusée (ADR-0030, ADR-0015) : "
+                    + e.getMessage());
+        }
+
+        String statut = (root != null) ? root.path("data").path("statut").asText(null) : null;
+        if (statut == null || statut.isBlank()) {
+            throw new BusinessException("exam-service n'a pas fourni de statut pour l'examen "
+                    + examenId + " — statut invérifiable, écriture refusée (ADR-0030, ADR-0015).");
+        }
+        return statut.trim();
+    }
+
+    /**
      * Grille complète d'une station, sans repli. Suit le patron le plus COMPLET
      * du client (fetchItemInfos), pas celui — incomplet — de
      * getStationNomStrict : sans classerEchec/signalerSucces, un échec ici

@@ -66,6 +66,10 @@ public class NotationService {
     @Autowired
     private ExamGrilleSnapshotRepository grilleSnapshotRepository;
 
+    // #361 — recalcul de présentation sous le barème de délibération (ADR-0030 D4).
+    @Autowired
+    private BaremeDeliberationEngine baremeDeliberationEngine;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -109,6 +113,42 @@ public class NotationService {
 
         List<Notation> notations = repository.findByExamenIdWithGraph(examenId);
 
+        // #361 — les DEUX dénominateurs (ADR-0030 D4). L'original vient du barème
+        // déclaré (note_max, snapshot V19 — scoring le possède, le javadoc « le
+        // frontend calcule le /max » était périmé) ; le délibéré applique la
+        // version courante du barème de délibération sur le snapshot INTACT, à la
+        // lecture — aucun score_final réécrit. Chemin 100 % local : pas d'appel
+        // exam-service, la lecture vit même exam-service éteint (posture #355).
+        Map<Long, Double> maxOriginalParStation = new LinkedHashMap<>();
+        for (ExamGrilleSnapshot g : grilleSnapshotRepository.findByExamenId(examenId)) {
+            maxOriginalParStation.put(g.getStationId(), g.getNoteMax());
+        }
+        Double denominateurOriginal = maxOriginalParStation.isEmpty() ? null
+                : maxOriginalParStation.values().stream().mapToDouble(Double::doubleValue).sum();
+
+        // Sans snapshot (pré-V19), aucune cible n'est résoluble : les champs
+        // délibérés restent nuls même si une version (forcément vide) existait.
+        Optional<BaremeDeliberationEngine.BaremeApplique> bareme =
+                maxOriginalParStation.isEmpty() ? Optional.empty()
+                        : baremeDeliberationEngine.chargerCourant(examenId);
+        Double denominateurDelibere = bareme
+                .map(b -> b.maxDelibereParStation().values().stream()
+                        .mapToDouble(Double::doubleValue).sum())
+                .orElse(null);
+        Integer baremeVersion = bareme.map(b -> b.version().getVersion()).orElse(null);
+
+        // Les valeurs saisies ne sont chargées (en UNE requête) que si la version
+        // courante porte des opérations critère — le delta en a besoin.
+        Map<Long, Map<Long, Float>> valeursParNotation = new LinkedHashMap<>();
+        if (bareme.isPresent() && !bareme.get().operationsParItem().isEmpty()) {
+            List<Long> ids = notations.stream().map(Notation::getId).toList();
+            for (NotationItem ni : notationItemRepository.findByNotationIdIn(ids)) {
+                valeursParNotation
+                        .computeIfAbsent(ni.getNotation().getId(), k -> new LinkedHashMap<>())
+                        .put(ni.getItemId(), ni.getValeur());
+            }
+        }
+
         // Regroupe par participation en préservant l'ordre de première apparition.
         Map<Long, List<Notation>> parParticipation = new LinkedHashMap<>();
         for (Notation n : notations) {
@@ -123,12 +163,26 @@ public class NotationService {
             ExamenParticipation p = rows.get(0).getAssignment().getParticipation();
             Etudiant e = p.getEtudiant();
 
-            List<StationScoreDTO> stations = rows.stream()
-                    .map(StationScoreDTO::fromEntity)
-                    .sorted(Comparator.comparing(
-                            StationScoreDTO::stationId,
-                            Comparator.nullsLast(Comparator.naturalOrder())))
-                    .toList();
+            List<StationScoreDTO> stations = new ArrayList<>();
+            Double totalDelibere = bareme.isPresent() ? 0d : null;
+            for (Notation n : rows) {
+                Double maxOriginal = maxOriginalParStation.get(n.getStationId());
+                Float scoreDelibere = null;
+                Double maxDelibere = null;
+                if (bareme.isPresent()) {
+                    BaremeDeliberationEngine.BaremeApplique b = bareme.get();
+                    maxDelibere = b.maxDelibereParStation().get(n.getStationId());
+                    scoreDelibere = baremeDeliberationEngine.scoreDelibere(b, n,
+                            valeursParNotation.getOrDefault(n.getId(), Map.of()));
+                    if (scoreDelibere != null && totalDelibere != null) {
+                        totalDelibere += scoreDelibere;
+                    }
+                }
+                stations.add(StationScoreDTO.fromEntity(n, maxOriginal, scoreDelibere, maxDelibere));
+            }
+            stations.sort(Comparator.comparing(
+                    StationScoreDTO::stationId,
+                    Comparator.nullsLast(Comparator.naturalOrder())));
 
             double total = rows.stream()
                     .map(Notation::getScore_final)
@@ -145,7 +199,11 @@ public class NotationService {
                     p.getNum_echantillon(),
                     total,
                     stations.size(),
-                    stations));
+                    stations,
+                    denominateurOriginal,
+                    totalDelibere,
+                    denominateurDelibere,
+                    baremeVersion));
         }
 
         // Tri par total décroissant — le classement se lit directement.

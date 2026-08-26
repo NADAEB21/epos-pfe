@@ -266,6 +266,21 @@ class BaremeDeliberationServiceTest {
         }
 
         @Test
+        @DisplayName("Critère d'une grille SANS snapshot de barème (station jamais notée) → refus")
+        void critereSansGrilleSnapshotee() {
+            // grille 999 absente d'exam_grille_snapshot : la station serait
+            // irrésoluble à la lecture — l'opération serait un no-op silencieux.
+            when(itemSnapshotRepository.findByExamenId(EXAMEN)).thenReturn(List.of(
+                    ExamItemSnapshot.builder().examenId(EXAMEN).grilleId(999L)
+                            .itemId(7L).type("BINAIRE").ponderation(5.0).build()));
+
+            assertThatThrownBy(() -> service.creer(EXAMEN, req(exclureCritere(7L))))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("snapshoté");
+            verify(baremeRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("Examen sans snapshot (pré-V19) → aucune cible définissable, refus")
         void sansSnapshot() {
             when(grilleSnapshotRepository.findByExamenId(EXAMEN)).thenReturn(List.of());

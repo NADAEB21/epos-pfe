@@ -275,7 +275,17 @@ public class BaremeDeliberationService {
                     + " n'a pas de valeur maximale au snapshot (valeur_max absente) — "
                     + "impossible de recalculer un dénominateur honnête, cible refusée.");
         }
-        return stationParGrille.get(item.getGrilleId());
+        Long stationId = stationParGrille.get(item.getGrilleId());
+        if (stationId == null) {
+            // Les snapshots de grille (V19) se matérialisent PAR STATION au fil de
+            // la notation — une grille jamais servie par ce flux n'en a pas. Une
+            // opération qui la viserait serait invérifiable à la lecture (station
+            // irrésoluble → no-op silencieux) : refus plutôt qu'un barème inerte.
+            throw new BusinessException("La grille " + item.getGrilleId() + " du critère "
+                    + op.cibleItemId() + " n'a pas de barème snapshoté (station jamais notée "
+                    + "par le flux d'évaluation) — cible refusée (ADR-0030 D2).");
+        }
+        return stationId;
     }
 
     private void validerCibleStation(Long stationId, Set<Long> stationIds) {

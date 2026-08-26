@@ -123,18 +123,27 @@ public class NotationService {
         for (ExamGrilleSnapshot g : grilleSnapshotRepository.findByExamenId(examenId)) {
             maxOriginalParStation.put(g.getStationId(), g.getNoteMax());
         }
-        Double denominateurOriginal = maxOriginalParStation.isEmpty() ? null
-                : maxOriginalParStation.values().stream().mapToDouble(Double::doubleValue).sum();
+        // Les snapshots de grille (V19) se matérialisent PAR STATION au fil de la
+        // notation : un examen peut n'en couvrir qu'une partie. Les dénominateurs
+        // D'EXAMEN ne se servent que COMPLETS — sommer une couverture partielle
+        // sous-estimerait en silence ; les champs PAR STATION, eux, portent ce qui
+        // est connu (null ailleurs, même repli nommé que l'écran #355).
+        boolean couvertureComplete = !maxOriginalParStation.isEmpty() && notations.stream()
+                .allMatch(n -> n.getStationId() != null
+                        && maxOriginalParStation.containsKey(n.getStationId()));
+        Double denominateurOriginal = couvertureComplete
+                ? maxOriginalParStation.values().stream().mapToDouble(Double::doubleValue).sum()
+                : null;
 
         // Sans snapshot (pré-V19), aucune cible n'est résoluble : les champs
         // délibérés restent nuls même si une version (forcément vide) existait.
         Optional<BaremeDeliberationEngine.BaremeApplique> bareme =
                 maxOriginalParStation.isEmpty() ? Optional.empty()
                         : baremeDeliberationEngine.chargerCourant(examenId);
-        Double denominateurDelibere = bareme
+        Double denominateurDelibere = couvertureComplete ? bareme
                 .map(b -> b.maxDelibereParStation().values().stream()
                         .mapToDouble(Double::doubleValue).sum())
-                .orElse(null);
+                .orElse(null) : null;
         Integer baremeVersion = bareme.map(b -> b.version().getVersion()).orElse(null);
 
         // Les valeurs saisies ne sont chargées (en UNE requête) que si la version
@@ -164,7 +173,9 @@ public class NotationService {
             Etudiant e = p.getEtudiant();
 
             List<StationScoreDTO> stations = new ArrayList<>();
-            Double totalDelibere = bareme.isPresent() ? 0d : null;
+            // Le total délibéré suit la même règle de couverture que les
+            // dénominateurs : jamais un total partiel silencieux.
+            Double totalDelibere = (bareme.isPresent() && couvertureComplete) ? 0d : null;
             for (Notation n : rows) {
                 Double maxOriginal = maxOriginalParStation.get(n.getStationId());
                 Float scoreDelibere = null;

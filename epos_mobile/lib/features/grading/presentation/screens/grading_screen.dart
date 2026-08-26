@@ -363,6 +363,11 @@ class _GradingBody extends StatelessWidget {
                               gc:        gc,
                             )
                                 : _NotationCell(
+                              // rotationId change à chaque « Groupe suivant » : la clé force
+                              // Flutter à démonter/remonter la cellule (et donc son
+                              // TextEditingController) au lieu de réutiliser l'ancien State
+                              // avec le texte du groupe précédent.
+                              key: ValueKey('${state.rotationId}_${e.id}_${row.displayItem.id}'),
                               etudiant:  e,
                               item:      row.displayItem,
                               notation:  state.notations[e.id]?[row.displayItem.id],
@@ -786,6 +791,7 @@ class _GradingFooter extends StatelessWidget {
 // events GradingBinaryUpdated / GradingNumericUpdated fonctionnent sans
 // modification du bloc.
 // ═══════════════════════════════════════════════════════════════════════════════
+
 class _NotationCell extends StatelessWidget {
   final dynamic        etudiant;
   final ItemEvaluation item;
@@ -793,6 +799,7 @@ class _NotationCell extends StatelessWidget {
   final bool           estValide;
 
   const _NotationCell({
+    super.key,
     required this.etudiant,
     required this.item,
     this.notation,

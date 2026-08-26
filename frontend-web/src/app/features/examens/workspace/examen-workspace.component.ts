@@ -98,6 +98,11 @@ export class ExamenWorkspaceComponent {
     return statutDisplayLabel(e.statut, e.dateExamen);
   }
 
+  /** #378 — libellé from the catalog, numeric fallback while it loads / on outage. */
+  matiereLabel(matiereId: number): string {
+    return this.store.matiereLabels()[matiereId] ?? `Matiere ${matiereId}`;
+  }
+
   isReached(current: StatutExamen, step: StatutExamen): boolean {
     return LIFECYCLE.indexOf(step) <= LIFECYCLE.indexOf(current);
   }

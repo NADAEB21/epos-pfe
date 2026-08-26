@@ -105,6 +105,22 @@ export class ExamenWorkspaceStore {
   readonly prepError = signal(false);
 
   /**
+   * #378 — matière catalog, so the header shows « Chimie thérapeutique » instead
+   * of the raw « Matiere 1 ». Degraded on failure (empty map ⇒ the numeric
+   * fallback renders) because a catalog outage must not blank the header.
+   */
+  readonly matiereLabels = signal<Record<number, string>>({});
+
+  /**
+   * Plain flag, NOT a signal read: load() runs inside the workspace component's
+   * effect, so reading matiereLabels() here would make the effect depend on the
+   * very signal this method sets — on catalog failure each retry would set a
+   * fresh {} and re-trigger the effect forever (browser freeze, found by the
+   * #378 DOM specs).
+   */
+  private matieresRequested = false;
+
+  /**
    * #185 — the Convocations step is optional-but-real: « done » means the
    * teacher either printed/exported the slips (ConvocationsComponent reports it)
    * or explicitly skipped the step from the stepper. Persisted per exam in
@@ -133,6 +149,7 @@ export class ExamenWorkspaceStore {
     this.currentId = id;
     this.loading.set(true);
     this.error.set(false);
+    this.loadMatieres();
     try {
       this.convocationsFaites.set(localStorage.getItem(this.convocationsKey(id)) === '1');
     } catch {
@@ -158,6 +175,20 @@ export class ExamenWorkspaceStore {
   /** Re-fetch the current exam — used after a child mutates its lifecycle. */
   reload(): void {
     if (this.currentId != null) this.load(this.currentId);
+  }
+
+  /** One fetch per store instance — the catalog doesn't change mid-workspace. */
+  private loadMatieres(): void {
+    if (this.matieresRequested) return;
+    this.matieresRequested = true;
+    this.directory
+      .listMatieres()
+      .pipe(catchError(() => of([])))
+      .subscribe((matieres) => {
+        const labels: Record<number, string> = {};
+        for (const m of matieres) labels[m.id] = m.libelle;
+        this.matiereLabels.set(labels);
+      });
   }
 
   /**

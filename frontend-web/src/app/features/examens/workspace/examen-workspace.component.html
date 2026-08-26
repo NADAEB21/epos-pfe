@@ -15,7 +15,7 @@
         {{ displayStatut(e) }}
       </span>
     </div>
-    <p class="text-sm text-gray-500 mt-1">Matiere {{ e.matiereId }} &middot; {{ e.dateExamen }}</p>
+    <p class="text-sm text-gray-500 mt-1">{{ matiereLabel(e.matiereId) }} &middot; {{ e.dateExamen }}</p>
 
     <!-- Lifecycle bar -->
     <div class="flex items-center gap-1 mt-4 max-w-xl">

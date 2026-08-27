@@ -599,20 +599,24 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     // #297 — même garde que le backend, appliquée AVANT l'appel réseau (la
     // grille est déjà locale) pour que le refus s'affiche hors ligne. Jamais
     // appliquée à un étudiant absent : l'absence ne bloque jamais.
-    if (manquants > 0) {
-      Etudiant etudiant = current.lot.etudiants.first;
-      for (final e in current.lot.etudiants) {
-        if (e.id == event.etudiantId) {
-          etudiant = e;
-          break;
+    if (!event.absent) {
+      final feuilles = ScoreUtils.feuilles(current.grille.items);
+      final notations = current.notations[event.etudiantId] ?? const {};
+      final manquants = feuilles.where((i) => !notations.containsKey(i.id)).length;
+      if (manquants > 0) {
+        Etudiant etudiant = current.lot.etudiants.first;
+        for (final e in current.lot.etudiants) {
+          if (e.id == event.etudiantId) {
+            etudiant = e;
+            break;
+          }
         }
+        emit(current.copyWith(
+          messageErreur: 'Impossible de verrouiller : il reste $manquants critère(s) non noté(s) '
+              'pour ${etudiant.nomComplet}. Notez tous les critères, ou déclarez l\'étudiant absent.',
+        ));
+        return;
       }
-      emit(current.copyWith(
-        messageErreur: 'Impossible de verrouiller : il reste $manquants critère(s) non noté(s) '
-            'pour ${etudiant.nomComplet}. Notez tous les critères, ou déclarez l\'étudiant absent.',
-      ));
-      return;
-    }
     }
 
     final updatedNotations = event.absent

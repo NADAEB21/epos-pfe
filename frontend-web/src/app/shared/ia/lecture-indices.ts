@@ -46,7 +46,9 @@
  * en premier.
  */
 
-export type StatutIndice = 'CONCLUANT' | 'NON_CONCLUANT';
+import { IndiceAi } from '../../core/api/models';
+
+export type StatutIndice = IndiceAi['statut'];
 
 export type CodeIndice =
   | 'DIFFICULTE'
@@ -56,23 +58,16 @@ export type CodeIndice =
   | 'SEVERITE_EVALUATEUR';
 
 /**
- * Miroir du JSON renvoyé par ai-service (`app/stats/types.py: Indice.as_dict`).
- *
- * ⚠️ Champs en snake_case À DESSEIN. Contrairement aux DTO des services Java
- * (camelCase via Jackson), ai-service est du FastAPI qui sérialise ses
- * dataclasses telles quelles (`code`, `statut`, `n`, `valeur`, `ic`, `raison`,
- * `details`, et à l'intérieur de `details` : `taux_autres`, `p_value`,
- * `n_autres`, `k`, `moyenne_evaluateur`, `moyenne_autres`…). Convertir ici en
- * camelCase ferait diverger silencieusement le modèle TS du JSON réel sur le
- * fil — mieux vaut un modèle fidèle et ce commentaire qu'un mapping qui ment.
+ * Le miroir du JSON d'ai-service vit dans `core/api/models.ts` (`IndiceAi`,
+ * snake_case à dessein — voir son commentaire). Ici on ne fait que le
+ * RESSERRER : `code` devient l'union fermée des cinq indices que ce fichier
+ * sait lire (les deux switch refusent bruyamment un sixième), et `details`
+ * est typé `number` (les grandeurs annexes du moteur : `taux_autres`,
+ * `p_value`, `k`, `moyenne_evaluateur`, `moyenne_autres`…). Un seul miroir,
+ * deux vues — jamais deux déclarations qui peuvent diverger.
  */
-export interface Indice {
+export interface Indice extends IndiceAi {
   code: CodeIndice;
-  statut: StatutIndice;
-  n: number;
-  valeur: number | null;
-  ic: [number, number] | null;
-  raison: string | null;
   details: Record<string, number>;
 }
 

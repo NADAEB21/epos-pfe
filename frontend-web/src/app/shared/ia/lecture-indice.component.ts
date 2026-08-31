@@ -14,7 +14,14 @@ import { Indice, libelleCode, lireIndice } from './lecture-indices';
  *  - indice absent/malformé → ne rend rien (jamais de valeur fabriquée,
  *    leçon du 403 avalé, ADR-0029 D7) ;
  *  - NON_CONCLUANT → seul le texte de refus s'affiche, jamais une valeur,
- *    avec un style visuellement distinct (jamais confondu avec une lecture).
+ *    avec un style visuellement distinct (jamais confondu avec une lecture) ;
+ *  - code INCONNU (ai-service en avance sur cette version du site) → état
+ *    DÉGRADÉ VISIBLE : le code brut + « lecture indisponible », style refus.
+ *    lecture-indices.ts lève exprès sur un code inconnu (refus bruyant, D7) ;
+ *    mais lever DANS un computed de template ferait tomber tout l'écran de
+ *    délibération pour un seul indice — or afficher est une LECTURE, et une
+ *    lecture se dégrade, elle ne casse pas l'écran hôte (ADR-0015). Dégradé
+ *    visible ≠ silencieux : rien n'est inventé, le manque se voit.
  */
 @Component({
   selector: 'app-lecture-indice',
@@ -25,15 +32,28 @@ import { Indice, libelleCode, lireIndice } from './lecture-indices';
 export class LectureIndiceComponent {
   readonly indice = input<Indice | null>(null);
 
-  readonly libelle = computed(() => {
+  private readonly lecture = computed(() => {
     const i = this.indice();
-    return i ? libelleCode(i.code) : '';
+    if (!i) return null;
+    try {
+      return { libelle: libelleCode(i.code), texte: lireIndice(i), degrade: false };
+    } catch {
+      return {
+        libelle: i.code,
+        texte: 'lecture indisponible — indice non reconnu par cette version du site',
+        degrade: true,
+      };
+    }
   });
 
-  readonly texte = computed(() => {
-    const i = this.indice();
-    return i ? lireIndice(i) : '';
-  });
+  readonly libelle = computed(() => this.lecture()?.libelle ?? '');
 
-  readonly estRefus = computed(() => this.indice()?.statut === 'NON_CONCLUANT');
+  readonly texte = computed(() => this.lecture()?.texte ?? '');
+
+  readonly estDegrade = computed(() => this.lecture()?.degrade ?? false);
+
+  /** Pilote le style « pas une lecture » — refus du moteur OU code inconnu. */
+  readonly estRefus = computed(
+    () => this.estDegrade() || this.indice()?.statut === 'NON_CONCLUANT',
+  );
 }

@@ -38,6 +38,11 @@ import time
 import urllib.error
 import urllib.request
 
+# Piège S47 (scripts/README du dépôt) : sous Windows, stdout pipé bascule en
+# cp1252 et le premier « é » d'un bilan tue le script APRÈS ses écritures.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 BASE = "http://localhost:8080/api/v1"
 PG_CONTAINER = "epos-postgres"
 PG_USER = "admin"
@@ -268,6 +273,16 @@ def main():
     st, r = call("POST", bareme_path(exam_a), resp2,
                  {"motif": "F5 — tentative hors matière", "operations": ops_v1})
     ok("refus 403 (hors périmètre matière)", st == 403, f"got {st}")
+    # ⚠️ PAS de message nominatif ici, et c'est VOULU : les trois
+    # GlobalExceptionHandler génèrisent AccessDeniedException (« Access
+    # denied »), comportement épinglé par leurs tests — un 403 ne détaille
+    # jamais le périmètre au client. Le texte nominatif du guard #274
+    # (« matière hors périmètre (matiere_id=N) ») vit dans les LOGS ; les
+    # refus nominatifs voyagent en 400/409 (BusinessException), cf.
+    # scénarios 1 et 3. On épingle le contrat réel pour que sa disparition
+    # (un futur handler qui laisserait fuir le détail) se voie.
+    ok("corps 403 générique (convention anti-fuite des 3 services)",
+       msg(r) == "Access denied", str(msg(r)))
     ok("sentinelle : aucune ligne écrite pour l'examen A", count_baremes(exam_a) == avant_a)
     ok("sentinelle : table globale inchangée", count_baremes() == avant_global)
 
@@ -295,7 +310,24 @@ def main():
     ok("sentinelle : aucune ligne écrite (motif vide)", count_baremes(exam_a) == avant_a)
     ok("sentinelle : table globale inchangée", count_baremes() == avant_global)
 
-    print(f"\nEXAM_A(clos)={exam_a}  EXAM_B(non-clos)={exam_b}  ITEM_A={item_a}")
+    # ── nettoyage : tout ce que l'API PERMET de défaire ─────────────────────
+    # L'examen B (CONFIGURE) se supprime ; le compte resp2 se supprime
+    # (SUPER_ADMIN). L'examen A est TERMINE : indélébile PAR DESIGN (trace
+    # institutionnelle, DELETE réservé à BROUILLON/CONFIGURE) — il RESTE en
+    # base avec son barème v1, son étudiant et sa notation. On le dit plutôt
+    # que de le laisser découvrir dans la liste des examens.
+    print("\n== nettoyage (ce que l'API permet) ==")
+    st, r = call("DELETE", f"/examens/{exam_b}", resp)
+    ok("examen B (CONFIGURE) supprimé", st == 200, f"got {st}: {msg(r)}")
+    # Pas de DELETE /users — la désactivation auditée est le seul retrait (#289).
+    st, r = call("POST", f"/users/{userid_from(resp2)}/desactivation", admin,
+                 {"motif": "Compte jetable de la recette F5 (#364) — rôle épuisé"})
+    ok("compte resp2 (hors matière) désactivé", st == 200, f"got {st}: {msg(r)}")
+    print(f"⚠️  RÉSIDU VOLONTAIRE : l'examen {exam_a} « F5 recette bareme A » (TERMINE)")
+    print("    reste en base avec barème v1 + 1 étudiant + 1 notation — non")
+    print("    supprimable par l'API. À purger en SQL si le dev DB doit rester net.")
+
+    print(f"\nEXAM_A(clos)={exam_a}  EXAM_B(non-clos, supprimé)={exam_b}  ITEM_A={item_a}")
     print("\nRÉSULTAT :", "TOUT PASSE" if all(results) else f"{results.count(False)} ÉCHEC(S)")
     sys.exit(0 if all(results) else 1)
 

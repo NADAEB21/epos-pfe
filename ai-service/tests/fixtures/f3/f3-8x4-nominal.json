@@ -1,6 +1,6 @@
 {
   "nom": "f3-8x4-nominal",
-  "commentaire": "8 étudiants × 4 critères, calculés à la main dans docs/f3-fixtures-verite.xlsx (feuille 'Synthese', formules AVERAGE/CORREL/VAR.S dans les feuilles Difficulte/Discrimination/AlphaCronbach). Deux critères BINAIRE (contribution = valeur×ponderation) et deux NUMERIQUE (contribution = valeur brute, ponderation = plafond seulement — arithmétique identique à ExamItemSnapshot.weigh). Vérifie les FORMULES d'engine.py, pas le contrat de refus (n=8 < tous les seuils de production).",
+  "commentaire": "8 étudiants × 4 critères, calculés à la main dans docs/ia-bi/f3-fixtures-verite.xlsx (feuille 'Synthese', formules AVERAGE/CORREL/VAR.S dans les feuilles Difficulte/Discrimination/AlphaCronbach). Deux critères BINAIRE (contribution = valeur×ponderation) et deux NUMERIQUE (contribution = valeur brute, ponderation = plafond seulement — arithmétique identique à ExamItemSnapshot.weigh). Vérifie les FORMULES d'engine.py, pas le contrat de refus (n=8 < tous les seuils de production).",
   "criteres": [
     { "item_id": 1, "type": "BINAIRE",   "ponderation": 4,  "valeur_max": null },
     { "item_id": 2, "type": "NUMERIQUE", "ponderation": 10, "valeur_max": 10 },

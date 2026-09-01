@@ -26,8 +26,14 @@ clôture systématiquement (`TERMINE`) l'examen de référence dans un bloc
 `finally` : même si le script plante en cours de route (comme lors des
 itérations de mise au point de F1), aucun examen ne reste `EN_COURS` à
 bloquer les runs suivants via la garde #265 (évaluateurs déjà engagés). 
-Les comptes évaluateurs dédiés (`ia.f1.eval.a/b/c@epos.tn`) sont créés une fois puis 
-réutilisés (409 toléré et résolu par relecture de `/users?role=EVALUATEUR`).
+Les comptes évaluateurs dédiés (`ia.f1.eval.a/b/c/d@epos.tn`, mot de passe `Eval@1234`)
+sont créés une fois puis réutilisés (409 toléré et résolu par relecture de
+`/users?role=EVALUATEUR`). Avant de noter une station, chaque évaluateur appelle
+`GET /evaluateur/stations/{id}/grille` comme le ferait le mobile : c'est cet appel
+qui matérialise `exam_grille_snapshot` (dénominateur `note_max` + `items_json` par
+station), sans lequel aucun barème de délibération n'est possible sur l'examen
+(ADR-0030 D2) — ajouté en S50 ; l'examen 80 du premier run a été complété à la
+main par le même appel.
 
 Le script ne fait **aucun INSERT SQL** : chaque écriture passe par l'API publique
 (auth-service, exam-service, scoring-service via le gateway), donc par les mêmes
@@ -206,6 +212,23 @@ incomplet — le chemin API pur produit des données que les vues voient en enti
    **refusée** (k=2 < 3 critères — le contrat petits-N du moteur s'applique
    aussi à la cohorte synthétique, et c'est voulu).
 
+## Lecture par N8 (moteur de proposition, `GET /ai/examens/{id}/propositions`)
+
+Ce que l'étage C fait des trois défauts — à connaître avant la démo, comme les
+deux lectures ci-dessus :
+
+| Défaut | proposition D8 | pourquoi |
+|---|---|---|
+| 1 — « Critère impossible » (p = 0.056) | **`EXCLURE_CRITERE`, rang 1** (`CRITERE_IMPOSSIBLE`) — avec l'effet projeté | p ≤ 0,10 : « personne n'a pu marquer » est une observation |
+| Station Défauts (72 % d'échec vs ≈ 42 % ailleurs) | **`EXCLURE_STATION`, rang 2** (`STATION_EN_ECHEC`) | majorité en échec ET significativement plus que les autres stations |
+| 2 — « Critère sans lien » (r = −0.08) | **aucune proposition d'item** — lecture de GRILLE `GRILLE_INCOHERENTE` (α = 0.06, 2 critères sur 4 à r ≈ 0) | r se lit contre le *reste* de la grille ; quand ce reste est incohérent (α < 0,50), r ne dit rien de l'item. « Geste conforme » (SAIN, r = −0.03) et « Critère sans lien » sont indistinguables ici — retirer l'un OU l'autre relève α (0.17 / 0.28). Un module honnête ne choisit pas : il dit la station incohérente. Décision Nada, S50. |
+| 3 — sévérité | rien (D3 : descriptif, jamais automatique) | signal de délibération, pas une opération de barème |
+
+La repondération (D8 op. 3) n'est **jamais** proposée d'elle-même (un jugement,
+pas une observation) ; `POST /ai/examens/{id}/projection` en prévisualise l'effet.
+Le contraste sain reste la Station Témoin (α = 0.59, r 0.24–0.69) : aucun
+déclencheur n'y part — c'est le test de non-faux-positif de la démo.
+
 ## Utilisation par N5 / N6 (moteur statistique)
 
 - Aucune configuration particulière n'est nécessaire côté `ai-service` : les
@@ -225,7 +248,9 @@ incomplet — le chemin API pur produit des données que les vues voient en enti
 
 - Pas d'anomalie type évaluateur/étudiant hors sévérité (stretch, hors scope).
 - Pas de réajustement audité ni de barème de délibération : F1 fournit la
-  matière première, pas la démo de bout en bout (ADR-0013/ADR-0030 — tâches N7-N9).
+  matière première, pas la démo de bout en bout (ADR-0013/ADR-0030 — N7 #380
+  et N8 #362 livrés, N9 #363 à venir). Le script matérialise le snapshot de
+  grille (voir plus haut) pour que cette suite soit POSSIBLE sur ses examens.
 - Pas de suppression/nettoyage automatique : les examens générés sont des
   données de démonstration légitimes, destinées à rester en base pour la
   cohorte IA/BI — ce n'est pas un test jetable (contrairement à

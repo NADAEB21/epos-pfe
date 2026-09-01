@@ -27,7 +27,7 @@ from app.stats.loader import DonneesExamen
 
 # ⚠️ À incrémenter à CHAQUE évolution du moteur (formules, seuils, graine,
 # gabarits, forme du payload). Voir docstring.
-MOTEUR_VERSION = "n5-2026-08-24-1"
+MOTEUR_VERSION = "n8-2026-09-01-1"
 
 
 def _canonique(d: DonneesExamen, nb_verrouillees_total: int) -> str:

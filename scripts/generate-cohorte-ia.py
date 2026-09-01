@@ -294,6 +294,7 @@ def grader_station_lot_courant(base, eval_token, eval_id, station: StationInfo,
 
     fonction_valeur(etudiant, item_dict, rng) -> float
     """
+    grille_figee = False
     while True:
         rotations = must(base, "GET", f"/rotations/station/{station.id}", eval_token,
                           what="lister rotations station")
@@ -303,6 +304,22 @@ def grader_station_lot_courant(base, eval_token, eval_id, station: StationInfo,
         )
         if courante is None:
             return  # rien (ou plus rien) à noter ici pour cet évaluateur
+
+        if not grille_figee:
+            # Le mobile récupère (et fait MATÉRIALISER) la grille AVANT de noter :
+            # GET /evaluateur/stations/{id}/grille écrit exam_grille_snapshot (nom,
+            # noteMax, itemsJson par STATION) — une table DISTINCTE de
+            # exam_item_snapshot, que le verrouillage matérialise seul. Sans cet
+            # appel, l'examen n'a aucun dénominateur snapshoté : le barème de
+            # délibération (ADR-0030 D2) refuse toute cible et /results ne sert
+            # aucun total délibéré (leçon S48 : l'examen 80 du 1er run n'en avait
+            # AUCUN). Un appel par station suffit (snapshot unique, idempotent) ;
+            # il exige une rotation de cet évaluateur sur la station — d'où sa
+            # place APRÈS la découverte de la rotation courante. Même piège
+            # documenté dans recette_f5_bareme_deliberation.py.
+            must(base, "GET", f"/evaluateur/stations/{station.id}/grille", eval_token,
+                 what="figer la grille (exam_grille_snapshot)")
+            grille_figee = True
 
         detail = must(base, "GET", f"/evaluateur/rotations/{courante['id']}/groupe", eval_token,
                        what="détail groupe")

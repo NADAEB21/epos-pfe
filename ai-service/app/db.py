@@ -58,6 +58,47 @@ def statut_examen(examen_id: int) -> str | None:
     return row[0] if row else None
 
 
+def bareme_courant(examen_id: int) -> list[tuple]:
+    """Lignes (version, op_type, cible_item_id, cible_station_id, nouvelle_echelle)
+    de la version COURANTE du barème de délibération (vue scoring V26, #362).
+
+    Liste vide = aucun barème. Une version VIDE (retour à l'origine, ADR-0030
+    D3) rend UNE ligne dont op_type est NULL (LEFT JOIN de la vue) — « pas de
+    barème » ≠ « barème vide », la distinction remonte telle quelle.
+    """
+    with psycopg.connect(SCORING_DSN, connect_timeout=_CONNECT_TIMEOUT) as conn:
+        return conn.execute(
+            """
+            SELECT version, op_type, cible_item_id, cible_station_id, nouvelle_echelle
+            FROM v_ai_bareme_deliberation
+            WHERE examen_id = %s
+              AND version = (SELECT MAX(version) FROM v_ai_bareme_deliberation
+                             WHERE examen_id = %s)
+            ORDER BY cible_station_id NULLS LAST, cible_item_id NULLS LAST
+            """,
+            (examen_id, examen_id),
+        ).fetchall()
+
+
+def grilles_snapshot(examen_id: int) -> list[tuple]:
+    """Lignes (station_id, grille_id, note_max, items_json) du snapshot de grille
+    V9 (vue scoring V26, #362) — le barème qui a RÉELLEMENT servi à noter.
+
+    Se matérialise PAR STATION au fil de la notation (leçon S48) : la
+    couverture peut être partielle, l'appelant la mesure et la DIT.
+    """
+    with psycopg.connect(SCORING_DSN, connect_timeout=_CONNECT_TIMEOUT) as conn:
+        return conn.execute(
+            """
+            SELECT station_id, grille_id, note_max, items_json
+            FROM v_ai_grille_snapshot
+            WHERE examen_id = %s
+            ORDER BY station_id
+            """,
+            (examen_id,),
+        ).fetchall()
+
+
 def nb_notations_verrouillees(examen_id: int) -> int:
     """Total de référence des notations verrouillées (vue scoring V23, #359).
 

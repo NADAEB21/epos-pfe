@@ -273,10 +273,62 @@ def test_decision_du_journal_attachee():
     pid = props.proposition_id(80, "a" * 64, "n8-test", None, o)
     out = construire(payload(par_critere=[critere(1, "Impossible", 94, 107, p=0.05, r=0.1)],
                              par_grille=[grille(94, 107, 0.2)]),
-                     decisions={pid: {"decision": "REFUSER", "motif": "on garde", "decide_par": 5,
+                     decisions={pid: {"proposition_id": pid, "operation": o.as_wire(),
+                                      "decision": "REFUSER", "motif": "on garde", "decide_par": 5,
                                       "decide_a": "2026-09-01T10:05:00+00:00", "bareme_version_resultat": None}})
     assert out["propositions"][0]["decision"]["decision"] == "REFUSER"
     assert out["propositions"][0]["decision"]["motif"] == "on garde"
+    assert out["propositions"][0]["decision"]["proposition_id"] == pid
+
+
+def test_ligne_ouverte_du_journal_n_est_pas_une_decision():
+    o = pj.Operation(pj.EXCLURE_CRITERE, cible_item_id=1)
+    pid = props.proposition_id(80, "a" * 64, "n8-test", None, o)
+    out = construire(payload(par_critere=[critere(1, "Impossible", 94, 107, p=0.05, r=0.1)],
+                             par_grille=[grille(94, 107, 0.2)]),
+                     decisions={pid: {"proposition_id": pid, "operation": o.as_wire(), "decision": None,
+                                      "motif": None, "decide_par": None, "decide_a": None}})
+    assert out["propositions"][0]["decision"] is None
+
+
+def test_deja_appliquee_retrouve_sa_decision_par_operation_et_n_est_pas_rejournalisee():
+    """Après acceptation, la version de base passe None → 1 : l'id change. La
+    décision ACCEPTER de l'ancien id doit rester visible, et l'opération déjà
+    appliquée ne génère pas de nouvelle ligne de journal (rien à décider)."""
+    o = pj.Operation(pj.EXCLURE_CRITERE, cible_item_id=1)
+    ancien = props.proposition_id(80, "a" * 64, "n8-test", None, o)
+    courant = pj.BaremeCourant(version=1, operations=(o,))
+    out = construire(payload(par_critere=[critere(1, "Impossible", 94, 107, p=0.05, r=0.1)],
+                             par_grille=[grille(94, 107, 0.2)]), courant=courant,
+                     decisions={ancien: {"proposition_id": ancien, "operation": o.as_wire(),
+                                         "decision": "ACCEPTER", "motif": "ok", "decide_par": 5,
+                                         "decide_a": "2026-09-01T10:05:00+00:00", "bareme_version_resultat": 1}})
+    p = out["propositions"][0]
+    assert p["deja_appliquee"] is True and p["proposition_id"] != ancien
+    assert p["decision"]["decision"] == "ACCEPTER" and p["decision"]["proposition_id"] == ancien
+    assert props.lignes_journal(out) == []
+
+
+def test_exclure_station_retire_les_operations_critere_de_la_station():
+    """v1 exclut le critère 1 (station 107) ; proposer d'exclure la station 107
+    ne doit pas soumettre les deux niveaux (scoring refuse « niveaux mélangés ») :
+    la composition retire l'opération critère devenue caduque."""
+    courant = pj.BaremeCourant(version=1, operations=(pj.Operation(pj.EXCLURE_CRITERE, cible_item_id=1),))
+    out = construire(payload(par_station=[station(107, taux=0.72, taux_autres=0.42, p_value=0.0005)]),
+                     courant=courant)
+    assert len(out["propositions"]) == 1
+    p = out["propositions"][0]
+    assert p["operation"]["type"] == "EXCLURE_STATION"
+    assert p["operations_a_soumettre"] == [p["operation"]]
+    assert p["effet_projete"]["avant"]["denominateur"] == 15.0   # v1 : 20 − 5
+    assert p["effet_projete"]["apres"]["denominateur"] == 0.0    # la seule station sort
+
+
+def test_exclure_station_conserve_les_operations_des_autres_stations():
+    autre = pj.Operation(pj.REPONDERER, cible_station_id=999, nouvelle_echelle=10.0)
+    meme = pj.Operation(pj.REPONDERER, cible_station_id=107, nouvelle_echelle=10.0)
+    composee = props._composer([autre, meme], pj.Operation(pj.EXCLURE_STATION, cible_station_id=107), CRITERES)
+    assert composee == [autre, pj.Operation(pj.EXCLURE_STATION, cible_station_id=107)]
 
 
 def test_reponderation_toujours_dite_jamais_proposee():

@@ -286,6 +286,15 @@ def construire(
             ),
         })
 
+    # Les décisions du journal, indexées par proposition_id ET par opération :
+    # une opération déjà appliquée porte un id NEUF (la version de base a
+    # changé) — sa décision historique doit rester visible. Seules les lignes
+    # DÉCIDÉES comptent ; une ligne encore ouverte n'est pas une décision.
+    decidees = {pid: l for pid, l in decisions.items() if l.get("decision")}
+    par_operation: dict[str, Mapping] = {}
+    for l in sorted(decidees.values(), key=lambda l: str(l.get("decide_a") or "")):
+        par_operation[_cle_operation(l.get("operation") or {})] = l
+
     propositions = []
     for cand in liste:
         op: pj.Operation = cand["operation"]
@@ -294,7 +303,7 @@ def construire(
             a_soumettre = ops_courantes
             refus = None
         else:
-            a_soumettre = ops_courantes + [op]
+            a_soumettre = _composer(ops_courantes, op, donnees.criteres)
             refus = pj.valider(a_soumettre, donnees.criteres, snapshotes, grilles, courant)
         if refus is not None:
             code = STATION_NON_SNAPSHOTEE if refus.code == "GRILLE_NON_SNAPSHOTEE" else CIBLE_NON_DELIBERABLE
@@ -319,7 +328,7 @@ def construire(
         else:
             g = grilles.get(op.cible_station_id)
             cible["max"] = g.note_max if g else None
-        decision = decisions.get(pid)
+        decision = decidees.get(pid) or par_operation.get(_cle_operation(op.as_wire()))
         propositions.append({
             "proposition_id": pid,
             "rang_defendabilite": cand["rang_defendabilite"],
@@ -363,6 +372,35 @@ def construire(
     }
 
 
+def _cle_operation(wire: Mapping) -> str:
+    """Clé canonique d'une opération (forme du fil) — pour retrouver une
+    décision par opération quand l'id de proposition a changé."""
+    return json.dumps(pj.Operation.from_wire(wire).as_wire(), sort_keys=True, separators=(",", ":"))
+
+
+def _composer(ops_courantes: list[pj.Operation], op: pj.Operation,
+              criteres: Mapping) -> list[pj.Operation]:
+    """La version COMPLÈTE à soumettre = version courante + l'opération
+    proposée. Exclure une STATION rend caduques les opérations critère de
+    cette station (et une repondération de la même station) : scoring refuse
+    de les combiner (« un seul niveau à la fois ») et une station exclue sort
+    entièrement du calcul — on les retire donc de la composition, au lieu de
+    proposer une version que scoring rejetterait."""
+    if op.type != pj.EXCLURE_STATION:
+        return ops_courantes + [op]
+    s = op.cible_station_id
+    conservees = []
+    for o in ops_courantes:
+        if o.cible_station_id == s:
+            continue
+        if o.cible_item_id is not None:
+            crit = criteres.get(o.cible_item_id)
+            if crit is not None and crit.station_id == s:
+                continue
+        conservees.append(o)
+    return conservees + [op]
+
+
 def _decision_publique(ligne: Mapping) -> dict:
     return {
         "decision": ligne.get("decision"),
@@ -370,11 +408,16 @@ def _decision_publique(ligne: Mapping) -> dict:
         "decide_par": ligne.get("decide_par"),
         "decide_a": ligne.get("decide_a"),
         "bareme_version_resultat": ligne.get("bareme_version_resultat"),
+        # l'id de la ligne qui porte l'acte (≠ de l'id courant si la version
+        # de base a changé depuis — une opération déjà appliquée, typiquement)
+        "proposition_id": ligne.get("proposition_id"),
     }
 
 
 def lignes_journal(payload: Mapping) -> list[dict]:
-    """Les lignes à insérer dans le journal pour un payload construit."""
+    """Les lignes à insérer dans le journal pour un payload construit — une
+    opération DÉJÀ appliquée n'est pas une proposition (rien à décider) : pas
+    de ligne pour elle, sa décision historique vit déjà au journal."""
     return [
         {
             "proposition_id": p["proposition_id"],
@@ -387,4 +430,5 @@ def lignes_journal(payload: Mapping) -> list[dict]:
             "effet_projete": p["effet_projete"],
         }
         for p in payload["propositions"]
+        if not p["deja_appliquee"]
     ]

@@ -16,6 +16,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:epos_mobile/features/grading/data/models/grading_models.dart';
 import 'package:epos_mobile/features/grading/domain/entities/grille.dart';
 import 'package:epos_mobile/features/grading/domain/entities/item_evaluation.dart';
 import 'package:epos_mobile/features/grading/domain/entities/lot.dart';
@@ -145,6 +146,7 @@ GradingLoaded _seedState({
   bool lotValide = false,
   bool groupeSuivantDisponible = false,
   List<Etudiant> etudiants = const [_etudiant1, _etudiant2],
+  Lot? lot,
 }) =>
     GradingLoaded(
       rotationId: 141,
@@ -152,7 +154,7 @@ GradingLoaded _seedState({
       grilleId: 10,
       stationNom: 'Station test',
       grille: Grille(id: 10, nom: 'Grille test', noteMax: 20, items: items),
-      lot: Lot(
+      lot: lot ?? Lot(
         id: 28, numero: 1, total: 2, etudiants: etudiants,
         valide: lotValide, groupeSuivantDisponible: groupeSuivantDisponible,
       ),
@@ -360,6 +362,40 @@ void main() {
           expect(repo.validerEtudiantCalls, 0);
           await bloc.close();
         });
+
+    test('#383 — lot issu du JSON réseau (List<EtudiantModel>) : le refus '
+        's\'affiche au lieu de crasher', () async {
+      // Le test « critères manquants » ci-dessus passait déjà sur le code
+      // cassé : sa fixture construit une List<Etudiant> littérale. En
+      // production, LotModel.fromJson produit une List<EtudiantModel> derrière
+      // l'interface List<Etudiant>, et l'ancien firstWhere(orElse: ...) y
+      // échouait en TypeError (vérification de covariance réifiée — VM ET
+      // Web) : aucun messageErreur n'était jamais émis. On seed donc le lot
+      // par le VRAI chemin de désérialisation.
+      final lotReseau = LotModel.fromJson({
+        'id': 28, 'numero': 1, 'total': 2, 'valide': false,
+        'etudiants': [
+          {'id': 1, 'nom': 'Karoui', 'prenom': 'Sonia',
+            'numeroInscription': '21/0001'},
+          {'id': 2, 'nom': 'Ben Ali', 'prenom': 'Nour',
+            'numeroInscription': '21/0002'},
+        ],
+      });
+      final repo = _FakeGradingRepository();
+      final bloc = GradingBloc(repository: repo);
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(lot: lotReseau)); // aucune notation saisie
+
+      bloc.add(const GradingEtudiantValide(1));
+      await _settle();
+
+      final s = bloc.state as GradingLoaded;
+      expect(s.messageErreur, contains('Sonia Karoui'),
+          reason: 'le refus doit nommer l\'étudiant, pas crasher');
+      expect(s.etudiantsValides, isNot(contains(1)));
+      expect(repo.validerEtudiantCalls, 0);
+      await bloc.close();
+    });
 
     test('tous les critères saisis → validation envoyée et acceptée', () async {
       final repo = _FakeGradingRepository()

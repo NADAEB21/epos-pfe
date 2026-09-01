@@ -604,10 +604,13 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       final notations = current.notations[event.etudiantId] ?? const {};
       final manquants = feuilles.where((i) => !notations.containsKey(i.id)).length;
       if (manquants > 0) {
-        final etudiant = current.lot.etudiants.firstWhere(
-              (e) => e.id == event.etudiantId,
-          orElse: () => current.lot.etudiants.first,
-        );
+        Etudiant etudiant = current.lot.etudiants.first;
+        for (final e in current.lot.etudiants) {
+          if (e.id == event.etudiantId) {
+            etudiant = e;
+            break;
+          }
+        }
         emit(current.copyWith(
           messageErreur: 'Impossible de verrouiller : il reste $manquants critère(s) non noté(s) '
               'pour ${etudiant.nomComplet}. Notez tous les critères, ou déclarez l\'étudiant absent.',

@@ -168,14 +168,12 @@ class GradingScreen extends StatelessWidget {
                    ));
                  }
                  // #248 — erreur NON fatale : l'écran de notation reste affiché (et les
-                 // notes avec lui), le message passe en surimpression.
+                 // notes avec lui), Boîte de dialogue plutôt qu'un SnackBar transitoire :
+                 // un évaluateur âgé doit avoir le temps de lire le message et le fermer
+                 // lui-même, plutôt que de le voir disparaître après quelques secondes.
                  if (state is GradingLoaded && state.messageErreur != null) {
-                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                     content:         Text(state.messageErreur!),
-                     backgroundColor: AppTheme.scoreRed,
-                     behavior:        SnackBarBehavior.floating,
-                   ));
-                 }
+                   _showBlockingErrorDialog(context, state.messageErreur!);
+                 } 
                },
                builder: (context, state) {
                  if (state is GradingLoaded) {
@@ -1294,4 +1292,42 @@ class _PulsingDotState extends State<_PulsingDot>
       ),
     );
   }
+}
+/// Boîte de dialogue de refus — même gabarit visuel que « Groupe incomplet »
+/// (_confirmerValidation ci-dessous) : titre clair, texte lisible, un seul
+/// bouton d'action explicite. Reste affichée jusqu'à ce que l'évaluateur
+/// tape lui-même « Compris » — aucune disparition automatique.
+void _showBlockingErrorDialog(BuildContext context, String message) {
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Action impossible'),
+      content: Text(
+        message,
+        style: const TextStyle(fontSize: 15, height: 1.4),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      actions: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryDark,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Compris',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

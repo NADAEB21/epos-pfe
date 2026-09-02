@@ -1,0 +1,311 @@
+<header class="mb-5">
+  <h1 class="text-lg font-semibold text-gray-900">Délibération</h1>
+  <p class="text-sm text-gray-500">
+    Le module propose, le jury décide (ADR-0021 D10). L'effet est affiché <span class="font-medium">avant</span> tout clic ;
+    le barème d'origine n'est jamais réécrit — chaque acte crée une version, avec son motif.
+  </p>
+  @if (baremeCourant(); as b) {
+    <p class="mt-2 text-sm">
+      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Barème courant : v{{ b.version }}</span>
+      @if (b.operations.length === 0) {
+        <span class="text-gray-500 ml-2">retour au barème d'origine</span>
+      } @else {
+        <span class="text-gray-500 ml-2">{{ b.operations.length }} opération(s) appliquée(s)</span>
+      }
+    </p>
+  } @else if (aiEtat() === 'prets') {
+    <p class="mt-2 text-sm text-gray-500">Aucun barème de délibération : les résultats sont lus au barème d'origine.</p>
+  }
+</header>
+
+@if (!canDeliberer()) {
+  <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 mb-6" role="status">
+    La délibération n'est possible qu'une fois l'examen clos (terminé ou archivé).
+  </div>
+}
+
+@if (succes(); as s) {
+  <div class="rounded-lg border border-status-success bg-green-50 px-3 py-2 text-sm text-green-800 mb-4" role="status">{{ s }}</div>
+}
+@if (avertissement(); as a) {
+  <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-4" role="alert">{{ a }}</div>
+}
+
+<!-- ── Propositions du module IA ─────────────────────────────────────────── -->
+<section class="mb-8">
+  <h2 class="text-sm font-medium text-gray-500 mb-3">Propositions du module IA</h2>
+
+  @switch (aiEtat()) {
+    @case ('chargement') {
+      <div class="space-y-3 animate-pulse"><div class="h-28 rounded-xl bg-gray-200"></div><div class="h-28 rounded-xl bg-gray-200"></div></div>
+    }
+    @case ('absents') {
+      <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-500" role="status">
+        Propositions non disponibles — le module IA ne répond pas. L'historique et la composition manuelle restent utilisables.
+      </p>
+    }
+    @case ('refus') {
+      <p class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800 italic" role="status">{{ aiMessage() }}</p>
+    }
+    @default {
+      @if (propositions(); as pr) {
+        @if (!pr.couverture_snapshot_complete) {
+          <p class="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800" role="status">
+            Le barème figé ne couvre pas toutes les stations notées : aucun effet ne peut être projeté, et scoring refuserait un barème sur les stations manquantes.
+          </p>
+        }
+        @if (pr.propositions.length === 0) {
+          <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-500" role="status">
+            Aucune opération proposée sur cet examen — les indices ne franchissent aucun seuil de déclenchement.
+          </p>
+        }
+        <div class="space-y-4">
+          @for (p of pr.propositions; track p.proposition_id) {
+            <article class="rounded-xl bg-white border shadow-card p-5" [class]="lecture(p).degrade ? 'border-amber-200' : 'border-gray-200'">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{{ rangLabel(p.rang_defendabilite) }}</span>
+                    <h3 class="font-semibold text-gray-900" [class.italic]="lecture(p).degrade">{{ lecture(p).libelle }}</h3>
+                    @if (p.deja_appliquee) {
+                      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-800 border border-green-200">déjà appliquée</span>
+                    }
+                  </div>
+                  <p class="text-sm text-gray-600 mt-1">Cible : <span class="font-medium text-gray-800">{{ cibleLabel(p) }}</span></p>
+                </div>
+                @if (p.decision; as d) {
+                  <div class="text-right text-xs">
+                    <span class="font-medium px-2 py-0.5 rounded-full" [class]="d.decision === 'ACCEPTER' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-700 border border-gray-200'">
+                      {{ d.decision === 'ACCEPTER' ? 'Acceptée' : 'Refusée' }}@if (d.bareme_version_resultat) { — v{{ d.bareme_version_resultat }} }
+                    </span>
+                    <div class="text-gray-400 mt-1">{{ d.decide_a | date: 'dd/MM/yyyy HH:mm' }}</div>
+                    @if (d.motif) { <div class="text-gray-600 italic mt-1 max-w-xs">« {{ d.motif }} »</div> }
+                  </div>
+                }
+              </div>
+
+              <p class="text-sm text-gray-700 mt-3" [class.italic]="lecture(p).degrade">{{ lecture(p).phrase }}</p>
+              <ul class="mt-2 text-xs text-gray-500 space-y-0.5">
+                @for (d of p.declencheur; track d.code) {
+                  <li>Déclencheur : {{ declencheur(d) }}@if (d.n != null) { · n={{ d.n }} }</li>
+                }
+              </ul>
+              <p class="mt-2 text-sm text-gray-800">Opération : {{ operation(p.operation) }}</p>
+
+              <!-- L'effet PROJETÉ — avant le clic, jamais après (D10) -->
+              @if (p.effet_projete; as e) {
+                <div class="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3">
+                  <div class="text-xs font-medium text-gray-500 mb-2">Effet projeté sur les {{ e.apres.n_etudiants }} étudiants — barème courant → barème proposé</div>
+                  <table class="w-full text-sm">
+                    <tbody>
+                      @for (l of lignesEffet(e); track l.label) {
+                        <tr class="border-t border-gray-100 first:border-0">
+                          <td class="py-1 pr-3 text-gray-600">{{ l.label }}</td>
+                          <td class="py-1 pr-3 tabular-nums text-gray-500">{{ l.avant }}</td>
+                          <td class="py-1 pr-2 text-gray-300">→</td>
+                          <td class="py-1 tabular-nums" [class]="l.change ? 'font-semibold text-gray-900' : 'text-gray-500'">{{ l.apres }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p class="mt-3 text-xs text-amber-800 italic">Effet non projetable (couverture du barème figé incomplète).</p>
+              }
+
+              <!-- L'acte -->
+              @if (canDeliberer() && !p.deja_appliquee && !p.decision) {
+                @if (decisionOuverte()?.propositionId !== p.proposition_id) {
+                  <div class="mt-4 flex gap-2">
+                    <button type="button" (click)="ouvrirDecision(p, 'ACCEPTER')" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark">Accepter…</button>
+                    <button type="button" (click)="ouvrirDecision(p, 'REFUSER')" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Refuser…</button>
+                  </div>
+                } @else {
+                  <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                    <div class="text-sm font-medium text-gray-900 mb-2">
+                      {{ decisionOuverte()?.decision === 'ACCEPTER' ? 'Accepter la proposition — le barème v' + ((baremeCourant()?.version ?? 0) + 1) + ' sera créé' : 'Refuser la proposition — le barème reste inchangé' }}
+                    </div>
+                    <label class="block text-xs text-gray-600">
+                      Motif <span class="text-status-danger">*</span>
+                      <textarea rows="2" [value]="motif()" (input)="motif.set($any($event.target).value)"
+                        class="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                        placeholder="Ex. : personne n'a pu marquer ce critère — défaut de l'instrument, pas des candidats"></textarea>
+                    </label>
+                    @if (erreur(); as err) { <p class="mt-2 text-xs text-status-danger" role="alert">{{ err }}</p> }
+                    <div class="mt-2 flex items-center gap-2">
+                      <button type="button" (click)="confirmerDecision(p)" [disabled]="busy()"
+                        class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50">
+                        {{ busy() ? 'Enregistrement…' : (decisionOuverte()?.decision === 'ACCEPTER' ? 'Enregistrer le barème' : 'Journaliser le refus') }}
+                      </button>
+                      <button type="button" (click)="annulerDecision()" class="text-sm text-gray-500 hover:text-gray-700">Annuler</button>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">Le barème d'origine n'est jamais réécrit ; la version, son auteur et son motif sont tracés. Le refus est journalisé aussi.</p>
+                  </div>
+                }
+              }
+            </article>
+          }
+        </div>
+
+        <!-- Le silence est dit -->
+        @if (pr.lectures_sans_proposition.length > 0) {
+          <h3 class="text-xs font-medium text-gray-500 mt-5 mb-2">Lectures sans proposition</h3>
+          <ul class="space-y-2">
+            @for (l of pr.lectures_sans_proposition; track $index) {
+              <li class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+                <span class="font-medium" [class.italic]="libelleSansProposition(l.code).degrade">{{ libelleSansProposition(l.code).libelle }}</span>
+                @if (l.station_id != null) { <span class="text-amber-700"> · {{ nomsCibles().station(l.station_id) }}</span> }
+                @if (l.cible?.item_id != null) { <span class="text-amber-700"> · {{ l.cible?.libelle ?? nomsCibles().critere(l.cible!.item_id!) }}</span> }
+                <span class="block italic mt-0.5">{{ l.raison }}</span>
+              </li>
+            }
+          </ul>
+        }
+      }
+    }
+  }
+</section>
+
+<!-- ── Composition manuelle ──────────────────────────────────────────────── -->
+@if (canDeliberer()) {
+  <section class="mb-8">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-medium text-gray-500">Composer un barème (manuel)</h2>
+      @if (!compositionOuverte()) {
+        <button type="button" (click)="ouvrirComposition()" class="text-sm text-brand hover:underline">Composer…</button>
+      }
+    </div>
+    @if (compositionOuverte()) {
+      <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+        <p class="text-xs text-gray-500 mb-3">
+          La version enregistrée est COMPLÈTE (elle remplace la courante) ; une liste vide = retour au barème d'origine.
+          La repondération n'est jamais proposée par le module (un jugement, pas une observation) : ici, vous la composez et vous en voyez l'effet avant d'agir.
+        </p>
+        <ul class="divide-y divide-gray-100 mb-3">
+          @for (op of composition(); track $index) {
+            <li class="flex items-center justify-between py-1.5 text-sm">
+              <span>{{ operation(op) }}</span>
+              <button type="button" (click)="retirerOperation($index)" class="text-xs text-status-danger hover:underline">retirer</button>
+            </li>
+          } @empty {
+            <li class="py-1.5 text-sm text-gray-400">Aucune opération — retour au barème d'origine.</li>
+          }
+        </ul>
+        <div class="flex flex-wrap items-end gap-2 text-sm">
+          <label class="block">
+            <span class="text-xs text-gray-600">Opération</span>
+            <select (change)="onCompoType($any($event.target).value)" class="mt-1 block rounded border border-gray-300 px-2 py-1 bg-white">
+              <option value="EXCLURE_CRITERE">Retirer un critère</option>
+              <option value="EXCLURE_STATION">Exclure une station</option>
+              <option value="REPONDERER">Repondérer</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-xs text-gray-600">Station</span>
+            <select (change)="onCompoStation($any($event.target).value)" class="mt-1 block rounded border border-gray-300 px-2 py-1 bg-white">
+              <option value="">— choisir —</option>
+              @for (s of stations(); track s.id) { <option [value]="s.id">{{ s.nom ?? ('Station ' + s.id) }}</option> }
+            </select>
+          </label>
+          @if (compoType() !== 'EXCLURE_STATION') {
+            <label class="block">
+              <span class="text-xs text-gray-600">Critère{{ compoType() === 'REPONDERER' ? ' (optionnel : sinon la station)' : '' }}</span>
+              <select (change)="onCompoItem($any($event.target).value)" class="mt-1 block rounded border border-gray-300 px-2 py-1 bg-white">
+                <option value="">— choisir —</option>
+                @for (c of criteresDeLaStationChoisie(); track c.id) { <option [value]="c.id">{{ c.libelle }}</option> }
+              </select>
+            </label>
+          }
+          @if (compoType() === 'REPONDERER') {
+            <label class="block">
+              <span class="text-xs text-gray-600">Nouvelle échelle</span>
+              <input type="number" min="0.5" step="0.5" (input)="onCompoEchelle($any($event.target).value)" class="mt-1 block w-24 rounded border border-gray-300 px-2 py-1" />
+            </label>
+          }
+          <button type="button" (click)="ajouterOperation()" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">Ajouter</button>
+          <button type="button" (click)="viderComposition()" class="text-xs text-gray-500 hover:underline">Vider (retour à l'origine)</button>
+        </div>
+        @if (compoErreur(); as err) { <p class="mt-2 text-xs text-status-danger" role="alert">{{ err }}</p> }
+
+        <div class="mt-4 flex items-center gap-3">
+          <button type="button" (click)="previsualiser()" [disabled]="projectionBusy()"
+            class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium border border-brand text-brand hover:bg-brand-50 disabled:opacity-50">
+            {{ projectionBusy() ? 'Calcul…' : "Prévisualiser l'effet" }}
+          </button>
+          <span class="text-xs text-gray-400">même arithmétique que scoring — ce que Résultats affichera après</span>
+        </div>
+        @if (projection(); as proj) {
+          <div class="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3">
+            @if (proj.effet_projete; as e) {
+              <table class="w-full text-sm">
+                <tbody>
+                  @for (l of lignesEffet(e); track l.label) {
+                    <tr class="border-t border-gray-100 first:border-0">
+                      <td class="py-1 pr-3 text-gray-600">{{ l.label }}</td>
+                      <td class="py-1 pr-3 tabular-nums text-gray-500">{{ l.avant }}</td>
+                      <td class="py-1 pr-2 text-gray-300">→</td>
+                      <td class="py-1 tabular-nums" [class]="l.change ? 'font-semibold text-gray-900' : 'text-gray-500'">{{ l.apres }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <p class="text-xs text-amber-800 italic">Effet non projetable (couverture du barème figé incomplète).</p>
+            }
+          </div>
+          <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+            <label class="block text-xs text-gray-600">
+              Motif <span class="text-status-danger">*</span>
+              <textarea rows="2" [value]="compoMotif()" (input)="compoMotif.set($any($event.target).value)"
+                class="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                placeholder="Ex. : la station 2 a été notée sur une grille incomplète — repondérée sur 10"></textarea>
+            </label>
+            @if (compoActErreur(); as err) { <p class="mt-2 text-xs text-status-danger" role="alert">{{ err }}</p> }
+            <div class="mt-2 flex items-center gap-2">
+              <button type="button" (click)="appliquerComposition()" [disabled]="compoBusy()"
+                class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50">
+                {{ compoBusy() ? 'Enregistrement…' : 'Enregistrer cette version' }}
+              </button>
+              <button type="button" (click)="fermerComposition()" class="text-sm text-gray-500 hover:text-gray-700">Annuler</button>
+            </div>
+          </div>
+        } @else {
+          @if (compoActErreur(); as err) { <p class="mt-2 text-xs text-status-danger" role="alert">{{ err }}</p> }
+        }
+      </div>
+    }
+  </section>
+}
+
+<!-- ── Historique des versions ───────────────────────────────────────────── -->
+<section>
+  <h2 class="text-sm font-medium text-gray-500 mb-3">Historique du barème de délibération</h2>
+  @switch (histEtat()) {
+    @case ('chargement') {
+      <div class="h-16 rounded-xl bg-gray-200 animate-pulse"></div>
+    }
+    @case ('indisponible') {
+      <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-status-danger" role="status">Historique indisponible (scoring ne répond pas).</p>
+    }
+    @default {
+      @if (historique().length === 0) {
+        <p class="text-sm text-gray-400">Aucune version — résultats au barème d'origine.</p>
+      } @else {
+        <ul class="rounded-xl bg-white border border-gray-200 shadow-card divide-y divide-gray-100">
+          @for (v of historique(); track v.id) {
+            <li class="px-4 py-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="font-medium text-gray-900">v{{ v.version }}@if ($first) { <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">courante</span> }</span>
+                <span class="text-xs text-gray-400">{{ v.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (v.creePar) { · auteur {{ v.creePar }} }</span>
+              </div>
+              <p class="text-sm text-gray-600 italic mt-1">« {{ v.motif }} »</p>
+              <ul class="mt-1 text-xs text-gray-700 list-disc pl-5">
+                @for (op of v.operations; track $index) { <li>{{ operation(op) }}</li> } @empty { <li class="list-none pl-0 text-gray-400">retour au barème d'origine</li> }
+              </ul>
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+</section>

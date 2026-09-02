@@ -66,8 +66,15 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
-  // W2/ADR-0028 — l'onglet « Analyses IA » ne revient que lorsque le volet IA
-  // existera : un onglet vivant qui rend un bouchon est une promesse vide.
+  // #363 (N9) — le volet IA existe (N8 #362) : l'onglet « Délibération »
+  // rend des propositions vivantes, jamais un bouchon (W2/ADR-0028 respecté).
+  {
+    path: 'deliberation',
+    loadComponent: () =>
+      import('./features/examens/deliberation/deliberation.component').then(
+        (m) => m.DeliberationComponent,
+      ),
+  },
 ];
 
 export const routes: Routes = [

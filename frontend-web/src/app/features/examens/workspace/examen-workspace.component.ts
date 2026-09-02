@@ -29,8 +29,10 @@ const TABS_LIVE: WorkspaceTab[] = [
 ];
 const TABS_DONE: WorkspaceTab[] = [
   { label: 'Résultats', segment: 'resultats' },
-  // « Analyses IA » retiré (W2, S39) : l'onglet rendait un bouchon sur CHAQUE
-  // examen fini. Il revient avec le volet IA — pas avant.
+  // #363 (N9) — le volet IA existe désormais (N8 #362) : l'onglet revient,
+  // vivant — propositions, effet projeté AVANT décision, acte motivé (D10),
+  // barème de délibération versionné (ADR-0030).
+  { label: 'Délibération', segment: 'deliberation' },
   { label: 'Stations & Grilles', segment: 'stations-grilles' },
   { label: 'Étudiants', segment: 'etudiants' },
 ];

@@ -649,6 +649,13 @@ export interface StationScore {
   grilleId: number | null;
   score: number | null;
   verrouillee: boolean | null;
+  /** #361/#363 — les DEUX dénominateurs (ADR-0030 D4) : max déclaré au snapshot
+   * V19 (null pré-V19) ; score/max sous le barème de délibération COURANT
+   * (null sans barème, ou station exclue). Servis BRUTS — la reconversion /20
+   * est un choix d'écran. */
+  maxOriginal?: number | null;
+  scoreDelibere?: number | null;
+  maxDelibere?: number | null;
 }
 
 /**
@@ -670,6 +677,155 @@ export interface ExamenResult {
   totalScore: number;
   stationsNotees: number;
   stations: StationScore[];
+  /** #361/#363 — Σ note_max des stations snapshotées (null si couverture
+   * incomplète / pré-V19) ; total et dénominateur sous le barème de délibération
+   * COURANT, null sans barème ; numéro de la version appliquée. Toujours les
+   * deux lectures (ADR-0030 D4). */
+  denominateurOriginal?: number | null;
+  totalDelibere?: number | null;
+  denominateurDelibere?: number | null;
+  baremeVersion?: number | null;
+}
+
+// ─── Barème de délibération (#361 N7 / #363 N9, ADR-0030) — camelCase (DTO Résultats) ───
+
+/** L'énumération FERMÉE de scoring (TypeOperationBareme) — les 3 opérations d'ADR-0021 D8. */
+export type TypeOperationBareme = 'EXCLURE_CRITERE' | 'EXCLURE_STATION' | 'REPONDERER';
+
+/**
+ * Une opération, forme EXACTE du fil scoring (`BaremeDeliberationRequest.OperationRequest`).
+ * ai-service rend la même forme dans `operations_a_soumettre` : le client la
+ * POSTe telle quelle. Exactement une cible : `cibleItemId` (critère) OU
+ * `cibleStationId` (station) ; `nouvelleEchelle` seulement pour REPONDERER.
+ */
+export interface OperationBareme {
+  type: TypeOperationBareme;
+  cibleItemId: number | null;
+  cibleStationId: number | null;
+  nouvelleEchelle: number | null;
+}
+
+/** POST /notations/examen/{id}/bareme-deliberation — motif OBLIGATOIRE, versions COMPLÈTES (vide = retour à l'origine). */
+export interface BaremeDeliberationRequest {
+  motif: string;
+  operations: OperationBareme[];
+}
+
+/** Une version du barème (BaremeDeliberationDTO) — immuable, historique visible. */
+export interface BaremeDeliberation {
+  id: number;
+  examenId: number;
+  version: number;
+  motif: string;
+  creePar: number | null;
+  createdAt: string | null;
+  operations: OperationBareme[];
+}
+
+// ─── Propositions du module IA (#362 N8, ADR-0021 D8/D10) — snake_case verbatim, opérations en camelCase (fil scoring) ───
+
+/** Le résumé d'une distribution de totaux (médiane, taux de réussite = fraction 0–1, dénominateur brut). */
+export interface ResumeEffetAi {
+  n_etudiants: number;
+  denominateur: number | null;
+  mediane: number | null;
+  moyenne: number | null;
+  taux_reussite: number | null;
+}
+
+/** L'effet PROJETÉ avant décision (D10) : à l'origine, au barème courant, au barème proposé. */
+export interface EffetProjeteAi {
+  origine: ResumeEffetAi;
+  avant: ResumeEffetAi;
+  apres: ResumeEffetAi;
+}
+
+/** Un déclencheur chiffré : l'indice, sa valeur, le seuil de NOTRE choix, la règle. */
+export interface DeclencheurAi {
+  code: string;
+  valeur: number | null;
+  ic: [number, number] | null;
+  n: number | null;
+  seuil: number;
+  regle: string;
+  [k: string]: unknown;
+}
+
+export interface DecisionPropositionAi {
+  decision: 'ACCEPTER' | 'REFUSER';
+  motif: string | null;
+  decide_par: number | null;
+  decide_a: string | null;
+  bareme_version_resultat: number | null;
+  /** L'id de la ligne qui porte l'acte (≠ id courant si la version de base a changé). */
+  proposition_id: string;
+}
+
+export interface CibleAi {
+  item_id?: number;
+  libelle?: string | null;
+  type?: string | null;
+  grille_id?: number;
+  station_id?: number | null;
+  max?: number | null;
+}
+
+export interface PropositionAi {
+  proposition_id: string;
+  rang_defendabilite: number;
+  lecture_code: string;
+  operation: OperationBareme;
+  /** La version COMPLÈTE à POSTer à scoring (courante + opération). */
+  operations_a_soumettre: OperationBareme[];
+  cible: CibleAi;
+  declencheur: DeclencheurAi[];
+  /** null quand la couverture snapshot est incomplète (rien de tenable à projeter). */
+  effet_projete: EffetProjeteAi | null;
+  deja_appliquee: boolean;
+  decision: DecisionPropositionAi | null;
+}
+
+/** Le silence est dit : ce que le module n'a PAS proposé, et pourquoi (raison backend VERBATIM). */
+export interface LectureSansPropositionAi {
+  code: string;
+  lecture_code?: string;
+  operation?: OperationBareme;
+  cible?: CibleAi;
+  declencheur?: DeclencheurAi[];
+  station_id?: number | null;
+  grille_id?: number | null;
+  details: Record<string, unknown>;
+  raison: string;
+}
+
+/** GET /ai/examens/{id}/propositions */
+export interface PropositionsExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  bareme_courant: { version: number; operations: OperationBareme[] } | null;
+  couverture_snapshot_complete: boolean;
+  seuils: Record<string, number>;
+  propositions: PropositionAi[];
+  lectures_sans_proposition: LectureSansPropositionAi[];
+}
+
+/** POST /ai/examens/{id}/propositions/{pid}/decision */
+export interface DecisionRequestAi {
+  decision: 'ACCEPTER' | 'REFUSER';
+  motif: string;
+  bareme_version_resultat: number | null;
+}
+
+/** POST /ai/examens/{id}/projection — prévisualisation D10 d'une composition manuelle. */
+export interface ProjectionAi {
+  examen_id: number;
+  bareme_courant: { version: number; operations: OperationBareme[] } | null;
+  operations: OperationBareme[];
+  couverture_snapshot_complete: boolean;
+  max_delibere_par_station: Record<string, number>;
+  max_original_par_station: Record<string, number>;
+  effet_projete: EffetProjeteAi | null;
 }
 
 /**

@@ -225,7 +225,20 @@ export const routes: Routes = [
           },
           // « Templates globaux » : supprimé (W2/ADR-0027) — rédiger un modèle
           // est une autorité PÉDAGOGIQUE (ADR-0018 D5), pas administrative.
-          { path: 'examens', ...stub('Examens (oversight)') }, // W13 (P1) — supervision lecture seule à construire
+          // #390 — supervision LECTURE SEULE de tous les examens (ADR-0018 D5) :
+          // un écran distinct de « Mes examens », qui ne mène jamais au workspace.
+          {
+            path: 'examens',
+            loadComponent: () =>
+              import('./features/admin/admin-examens.component').then((m) => m.AdminExamensComponent),
+          },
+          {
+            path: 'examens/:id',
+            loadComponent: () =>
+              import('./features/admin/admin-examen-detail.component').then(
+                (m) => m.AdminExamenDetailComponent,
+              ),
+          },
         ],
       },
     ],

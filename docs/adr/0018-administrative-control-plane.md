@@ -192,9 +192,13 @@ method-level guard at all, so it inherits it.
 
 **Honest severity: LOW–MEDIUM, and it is a governance gap, not a vulnerability.** There is no
 privilege escalation (the faculty scope is already the highest role), and **no screen exists** through
-which it could be exercised — every `admin/*` route is a stub (`app.routes.ts:164-167`). Reaching
-these endpoints requires a hand-crafted HTTP request. Per the standing lesson that *an ungated
-endpoint is not a reachable one*, this must not be filed as CRITICAL.
+which it could be exercised — the admin zone (`/admin/**`) is **read-only by construction**: since
+#390 (2026-09-02) `/admin/examens` and `/admin/examens/:id` render a supervision list and detail
+with no write control and no link into the responsable workspace (before that they were stubs).
+Reaching these endpoints requires a hand-crafted HTTP request. Per the standing lesson that *an
+ungated endpoint is not a reachable one*, this must not be filed as CRITICAL. ⚠️ The one reachable
+exception is a **compound** SUPER_ADMIN + RESPONSABLE account, which passes `responsableGuard` and
+sees every exam in « Mes examens » with workspace links — tracked as #391.
 
 #### Consequence for the use-case diagram
 

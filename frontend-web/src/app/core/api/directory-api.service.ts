@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse, RoleType } from '../auth/auth.models';
 import {
+  InvitationStatus,
   MatiereImportResult,
   MatiereImportRow,
   MatiereRequest,
@@ -70,6 +71,17 @@ export class DirectoryApiService {
     return this.http
       .post<ApiResponse<void>>(`${this.baseUrl}/users/${userId}/desactivation`, { motif })
       .pipe(map(() => undefined));
+  }
+
+  /**
+   * #389 — renvoyer l'invitation « choisissez votre mot de passe » (lien 7
+   * jours, usage unique). La réponse dit si l'e-mail est parti ou si la
+   * messagerie est désactivée (`simulee`) — l'écran ne suppose jamais le succès.
+   */
+  resendInvitation(userId: number): Observable<InvitationStatus> {
+    return this.http
+      .post<ApiResponse<InvitationStatus>>(`${this.baseUrl}/users/${userId}/invitation`, {})
+      .pipe(map((r) => r.data));
   }
 
   /** #289 — rouvrir un compte retiré. Efface aussi tout verrou résiduel (#294). */

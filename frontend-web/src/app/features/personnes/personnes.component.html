@@ -44,34 +44,47 @@
     </div>
   </div>
 
-  <!-- Success banner: the password is shown EXACTLY ONCE -->
+  <!-- #389 — Success banner: what happened to the invitation e-mail (never a password) -->
   @if (created(); as c) {
-    <section class="rounded-xl border border-status-success bg-green-50 p-5 mb-6">
-      <p class="text-sm font-medium text-gray-900 mb-1">
-        Compte créé pour {{ c.nomComplet }} ({{ c.email }}).
-      </p>
-      <p class="text-sm text-gray-700 mb-3">
-        Communiquez-lui ce mot de passe maintenant —
-        <span class="font-medium">il ne sera plus jamais affiché</span> :
-      </p>
-      <div class="flex items-center gap-2">
-        <code class="px-3 py-1.5 rounded-lg bg-white border border-gray-300 text-sm font-mono">{{ c.password }}</code>
-        <button
-          type="button"
-          (click)="copyPassword()"
-          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          Copier
-        </button>
-        <button
-          type="button"
-          (click)="created.set(null)"
-          class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:text-gray-700"
-        >
-          J'ai transmis — fermer
-        </button>
-      </div>
-    </section>
+    @switch (invitationEtat(c.invitation)) {
+      @case ('envoyee') {
+        <section class="rounded-xl border border-status-success bg-green-50 p-5 mb-6">
+          <p class="text-sm font-medium text-gray-900 mb-1">
+            Compte créé pour {{ c.nomComplet }} ({{ c.email }}).
+          </p>
+          <p class="text-sm text-gray-700 mb-3">
+            Une invitation lui a été envoyée par e-mail : le lien « choisissez votre mot de passe »
+            est valable 7 jours. Rien à transmettre de votre côté.
+          </p>
+          <button type="button" (click)="created.set(null)" class="text-sm text-gray-500 hover:text-gray-700">Fermer</button>
+        </section>
+      }
+      @case ('simulee') {
+        <section class="rounded-xl border border-amber-300 bg-amber-50 p-5 mb-6">
+          <p class="text-sm font-medium text-gray-900 mb-1">
+            Compte créé pour {{ c.nomComplet }} ({{ c.email }}) — <span class="text-amber-800">aucun e-mail n'est parti</span>.
+          </p>
+          <p class="text-sm text-gray-700 mb-3">
+            La messagerie est désactivée sur ce déploiement (MAIL_ENABLED=false). La personne ne peut
+            pas encore se connecter : activez la messagerie, puis utilisez « Renvoyer l'invitation »
+            sur sa ligne.
+          </p>
+          <button type="button" (click)="created.set(null)" class="text-sm text-gray-500 hover:text-gray-700">Fermer</button>
+        </section>
+      }
+      @default {
+        <section class="rounded-xl border border-status-danger bg-red-50 p-5 mb-6">
+          <p class="text-sm font-medium text-gray-900 mb-1">
+            Compte créé pour {{ c.nomComplet }} ({{ c.email }}) — <span class="text-status-danger">l'e-mail d'invitation n'a pas pu être remis</span>.
+          </p>
+          <p class="text-sm text-gray-700 mb-3">
+            Le serveur de messagerie n'a pas accepté l'envoi. Le compte existe ; utilisez
+            « Renvoyer l'invitation » sur sa ligne dès que la messagerie répond.
+          </p>
+          <button type="button" (click)="created.set(null)" class="text-sm text-gray-500 hover:text-gray-700">Fermer</button>
+        </section>
+      }
+    }
   }
 
   <!-- Create form -->
@@ -107,24 +120,10 @@
               <span class="text-xs text-status-danger">Une adresse e-mail valide est requise.</span>
             }
           </label>
-          <label class="block text-sm">
-            <span class="text-gray-700">Mot de passe (généré — transmettez-le à la personne)</span>
-            <span class="mt-1 flex gap-2">
-              <input formControlName="password" type="text" class="w-full text-sm font-mono rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent" />
-              <button
-                type="button"
-                (click)="regeneratePassword()"
-                class="shrink-0 inline-flex items-center px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                Régénérer
-              </button>
-            </span>
-            @if (createForm.controls.password.touched && createForm.controls.password.invalid) {
-              <span class="text-xs text-status-danger">
-                8 caractères minimum, avec au moins une majuscule et un chiffre.
-              </span>
-            }
-          </label>
+          <p class="text-xs text-gray-500 sm:col-span-2">
+            Aucun mot de passe à saisir : la personne recevra par e-mail un lien
+            « choisissez votre mot de passe », valable 7 jours.
+          </p>
         </div>
 
         @if (scope === 'co-responsables' && myMatieres().length > 1) {
@@ -316,6 +315,37 @@
                 <span class="text-xs text-gray-500 basis-full">{{ retraitLabel(u) }}</span>
               }
               <span class="text-xs text-gray-400">Créé le {{ frDate(u.createdAt) }}</span>
+              @if (u.isActive) {
+                <!-- #389 — mail perdu, lien expiré, messagerie activée après coup -->
+                <button
+                  type="button"
+                  (click)="renvoyerInvitation(u)"
+                  [disabled]="renvoiEnCours() !== null"
+                  class="text-xs text-brand hover:underline disabled:opacity-40"
+                >
+                  {{ renvoiEnCours() === u.id ? 'Envoi…' : "Renvoyer l'invitation" }}
+                </button>
+              }
+              @if (renvoiResultat(); as r) {
+                @if (r.userId === u.id) {
+                  @switch (invitationEtat(r.statut)) {
+                    @case ('envoyee') {
+                      <span class="text-xs text-status-success basis-full">Invitation renvoyée à {{ u.email }} (lien valable 7 jours).</span>
+                    }
+                    @case ('simulee') {
+                      <span class="text-xs text-amber-700 basis-full">Messagerie désactivée — aucun e-mail n'est parti. Activez-la (MAIL_ENABLED) puis renvoyez.</span>
+                    }
+                    @default {
+                      <span class="text-xs text-status-danger basis-full">L'e-mail n'a pas pu être remis au serveur de messagerie. Réessayez plus tard.</span>
+                    }
+                  }
+                }
+              }
+              @if (renvoiErreur(); as err) {
+                @if (err.userId === u.id) {
+                  <span class="text-xs text-status-danger basis-full">{{ err.message }}</span>
+                }
+              }
               @if (scope === 'admin' && u.isActive && u.id !== myUserId()) {
                 <button
                   type="button"

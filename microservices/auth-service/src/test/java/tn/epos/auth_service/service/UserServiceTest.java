@@ -46,6 +46,10 @@ class UserServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
     @Mock private TokenRevocationService tokenRevocationService;
+    // #389 — invitation : jeton + messagerie
+    @Mock private tn.epos.auth_service.repository.PasswordResetTokenRepository passwordResetTokenRepository;
+    @Mock private JwtService jwtService;
+    @Mock private tn.epos.auth_service.service.email.EmailService emailService;
 
     /** #289 — la date du retrait est une donnée, pas un hasard : horloge fixe. */
     @Spy private java.time.Clock clock =
@@ -166,6 +170,141 @@ class UserServiceTest {
 
         verify(userRepository).save(any(User.class));
         verify(userRoleRepository).saveAll(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // #389 — invitation a la creation (lien « choisissez votre mot de passe »)
+    // -------------------------------------------------------------------------
+
+    private User savedUser(Long id, String email) {
+        return User.builder().id(id).email(email).nom("Aouina").prenom("Rania")
+                .isActive(true).failedLoginAttempts(0).build();
+    }
+
+    @Test
+    void createUser_sansMotDePasse_poseUnJetableEtInvite7Jours() {
+        Authentication auth = authWith("ROLE_SUPER_ADMIN");
+        List<RoleAssignmentDto> roles = List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+        UserCreateRequest req = createRequest("rania@epos.tn", roles);
+        when(req.getPassword()).thenReturn(null);
+        when(userRepository.existsByEmail("rania@epos.tn")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(savedUser(42L, "rania@epos.tn"));
+        when(userRoleRepository.saveAll(any())).thenReturn(List.of());
+        // 1er tirage = mot de passe jetable, 2e = jeton d'invitation
+        when(jwtService.generateRefreshTokenValue()).thenReturn("jetable-256", "jeton-brut");
+        when(jwtService.hashToken("jeton-brut")).thenReturn("hash(jeton)");
+        when(passwordEncoder.encode("jetable-256")).thenReturn("bcrypt(jetable)");
+        when(emailService.estSimule()).thenReturn(false);
+
+        var response = userService.createUser(req, auth);
+
+        // le jetable est hache, jamais rendu
+        verify(passwordEncoder).encode("jetable-256");
+        assertThat(response.getInvitation()).isNotNull();
+        assertThat(response.getInvitation().envoyee()).isTrue();
+        assertThat(response.getInvitation().simulee()).isFalse();
+        // le jeton : hache, 7 jours a l'horloge du service, anciens invalides
+        verify(passwordResetTokenRepository).invalidateAllByUserId(42L);
+        ArgumentCaptor<tn.epos.auth_service.entity.PasswordResetToken> jeton =
+                ArgumentCaptor.forClass(tn.epos.auth_service.entity.PasswordResetToken.class);
+        verify(passwordResetTokenRepository).save(jeton.capture());
+        assertThat(jeton.getValue().getTokenHash()).isEqualTo("hash(jeton)");
+        assertThat(jeton.getValue().getExpiresAt())
+                .isEqualTo(java.time.LocalDateTime.now(clock).plusDays(7));
+        assertThat(jeton.getValue().getUsed()).isFalse();
+        // l'e-mail porte le jeton BRUT et la personne
+        verify(emailService).sendInvitationEmail("rania@epos.tn", "jeton-brut", "Rania", "Aouina");
+        verify(auditService).log(eq(42L), eq("rania@epos.tn"), eq(AuditAction.USER_INVITED), eq("envoyee"), isNull());
+    }
+
+    @Test
+    void createUser_avecMotDePasse_lUtiliseEtInviteQuandMeme() {
+        Authentication auth = authWith("ROLE_SUPER_ADMIN");
+        List<RoleAssignmentDto> roles = List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(savedUser(10L, "new@test.com"));
+        when(userRoleRepository.saveAll(any())).thenReturn(List.of());
+        when(passwordEncoder.encode("Password1")).thenReturn("hashed");
+        when(jwtService.generateRefreshTokenValue()).thenReturn("jeton-brut");
+
+        userService.createUser(createRequest("new@test.com", roles), auth);
+
+        verify(passwordEncoder).encode("Password1");
+        verify(jwtService, times(1)).generateRefreshTokenValue(); // le jeton seulement
+        verify(emailService).sendInvitationEmail(eq("new@test.com"), eq("jeton-brut"), anyString(), anyString());
+    }
+
+    @Test
+    void createUser_panneSmtp_neFaitPasEchouerLaCreation_etLeDit() {
+        Authentication auth = authWith("ROLE_SUPER_ADMIN");
+        List<RoleAssignmentDto> roles = List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(savedUser(10L, "new@test.com"));
+        when(userRoleRepository.saveAll(any())).thenReturn(List.of());
+        when(passwordEncoder.encode("Password1")).thenReturn("hashed");
+        when(jwtService.generateRefreshTokenValue()).thenReturn("jeton-brut");
+        doThrow(new org.springframework.mail.MailSendException("port 587 bloque"))
+                .when(emailService).sendInvitationEmail(anyString(), anyString(), anyString(), anyString());
+
+        var response = userService.createUser(createRequest("new@test.com", roles), auth);
+
+        assertThat(response.getId()).isEqualTo(10L);           // le compte existe
+        assertThat(response.getInvitation().envoyee()).isFalse(); // et l'ecran l'apprend
+        verify(passwordResetTokenRepository).save(any());        // le jeton reste utile au renvoi
+        verify(auditService).log(eq(10L), eq("new@test.com"), eq(AuditAction.USER_INVITED), eq("echec d'envoi"), isNull());
+    }
+
+    @Test
+    void createUser_messagerieDesactivee_ditQueCEstSimule() {
+        Authentication auth = authWith("ROLE_SUPER_ADMIN");
+        List<RoleAssignmentDto> roles = List.of(RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build());
+        when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(savedUser(10L, "new@test.com"));
+        when(userRoleRepository.saveAll(any())).thenReturn(List.of());
+        when(passwordEncoder.encode("Password1")).thenReturn("hashed");
+        when(jwtService.generateRefreshTokenValue()).thenReturn("jeton-brut");
+        when(emailService.estSimule()).thenReturn(true);
+
+        var response = userService.createUser(createRequest("new@test.com", roles), auth);
+
+        assertThat(response.getInvitation().simulee()).isTrue();
+        assertThat(response.getInvitation().envoyee()).isTrue(); // le stub a « envoye » dans le vide
+        verify(auditService).log(eq(10L), eq("new@test.com"), eq(AuditAction.USER_INVITED),
+                eq("simulee (messagerie desactivee)"), isNull());
+    }
+
+    @Test
+    void renvoyerInvitation_horsPerimetre_refuse_sansAucunJeton() {
+        // Un responsable de la matiere 5 ne renvoie pas l'invitation d'un
+        // responsable de la matiere 7 : meme matrice que l'attribution des roles.
+        Authentication auth = authWith("ROLE_RESPONSABLE_MATIERE:5");
+        when(userRepository.findById(20L)).thenReturn(Optional.of(savedUser(20L, "autre@epos.tn")));
+        when(userRoleRepository.findByUserId(20L)).thenReturn(List.of(
+                UserRole.builder().role(RoleType.RESPONSABLE_MATIERE).matiereId(7L).build()));
+
+        assertThatThrownBy(() -> userService.renvoyerInvitation(20L, auth))
+                .isInstanceOf(UnauthorizedDelegationException.class);
+
+        verify(passwordResetTokenRepository, never()).save(any());
+        verify(emailService, never()).sendInvitationEmail(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void renvoyerInvitation_dansLePerimetre_reemetUnJetonEtRenvoie() {
+        Authentication auth = authWith("ROLE_RESPONSABLE_MATIERE:5");
+        when(userRepository.findById(20L)).thenReturn(Optional.of(savedUser(20L, "eval@epos.tn")));
+        when(userRoleRepository.findByUserId(20L)).thenReturn(List.of(
+                UserRole.builder().role(RoleType.EVALUATEUR).build()));
+        when(jwtService.generateRefreshTokenValue()).thenReturn("jeton-2");
+        when(jwtService.hashToken("jeton-2")).thenReturn("hash(2)");
+
+        var statut = userService.renvoyerInvitation(20L, auth);
+
+        assertThat(statut.envoyee()).isTrue();
+        verify(passwordResetTokenRepository).invalidateAllByUserId(20L);
+        verify(passwordResetTokenRepository).save(any());
+        verify(emailService).sendInvitationEmail("eval@epos.tn", "jeton-2", "Rania", "Aouina");
+        verify(auditService).log(eq(20L), eq("eval@epos.tn"), eq(AuditAction.USER_INVITED), anyString(), isNull());
     }
 
     @Test

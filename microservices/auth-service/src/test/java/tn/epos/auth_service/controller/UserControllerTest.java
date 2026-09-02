@@ -214,6 +214,70 @@ class UserControllerTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
+    // -------------------------------------------------------------------------
+    // #389 — invitation : mot de passe optionnel a la creation, renvoi
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void createUser_sansMotDePasse_estAccepte_leServeurInvite() throws Exception {
+        when(userService.createUser(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(tn.epos.auth_service.dto.UserResponse.builder()
+                        .id(42L).email("rania@epos.tn").nom("Aouina").prenom("Rania")
+                        .isActive(true).roles(List.of())
+                        .invitation(new tn.epos.auth_service.dto.InvitationStatus(true, false))
+                        .build());
+
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"rania@epos.tn\",\"nom\":\"Aouina\",\"prenom\":\"Rania\","
+                                + "\"roles\":[{\"role\":\"EVALUATEUR\"}]}"))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.data.invitation.envoyee").value(true))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.data.invitation.simulee").value(false));
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void createUser_motDePasseFourniMaisFaible_reste400() throws Exception {
+        // Optionnel ne veut pas dire laxiste : fourni, il obeit a la politique.
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"rania@epos.tn\",\"password\":\"court\",\"nom\":\"Aouina\","
+                                + "\"prenom\":\"Rania\",\"roles\":[{\"role\":\"EVALUATEUR\"}]}"))
+                .andExpect(status().isBadRequest());
+        verify(userService, org.mockito.Mockito.never()).createUser(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_RESPONSABLE_MATIERE:5")
+    void renvoyerInvitation_responsable_200_etDitSiSimulee() throws Exception {
+        when(userService.renvoyerInvitation(eq(42L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new tn.epos.auth_service.dto.InvitationStatus(true, true));
+
+        mockMvc.perform(post("/api/v1/users/42/invitation"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.data.simulee").value(true))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.message").value(org.hamcrest.Matchers.containsString("simulee")));
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_EVALUATEUR")
+    void renvoyerInvitation_evaluateur_refuse_serviceJamaisAppele() throws Exception {
+        mockMvc.perform(post("/api/v1/users/42/invitation"))
+                .andExpect(result -> {
+                    int s = result.getResponse().getStatus();
+                    if (s == 200) throw new AssertionError("EVALUATEUR should not get 200, got " + s);
+                });
+        verify(userService, org.mockito.Mockito.never()).renvoyerInvitation(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+    }
+
     @Test
     @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
     void getAllUsers_withInvalidRoleParam_isRejected() throws Exception {

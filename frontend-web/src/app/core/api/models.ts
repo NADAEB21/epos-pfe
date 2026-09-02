@@ -868,17 +868,30 @@ export interface UserResponse {
   deactivationMotif?: string | null;
   /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
   roles: RoleAssignment[];
+  /** #389 — renseigné UNIQUEMENT sur la réponse de création (absent des listes). */
+  invitation?: InvitationStatus | null;
 }
 
 /**
- * Body for POST /users (auth-service UserCreateRequest). Password policy is
- * validated server-side too: min 8, at least one uppercase and one digit.
- * There is NO email infrastructure — the creator hands the password to the
- * person directly, which is why the UI generates and displays it once.
+ * #389 — ce qui s'est passé côté messagerie après la création ou le renvoi.
+ * `simulee` = messagerie désactivée (`app.mail.enabled=false`) : RIEN n'est
+ * parti, l'écran doit le dire (précédent scoring : `EnvoiConvocationsResult.simule`).
+ */
+export interface InvitationStatus {
+  envoyee: boolean;
+  simulee: boolean;
+}
+
+/**
+ * Body for POST /users (auth-service UserCreateRequest). #389 : `password` est
+ * OPTIONNEL — omis, le serveur pose un jetable et envoie une invitation
+ * « choisissez votre mot de passe » (lien 7 jours, usage unique). Le web ne
+ * génère ni n'affiche plus jamais de mot de passe. S'il est fourni, la
+ * politique serveur s'applique (min 8, une majuscule, un chiffre).
  */
 export interface UserCreateRequest {
   email: string;
-  password: string;
+  password?: string;
   nom: string;
   prenom: string;
   roles: RoleAssignment[];

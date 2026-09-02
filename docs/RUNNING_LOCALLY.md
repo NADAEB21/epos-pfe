@@ -71,10 +71,15 @@ PGADMIN_DEFAULT_PASSWORD=admin
 DB_USERNAME=admin
 DB_PASSWORD=pfe_password
 
-# ─── password reset ─────────────────────────────────────────────────────────
+# ─── messagerie sortante : reset + invitations (#389) + convocations (#227) ──
+# UN flag, UN expéditeur système pour les deux services (auth + scoring).
+# Gmail : validation en 2 étapes + « mot de passe d'application » (16 car.) ;
+# MAIL_FROM = MAIL_USERNAME obligatoirement ; plafond ≈ 500 mails/jour.
+# MAIL_ENABLED=false → rien ne part et les écrans le disent (« messagerie
+# désactivée ») — jamais un toast vert sur le stub.
 MAIL_ENABLED=true
 MAIL_FROM=mon-adresse@gmail.com
-MAIL_RESET_BASE_URL=http://localhost:4300/reset-password
+MAIL_RESET_BASE_URL=http://localhost:4200/reset-password
 MAIL_SMTP_HOST=smtp.gmail.com
 MAIL_SMTP_PORT=587
 MAIL_USERNAME=mon-adresse@gmail.com

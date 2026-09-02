@@ -7,8 +7,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class UserResponse {
+
+    /**
+     * #389 — renseigné UNIQUEMENT sur la réponse de création : l'invitation
+     * est-elle partie, ou simulée (messagerie désactivée) ? {@code null} sur
+     * les listes.
+     */
+    private InvitationStatus invitation;
 
     private Long id;
     private String email;

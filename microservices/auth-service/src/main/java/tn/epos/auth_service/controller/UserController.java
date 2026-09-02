@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tn.epos.common.dto.ApiResponse;
 import tn.epos.auth_service.config.JwtAuthenticationDetails;
 import tn.epos.auth_service.dto.DeactivationRequest;
+import tn.epos.auth_service.dto.InvitationStatus;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
 import tn.epos.auth_service.dto.UserResponse;
@@ -68,6 +69,28 @@ public class UserController {
             Authentication authentication) {
         UserResponse created = userService.createUser(request, authentication);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(created));
+    }
+
+    /**
+     * POST /api/v1/users/{id}/invitation — #389 : renvoyer le lien « choisissez
+     * votre mot de passe » (7 jours, usage unique). Même porte que la création ;
+     * la délégation (l'appelant peut-il attribuer les rôles de la cible ?) est
+     * tranchée dans UserService. La réponse dit si l'e-mail est parti ou si la
+     * messagerie est désactivée (simulé) — jamais un succès par défaut.
+     */
+    @PostMapping("/{id}/invitation")
+    @PreAuthorize("""
+            hasAuthority('ROLE_SUPER_ADMIN') or \
+            !authentication.authorities.?[authority.startsWith('ROLE_RESPONSABLE_MATIERE')].empty\
+            """)
+    public ResponseEntity<ApiResponse<InvitationStatus>> renvoyerInvitation(
+            @PathVariable Long id,
+            Authentication authentication) {
+        InvitationStatus statut = userService.renvoyerInvitation(id, authentication);
+        String message = statut.simulee()
+                ? "Invitation simulee : messagerie desactivee, aucun e-mail n'est parti"
+                : (statut.envoyee() ? "Invitation envoyee" : "Echec de l'envoi de l'invitation");
+        return ResponseEntity.ok(ApiResponse.ok(message, statut));
     }
 
     /**

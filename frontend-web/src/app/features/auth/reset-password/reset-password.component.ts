@@ -37,6 +37,14 @@ export class ResetPasswordComponent {
   /** Le code venu de l'URL (lien du mail), ou null → saisie manuelle. */
   readonly tokenDepuisLien = signal<string | null>(null);
 
+  /**
+   * #389 — `?bienvenue=1` : la personne arrive par le lien d'INVITATION (compte
+   * tout juste créé), pas par un « mot de passe oublié ». Même formulaire, même
+   * appel serveur ; seule la lecture change (« Bienvenue » plutôt que
+   * « Réinitialiser »).
+   */
+  readonly bienvenue = signal(false);
+
   readonly form = this.fb.nonNullable.group(
     {
       token: ['', [Validators.required]],
@@ -62,6 +70,7 @@ export class ResetPasswordComponent {
       this.tokenDepuisLien.set(token);
       this.form.controls.token.setValue(token);
     }
+    this.bienvenue.set(this.route.snapshot.queryParamMap.get('bienvenue') === '1');
   }
 
   onSubmit(): void {

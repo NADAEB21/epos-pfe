@@ -23,6 +23,7 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
     reactivateUser: jasmine.createSpy('reactivateUser'),
     createUser: jasmine.createSpy('createUser'),
     addRoles: jasmine.createSpy('addRoles'),
+    resendInvitation: jasmine.createSpy('resendInvitation'),
   };
 
   const user = (over: Partial<UserResponse>): UserResponse => ({
@@ -65,6 +66,68 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
   beforeEach(() => {
     api.deactivateUser.calls.reset();
     api.reactivateUser.calls.reset();
+  });
+
+  describe('#389 — la création invite, elle ne fabrique plus de mot de passe', () => {
+    beforeEach(() => {
+      api.createUser.calls.reset();
+      api.resendInvitation.calls.reset();
+    });
+
+    it('envoie la demande SANS mot de passe et lit « envoyée »', () => {
+      const cmp = build('evaluateurs', []);
+      api.createUser.and.returnValue(
+        of(user({ id: 5, prenom: 'Rania', nom: 'Aouina', email: 'rania@epos.tn',
+                  invitation: { envoyee: true, simulee: false } })),
+      );
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'Rania', nom: 'Aouina', email: 'rania@epos.tn' });
+
+      cmp.submitCreate();
+
+      const body = api.createUser.calls.mostRecent().args[0];
+      expect(body.password).toBeUndefined();
+      expect(Object.keys(body)).not.toContain('password');
+      expect(cmp.created()?.nomComplet).toBe('Rania Aouina');
+      expect(cmp.invitationEtat(cmp.created()?.invitation)).toBe('envoyee');
+    });
+
+    it('messagerie désactivée : lit « simulée », jamais « envoyée »', () => {
+      const cmp = build('evaluateurs', []);
+      api.createUser.and.returnValue(
+        of(user({ id: 5, email: 'r@epos.tn', invitation: { envoyee: true, simulee: true } })),
+      );
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'R', nom: 'A', email: 'r@epos.tn' });
+
+      cmp.submitCreate();
+
+      expect(cmp.invitationEtat(cmp.created()?.invitation)).toBe('simulee');
+    });
+
+    it('panne SMTP : lit « échec » — le compte existe, le mail non', () => {
+      const cmp = build('evaluateurs', []);
+      expect(cmp.invitationEtat({ envoyee: false, simulee: false })).toBe('echec');
+      expect(cmp.invitationEtat(null)).toBe('inconnu');
+    });
+
+    it('renvoyer l’invitation : le résultat est attaché à la ligne, le 403 est nominatif', () => {
+      const target = user({ id: 5, email: 'r@epos.tn' });
+      const cmp = build('evaluateurs', [target]);
+      api.resendInvitation.and.returnValue(of({ envoyee: true, simulee: false }));
+
+      cmp.renvoyerInvitation(target);
+
+      expect(api.resendInvitation).toHaveBeenCalledWith(5);
+      expect(cmp.renvoiResultat()).toEqual({ userId: 5, statut: { envoyee: true, simulee: false } });
+      expect(cmp.renvoiEnCours()).toBeNull();
+
+      api.resendInvitation.and.returnValue(
+        throwError(() => new HttpErrorResponse({ status: 403, error: null })),
+      );
+      cmp.renvoyerInvitation(target);
+      expect(cmp.renvoiErreur()?.message).toContain('périmètre');
+    });
   });
 
   describe('le motif est une condition, pas une décoration', () => {

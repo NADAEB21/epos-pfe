@@ -14,7 +14,7 @@ import { ActivatedRoute } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { DirectoryApiService } from '../../core/api/directory-api.service';
-import { MatiereResponse, RoleAssignment, UserResponse } from '../../core/api/models';
+import { InvitationStatus, MatiereResponse, RoleAssignment, UserResponse } from '../../core/api/models';
 import { AuthStore } from '../../core/auth/auth.store';
 
 /**
@@ -34,8 +34,12 @@ import { AuthStore } from '../../core/auth/auth.store';
  * full-replace PUT /users/{id}/roles, where an incomplete payload silently
  * revokes roles — that flow needs its own carefully-designed pass.
  *
- * No email infrastructure exists, so account creation GENERATES a password and
- * shows it exactly once — the creator hands it to the person directly.
+ * #389 — account creation sends an INVITATION e-mail (« choisissez votre mot de
+ * passe », link valid 7 days, single use) from the system sender. The web never
+ * generates nor displays a password any more. When the mailer is disabled
+ * (`app.mail.enabled=false`) the server says so (`invitation.simulee`) and the
+ * screen shows it honestly instead of a green « envoyée » — the creator can
+ * « Renvoyer l'invitation » once the mailer is on.
  */
 @Component({
   selector: 'app-personnes',
@@ -64,15 +68,18 @@ export class PersonnesComponent {
   readonly formOpen = signal(false);
   readonly submitting = signal(false);
   readonly submitError = signal<string | null>(null);
-  /** Success banner: shows the generated password EXACTLY ONCE (no email infra). */
-  readonly created = signal<{ nomComplet: string; email: string; password: string } | null>(null);
+  /** #389 — success banner: what happened to the invitation e-mail (never a password). */
+  readonly created = signal<{ nomComplet: string; email: string; invitation: InvitationStatus | null } | null>(null);
+
+  /** #389 — resend feedback, per row. */
+  readonly renvoiEnCours = signal<number | null>(null);
+  readonly renvoiResultat = signal<{ userId: number; statut: InvitationStatus } | null>(null);
+  readonly renvoiErreur = signal<{ userId: number; message: string } | null>(null);
 
   readonly createForm = this.fb.nonNullable.group({
     prenom: ['', Validators.required],
     nom: ['', Validators.required],
     email: ['', [Validators.required, Validators.email]],
-    // Mirrors the server policy (UserCreateRequest): min 8, 1 uppercase, 1 digit.
-    password: ['', [Validators.required, Validators.minLength(8), Validators.pattern(/^(?=.*[A-Z])(?=.*\d).+$/)]],
     // co-responsables scope: which of MY matières the appointment targets.
     matiereId: [null as number | null],
     // admin scope: role picks.
@@ -246,7 +253,6 @@ export class PersonnesComponent {
   openCreate(): void {
     this.submitError.set(null);
     this.created.set(null);
-    this.createForm.controls.password.setValue(this.generatePassword());
     this.formOpen.set(true);
   }
 
@@ -256,25 +262,38 @@ export class PersonnesComponent {
   }
 
   /**
-   * 12 chars from an unambiguous alphabet, with the server policy guaranteed
-   * (≥1 uppercase, ≥1 digit) by construction.
+   * #389 — the three honest readings of an invitation status. `simulee` wins:
+   * a stub that « sent » into the void is not a sent e-mail.
    */
-  private generatePassword(): string {
-    const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
-    const lower = 'abcdefghjkmnpqrstuvwxyz';
-    const digits = '23456789';
-    const all = upper + lower + digits;
-    const pick = (s: string) => s[Math.floor(Math.random() * s.length)];
-    const body = Array.from({ length: 9 }, () => pick(all));
-    // Guaranteed classes, shuffled in at random positions.
-    body.splice(Math.floor(Math.random() * body.length), 0, pick(upper));
-    body.splice(Math.floor(Math.random() * body.length), 0, pick(digits));
-    body.splice(Math.floor(Math.random() * body.length), 0, pick(lower));
-    return body.join('');
+  invitationEtat(s: InvitationStatus | null | undefined): 'envoyee' | 'simulee' | 'echec' | 'inconnu' {
+    if (!s) return 'inconnu';
+    if (s.simulee) return 'simulee';
+    return s.envoyee ? 'envoyee' : 'echec';
   }
 
-  regeneratePassword(): void {
-    this.createForm.controls.password.setValue(this.generatePassword());
+  /** #389 — POST /users/{id}/invitation : lien 7 jours réémis, e-mail renvoyé. */
+  renvoyerInvitation(u: UserResponse): void {
+    if (this.renvoiEnCours() !== null) return;
+    this.renvoiEnCours.set(u.id);
+    this.renvoiResultat.set(null);
+    this.renvoiErreur.set(null);
+    this.api.resendInvitation(u.id).subscribe({
+      next: (statut) => {
+        this.renvoiEnCours.set(null);
+        this.renvoiResultat.set({ userId: u.id, statut });
+      },
+      error: (e: HttpErrorResponse) => {
+        this.renvoiEnCours.set(null);
+        this.renvoiErreur.set({
+          userId: u.id,
+          message:
+            e.error?.message ??
+            (e.status === 403
+              ? "Hors de votre périmètre : vous ne pouvez pas renvoyer l'invitation de cette personne."
+              : "Le renvoi a échoué. Réessayez."),
+        });
+      },
+    });
   }
 
   private rolesForCreate(): RoleAssignment[] | string {
@@ -315,13 +334,13 @@ export class PersonnesComponent {
     this.submitting.set(true);
     this.submitError.set(null);
     this.api
-      .createUser({ email: v.email.trim(), password: v.password, nom: v.nom.trim(), prenom: v.prenom.trim(), roles })
+      // #389 — no password: the server issues the invitation link.
+      .createUser({ email: v.email.trim(), nom: v.nom.trim(), prenom: v.prenom.trim(), roles })
       .subscribe({
         next: (u) => {
           this.submitting.set(false);
           this.formOpen.set(false);
-          // The one and only display of the password — no email infra exists.
-          this.created.set({ nomComplet: `${u.prenom} ${u.nom}`, email: u.email, password: v.password });
+          this.created.set({ nomComplet: `${u.prenom} ${u.nom}`, email: u.email, invitation: u.invitation ?? null });
           this.createForm.reset({ matiereId: this.myMatiereIds().length === 1 ? this.myMatiereIds()[0] : null });
           this.load();
         },
@@ -335,11 +354,6 @@ export class PersonnesComponent {
           );
         },
       });
-  }
-
-  async copyPassword(): Promise<void> {
-    const c = this.created();
-    if (c) await navigator.clipboard.writeText(c.password);
   }
 
   // ---- appoint existing (co-responsables) -----------------------------------------

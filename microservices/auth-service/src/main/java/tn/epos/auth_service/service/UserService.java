@@ -1,6 +1,7 @@
 package tn.epos.auth_service.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.auth_service.audit.AuditAction;
 import tn.epos.auth_service.audit.AuditService;
+import tn.epos.auth_service.dto.InvitationStatus;
 import tn.epos.auth_service.dto.MeResponse;
 import tn.epos.auth_service.dto.RoleAssignmentDto;
 import tn.epos.auth_service.dto.UserCreateRequest;
@@ -16,14 +18,17 @@ import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
 import tn.epos.auth_service.entity.Matiere;
+import tn.epos.auth_service.entity.PasswordResetToken;
 import tn.epos.auth_service.exception.EmailAlreadyExistsException;
 import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
 import tn.epos.auth_service.exception.UserNotFoundException;
 import tn.epos.auth_service.repository.MatiereRepository;
+import tn.epos.auth_service.repository.PasswordResetTokenRepository;
 import tn.epos.auth_service.repository.RefreshTokenRepository;
 import tn.epos.auth_service.repository.UserRepository;
 import tn.epos.auth_service.repository.UserRoleRepository;
+import tn.epos.auth_service.service.email.EmailService;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -35,9 +40,18 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
 
     private static final String RESPONSABLE_PREFIX = "ROLE_RESPONSABLE_MATIERE:";
+
+    /**
+     * #389 — validité du lien d'invitation. Longue à dessein : une personne
+     * ouvre son mail dans la semaine, pas dans la demi-heure du reset (30 min,
+     * {@code AuthService.RESET_TOKEN_VALIDITY_MINUTES}). Le jeton reste haché,
+     * à usage unique, et l'expiration est lue sur la ligne — aucune migration.
+     */
+    static final long INVITATION_VALIDITY_DAYS = 7;
 
     /** Privilège décroissant — sert à choisir le rôle principal exposé par /auth/me. */
     private static final List<RoleType> ROLE_PRECEDENCE = List.of(
@@ -51,6 +65,10 @@ public class UserService {
     private final AuditService auditService;
     private final TokenRevocationService tokenRevocationService;
     private final java.time.Clock clock;
+    // #389 — l'invitation réutilise le jeton de réinitialisation et la messagerie.
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final JwtService jwtService;
+    private final EmailService emailService;
 
     // -------------------------------------------------------------------------
     // Read
@@ -128,9 +146,16 @@ public class UserService {
         validateDelegation(requestedRoles, authentication);
         validateMatieresAssignables(requestedRoles);
 
+        // #389 — sans mot de passe fourni, un jetable aléatoire (256 bits,
+        // SecureRandom — le même générateur que les jetons opaques) : jamais
+        // rendu, jamais envoyé. La personne choisit le sien via l'invitation.
+        String motDePasse = (request.getPassword() == null || request.getPassword().isBlank())
+                ? jwtService.generateRefreshTokenValue()
+                : request.getPassword();
+
         User user = User.builder()
                 .email(request.getEmail())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .passwordHash(passwordEncoder.encode(motDePasse))
                 .nom(request.getNom())
                 .prenom(request.getPrenom())
                 .isActive(true)
@@ -144,7 +169,64 @@ public class UserService {
         auditService.log(user.getId(), user.getEmail(), AuditAction.USER_CREATED,
                 describeRoles(roles), null);
 
-        return toResponse(user, roles);
+        return toResponse(user, roles).toBuilder()
+                .invitation(inviter(user))
+                .build();
+    }
+
+    // -------------------------------------------------------------------------
+    // Invitation (#389)
+    // -------------------------------------------------------------------------
+
+    /**
+     * POST /users/{id}/invitation — renvoyer le lien « choisissez votre mot de
+     * passe » (mail perdu, lien expiré, messagerie activée après la création).
+     *
+     * <p>Périmètre : l'appelant doit pouvoir attribuer les rôles que la cible
+     * porte (même matrice de délégation que les rôles) et ne pas toucher un
+     * super-admin s'il n'en est pas un (#216). Un refus n'émet AUCUN jeton.
+     */
+    @Transactional
+    public InvitationStatus renvoyerInvitation(Long userId, Authentication authentication) {
+        User user = findUserOrThrow(userId);
+        List<UserRole> existing = userRoleRepository.findByUserId(userId);
+        validateTargetModifiable(existing, authentication);
+        validateDelegation(toRoleDtos(existing), authentication);
+        return inviter(user);
+    }
+
+    /**
+     * Émet un jeton d'invitation (les anciens sont invalidés) et tente l'envoi.
+     * Le jeton est persisté AVANT l'envoi et un incident SMTP ne remonte pas
+     * (même posture que {@code AuthService.requestPasswordReset}) : le compte
+     * existe quoi qu'il arrive, l'écran apprend juste que l'e-mail n'est pas
+     * parti et propose le renvoi.
+     */
+    private InvitationStatus inviter(User user) {
+        passwordResetTokenRepository.invalidateAllByUserId(user.getId());
+
+        String rawToken = jwtService.generateRefreshTokenValue();
+        passwordResetTokenRepository.save(PasswordResetToken.builder()
+                .user(user)
+                .tokenHash(jwtService.hashToken(rawToken))
+                .expiresAt(LocalDateTime.now(clock).plusDays(INVITATION_VALIDITY_DAYS))
+                .used(false)
+                .build());
+
+        boolean envoyee;
+        try {
+            emailService.sendInvitationEmail(user.getEmail(), rawToken, user.getPrenom(), user.getNom());
+            envoyee = true;
+        } catch (Exception e) {
+            envoyee = false;
+            log.error("Échec de l'envoi de l'invitation à {} : {}", user.getEmail(), e.getMessage(), e);
+        }
+        boolean simulee = emailService.estSimule();
+
+        auditService.log(user.getId(), user.getEmail(), AuditAction.USER_INVITED,
+                simulee ? "simulee (messagerie desactivee)" : (envoyee ? "envoyee" : "echec d'envoi"),
+                null);
+        return new InvitationStatus(envoyee, simulee);
     }
 
     // -------------------------------------------------------------------------

@@ -36,9 +36,11 @@ export class AccueilComponent {
   readonly loading = signal(true);
   readonly error = signal(false);
 
+  /** #389 (R4) — le prénom servi par /auth/me ; repli : partie locale de l'e-mail. */
   readonly firstName = computed(() => {
     const u = this.authStore.currentUser();
     if (!u) return '';
+    if (u.prenom) return u.prenom;
     const local = u.email.split('@')[0].split(/[._-]/)[0];
     return local ? local[0].toUpperCase() + local.slice(1) : '';
   });

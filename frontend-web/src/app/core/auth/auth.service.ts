@@ -11,12 +11,14 @@ import {
 import { AuthStore } from './auth.store';
 import { decodeJwt, payloadToCurrentUser } from './jwt.util';
 import { TokenStorageService } from './token-storage.service';
+import { ProfileApiService } from '../api/profile-api.service';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly tokens = inject(TokenStorageService);
   private readonly store = inject(AuthStore);
+  private readonly profile = inject(ProfileApiService);
 
   private readonly baseUrl = `${environment.apiBaseUrl}/auth`;
 
@@ -99,6 +101,7 @@ export class AuthService {
         return;
       }
       this.store.setUser(payloadToCurrentUser(payload));
+      this.completerProfil();
     } catch {
       this.clearSession();
     }
@@ -107,7 +110,40 @@ export class AuthService {
   private handleAuthSuccess(accessToken: string, refreshToken: string): void {
     this.tokens.setTokens(accessToken, refreshToken);
     const payload = decodeJwt(accessToken);
-    this.store.setUser(payloadToCurrentUser(payload));
+    const suivant = payloadToCurrentUser(payload);
+    // Un refresh remplace le jeton, pas la personne : on garde le profil déjà
+    // connu au lieu de le re-demander à chaque rotation de jeton.
+    const precedent = this.store.currentUser();
+    if (precedent && precedent.userId === suivant.userId) {
+      suivant.nom = precedent.nom;
+      suivant.prenom = precedent.prenom;
+      suivant.primaryRole = precedent.primaryRole;
+    }
+    this.store.setUser(suivant);
+    this.completerProfil();
+  }
+
+  /**
+   * #389 (R4) — complète l'identité lue dans le JWT (e-mail, rôles) par celle
+   * que le serveur SERT (GET /auth/me : nom, prénom, rôle principal) — la même
+   * source que l'app mobile. Tir sans attente : la session ne dépend jamais de
+   * cet appel ; en échec ou en attente, l'en-tête garde sa lecture de repli
+   * (l'e-mail). Rien n'est écrit si la personne a changé entre-temps.
+   */
+  private completerProfil(): void {
+    const courant = this.store.currentUser();
+    if (!courant || courant.nom) return;
+    const attendu = courant.userId;
+    this.profile.me().subscribe({
+      next: (me) => {
+        const u = this.store.currentUser();
+        if (!u || u.userId !== attendu || me.id !== attendu) return;
+        this.store.setUser({ ...u, nom: me.nom, prenom: me.prenom, primaryRole: me.role });
+      },
+      error: () => {
+        /* repli : la lecture depuis l'e-mail reste affichée */
+      },
+    });
   }
 
   private clearSession(): void {

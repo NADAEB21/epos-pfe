@@ -82,6 +82,13 @@ interface ResultRow {
   moyenne20: number | null;
   mention: string;
   mentionClass: string;
+  /** #363 — la SECONDE lecture (ADR-0030 D4) : /20 sous le barème de
+   * délibération courant, null sans barème. Servie par scoring, jamais
+   * recalculée ici. */
+  moyenne20Delibere: number | null;
+  totalDelibere: number | null;
+  denominateurDelibere: number | null;
+  baremeVersion: number | null;
 }
 
 /** One histogram bin of a station's locked-score distribution (#355). */
@@ -176,6 +183,12 @@ export class ResultatsComponent {
   readonly loading = signal(true);
   readonly error = signal(false);
   readonly rows = signal<ResultRow[]>([]);
+
+  /** #363 — la version du barème de délibération appliquée (servie par scoring), null sans barème. */
+  readonly baremeVersion = computed<number | null>(() => {
+    for (const r of this.rows()) if (r.baremeVersion != null) return r.baremeVersion;
+    return null;
+  });
   readonly stationCols = signal<StationCol[]>([]);
 
   /** Exam-level scoring-completeness summary for the warning banner. */
@@ -675,6 +688,14 @@ export class ResultatsComponent {
       const complete = stations.length > 0 && lockedCount === stations.length;
       const moyenne20 = complete && totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
       const { mention, mentionClass } = this.mentionFor(moyenne20, lockedCount, stations.length);
+      // #363 — la lecture délibérée vient TELLE QUELLE de scoring (deux
+      // dénominateurs, ADR-0030 D4) ; seule la reconversion /20 est un choix d'écran.
+      const totalDelibere = r.totalDelibere ?? null;
+      const denominateurDelibere = r.denominateurDelibere ?? null;
+      const moyenne20Delibere =
+        totalDelibere != null && denominateurDelibere != null && denominateurDelibere > 0
+          ? (totalDelibere / denominateurDelibere) * 20
+          : null;
       return {
         rang: 0, // assigné après tri, 0 = "pas de rang" pour un résultat incomplet
         participationId: r.participationId,
@@ -690,6 +711,10 @@ export class ResultatsComponent {
         moyenne20,
         mention,
         mentionClass,
+        moyenne20Delibere,
+        totalDelibere,
+        denominateurDelibere,
+        baremeVersion: r.baremeVersion ?? null,
       };
     });
 

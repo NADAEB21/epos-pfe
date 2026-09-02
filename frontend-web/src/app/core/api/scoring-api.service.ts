@@ -4,6 +4,8 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../auth/auth.models';
 import {
+  BaremeDeliberation,
+  BaremeDeliberationRequest,
   CreateEtudiantRequest,
   UpdateEtudiantRequest,
   Convocation,
@@ -77,6 +79,37 @@ export class ScoringApiService {
    * must not blank the deliberation). Empty for pre-V19 exams (no snapshot):
    * the caller falls back to the live grille and labels the fallback.
    */
+  /**
+   * #361/#363 (ADR-0030) — l'historique des versions du barème de délibération,
+   * la plus récente d'abord. GET /notations/examen/{id}/bareme-deliberation.
+   * Monté sous /notations (le gateway route /examens/** vers exam-service).
+   */
+  listBaremesDeliberation(examenId: number): Observable<BaremeDeliberation[]> {
+    return this.http
+      .get<ApiResponse<BaremeDeliberation[]>>(
+        `${this.baseUrl}/notations/examen/${examenId}/bareme-deliberation`,
+      )
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * #361/#363 — l'ACTE du responsable (ADR-0030 D1) : une nouvelle version
+   * COMPLÈTE du barème (liste vide = retour à l'origine), motif obligatoire.
+   * Refus nominatifs : 409 non clos / double application, 400 cible invalide,
+   * 403 hors matière (générique « Access denied »). Jamais appelé par l'IA.
+   */
+  creerBaremeDeliberation(
+    examenId: number,
+    body: BaremeDeliberationRequest,
+  ): Observable<BaremeDeliberation> {
+    return this.http
+      .post<ApiResponse<BaremeDeliberation>>(
+        `${this.baseUrl}/notations/examen/${examenId}/bareme-deliberation`,
+        body,
+      )
+      .pipe(map((r) => r.data));
+  }
+
   getExamenGrillesSnapshot(examenId: number): Observable<StationGrilleSnapshot[]> {
     return this.http
       .get<ApiResponse<StationGrilleSnapshot[]>>(`${this.baseUrl}/notations/examen/${examenId}/grilles`)

@@ -1,6 +1,9 @@
 # ADR-0030 — Le barème de délibération : un artefact ADDITIF et versionné dans scoring
 
-**Statut : Proposé (2026-08-21) — l'acceptation est le merge de cette PR par Nada.**
+**Statut : Accepté (2026-08-21, avec ADR-0021 et ADR-0029 — voir ADR-0021 §Status). Livré :
+#361 entité + V25 + les deux dénominateurs (PR #380) · #362 propositions (l'effet projeté
+AVANT décision est calculé par ai-service avec l'arithmétique EXACTE de
+`BaremeDeliberationEngine`, lue par les vues V26) · #364 recette (PR #387). Reste : #363 UI.**
 **Décideuse : Nada. Préparé en S43, sur le plan IA/BI de S42.**
 **Exécute : ADR-0021 D6–D10 (Part 2 — « ce que changer le barème veut dire »). Donne sa
 forme au besoin que D9 nommait sans le dessiner (« a barème needs versions »), et sa

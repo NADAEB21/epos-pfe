@@ -1,6 +1,8 @@
 # ADR-0029 — Le socle du module IA/BI : Python lecture-seule derrière le gateway
 
-**Statut : Proposé (2026-08-21) — l'acceptation est le merge de cette PR par Nada.**
+**Statut : Accepté (2026-08-21, avec ADR-0021 et ADR-0030 — voir ADR-0021 §Status). Livré :
+#352 socle · #353 rôle ai_reader · #359 endpoints + cache · #362 propositions + journal
+(le « journal de suggestions » de D3 est la table `propositions_journal` d'ai_db).**
 **Décideuse : Nada. Préparé en S43, sur le plan IA/BI de S42 (réunion Nada–Feten du 21/08).**
 **Exécute : ADR-0008 (pivot psychométrie, accepté) + ADR-0021 (D1–D10). Clôt les deux points
 que ADR-0021 laissait explicitement ouverts : où tourne le calcul, et la forme du modèle de

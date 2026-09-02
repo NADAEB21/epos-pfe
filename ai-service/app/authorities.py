@@ -16,6 +16,12 @@ _RESPONSABLE_PREFIX = "ROLE_RESPONSABLE_MATIERE:"
 @dataclass(frozen=True)
 class Authorities:
     raw: tuple[str, ...]
+    # `X-User-Id` propagé par le gateway (JwtAuthenticationFilter.USER_ID_HEADER).
+    # Lu depuis #362 : la décision sur une proposition est un ACTE, il porte son
+    # auteur (comme `cree_par` du barème côté scoring). None = en-tête absent
+    # ou non numérique — les routes de lecture l'ignorent, la route de
+    # décision refuse (401) : jamais un auteur inventé.
+    user_id: int | None = None
 
     @property
     def is_super_admin(self) -> bool:
@@ -39,6 +45,7 @@ class Authorities:
         return not self.raw
 
 
-def parse(header: str | None) -> Authorities:
+def parse(header: str | None, user_id_header: str | None = None) -> Authorities:
     parts = tuple(p.strip() for p in (header or "").split(",") if p.strip())
-    return Authorities(parts)
+    uid = (user_id_header or "").strip()
+    return Authorities(parts, int(uid) if uid.isdigit() else None)

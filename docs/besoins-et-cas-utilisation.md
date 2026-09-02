@@ -386,7 +386,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021** ; **le service `ai-service` n'existe pas dans le dépôt** ; route `analyses-ia` = page vide |
+| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021**, **ADR-0029** ; `ai-service` livré (#352/#357/#359 — `/ai/examens/{id}/indices` + `/evaluateurs`), indices sur les cartes de l'écran A (#374/#375) |
 | UC-79 | Détecter les anomalies de notation | A7 | 📐 | **ADR-0008** |
 | UC-80 | Comparer la sévérité des évaluateurs | A3, A4 | 📐 | **ADR-0021 D1/D2** — comparaison **intra-station obligatoire**, descriptive et jamais automatique (D3) |
 | UC-81 | Proposer un barème révisé motivé | A7 | 📐 | **ADR-0021 partie 2** — la finalité affichée du volet IA |

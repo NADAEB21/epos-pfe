@@ -25,14 +25,21 @@
       <div class="text-2xl font-semibold text-gray-900">{{ d.matiereCount }}</div>
       <div class="text-sm text-gray-500">matières au catalogue</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.examTotal }}</div>
-      <div class="text-sm text-gray-500">examens (toutes matières)</div>
-    </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.examActive }}</div>
-      <div class="text-sm text-gray-500">examens actifs</div>
-    </div>
+    @if (examsError()) {
+      <div class="rounded-xl bg-white border border-status-danger shadow-card p-4 sm:col-span-2">
+        <div class="text-sm font-medium text-status-danger">Examens indisponibles</div>
+        <div class="text-xs text-gray-500">exam-service ne répond pas — les compteurs ne sont pas « 0 », ils sont inconnus.</div>
+      </div>
+    } @else {
+      <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+        <div class="text-2xl font-semibold text-gray-900">{{ d.examTotal }}</div>
+        <div class="text-sm text-gray-500">examens (toutes matières)</div>
+      </div>
+      <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+        <div class="text-2xl font-semibold text-gray-900">{{ d.examActive }}</div>
+        <div class="text-sm text-gray-500">examens actifs</div>
+      </div>
+    }
   </section>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -65,9 +72,12 @@
       } @else {
         <ul class="divide-y divide-gray-100">
           @for (e of d.recentExams; track e.id) {
-            <li class="flex items-center justify-between py-2 text-sm">
-              <span class="text-gray-700">{{ e.nom }}</span>
-              <span class="text-xs text-gray-400">{{ statutLabel(e.statut) }}</span>
+            <li class="text-sm">
+              <!-- #390 — vers le détail en LECTURE SEULE, jamais le workspace -->
+              <a [routerLink]="['/admin/examens', e.id]" class="flex items-center justify-between py-2 hover:text-brand">
+                <span class="text-gray-700">{{ e.nom }}</span>
+                <span class="text-xs text-gray-400">{{ statutLabel(e.statut) }}</span>
+              </a>
             </li>
           }
         </ul>

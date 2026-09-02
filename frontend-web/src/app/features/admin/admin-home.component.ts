@@ -50,6 +50,8 @@ export class AdminHomeComponent {
 
   readonly data = signal<AdminOverview | null>(null);
   readonly loading = signal(true);
+  /** #390 — une panne de exam-service ne se lit plus « 0 examen » : elle se dit. */
+  readonly examsError = signal(false);
 
   readonly adminLinks: AdminLink[] = [
     { label: 'Utilisateurs', desc: 'Comptes & rôles (tous)', link: '/admin/utilisateurs' },
@@ -65,6 +67,7 @@ export class AdminHomeComponent {
 
   load(): void {
     this.loading.set(true);
+    this.examsError.set(false);
     forkJoin({
       users: this.directoryApi.listUsers().pipe(catchError(() => of([]))),
       matieres: this.directoryApi.listMatieres().pipe(catchError(() => of([]))),
@@ -72,7 +75,10 @@ export class AdminHomeComponent {
         .listExamens({ size: 100, sort: 'dateExamen,desc' })
         .pipe(
           map((p) => p.content ?? []),
-          catchError(() => of([] as ExamenResponse[])),
+          catchError(() => {
+            this.examsError.set(true);
+            return of([] as ExamenResponse[]);
+          }),
         ),
     }).subscribe((r) => {
       const exams: ExamenResponse[] = r.exams;

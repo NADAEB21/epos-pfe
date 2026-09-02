@@ -775,7 +775,7 @@ brouillons de travail, pas la référence.)
   | Consulter les résultats | Responsable **et Super-admin (lecture)** | UC-72 |
   | Gérer les utilisateurs | Super-admin | UC-11→14 |
   | Gérer les matières | Super-admin | UC-09, UC-10 |
-  | Consulter l'historique des épreuves de la faculté | Super-admin | lecture seule trans-matières — vérifié `admin-home.component.ts` (tous examens, toutes matières) |
+  | Consulter l'historique des épreuves de la faculté | Super-admin | lecture seule trans-matières — `admin-examens.component` + `admin-examen-detail.component` (#390, `/admin/examens`) : tous examens, toutes matières, aucun contrôle d'écriture, jamais le workspace |
 
 - **Écarts assumés vs l'ancienne spec à 11 bulles** (2026-08-01) :
   - « Gérer les matières et les utilisateurs » **scindée en deux** (le « et » cachait deux

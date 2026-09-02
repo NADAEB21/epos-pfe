@@ -1,0 +1,100 @@
+<header class="mb-6">
+  <a routerLink="/admin" class="text-sm text-gray-500 hover:text-brand">&larr; Console d'administration</a>
+  <div class="mt-1 flex flex-wrap items-center gap-3">
+    <h1 class="text-2xl font-semibold text-gray-900">Examens de la faculté</h1>
+    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="ADR-0018 D5 : l'administration lit partout, n'écrit rien de pédagogique">
+      Supervision — lecture seule
+    </span>
+  </div>
+  <p class="text-sm text-gray-500 mt-1">
+    Toutes les matières, tous les statuts. Concevoir, lancer ou noter un examen reste l'acte des responsables de matière.
+  </p>
+</header>
+
+@if (loading()) {
+  <div class="space-y-2 animate-pulse">
+    <div class="h-14 rounded-lg bg-gray-200"></div>
+    <div class="h-14 rounded-lg bg-gray-200"></div>
+    <div class="h-14 rounded-lg bg-gray-200"></div>
+  </div>
+} @else if (error()) {
+  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <p class="text-gray-700 mb-3">Impossible de charger les examens de la faculté.</p>
+    <button type="button" (click)="load()" class="text-sm text-brand hover:underline">Réessayer</button>
+  </div>
+} @else if (allExams().length === 0) {
+  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center text-gray-400 shadow-card">
+    Aucun examen dans la faculté pour le moment.
+  </div>
+} @else {
+  @if (catalogueEnPanne()) {
+    <p class="mb-3 text-xs text-amber-700">
+      Catalogue des matières indisponible — les matières sont affichées par leur numéro.
+    </p>
+  }
+
+  <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-1">
+      <input
+        type="search"
+        [value]="search()"
+        (input)="onSearch($event)"
+        placeholder="Rechercher (nom, matière, date)…"
+        aria-label="Rechercher un examen"
+        class="w-full sm:max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+      />
+      <select
+        aria-label="Filtrer par matière"
+        (change)="onMatiereChange($any($event.target).value)"
+        class="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+      >
+        <option value="">Toutes les matières</option>
+        @for (m of matieresPresentes(); track m.id) {
+          <option [value]="m.id" [selected]="matiereFilter() === m.id">{{ m.libelle }}</option>
+        }
+      </select>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      <button type="button" (click)="filter.set('TOUS')" [class]="chipClass('TOUS')">
+        Tous ({{ filteredExams().length }})
+      </button>
+      @for (b of availableBuckets(); track b.key) {
+        <button type="button" (click)="filter.set(b.key)" [class]="chipClass(b.key)">
+          {{ b.label }} ({{ b.exams.length }})
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (visibleGroups().length === 0) {
+    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center text-gray-400 shadow-card">
+      Aucun examen ne correspond à ces critères.
+    </div>
+  } @else {
+    <div class="space-y-6">
+      @for (g of visibleGroups(); track g.key) {
+        <section>
+          <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {{ g.label }} <span class="text-gray-400">· {{ g.exams.length }}</span>
+          </h2>
+          <ul class="rounded-xl bg-white border border-gray-200 shadow-card divide-y divide-gray-100">
+            @for (e of g.exams; track e.id) {
+              <li>
+                <!-- Lecture seule : JAMAIS /examens/:id (le workspace éditable du responsable) -->
+                <a [routerLink]="['/admin/examens', e.id]" class="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50">
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium text-gray-900 truncate">{{ e.nom }}</div>
+                    <div class="text-xs text-gray-500">{{ matiereLabel(e.matiereId) }} · {{ e.dateExamen }}</div>
+                  </div>
+                  <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-brand-50 text-brand-dark">
+                    {{ displayStatut(e) }}
+                  </span>
+                </a>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+    </div>
+  }
+}

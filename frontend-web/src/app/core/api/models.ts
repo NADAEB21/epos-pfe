@@ -1115,3 +1115,99 @@ export interface IndicesExamen {
   par_grille: IndiceGrilleAi[];
   par_station: IndiceStationAi[];
 }
+
+// ── BI (#365 / N10) — la face transversale : mêmes agrégats, autre échelle ──
+
+/** Une lecture BI fermée (ai-service `app/bi.py`) — la `raison` s'affiche VERBATIM. */
+export interface LectureBiAi {
+  code: string;
+  raison: string;
+}
+
+/** `projection.resume` côté ai-service : réussite = total >= dénominateur / 2. */
+export interface ResumeBiAi {
+  n_etudiants: number;
+  denominateur: number | null;
+  mediane: number | null;
+  moyenne: number | null;
+  taux_reussite: number | null;
+}
+
+export interface HistogrammeBinAi {
+  label: string;
+  count: number;
+  pct: number;
+  sousSeuil: boolean;
+}
+
+export interface StationTendanceAi {
+  station_id: number;
+  n: number;
+  echecs: number;
+  taux_echec: number;
+  mediane: number;
+  note_max: number;
+}
+
+/** Une session CLOSE d'une matière — la carte BI (jamais de ligne par étudiant). */
+export interface ExamenTendanceAi {
+  examen_id: number;
+  nom: string | null;
+  date_examen: string | null;
+  statut: string;
+  entrees_hash: string;
+  moteur_version: string;
+  n_notations_verrouillees: number;
+  couverture_snapshot_complete: boolean;
+  origine: ResumeBiAi;
+  delibere: ResumeBiAi | null;
+  bareme_version: number | null;
+  bins: HistogrammeBinAi[];
+  par_station: StationTendanceAi[];
+  exclusions: ExclusionsAi & { sans_aucun_item: number };
+  lectures: LectureBiAi[];
+}
+
+/** GET /ai/matieres/{id}/tendances — sessions closes dans l'ordre des dates. */
+export interface TendancesMatiere {
+  matiere_id: number;
+  examens: ExamenTendanceAi[];
+  exclusions: { non_clos: number; sans_snapshot: number; hors_snapshot: number };
+  lectures: LectureBiAi[];
+}
+
+/** Agrégat poolé (/20) — sous l'effectif minimal, `statut` NON_CONCLUANT + `raison`. */
+export interface AgregatBiAi {
+  n_etudiants: number;
+  mediane_sur_20: number | null;
+  taux_reussite: number | null;
+  statut: 'CONCLUANT' | 'NON_CONCLUANT';
+  raison: string | null;
+}
+
+export interface SessionSyntheseAi {
+  examen_id: number;
+  nom: string | null;
+  date_examen: string | null;
+  n_etudiants: number;
+  taux_reussite: number | null;
+  mediane_sur_20: number | null;
+  bareme_version: number | null;
+  lectures: LectureBiAi[];
+}
+
+export interface MatiereSyntheseAi extends AgregatBiAi {
+  matiere_id: number;
+  nb_examens_clos: number;
+  nb_avec_bareme_delibere: number;
+  dernier_examen: { examen_id: number; nom: string | null; date_examen: string | null } | null;
+  hors_snapshot: number;
+  sessions: SessionSyntheseAi[];
+}
+
+/** GET /ai/faculte/synthese — SUPER_ADMIN, agrégé d'abord (ADR-0021 D5). */
+export interface SyntheseFaculte {
+  faculte: AgregatBiAi & { nb_matieres: number; nb_examens_clos: number };
+  matieres: MatiereSyntheseAi[];
+  exclusions: { sans_snapshot: number };
+}

@@ -15,6 +15,11 @@ Panne du plan de données (lecture OU cache) : 503 BRUYANT, jamais un repli qui
 fabrique une réponse (D7, leçon du 403 avalé). Le client (écran A) se dégrade,
 lui — c'est SA moitié du contrat (ADR-0021 D4).
 
+BI (#365 / N10) : ``/matieres/{id}/tendances`` (le responsable, SA matière —
+sessions closes dans le temps, par station) et ``/faculte/synthese``
+(SUPER_ADMIN, agrégé d'abord, jamais par étudiant — ADR-0021 D5). Mêmes
+agrégats, mêmes droits, aucune arithmétique nouvelle (``app.bi``).
+
 Enveloppe de réponse : {success, data, message} — ADR-0004, comme les
 services Java.
 """
@@ -26,10 +31,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import authorities as authz
-from . import cache, db, journal
+from . import bi, cache, db, journal
 from .bareme import projection as pj
 from .bareme import propositions as props
-from .guard import check_examen_access
+from .guard import check_examen_access, check_faculte_access, check_matiere_access
 from .stats import hash as stats_hash
 from .stats import loader, runner
 
@@ -370,3 +375,40 @@ def projection(
         "max_original_par_station": {str(k): v for k, v in sorted(apres.max_original_par_station.items())},
         "effet_projete": eff,
     })
+
+
+# ── BI : la face transversale (#365 / N10) ───────────────────────────────────
+
+@app.get("/ai/matieres/{matiere_id}/tendances")
+def tendances(
+    matiere_id: int = Path(ge=1),
+    x_user_authorities: str | None = Header(default=None),
+):
+    """Les sessions CLOSES d'une matière dans l'ordre des dates — distribution,
+    taux de réussite, échec par station, barème délibéré éventuel. Périmètre :
+    le responsable de la matière ou le SUPER_ADMIN ; l'évaluateur n'a pas
+    d'accès v1. 401 → 403 nominatif → 200 (vide = lecture AUCUN_EXAMEN_CLOS,
+    jamais 404 : le catalogue des matières vit dans auth_db)."""
+    try:
+        check_matiere_access(authz.parse(x_user_authorities), matiere_id)
+        data = bi.tendances_matiere(matiere_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail=_INDISPONIBLE)
+    return _envelope(success=True, data=data)
+
+
+@app.get("/ai/faculte/synthese")
+def synthese(x_user_authorities: str | None = Header(default=None)):
+    """Agrégats inter-matières pour le SUPER_ADMIN — AGRÉGÉ D'ABORD (ADR-0021
+    D5) : aucun identifiant d'étudiant, de notation ni d'évaluateur ne sort ;
+    sous l'effectif minimal, un refus nommé plutôt qu'un nombre. 401 → 403."""
+    try:
+        check_faculte_access(authz.parse(x_user_authorities))
+        data = bi.synthese_faculte()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail=_INDISPONIBLE)
+    return _envelope(success=True, data=data)

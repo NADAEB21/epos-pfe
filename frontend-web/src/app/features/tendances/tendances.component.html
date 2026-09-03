@@ -1,0 +1,168 @@
+<header class="mb-6">
+  @if (estAdmin()) {
+    <a routerLink="/admin/synthese" class="text-sm text-gray-500 hover:text-brand">&larr; Synthèse de la faculté</a>
+  }
+  <div class="mt-1 flex flex-wrap items-center gap-3">
+    <h1 class="text-2xl font-semibold text-gray-900">Tendances — {{ matiereLabel() }}</h1>
+    <span
+      class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+      title="ADR-0029 D2 : le module IA ne lit que les examens terminés ou archivés"
+    >
+      Sessions closes uniquement
+    </span>
+    @if (estAdmin()) {
+      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="ADR-0018 D5 : l'administration lit partout, n'écrit rien de pédagogique">
+        Lecture seule
+      </span>
+    }
+  </div>
+  <p class="text-sm text-gray-500 mt-1">
+    D'une session à l'autre : distribution des totaux, taux de réussite, échec par station.
+    Réussite = total ≥ 50 % du barème, le même seuil que l'écran de délibération.
+  </p>
+  @if (!estAdmin() && scopeIds().length > 1) {
+    <label class="mt-3 inline-flex items-center gap-2 text-sm text-gray-600">
+      Matière
+      <select
+        aria-label="Choisir la matière"
+        [value]="selectedMatiere()"
+        (change)="onMatiereChange($any($event.target).value)"
+        class="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+      >
+        @for (id of scopeIds(); track id) {
+          <option [value]="id">{{ labelPour(id) }}</option>
+        }
+      </select>
+    </label>
+  }
+</header>
+
+@if (catalogueEnPanne()) {
+  <p class="mb-3 text-xs text-amber-700">
+    Catalogue des matières indisponible — la matière est affichée par son numéro.
+  </p>
+}
+
+@switch (etat()) {
+  @case ('chargement') {
+    <div class="space-y-4 animate-pulse" aria-hidden="true">
+      <div class="h-40 rounded-xl bg-gray-200"></div>
+      <div class="h-64 rounded-xl bg-gray-200"></div>
+    </div>
+  }
+  @case ('absents') {
+    <div role="status" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <div class="text-sm text-amber-800">
+        <p class="font-medium">Tendances indisponibles — module IA injoignable.</p>
+        <p class="text-amber-700">Les résultats et la délibération de chaque examen restent accessibles depuis « Mes examens ».</p>
+        <button type="button" (click)="reload()" class="mt-2 text-sm text-brand hover:underline">Réessayer</button>
+      </div>
+    </div>
+  }
+  @case ('refus') {
+    <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <p class="font-medium">Accès refusé par le module IA</p>
+      <p class="text-amber-700">{{ message() }}</p>
+    </div>
+  }
+  @case ('prets') {
+    @if (data(); as d) {
+      @if (d.examens.length === 0) {
+        <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+          @for (l of lecturesMatiere(); track l.libelle) {
+            <p class="text-gray-700 font-medium" [class.italic]="l.degrade">{{ l.libelle }}</p>
+            <p class="text-sm text-gray-500 mt-1">{{ l.raison }}</p>
+          }
+          @if (d.exclusions.non_clos > 0) {
+            <p class="text-xs text-gray-400 mt-3">
+              {{ d.exclusions.non_clos }} session(s) non close(s) — elles apparaîtront ici une fois terminées.
+            </p>
+          }
+        </div>
+      } @else {
+        <!-- Les sessions closes, dans l'ordre des dates : le taux de réussite avec son n. -->
+        <section class="rounded-xl bg-white border border-gray-200 shadow-card p-4 mb-6">
+          <div class="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Sessions closes ({{ d.examens.length }})
+            </h2>
+            <span class="text-xs text-gray-400">Cliquer une session pour la détailler</span>
+          </div>
+          <app-barres-concentration
+            [lignes]="lignesSessions()"
+            [largeurLabel]="260"
+            titreValeur="Taux de réussite"
+            (ligneClick)="selectExamen($event)"
+          />
+          @if (nonLuesTexte(); as nonLues) {
+            <p class="text-xs text-gray-400 mt-2 tabular-nums">Non lues : {{ nonLues }}</p>
+          }
+        </section>
+
+        @if (selected(); as e) {
+          <section class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <h2 class="text-lg font-semibold text-gray-900">{{ e.nom ?? 'Examen ' + e.examen_id }}</h2>
+                <p class="text-sm text-gray-500 tabular-nums">
+                  {{ fmtDate(e.date_examen) }} · {{ e.origine.n_etudiants }} étudiant(s) ·
+                  médiane {{ fmtNum(e.origine.mediane) }} / {{ fmtNum(e.origine.denominateur) }}
+                  (≈ {{ fmtNum(sur20(e.origine.mediane, e.origine.denominateur)) }} /20) ·
+                  réussite {{ fmtTaux(e.origine.taux_reussite) }}
+                </p>
+                @if (e.delibere; as del) {
+                  <p class="text-sm text-brand-dark tabular-nums mt-1" data-testid="ligne-delibere">
+                    Barème de délibération v{{ e.bareme_version }} appliqué :
+                    @if (del.denominateur) {
+                      médiane {{ fmtNum(sur20(e.origine.mediane, e.origine.denominateur)) }} → {{ fmtNum(sur20(del.mediane, del.denominateur)) }} /20 ·
+                      réussite {{ fmtTaux(e.origine.taux_reussite) }} → {{ fmtTaux(del.taux_reussite) }}
+                    } @else {
+                      toutes les stations exclues — dénominateur délibéré nul, aucun total à lire (c'est ce que scoring sert aussi)
+                    }
+                  </p>
+                }
+              </div>
+              @if (!estAdmin()) {
+                <a [routerLink]="['/examens', e.examen_id, 'resultats']" class="text-sm text-brand hover:underline">
+                  Ouvrir les résultats &rarr;
+                </a>
+              }
+            </div>
+
+            @for (l of lecturesSelection(); track l.libelle) {
+              <p
+                role="status"
+                class="mt-3 inline-flex flex-wrap items-baseline gap-x-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800"
+                [class.italic]="l.degrade"
+              >
+                <span class="font-medium">{{ l.libelle }}</span>
+                <span>{{ l.raison }}</span>
+              </p>
+            }
+
+            <h3 class="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Distribution des totaux</h3>
+            <app-histogramme-station
+              [bins]="e.bins"
+              [n]="e.origine.n_etudiants"
+              seuilLabel="réussite = total ≥ 50 % du barème"
+            />
+
+            <h3 class="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Échec par station</h3>
+            <app-barres-concentration [lignes]="lignesStations()" titreValeur="Taux d'échec" />
+
+            <p class="text-xs text-gray-400 mt-3 tabular-nums">
+              {{ e.exclusions.notations_analysees }} notation(s) verrouillée(s) analysée(s)
+              @if (e.exclusions.saisi_par_null > 0) { · {{ e.exclusions.saisi_par_null }} sans auteur (comptées) }
+              @if (e.exclusions.detail_incomplet > 0) { · {{ e.exclusions.detail_incomplet }} au détail incomplet }
+              @if (e.exclusions.sans_aucun_item > 0) { · {{ e.exclusions.sans_aucun_item }} sans aucun item (invisibles du module) }
+              · empreinte {{ e.entrees_hash.slice(0, 8) }}
+            </p>
+          </section>
+        }
+      }
+    }
+  }
+}

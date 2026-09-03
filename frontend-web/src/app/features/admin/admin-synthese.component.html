@@ -1,0 +1,141 @@
+<header class="mb-6">
+  <a routerLink="/admin" class="text-sm text-gray-500 hover:text-brand">&larr; Console d'administration</a>
+  <div class="mt-1 flex flex-wrap items-center gap-3">
+    <h1 class="text-2xl font-semibold text-gray-900">Synthèse de la faculté</h1>
+    <span
+      class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+      title="ADR-0021 D5 : la comparaison inter-matières est agrégée d'abord ; aucune vue par étudiant hors matière"
+    >
+      Agrégé d'abord — aucune vue par étudiant
+    </span>
+  </div>
+  <p class="text-sm text-gray-500 mt-1">
+    Toutes les matières, sessions closes uniquement. Un taux inhabituel se lit ici ; corriger un barème reste l'acte du responsable de la matière.
+  </p>
+</header>
+
+@if (catalogueEnPanne()) {
+  <p class="mb-3 text-xs text-amber-700">
+    Catalogue des matières indisponible — les matières sont affichées par leur numéro.
+  </p>
+}
+
+@switch (etat()) {
+  @case ('chargement') {
+    <div class="space-y-4 animate-pulse" aria-hidden="true">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="h-24 rounded-xl bg-gray-200"></div>
+        <div class="h-24 rounded-xl bg-gray-200"></div>
+        <div class="h-24 rounded-xl bg-gray-200"></div>
+        <div class="h-24 rounded-xl bg-gray-200"></div>
+      </div>
+      <div class="h-48 rounded-xl bg-gray-200"></div>
+    </div>
+  }
+  @case ('absents') {
+    <div role="status" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <div class="text-sm text-amber-800">
+        <p class="font-medium">Synthèse indisponible — module IA injoignable.</p>
+        <p class="text-amber-700">La supervision des examens reste accessible.</p>
+        <button type="button" (click)="load()" class="mt-2 text-sm text-brand hover:underline">Réessayer</button>
+      </div>
+    </div>
+  }
+  @case ('refus') {
+    <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <p class="font-medium">Accès refusé par le module IA</p>
+      <p class="text-amber-700">{{ message() }}</p>
+    </div>
+  }
+  @case ('prets') {
+    @if (data(); as d) {
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Matières avec sessions closes</p>
+          <p class="text-2xl font-semibold text-gray-900 tabular-nums">{{ d.faculte.nb_matieres }}</p>
+        </div>
+        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Sessions closes</p>
+          <p class="text-2xl font-semibold text-gray-900 tabular-nums">{{ d.faculte.nb_examens_clos }}</p>
+        </div>
+        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Étudiants notés</p>
+          <p class="text-2xl font-semibold text-gray-900 tabular-nums">{{ d.faculte.n_etudiants }}</p>
+        </div>
+        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Réussite (toutes matières)</p>
+          @if (d.faculte.taux_reussite !== null) {
+            <p class="text-2xl font-semibold text-gray-900 tabular-nums">{{ fmtTaux(d.faculte.taux_reussite) }}</p>
+            <p class="text-xs text-gray-400 tabular-nums">médiane {{ fmtNum(d.faculte.mediane_sur_20) }} /20</p>
+          } @else {
+            <p class="text-sm italic text-amber-800">{{ d.faculte.raison }}</p>
+          }
+        </div>
+      </div>
+
+      @if (d.matieres.length === 0) {
+        <div class="rounded-xl bg-white border border-gray-200 p-8 text-center text-gray-400 shadow-card">
+          Aucune session close dans la faculté — la synthèse n'existe qu'à l'usage.
+        </div>
+      } @else {
+        <section class="rounded-xl bg-white border border-gray-200 shadow-card p-4 mb-6">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Taux de réussite par matière</h2>
+          <app-barres-concentration [lignes]="lignesMatieres()" titreValeur="Taux de réussite" />
+        </section>
+
+        <section class="rounded-xl bg-white border border-gray-200 shadow-card overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-100">
+                <th class="px-4 py-3">Matière</th>
+                <th class="px-4 py-3 tabular-nums">Sessions closes</th>
+                <th class="px-4 py-3 tabular-nums">Étudiants</th>
+                <th class="px-4 py-3 tabular-nums">Médiane /20</th>
+                <th class="px-4 py-3 tabular-nums">Réussite</th>
+                <th class="px-4 py-3">Dernière session</th>
+                <th class="px-4 py-3 tabular-nums">Barèmes délibérés</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              @for (m of d.matieres; track m.matiere_id) {
+                <tr>
+                  <td class="px-4 py-3 font-medium text-gray-900">{{ matiereLabel(m.matiere_id) }}</td>
+                  <td class="px-4 py-3 tabular-nums">{{ m.nb_examens_clos }}</td>
+                  <td class="px-4 py-3 tabular-nums">{{ m.n_etudiants }}</td>
+                  @if (m.statut === 'CONCLUANT') {
+                    <td class="px-4 py-3 tabular-nums">{{ fmtNum(m.mediane_sur_20) }}</td>
+                    <td class="px-4 py-3 tabular-nums">{{ fmtTaux(m.taux_reussite) }}</td>
+                  } @else {
+                    <td class="px-4 py-3" colspan="2">
+                      <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800 italic">
+                        {{ m.raison }}
+                      </span>
+                    </td>
+                  }
+                  <td class="px-4 py-3 text-gray-600">
+                    @if (m.dernier_examen; as de) {
+                      {{ fmtDate(de.date_examen) }} · {{ de.nom ?? 'Examen ' + de.examen_id }}
+                    } @else { — }
+                  </td>
+                  <td class="px-4 py-3 tabular-nums">{{ m.nb_avec_bareme_delibere }}</td>
+                  <td class="px-4 py-3 text-right">
+                    <a [routerLink]="['/admin/tendances', m.matiere_id]" class="text-brand hover:underline">Tendances &rarr;</a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+        @if (d.exclusions.sans_snapshot > 0) {
+          <p class="text-xs text-gray-400 mt-2 tabular-nums">
+            Non lues : {{ d.exclusions.sans_snapshot }} session(s) close(s) sans snapshot scoring.
+          </p>
+        }
+      }
+    }
+  }
+}

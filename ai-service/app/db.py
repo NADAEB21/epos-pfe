@@ -113,3 +113,37 @@ def nb_notations_verrouillees(examen_id: int) -> int:
             (examen_id,),
         ).fetchone()
     return int(row[0]) if row else 0
+
+
+# ── BI (#365 / N10) : les sessions d'une matière, de la faculté ──────────────
+
+def examens_par_matiere(matiere_id: int) -> list[tuple]:
+    """Lignes (examen_id, statut, nom, date_examen) des examens dont la matière
+    VIVANTE (exam_db, vue V12) est ``matiere_id`` — tous statuts, dans l'ordre
+    des dates. Ce n'est PAS la vérité de périmètre : ``app.bi`` re-vérifie
+    chaque examen contre le snapshot scoring (``resolve_matiere``)."""
+    with psycopg.connect(EXAM_DSN, connect_timeout=_CONNECT_TIMEOUT) as conn:
+        return conn.execute(
+            """
+            SELECT examen_id, statut, nom, date_examen
+            FROM v_ai_examens
+            WHERE matiere_id = %s
+            ORDER BY date_examen, examen_id
+            """,
+            (matiere_id,),
+        ).fetchall()
+
+
+def examens_clos_toutes_matieres() -> list[tuple]:
+    """Lignes (examen_id, matiere_id, statut, nom, date_examen) de TOUS les
+    examens clos (vue V12) — la synthèse facultaire regroupe ensuite par
+    matière SNAPSHOT, jamais par cette matière vivante."""
+    with psycopg.connect(EXAM_DSN, connect_timeout=_CONNECT_TIMEOUT) as conn:
+        return conn.execute(
+            """
+            SELECT examen_id, matiere_id, statut, nom, date_examen
+            FROM v_ai_examens
+            WHERE statut IN ('TERMINE', 'ARCHIVE')
+            ORDER BY date_examen, examen_id
+            """,
+        ).fetchall()

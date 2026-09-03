@@ -10,6 +10,8 @@ import {
   OperationBareme,
   ProjectionAi,
   PropositionsExamen,
+  SyntheseFaculte,
+  TendancesMatiere,
 } from './models';
 
 /**
@@ -63,6 +65,20 @@ export class AiApiService {
   projeter(examenId: number, operations: OperationBareme[]): Observable<ProjectionAi> {
     return this.http
       .post<ApiResponse<ProjectionAi>>(`${this.baseUrl}/examens/${examenId}/projection`, { operations })
+      .pipe(map((r) => r.data));
+  }
+
+  /** #365 (N10) — les sessions CLOSES d'une matière dans le temps (responsable de la matière, ou admin). */
+  getTendances(matiereId: number): Observable<TendancesMatiere> {
+    return this.http
+      .get<ApiResponse<TendancesMatiere>>(`${this.baseUrl}/matieres/${matiereId}/tendances`)
+      .pipe(map((r) => r.data));
+  }
+
+  /** #365 (N10) — la synthèse facultaire, SUPER_ADMIN, agrégée d'abord (ADR-0021 D5 : jamais par étudiant). */
+  getSynthese(): Observable<SyntheseFaculte> {
+    return this.http
+      .get<ApiResponse<SyntheseFaculte>>(`${this.baseUrl}/faculte/synthese`)
       .pipe(map((r) => r.data));
   }
 }

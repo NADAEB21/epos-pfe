@@ -69,6 +69,12 @@ export class BarresConcentrationComponent {
   /** Ce que la barre mesure (ex. « Taux d'échec »). */
   readonly titreValeur = input<string>('Valeur');
   readonly theme = input<'light' | 'dark'>('light');
+  /**
+   * Largeur (px) réservée aux libellés de l'axe — 110 par défaut (stations) ;
+   * un écran dont les libellés portent une date + un nom (#365, sessions) en
+   * demande davantage. Au-delà, ECharts tronque et le tooltip garde l'intégral.
+   */
+  readonly largeurLabel = input<number>(110);
 
   readonly ligneClick = output<number>();
 
@@ -109,7 +115,7 @@ export class BarresConcentrationComponent {
         data: ordered.map((l) => l.label),
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: p.text, fontSize: 12, width: 110, overflow: 'truncate' },
+        axisLabel: { color: p.text, fontSize: 12, width: this.largeurLabel(), overflow: 'truncate' },
       },
       series: [
         {

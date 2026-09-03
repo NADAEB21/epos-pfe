@@ -476,4 +476,38 @@ describe('ResultatsComponent — #355 délibération', () => {
     expect(note).withContext('le silence est interdit — la note discrète le dit').toBeDefined();
     expect(note!.className).withContext('l\'état ABSENT, lui, reste discret').toContain('text-gray-400');
   });
+  // ---- #399 (constat Feten) : « appliqué » seulement si une lecture délibérée est SERVIE ------
+
+  function createDom399(): { c: ResultatsComponent; el: HTMLElement } {
+    const fixture = TestBed.createComponent(ResultatsComponent);
+    (fixture.componentInstance as unknown as { id: () => string }).id = () => '77';
+    fixture.detectChanges();
+    fixture.detectChanges();
+    return { c: fixture.componentInstance, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('#399 : version existante mais totaux délibérés NULS (barème figé incomplet) → pastille « non servie », pas de colonne', () => {
+    scoring.getExamenResults.and.returnValue(
+      of(results.map((r) => ({ ...r, baremeVersion: 1, totalDelibere: null, denominateurDelibere: null }))),
+    );
+    const { c, el } = createDom399();
+    expect(c.baremeVersion()).toBe(1);
+    expect(c.delibereServi()).toBeFalse();
+    const t = el.textContent ?? '';
+    expect(t).toContain('Barème v1 enregistré — lecture délibérée non servie');
+    expect(t).not.toContain('Barème de délibération v1 appliqué');
+    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).not.toContain('Délibéré /20');
+  });
+
+  it('#399 : totaux délibérés servis → badge « appliqué » et colonne « Délibéré /20 » (inchangé)', () => {
+    scoring.getExamenResults.and.returnValue(
+      of(results.map((r) => ({ ...r, baremeVersion: 1, totalDelibere: r.totalScore, denominateurDelibere: 25 }))),
+    );
+    const { c, el } = createDom399();
+    expect(c.delibereServi()).toBeTrue();
+    const t = el.textContent ?? '';
+    expect(t).toContain('Barème de délibération v1 appliqué');
+    expect(t).not.toContain('non servie');
+    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).toContain('Délibéré /20');
+  });
 });

@@ -121,7 +121,27 @@ export class DeliberationComponent {
   readonly compoBusy = signal(false);
   readonly compoActErreur = signal<string | null>(null);
 
-  readonly baremeCourant = computed(() => this.propositions()?.bareme_courant ?? null);
+  /**
+   * #399 — le barème COURANT vient de SCORING (l'historique, version la plus
+   * récente d'abord), la source de vérité : le module IA ne fait que le
+   * relire. Avant, il était lu dans `/propositions` → module injoignable =
+   * en-tête muet ET composition semée VIDE ; une version étant COMPLÈTE
+   * (remplacement), l'« appliquer » suivant effaçait toutes les opérations.
+   * Repli sur la lecture du module IA uniquement quand scoring ne répond pas.
+   */
+  readonly baremeCourant = computed<{ version: number; operations: OperationBareme[] } | null>(() => {
+    if (this.histEtat() === 'prets') {
+      const h = this.historique()[0];
+      return h ? { version: h.version, operations: h.operations } : null;
+    }
+    return this.propositions()?.bareme_courant ?? null;
+  });
+
+  /** D'où vient le barème courant affiché : scoring (vérité), le module IA (repli), ou inconnu. */
+  readonly baremeSource = computed<'scoring' | 'ia' | null>(() => {
+    if (this.histEtat() === 'prets') return 'scoring';
+    return this.propositions() ? 'ia' : null;
+  });
 
   readonly nomsCibles = computed(() => {
     const stations = new Map<number, string>();
@@ -384,6 +404,15 @@ export class DeliberationComponent {
   // ---- composition manuelle ------------------------------------------------------------
 
   ouvrirComposition(): void {
+    // #399 — composer sans connaître le barème courant remplacerait ses
+    // opérations en silence (les versions sont complètes) : on refuse, dit.
+    if (this.baremeSource() === null) {
+      this.avertissement.set(
+        'Historique du barème indisponible (scoring et module IA ne répondent pas) — composer sans connaître '
+          + 'le barème courant remplacerait ses opérations. Rechargez avant de délibérer.',
+      );
+      return;
+    }
     this.composition.set([...(this.baremeCourant()?.operations ?? [])]);
     this.projection.set(null);
     this.compoErreur.set(null);

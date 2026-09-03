@@ -310,10 +310,17 @@
     <h2 class="text-sm font-medium text-gray-500 flex items-center gap-2">
       Classement &middot; {{ stationCols().length }} stations
       @if (baremeVersion(); as v) {
-        <!-- #363 — les DEUX lectures sont servies (ADR-0030 D4) : la version courante est nommée -->
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Le barème d'origine n'est jamais réécrit ; la lecture délibérée s'ajoute (onglet Délibération)">
-          Barème de délibération v{{ v }} appliqué
-        </span>
+        @if (delibereServi()) {
+          <!-- #363 — les DEUX lectures sont servies (ADR-0030 D4) : la version courante est nommée -->
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Le barème d'origine n'est jamais réécrit ; la lecture délibérée s'ajoute (onglet Délibération)">
+            Barème de délibération v{{ v }} appliqué
+          </span>
+        } @else {
+          <!-- #399 — la version existe mais scoring ne sert AUCUN total délibéré (barème figé incomplet) : dit, pas « appliqué » -->
+          <span role="status" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Scoring ne sert les totaux délibérés que si le barème figé couvre toutes les stations notées (ADR-0015) — voir l'onglet Délibération">
+            Barème v{{ v }} enregistré — lecture délibérée non servie : le barème figé ne couvre pas toutes les stations notées
+          </span>
+        }
       }
     </h2>
     <button
@@ -340,7 +347,7 @@
             </th>
           }
           <th class="px-3 py-3 font-medium text-center">Moyenne</th>
-          @if (baremeVersion()) {
+          @if (delibereServi()) {
             <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-amber-800" title="Sous le barème de délibération courant — reconverti /20 depuis le total et le dénominateur délibérés servis par scoring">
               Délibéré /20
             </th>
@@ -390,7 +397,7 @@
             <td class="px-3 py-2.5 text-center font-semibold tabular-nums">
               {{ row.moyenne20 != null ? (row.moyenne20 | number: '1.1-1') : '—' }}
             </td>
-            @if (baremeVersion()) {
+            @if (delibereServi()) {
               <td class="px-3 py-2.5 text-center font-semibold tabular-nums text-amber-800"
                   [title]="row.totalDelibere != null ? (row.totalDelibere | number: '1.1-2') + ' / ' + (row.denominateurDelibere | number: '1.0-1') : 'non servi'">
                 {{ row.moyenne20Delibere != null ? (row.moyenne20Delibere | number: '1.1-1') : '—' }}

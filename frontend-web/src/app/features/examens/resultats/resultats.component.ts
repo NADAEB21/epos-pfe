@@ -189,6 +189,16 @@ export class ResultatsComponent {
     for (const r of this.rows()) if (r.baremeVersion != null) return r.baremeVersion;
     return null;
   });
+  /**
+   * #399 — une version peut EXISTER sans qu'aucune lecture délibérée ne soit
+   * servie : scoring rend les totaux délibérés nuls tant que le barème figé ne
+   * couvre pas toutes les stations notées (ADR-0015, jamais un total partiel).
+   * Le badge « appliqué » et la colonne ne s'affichent que si un dénominateur
+   * délibéré est réellement servi ; sinon l'écran DIT pourquoi.
+   */
+  readonly delibereServi = computed<boolean>(() =>
+    this.rows().some((r) => r.denominateurDelibere != null && r.denominateurDelibere > 0),
+  );
   readonly stationCols = signal<StationCol[]>([]);
 
   /** Exam-level scoring-completeness summary for the warning banner. */

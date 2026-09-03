@@ -4,6 +4,7 @@
     Le module propose, le jury décide (ADR-0021 D10). L'effet est affiché <span class="font-medium">avant</span> tout clic ;
     le barème d'origine n'est jamais réécrit — chaque acte crée une version, avec son motif.
   </p>
+  <!-- #399 — le barème courant est lu dans SCORING (historique), jamais conditionné au module IA. -->
   @if (baremeCourant(); as b) {
     <p class="mt-2 text-sm">
       <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Barème courant : v{{ b.version }}</span>
@@ -12,8 +13,11 @@
       } @else {
         <span class="text-gray-500 ml-2">{{ b.operations.length }} opération(s) appliquée(s)</span>
       }
+      @if (baremeSource() === 'ia') {
+        <span class="text-xs text-amber-700 ml-2" title="L'historique scoring ne répond pas ; cette version est celle que le module IA a relue">(lu par le module IA — scoring injoignable)</span>
+      }
     </p>
-  } @else if (aiEtat() === 'prets') {
+  } @else if (baremeSource() !== null) {
     <p class="mt-2 text-sm text-gray-500">Aucun barème de délibération : les résultats sont lus au barème d'origine.</p>
   }
 </header>

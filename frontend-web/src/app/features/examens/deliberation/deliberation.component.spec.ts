@@ -53,6 +53,8 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     };
   }
 
+  let scoringHistoriqueVide = false;
+
   function build(opts: { statut?: ExamenResponse['statut']; aiDown?: boolean; payload?: PropositionsExamen } = {}) {
     ai = jasmine.createSpyObj('AiApiService', ['getPropositions', 'deciderProposition', 'projeter']);
     scoring = jasmine.createSpyObj('ScoringApiService', ['listBaremesDeliberation', 'creerBaremeDeliberation', 'getExamenGrillesSnapshot']);
@@ -69,7 +71,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
         apres: { n_etudiants: 36, denominateur: 50, mediane: 24.5, moyenne: 25.82, taux_reussite: 0.4722 },
       },
     }));
-    scoring.listBaremesDeliberation.and.returnValue(of([
+    scoring.listBaremesDeliberation.and.returnValue(of(scoringHistoriqueVide ? [] : [
       { id: 9, examenId: 92, version: 1, motif: 'Personne n a pu marquer', creePar: 2, createdAt: '2026-09-01T22:24:00',
         operations: [{ type: 'EXCLURE_CRITERE', cibleItemId: 280, cibleStationId: null, nouvelleEchelle: null }] },
     ]));
@@ -214,7 +216,12 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     c.onCompoStation('124');
     c.onCompoEchelle('10');
     c.ajouterOperation();
-    expect(c.composition()).toEqual([{ type: 'REPONDERER', cibleItemId: null, cibleStationId: 124, nouvelleEchelle: 10 }]);
+    // #399 : la composition part du barème COURANT (v1 scoring : 1 opération) — les
+    // versions sont complètes, une composition ne remplace jamais en silence.
+    expect(c.composition()).toEqual([
+      { type: 'EXCLURE_CRITERE', cibleItemId: 280, cibleStationId: null, nouvelleEchelle: null },
+      { type: 'REPONDERER', cibleItemId: null, cibleStationId: 124, nouvelleEchelle: 10 },
+    ]);
 
     c.compoMotif.set('m');
     c.appliquerComposition();
@@ -241,5 +248,42 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     expect(t).toContain('Acceptée — v1');
     expect(t).not.toContain('Accepter…');
     expect(t).toContain('Barème courant : v1');
+  });
+  // ---- #399 (constat Feten) : le barème courant vient de SCORING, jamais du module IA ------
+
+  it('#399 : module IA absent → l’en-tête montre quand même « Barème courant : v1 » (source scoring)', () => {
+    const { c, el } = build({ aiDown: true });
+    expect(c.baremeSource()).toBe('scoring');
+    expect(c.baremeCourant()?.version).toBe(1);
+    expect(el.textContent).toContain('Barème courant : v1');
+    expect(el.textContent).not.toContain('scoring injoignable');
+  });
+
+  it('#399 : module IA absent → la composition est semée avec les opérations COURANTES (jamais vide)', () => {
+    const { c } = build({ aiDown: true });
+    c.ouvrirComposition();
+    expect(c.compositionOuverte()).toBeTrue();
+    expect(c.composition().length).toBe(1);
+    expect(c.composition()[0].cibleItemId).toBe(280);
+  });
+
+  it('#399 : scoring ET module IA muets → l’éditeur REFUSE de s’ouvrir, et le dit', () => {
+    const { c, fixture, el } = build({ aiDown: true });
+    scoring.listBaremesDeliberation.and.returnValue(throwError(() => ({ status: 503 })));
+    c.reload();
+    fixture.detectChanges();
+    expect(c.baremeSource()).toBeNull();
+    c.ouvrirComposition();
+    fixture.detectChanges();
+    expect(c.compositionOuverte()).toBeFalse();
+    expect(el.textContent).toContain('remplacerait ses opérations');
+  });
+
+  it('#399 : historique scoring vide → « Aucun barème », même quand le module IA est absent', () => {
+    scoringHistoriqueVide = true;
+    const { c, el } = build({ aiDown: true });
+    scoringHistoriqueVide = false;
+    expect(c.baremeCourant()).toBeNull();
+    expect(el.textContent).toContain('Aucun barème de délibération');
   });
 });

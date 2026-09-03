@@ -42,6 +42,7 @@ export class SidebarComponent {
           { label: 'Accueil', link: '/accueil' },
           { label: 'Mes examens', link: '/examens' },
           { label: 'Bibliotheque', link: '/bibliotheque' },
+          { label: 'Tendances', link: '/tendances' },
         ],
       });
     }
@@ -71,6 +72,7 @@ export class SidebarComponent {
           { label: 'Matieres', link: '/admin/matieres' },
           // « Templates globaux » supprimé (W2/ADR-0027 — autorité pédagogique).
           { label: 'Examens', link: '/admin/examens' },
+          { label: 'Synthese', link: '/admin/synthese' },
         ],
       });
     }

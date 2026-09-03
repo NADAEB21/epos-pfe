@@ -198,6 +198,14 @@ export const routes: Routes = [
           // « Ma matière » : supprimée (W2/D3, S39) — aucun contenu légitime
           // tant que les modèles de grilles ne sont pas « de matière »
           // (ADR-0027). La recréer alors, avec un vrai contenu.
+
+          // #365 (N10) — BI de la matière : sessions closes dans le temps,
+          // par station. Périmètre tenu par ai-service (403 nominatif).
+          {
+            path: 'tendances',
+            loadComponent: () =>
+              import('./features/tendances/tendances.component').then((m) => m.TendancesComponent),
+          },
         ],
       },
 
@@ -245,6 +253,18 @@ export const routes: Routes = [
               import('./features/admin/admin-examen-detail.component').then(
                 (m) => m.AdminExamenDetailComponent,
               ),
+          },
+          // #365 (N10) — synthèse facultaire AGRÉGÉE (ADR-0021 D5 : jamais par
+          // étudiant) + tendances d'une matière en lecture (ADR-0018 D5).
+          {
+            path: 'synthese',
+            loadComponent: () =>
+              import('./features/admin/admin-synthese.component').then((m) => m.AdminSyntheseComponent),
+          },
+          {
+            path: 'tendances/:matiereId',
+            loadComponent: () =>
+              import('./features/tendances/tendances.component').then((m) => m.TendancesComponent),
           },
         ],
       },

@@ -60,7 +60,7 @@ lire une ligne de code.
 |---|---|
 | un onglet dans l'espace de travail d'un examen | la sous-phase concernée : `preparation/`, `jour-j/`, `resultats/` |
 | un écran d'administration | `features/admin/` |
-| les écrans d'analyse IA | `features/analyses-ia/` (route `analyses-ia` déjà réservée) |
+| les écrans d'analyse IA | dans l'examen : l'onglet concerné (`resultats/`, `deliberation/`) ; à l'échelle de la matière : `features/tendances/` ; de la faculté : `features/admin/` |
 | un appel HTTP vers un service | le client `core/api/` du service concerné |
 | un état partagé par plusieurs onglets | un `*.store.ts` à côté des écrans qui le partagent |
 | un bouton/tableau réutilisé ailleurs | `shared/` — après la 2ᵉ utilisation, pas avant |

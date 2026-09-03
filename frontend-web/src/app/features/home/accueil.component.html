@@ -1,6 +1,10 @@
 <header class="mb-6">
   <h1 class="text-2xl font-semibold text-gray-900">Bonjour {{ firstName() }}</h1>
-  <p class="text-sm text-gray-500">{{ matiereLine() }}</p>
+  <p class="text-sm text-gray-500">
+    {{ matiereLine() }}
+    <!-- #365 (N10) — la lecture d'une session à l'autre vit dans Tendances. -->
+    · <a routerLink="/tendances" class="text-brand hover:underline">Tendances de la matière</a>
+  </p>
 </header>
 
 @if (loading()) {

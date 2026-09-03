@@ -59,6 +59,8 @@ export class AdminHomeComponent {
     // « Templates globaux » supprimé (W2/ADR-0027) : rédiger un modèle est une
     // autorité pédagogique (ADR-0018 D5) — l'écran promettait un acte interdit.
     { label: 'Examens', desc: 'Supervision toutes matières', link: '/admin/examens' },
+    // #365 (N10) — BI facultaire : agrégé d'abord, jamais par étudiant (ADR-0021 D5).
+    { label: 'Synthèse', desc: 'Tendances agrégées par matière', link: '/admin/synthese' },
   ];
 
   constructor() {

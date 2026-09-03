@@ -55,6 +55,12 @@ JWT_SECRET=$(aws ssm get-parameter --name "${jwt_param}" --with-decryption \
 DB_PASSWORD=$(aws ssm get-parameter --name "${db_param}" --with-decryption \
   --region "${region}" --query Parameter.Value --output text)
 
+# Internal-only Postgres roles for ai-service (ai_reader / ai_writer). They never
+# leave the bridge network, so a per-instance random value is enough: the data
+# volume is created together with the instance and init2-ai.sh reads these once.
+AI_READER_PASSWORD=$(openssl rand -hex 24)
+AI_WRITER_PASSWORD=$(openssl rand -hex 24)
+
 # Create the file 600-owned first; `cat >` truncates in place and keeps the mode,
 # so no secret is ever briefly world-readable.
 install -m 600 -o ec2-user -g ec2-user /dev/null /opt/epos/epos.env
@@ -64,6 +70,8 @@ POSTGRES_PASSWORD=$DB_PASSWORD
 POSTGRES_DB=epos_master
 DB_USERNAME=${db_username}
 DB_PASSWORD=$DB_PASSWORD
+AI_READER_PASSWORD=$AI_READER_PASSWORD
+AI_WRITER_PASSWORD=$AI_WRITER_PASSWORD
 JWT_SECRET=$JWT_SECRET
 EPOS_DOMAIN=${domain}
 APP_TIMEZONE=${app_timezone}

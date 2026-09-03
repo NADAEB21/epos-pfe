@@ -23,11 +23,15 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      # Read by init-db/init2-ai.sh (roles ai_reader/ai_writer, database ai_db),
+      # exactly as in dev. Without them the init script aborts on a fresh volume.
+      - AI_READER_PASSWORD=${AI_READER_PASSWORD}
+      - AI_WRITER_PASSWORD=${AI_WRITER_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Runs only against an empty data volume. auth_db's schema + seed live
       # here; exam_db and scoring_db are created empty and migrated by Flyway
-      # on first service startup.
+      # on first service startup; ai_db + the ai_* roles come from init2-ai.sh.
       - ./init-db:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -196,6 +200,29 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+    networks:
+      - epos-network
+
+  # Psychometric module (ADR-0029). Reached only through the gateway's static
+  # route; never registers in Eureka; reads exam_db/scoring_db through the
+  # v_ai_* views as ai_reader and owns ai_db as ai_writer. Same block as dev.
+  ai-service:
+    build:
+      context: ../ai-service
+      dockerfile: Dockerfile
+    image: epos/ai-service
+    container_name: epos-ai-service
+    restart: unless-stopped
+    environment:
+      - AI_SCORING_DSN=host=postgres-db port=5432 dbname=scoring_db user=ai_reader password=${AI_READER_PASSWORD}
+      - AI_EXAM_DSN=host=postgres-db port=5432 dbname=exam_db user=ai_reader password=${AI_READER_PASSWORD}
+      - AI_DB_DSN=host=postgres-db port=5432 dbname=ai_db user=ai_writer password=${AI_WRITER_PASSWORD}
+      - TZ=${APP_TIMEZONE:-Africa/Tunis}
+    # ADR-0029 D7 memory budget (t3.medium shares 4 GiB with five JVMs).
+    mem_limit: 512m
+    depends_on:
+      postgres-db:
+        condition: service_healthy
     networks:
       - epos-network
 

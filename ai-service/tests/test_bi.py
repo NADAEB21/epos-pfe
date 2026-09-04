@@ -60,6 +60,8 @@ def test_carte_reutilise_resume(plan_de_donnees):
                                "notations_analysees": 3, "sans_aucun_item": 1}
     assert c["lectures"] == []
     assert c["date_examen"] == "2026-06-01" and c["entrees_hash"]
+    assert c["lecture_officielle"] == "ORIGINE" and c["lecture"] == c["origine"]
+    assert c["stations_exclues"] == []
 
 
 def test_carte_bareme_delibere(plan_de_donnees, monkeypatch):
@@ -71,6 +73,10 @@ def test_carte_bareme_delibere(plan_de_donnees, monkeypatch):
     assert c["bareme_version"] == 1
     assert c["delibere"]["denominateur"] == 0.0
     assert c["origine"]["mediane"] == 16.0        # l'origine ne bouge jamais
+    # #401 : la lecture effective est la délibérée ; la station exclue sort du tableau, listée
+    assert c["lecture_officielle"] == "DELIBERE" and c["lecture"] is c["delibere"]
+    assert c["par_station"] == [] and c["stations_exclues"] == [9]
+    assert c["bins"] == []          # dénominateur nul : aucun axe fabriqué
 
 
 def test_carte_couverture_incomplete_dite(plan_de_donnees, monkeypatch):
@@ -179,3 +185,41 @@ def test_synthese_derive_vivante_comptee(plan_de_donnees, monkeypatch):
     s = bi.synthese_faculte()
     assert [m["matiere_id"] for m in s["matieres"]] == [4]
     assert s["matieres"][0]["hors_snapshot"] == 1
+
+
+# ── #401 : la lecture délibérée EST le résultat ──────────────────────────────
+
+def test_carte_lecture_deliberee_critere_exclu(plan_de_donnees, monkeypatch):
+    """v1 retire le critère 1 (NUMERIQUE, max 10) : max 20 → 10 ; totaux 16/4/18
+    deviennent 10/0/10 (delta) → médiane 10/10, réussite 2/3, bins sur [0,10]."""
+    monkeypatch.setattr("app.db.bareme_courant",
+                        lambda eid: [(1, "EXCLURE_CRITERE", 1, None, None)])
+    c = bi.resume_examen(77)
+    assert c["lecture_officielle"] == "DELIBERE"
+    assert c["lecture"]["denominateur"] == 10.0
+    assert c["lecture"]["mediane"] == 10.0
+    assert c["lecture"]["taux_reussite"] == pytest.approx(2 / 3)
+    assert c["origine"]["mediane"] == 16.0                      # la trace
+    assert [b["label"] for b in c["bins"]] == ["0–2", "2–4", "4–6", "6–8", "8–10"]
+    assert [b["count"] for b in c["bins"]] == [1, 0, 0, 0, 2]
+    assert c["par_station"] == [{
+        "station_id": 9, "n": 3, "echecs": 1, "taux_echec": pytest.approx(1 / 3),
+        "mediane": 10.0, "note_max": 10.0,
+    }]
+    assert c["stations_exclues"] == []
+
+
+def test_synthese_poole_la_lecture_effective(plan_de_donnees, monkeypatch):
+    monkeypatch.setattr("app.db.bareme_courant",
+                        lambda eid: [(1, "EXCLURE_CRITERE", 1, None, None)])
+    monkeypatch.setattr("app.db.examens_clos_toutes_matieres", lambda: [
+        (10 + i, 1, "TERMINE", f"S{i}", f"2026-0{i}-01") for i in range(1, 5)
+    ])
+    monkeypatch.setattr("app.db.resolve_matiere", lambda eid: 1)
+    s = bi.synthese_faculte()
+    m1 = s["matieres"][0]
+    assert m1["n_etudiants"] == 12
+    assert m1["mediane_sur_20"] == 20.0                          # 10/10 → 20 (délibéré), pas 16
+    assert m1["taux_reussite"] == pytest.approx(2 / 3)
+    assert all(x["lecture_officielle"] == "DELIBERE" for x in m1["sessions"])
+    assert m1["sessions"][0]["mediane_sur_20"] == 20.0

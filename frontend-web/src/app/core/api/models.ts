@@ -1161,9 +1161,15 @@ export interface ExamenTendanceAi {
   couverture_snapshot_complete: boolean;
   origine: ResumeBiAi;
   delibere: ResumeBiAi | null;
+  /** #401 — la lecture qui FAIT le résultat : `delibere` quand une version est servie, `origine` sinon. */
+  lecture: ResumeBiAi;
+  lecture_officielle: 'DELIBERE' | 'ORIGINE';
   bareme_version: number | null;
+  /** Classes sur les totaux de la lecture effective. */
   bins: HistogrammeBinAi[];
+  /** Échec par station sous le barème effectif ; les stations exclues sont listées à part. */
   par_station: StationTendanceAi[];
+  stations_exclues: number[];
   exclusions: ExclusionsAi & { sans_aucun_item: number };
   lectures: LectureBiAi[];
 }
@@ -1193,6 +1199,7 @@ export interface SessionSyntheseAi {
   taux_reussite: number | null;
   mediane_sur_20: number | null;
   bareme_version: number | null;
+  lecture_officielle: 'DELIBERE' | 'ORIGINE';
   lectures: LectureBiAi[];
 }
 

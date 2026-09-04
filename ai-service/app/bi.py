@@ -31,6 +31,12 @@ chaque carte porte son ``entrees_hash`` — la reproductibilité est conservée.
 
 Contrat de refus (ADR-0029 D6) : ce qui ne peut pas être lu est DIT par un
 code fermé + une raison en français, jamais omis en silence.
+
+#401 (ADR-0030 D4 révisé, décision Nada 2026-09-04) : la lecture DÉLIBÉRÉE est
+le résultat dès qu'une version de barème existe et que scoring la sert ; chaque
+carte porte ``lecture`` (l'effective), ``lecture_officielle`` (DELIBERE|ORIGINE)
+et garde ``origine`` comme trace. Bins, pooling de la synthèse et échec par
+station suivent la lecture effective ; une station exclue est listée à part.
 """
 
 import statistics
@@ -105,17 +111,31 @@ def _iso(d) -> str | None:
     return str(d)
 
 
-def _par_station(donnees, grilles: dict) -> list[dict]:
-    """Échec par station : ``score_final < note_max/2`` (règle du runner). Le
-    ``note_max`` vient du SNAPSHOT de grille (ce qui a réellement noté) quand
-    la station en a un, sinon de la grille vivante (comme les indices)."""
+def _par_station(donnees, grilles: dict, applique=None) -> tuple[list[dict], list[int]]:
+    """Échec par station : ``score < max/2`` (règle du runner), sous le barème
+    EFFECTIF (#401) : avec un barème délibéré appliqué, le score et le max sont
+    ceux de ``BaremeDeliberationEngine`` (jumeau ``projection``) et une station
+    EXCLUE sort du tableau — listée à part, jamais tue. Sans barème, le
+    ``note_max`` vient du SNAPSHOT de grille quand la station en a un, sinon de
+    la grille vivante (comme les indices)."""
     note_max = {c.station_id: c.note_max for c in donnees.criteres.values()}
     note_max.update({sid: g.note_max for sid, g in grilles.items()})
+    if applique is not None:
+        note_max = dict(applique.max_delibere_par_station)
     scores: dict[int, list[float]] = {}
+    exclues: set[int] = set()
     for n in donnees.notations:
-        if n.score_final is None or n.station_id not in note_max:
+        if n.score_final is None:
             continue
-        scores.setdefault(n.station_id, []).append(float(n.score_final))
+        if applique is not None and n.station_id in applique.stations_exclues:
+            exclues.add(n.station_id)
+            continue
+        if n.station_id not in note_max:
+            continue
+        score = pj.score_delibere(applique, n) if applique is not None else float(n.score_final)
+        if score is None:
+            continue
+        scores.setdefault(n.station_id, []).append(float(score))
     lignes = []
     for station_id, valeurs in sorted(scores.items()):
         nm = float(note_max[station_id])
@@ -128,7 +148,7 @@ def _par_station(donnees, grilles: dict) -> list[dict]:
             "mediane": float(statistics.median(valeurs)),
             "note_max": nm,
         })
-    return lignes
+    return lignes, sorted(exclues)
 
 
 def _carte(examen_id: int, nom: str | None, date_examen, statut: str) -> tuple[dict, list[float]]:
@@ -154,8 +174,24 @@ def _carte(examen_id: int, nom: str | None, date_examen, statut: str) -> tuple[d
             t.denominateur_delibere,
         )
 
-    denom = t.denominateur_original
-    sur20 = [v * SUR_20 / denom for v in originaux] if denom else []
+    # #401 (ADR-0030 D4 révisé) — la lecture qui FAIT le résultat : délibérée
+    # dès qu'une version existe ET que scoring la sert (couverture complète),
+    # sinon l'origine. Bins, sur20 (synthèse) et échec par station la suivent ;
+    # ``origine`` reste servie comme trace.
+    delibere_servi = delibere is not None
+    lecture_officielle = "DELIBERE" if delibere_servi else "ORIGINE"
+    if delibere_servi:
+        effectifs = [e.total_delibere for e in t.etudiants if e.total_delibere is not None]
+        denom = t.denominateur_delibere
+        lecture = delibere
+    else:
+        effectifs = originaux
+        denom = t.denominateur_original
+        lecture = origine
+    sur20 = [v * SUR_20 / denom for v in effectifs] if denom else []
+    par_station, stations_exclues = _par_station(
+        donnees, grilles, applique if delibere_servi else None
+    )
 
     feuilles = runner._feuilles_par_grille(donnees.criteres)
     detail_incomplet = sum(
@@ -179,9 +215,12 @@ def _carte(examen_id: int, nom: str | None, date_examen, statut: str) -> tuple[d
         "couverture_snapshot_complete": t.couverture_complete,
         "origine": origine,
         "delibere": delibere,
+        "lecture": lecture,
+        "lecture_officielle": lecture_officielle,
         "bareme_version": courant.version if courant is not None else None,
-        "bins": bins(originaux, denom, denom / 2) if denom else [],
-        "par_station": _par_station(donnees, grilles),
+        "bins": bins(effectifs, denom, denom / 2) if denom else [],
+        "par_station": par_station,
+        "stations_exclues": stations_exclues,
         "exclusions": {
             "saisi_par_null": donnees.exclusions.saisi_par_null,
             "detail_incomplet": detail_incomplet,
@@ -261,8 +300,9 @@ def _agregat(sur20: list[float]) -> dict:
 
 
 def _session_publique(carte: dict) -> dict:
-    """La ligne de session que la synthèse expose : des agrégats seulement."""
-    o = carte["origine"]
+    """La ligne de session que la synthèse expose : des agrégats seulement,
+    sous la lecture EFFECTIVE (#401)."""
+    o = carte["lecture"]
     return {
         "examen_id": carte["examen_id"],
         "nom": carte["nom"],
@@ -274,6 +314,7 @@ def _session_publique(carte: dict) -> dict:
             if o["mediane"] is not None and o["denominateur"] else None
         ),
         "bareme_version": carte["bareme_version"],
+        "lecture_officielle": carte["lecture_officielle"],
         "lectures": carte["lectures"],
     }
 

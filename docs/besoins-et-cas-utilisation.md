@@ -378,7 +378,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC-72 | Consulter les résultats de l'épreuve | A3, A4 *(lecture)* | ✅ | `NotationController:80` · `resultats.component.ts` |
 | UC-73 | Analyser un critère en profondeur | A3, A4 *(lecture)* | ✅ | `NotationItemController:33` · `resultats.component.html:263-270` |
 | UC-74 | Délibérer en jury | A3 | 📐 | **ADR-0021 D4** — « l'écran de délibération précède toute statistique » |
-| UC-75 | Versionner le barème après délibération | A3 | 📐 | **ADR-0021 D9** · **#135** · seconde moitié de **#276** |
+| UC-75 | Versionner le barème après délibération | A3 | ✅ | **ADR-0021 D9 · ADR-0030** · #361 (entité + V25) · #394 (UI) · **#401 : la lecture délibérée EST le résultat — classement, moyenne, mention, export, BI (D4 révisé 2026-09-04)** |
 | UC-76 | Publier les résultats aux étudiants | A5 | ⛔ non retenu | **ADR-0022** (2026-07-31) : la faculté conserve ses canaux officiels ; le système s'arrête à la clôture + PV (UC-77). Exclusion décidée, plus une omission |
 | UC-77 | Produire un procès-verbal archivable | A3 | ❌ | aucun code, aucun ADR — voir §6.3 |
 

@@ -97,17 +97,19 @@ export class TendancesComponent {
   /** Les sessions closes, dans l'ordre des dates (celui du backend). */
   readonly lignesSessions = computed<BarreConcentrationLigne[]>(() =>
     (this.data()?.examens ?? []).map((e) => {
+      // #401 — la barre porte la lecture EFFECTIVE (délibérée dès qu'un barème est servi).
       const bloquee = e.lectures[0];
-      const med = sur20(e.origine.mediane, e.origine.denominateur);
+      const l = e.lecture ?? e.origine;
+      const med = sur20(l.mediane, l.denominateur);
       return {
         id: e.examen_id,
         label: `${fmtDate(e.date_examen)} · ${e.nom ?? `Examen ${e.examen_id}`}`,
-        valeurPct: e.origine.taux_reussite === null ? null : e.origine.taux_reussite * 100,
-        n: e.origine.n_etudiants,
+        valeurPct: l.taux_reussite === null ? null : l.taux_reussite * 100,
+        n: l.n_etudiants,
         detail:
-          e.origine.taux_reussite === null
+          l.taux_reussite === null
             ? bloquee?.raison
-            : `médiane ${fmtNum(med)} /20${e.bareme_version !== null ? ` · barème v${e.bareme_version}` : ''}`,
+            : `médiane ${fmtNum(med)} /20${e.lecture_officielle === 'DELIBERE' ? ` · barème v${e.bareme_version}` : ''}`,
       };
     }),
   );

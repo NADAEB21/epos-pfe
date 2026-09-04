@@ -471,7 +471,7 @@ export class ResultatsComponent {
     if (vals.length === 0) return '—';
     const min = Math.min(...vals);
     const max = Math.max(...vals);
-    return `${min.toFixed(1)} · ${max.toFixed(1)}`;
+    return `${min.toFixed(1).replace('.', ',')} · ${max.toFixed(1).replace('.', ',')}`;
   });
 
   constructor() {

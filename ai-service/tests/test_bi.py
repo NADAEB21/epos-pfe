@@ -41,6 +41,33 @@ def plan_de_donnees(monkeypatch):
     monkeypatch.setattr("app.db.nb_notations_verrouillees", lambda eid: 4)
     monkeypatch.setattr("app.db.grilles_snapshot", lambda eid: _grilles_lignes())
     monkeypatch.setattr("app.db.bareme_courant", lambda eid: [])
+    # Le jeu synthétique n'a que 3 étudiants : le plancher de session est abaissé
+    # ici pour lire les nombres ; ``test_carte_effectif_insuffisant`` teste le vrai.
+    monkeypatch.setattr(bi, "SEUIL_N_SESSION", 3)
+
+
+def test_carte_effectif_insuffisant_refuse_la_comparaison(plan_de_donnees, monkeypatch):
+    """Sous le plancher (le vrai : 10), la session n'a pas de barre : refus nommé,
+    même contrat que la synthèse — la trace (``origine``) reste servie."""
+    monkeypatch.setattr(bi, "SEUIL_N_SESSION", 10)
+    c = bi.resume_examen(77)
+    assert c["lectures"] == [{
+        "code": bi.EFFECTIF_INSUFFISANT,
+        "raison": "non concluant — effectif insuffisant (n=3 < 10)",
+    }]
+    assert c["lecture"]["taux_reussite"] is None and c["lecture"]["mediane"] is None
+    assert c["lecture"]["n_etudiants"] == 3 and c["lecture"]["denominateur"] == 20.0
+    assert c["origine"]["taux_reussite"] == pytest.approx(2 / 3)     # la trace
+    assert c["lecture_officielle"] == "ORIGINE"
+
+
+def test_carte_sans_notation_ne_cumule_pas_les_refus(plan_de_donnees, monkeypatch):
+    monkeypatch.setattr(bi, "SEUIL_N_SESSION", 10)
+    d = _donnees()
+    d.notations.clear()
+    monkeypatch.setattr("app.stats.loader.charger_examen", lambda eid, **_kw: d)
+    c = bi.resume_examen(77)
+    assert [x["code"] for x in c["lectures"]] == [bi.SANS_NOTATION]
 
 
 def test_carte_reutilise_resume(plan_de_donnees):

@@ -153,10 +153,17 @@
       @case ('absents') { <p class="text-sm text-gray-400" role="status">Tendances indisponibles — l'analyse ne répond pas pour le moment.</p> }
       @case ('prets') {
         @if (lignesTendances().length === 0) {
-          <p class="text-sm text-gray-400">Aucune session close pour l'instant — les tendances apparaîtront après le premier examen terminé.</p>
+          @if (tendancesNonLues() > 0) {
+            <p class="text-sm text-gray-400">{{ tendancesNonLues() }} session(s) close(s), aucune lisible pour l'instant (moins de 10 étudiants ou barème non enregistré) — le détail est dans <a routerLink="/tendances" class="text-brand hover:underline">Tendances</a>.</p>
+          } @else {
+            <p class="text-sm text-gray-400">Aucune session close pour l'instant — les tendances apparaîtront après le premier examen terminé.</p>
+          }
         } @else {
-          <p class="text-xs text-gray-500 mb-2">Taux de réussite des dernières sessions closes (réussite = total ≥ 50 % du barème).</p>
+          <p class="text-sm text-gray-700 mb-2"><span class="font-medium">La réussite de ma matière change-t-elle d'une session à l'autre ?</span> Une barre par session close : la part des étudiants à la moitié du barème en vigueur. Moins de 10 étudiants : pas de barre.</p>
           <app-barres-concentration [lignes]="lignesTendances()" [largeurLabel]="260" titreValeur="Taux de réussite" />
+          @if (tendancesNonLues() > 0) {
+            <p class="text-xs text-gray-400 mt-2">{{ tendancesNonLues() }} session(s) close(s) non tracée(s) : moins de 10 étudiants ou barème non enregistré — listées avec leur raison dans Tendances.</p>
+          }
         }
       }
     }

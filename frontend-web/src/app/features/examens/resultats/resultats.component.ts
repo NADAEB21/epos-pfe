@@ -76,20 +76,39 @@ interface ResultRow {
   lockedByStation: Map<number, boolean>;
   /** stationId → notationId, for the per-critère deep-dive fetch. */
   notationIdByStation: Map<number, number>;
+  /**
+   * #401 (ADR-0030 D4 révisé) — la lecture qui FAIT le résultat : `total`,
+   * `totalMax`, `moyenne20`, `mention`, `rang` sont sous le barème de
+   * délibération courant dès qu'une version existe ET que scoring la sert
+   * (`lecture === 'DELIBERE'`) ; sinon sous le barème d'origine, comme avant.
+   */
+  lecture: LectureResultat;
   total: number;
   totalMax: number;
   /** Normalised average on /20, null when no max is known. */
   moyenne20: number | null;
   mention: string;
   mentionClass: string;
-  /** #363 — la SECONDE lecture (ADR-0030 D4) : /20 sous le barème de
-   * délibération courant, null sans barème. Servie par scoring, jamais
-   * recalculée ici. */
+  /** La TRACE (ADR-0030 D4) : total et /20 au barème d'origine — les notes
+   * saisies — toujours calculés, toujours visibles (colonne « Origine /20 »). */
+  totalOrigine: number;
+  totalMaxOrigine: number;
+  moyenne20Origine: number | null;
+  /** #363/#401 — /20 sous le barème délibéré, dénominateur PAR ÉTUDIANT (somme
+   * des `maxDelibere` des stations qu'il a passées — jamais le dénominateur
+   * d'examen, identique pour tous). null sans version servie. */
   moyenne20Delibere: number | null;
   totalDelibere: number | null;
-  denominateurDelibere: number | null;
+  totalMaxDelibere: number | null;
   baremeVersion: number | null;
+  /** stationId → (score, max) sous le barème délibéré, tels que servis par scoring. */
+  delibereByStation: Map<number, { score: number | null; max: number | null }>;
+  /** Stations retirées par le barème courant (EXCLURE_STATION) : hors des deux sommes. */
+  stationsExclues: Set<number>;
 }
+
+/** Quelle lecture fait le résultat (#401). */
+export type LectureResultat = 'DELIBERE' | 'ORIGINE';
 
 /** One histogram bin of a station's locked-score distribution (#355). */
 interface DeliberationBin {
@@ -196,9 +215,28 @@ export class ResultatsComponent {
    * Le badge « appliqué » et la colonne ne s'affichent que si un dénominateur
    * délibéré est réellement servi ; sinon l'écran DIT pourquoi.
    */
-  readonly delibereServi = computed<boolean>(() =>
-    this.rows().some((r) => r.denominateurDelibere != null && r.denominateurDelibere > 0),
-  );
+  readonly delibereServi = computed<boolean>(() => this.rows().some((r) => r.lecture === 'DELIBERE'));
+
+  /**
+   * #401 — scoring a servi une version mais la somme des scores délibérés par
+   * station ne retombe pas sur le total délibéré qu'il sert : on ne classe
+   * JAMAIS sur une lecture incohérente — tout l'écran retombe sur l'origine et
+   * le DIT (pastille rouge), jamais un rang faux en silence.
+   */
+  readonly lectureIncoherente = signal(false);
+
+  /** Le barème qui fait le résultat, nommé sur les cartes et en-têtes (#401). */
+  readonly lectureLabel = computed<string>(() => {
+    const v = this.baremeVersion();
+    return this.delibereServi() && v != null ? `barème de délibération v${v}` : "barème d'origine";
+  });
+
+  /** Les stations retirées par le barème courant, toutes lignes confondues (#401). */
+  readonly stationsExcluesExam = computed<Set<number>>(() => {
+    const out = new Set<number>();
+    for (const r of this.rows()) for (const sid of r.stationsExclues) out.add(sid);
+    return out;
+  });
   readonly stationCols = signal<StationCol[]>([]);
 
   /** Exam-level scoring-completeness summary for the warning banner. */
@@ -674,11 +712,24 @@ export class ResultatsComponent {
       .sort((a, b) => a.ordre - b.ordre);
     this.stationCols.set(cols);
 
-    const rows: ResultRow[] = results.map((r) => {
+    // #401 — la version est servie pour l'EXAMEN (scoring ne sert les totaux
+    // délibérés que si le barème figé couvre toutes les stations notées,
+    // ADR-0015) : un seul verdict de lecture pour toutes les lignes, jamais un
+    // classement qui mélange deux barèmes.
+    const versionServie = results.some(
+      (r) => r.baremeVersion != null && r.denominateurDelibere != null && r.denominateurDelibere > 0,
+    );
+
+    // Premier passage : les deux lectures par ligne, PUIS l'invariant.
+    const brutes = results.map((r) => {
       const scoreByStation = new Map<number, number | null>();
       const lockedByStation = new Map<number, boolean>();
       const notationIdByStation = new Map<number, number>();
+      const delibereByStation = new Map<number, { score: number | null; max: number | null }>();
+      const stationsExclues = new Set<number>();
       let totalMax = 0;
+      let totalMaxDelibere = 0;
+      let sommeDelibere = 0;
       let lockedCount = 0;
       for (const s of r.stations) {
         if (s.stationId == null) continue;
@@ -688,24 +739,64 @@ export class ResultatsComponent {
         if (s.notationId != null) notationIdByStation.set(s.stationId, s.notationId);
         if (s.score != null) totalMax += noteMaxByStation.get(s.stationId) ?? DEFAULT_NOTE_MAX;
         if (locked) lockedCount++;
+        if (versionServie) {
+          const sd = s.scoreDelibere ?? null;
+          const md = s.maxDelibere ?? null;
+          delibereByStation.set(s.stationId, { score: sd, max: md });
+          if (md == null) {
+            // Contrat de BaremeDeliberationEngine : station EXCLUE → clé absente
+            // des deux sommes (score ET max nuls). Hors des deux sommes ici aussi.
+            if (s.score != null) stationsExclues.add(s.stationId);
+          } else if (sd != null) {
+            // Même forme que l'origine : le dénominateur ne compte que les
+            // stations que CET étudiant a passées.
+            totalMaxDelibere += md;
+            sommeDelibere += sd;
+          }
+        }
       }
       // #297 — un verdict d'examen (moyenne, mention, rang) exige un verrou
       // sur TOUTES les stations de l'examen, pas seulement celles déjà
       // saisies. Avant : totalMax ne comptait que les stations SAISIES, donc
       // une station jamais touchée disparaissait silencieusement du barème
       // (45/60 au lieu de 45/80) — un re-barème que personne n'avait décidé,
-      // exactement le défaut nommé par le ticket.
+      // exactement le défaut nommé par le ticket. La garde vaut pour les DEUX
+      // lectures (#401).
       const complete = stations.length > 0 && lockedCount === stations.length;
-      const moyenne20 = complete && totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
-      const { mention, mentionClass } = this.mentionFor(moyenne20, lockedCount, stations.length);
-      // #363 — la lecture délibérée vient TELLE QUELLE de scoring (deux
-      // dénominateurs, ADR-0030 D4) ; seule la reconversion /20 est un choix d'écran.
+      const moyenne20Origine = complete && totalMax > 0 ? (r.totalScore / totalMax) * 20 : null;
       const totalDelibere = r.totalDelibere ?? null;
-      const denominateurDelibere = r.denominateurDelibere ?? null;
+      return {
+        r, scoreByStation, lockedByStation, notationIdByStation, delibereByStation, stationsExclues,
+        totalMax, totalMaxDelibere, sommeDelibere, lockedCount, complete, moyenne20Origine, totalDelibere,
+      };
+    });
+
+    // Invariant (#401) : scoring construit `totalDelibere` en sommant les mêmes
+    // `scoreDelibere` par station (NotationService) — la somme doit retomber
+    // dessus au float32 près. Sinon la lecture délibérée est incohérente et
+    // n'est PAS servie comme résultat.
+    const incoherente =
+      versionServie &&
+      brutes.some(
+        (b) => b.totalDelibere == null || Math.abs(b.sommeDelibere - b.totalDelibere) > 0.01,
+      );
+    if (incoherente) {
+      console.error(
+        '#401 — lecture délibérée incohérente : Σ scoreDelibere ≠ totalDelibere servi ; classement au barème d\'origine.',
+      );
+    }
+    this.lectureIncoherente.set(incoherente);
+    const lecture: LectureResultat = versionServie && !incoherente ? 'DELIBERE' : 'ORIGINE';
+
+    const rows: ResultRow[] = brutes.map((b) => {
+      const r = b.r;
       const moyenne20Delibere =
-        totalDelibere != null && denominateurDelibere != null && denominateurDelibere > 0
-          ? (totalDelibere / denominateurDelibere) * 20
+        b.totalDelibere != null && b.complete && b.totalMaxDelibere > 0
+          ? (b.totalDelibere / b.totalMaxDelibere) * 20
           : null;
+      const effective = lecture === 'DELIBERE';
+      const moyenne20 = effective ? moyenne20Delibere : b.moyenne20Origine;
+      const { mention, mentionClass } = this.mentionFor(moyenne20, b.lockedCount, stations.length);
       return {
         rang: 0, // assigné après tri, 0 = "pas de rang" pour un résultat incomplet
         participationId: r.participationId,
@@ -713,24 +804,31 @@ export class ResultatsComponent {
         nom: `${r.prenom ?? ''} ${r.nom ?? ''}`.trim() || 'Étudiant inconnu',
         numeroInscription: r.numeroInscription,
         numEchantillon: r.numEchantillon,
-        scoreByStation,
-        lockedByStation,
-        notationIdByStation,
-        total: r.totalScore,
-        totalMax,
+        scoreByStation: b.scoreByStation,
+        lockedByStation: b.lockedByStation,
+        notationIdByStation: b.notationIdByStation,
+        lecture,
+        total: effective ? (b.totalDelibere as number) : r.totalScore,
+        totalMax: effective ? b.totalMaxDelibere : b.totalMax,
         moyenne20,
         mention,
         mentionClass,
-        moyenne20Delibere,
-        totalDelibere,
-        denominateurDelibere,
+        totalOrigine: r.totalScore,
+        totalMaxOrigine: b.totalMax,
+        moyenne20Origine: b.moyenne20Origine,
+        moyenne20Delibere: effective ? moyenne20Delibere : null,
+        totalDelibere: effective ? b.totalDelibere : null,
+        totalMaxDelibere: effective ? b.totalMaxDelibere : null,
         baremeVersion: r.baremeVersion ?? null,
+        delibereByStation: effective ? b.delibereByStation : new Map(),
+        stationsExclues: effective ? b.stationsExclues : new Set(),
       };
     });
 
     // #297 — un résultat sans verdict complet est affiché (le responsable
     // doit pouvoir agir dessus) mais ne consomme JAMAIS un numéro de rang :
-    // il ne doit pas être classé contre des dossiers clos.
+    // il ne doit pas être classé contre des dossiers clos. #401 : le rang
+    // suit `moyenne20`, donc la lecture effective.
     rows.sort((a, b) => (b.moyenne20 ?? -1) - (a.moyenne20 ?? -1));
     let rang = 0;
     for (const row of rows) {
@@ -756,8 +854,29 @@ export class ResultatsComponent {
   }
 
   isStationFail(row: ResultRow, col: StationCol): boolean {
+    // #401 — une station retirée par le jury n'est plus un échec de personne.
+    if (row.stationsExclues.has(col.stationId)) return false;
     const score = row.scoreByStation.get(col.stationId);
     return score != null && score < col.noteMax / 2;
+  }
+
+  /**
+   * #401 — ce que la cellule dit EN PLUS de la note saisie quand le barème
+   * délibéré la lit autrement : « exclue », ou « x / y » quand le couple
+   * (score, max) délibéré diffère du couple saisi. null = rien à ajouter.
+   */
+  delibereCellule(row: ResultRow, col: StationCol): string | null {
+    if (row.lecture !== 'DELIBERE') return null;
+    if (row.stationsExclues.has(col.stationId)) return 'exclue';
+    const d = row.delibereByStation.get(col.stationId);
+    const score = row.scoreByStation.get(col.stationId);
+    if (!d || d.score == null || d.max == null || score == null) return null;
+    if (Math.abs(d.score - score) < 0.005 && Math.abs(d.max - col.noteMax) < 0.005) return null;
+    return `${this.fmt1(d.score)} / ${this.fmt1(d.max)}`;
+  }
+
+  private fmt1(v: number): string {
+    return Number.isInteger(v) ? String(v) : v.toFixed(1);
   }
 
   // ---- per-critère deep-dive --------------------------------------------
@@ -974,20 +1093,31 @@ export class ResultatsComponent {
   }
 
 
-  /** Client-side CSV export of the current classement — no backend round-trip. */
-  exportCsv(): void {
+  /**
+   * Le contenu CSV du classement (#401) : les colonnes Rang / Total / Moyenne /
+   * Mention portent la lecture EFFECTIVE ; « Bareme » dit laquelle ; les
+   * colonnes « … origine » portent la trace (égales à la lecture quand aucune
+   * version n'est servie) — le fichier s'explique seul. Les cellules par
+   * station sont les notes SAISIES.
+   */
+  csvContenu(): string {
     const cols = this.stationCols();
     const header = [
       'Rang',
       'Nom',
       'Numero',
       'Echantillon',
-      ...cols.map((c) => `${c.nom} (/${c.noteMax})`),
+      ...cols.map((c) => `${c.nom} (/${c.noteMax}, saisie)`),
       'Total',
+      'Max',
       'Moyenne/20',
       'Mention',
+      'Bareme', // #401 — la lecture qui fait le résultat, nommée
+      'Total origine',
+      'Moyenne origine/20',
       'Etat', // #297 — l'export ne doit jamais laisser un chiffre parler seul
     ];
+    const bareme = this.lectureLabel();
     const lines = this.rows().map((row) => {
       const cells = [
         row.rang > 0 ? row.rang : '',
@@ -999,13 +1129,22 @@ export class ResultatsComponent {
           return v != null ? v : '';
         }),
         row.total,
+        row.totalMax,
         row.moyenne20 != null ? row.moyenne20.toFixed(2) : '',
         row.mention,
+        bareme,
+        row.totalOrigine,
+        row.moyenne20Origine != null ? row.moyenne20Origine.toFixed(2) : '',
         row.moyenne20 != null ? 'Complet' : 'Incomplet',
       ];
       return cells.map((c) => this.csvCell(c)).join(',');
     });
-    const csv = [header.map((h) => this.csvCell(h)).join(','), ...lines].join('\r\n');
+    return [header.map((h) => this.csvCell(h)).join(','), ...lines].join('\r\n');
+  }
+
+  /** Client-side CSV export of the current classement — no backend round-trip. */
+  exportCsv(): void {
+    const csv = this.csvContenu();
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

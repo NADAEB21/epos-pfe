@@ -96,4 +96,31 @@ describe('AdminExamenDetailComponent — lecture seule (#390)', () => {
     expect(cmp.titre()).toBe('Examen 92');
     expect(el.textContent).toContain("Définition de l'examen indisponible");
   });
+  it('#401 : version de barème servie → total EFFECTIF = délibéré, trié dessus, brut à côté', () => {
+    build(); // pose les espions (définition, stations, catalogue) ; les résultats sont remplacés ci-dessous
+    scoring.getExamenResults.and.returnValue(of([
+      { ...RESULTS[0], totalDelibere: 10, denominateurDelibere: 40, baremeVersion: 1 },   // brut 28.5 → délibéré 10
+      { ...RESULTS[1], totalDelibere: 12, denominateurDelibere: 40, baremeVersion: 1 },   // brut 12 → délibéré 12
+    ]));
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AdminExamenDetailComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ExamApiService, useValue: examApi },
+        { provide: ScoringApiService, useValue: scoring },
+        { provide: DirectoryApiService, useValue: directory },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: '92' }) } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(AdminExamenDetailComponent);
+    fixture.detectChanges();
+    const cmp = fixture.componentInstance;
+    const el = fixture.nativeElement as HTMLElement;
+    expect(cmp.baremeVersion()).toBe(1);
+    expect(cmp.lignes().map((x) => x.nom)).toEqual(['Trabelsi', 'Khelifi']);   // réordonné sur le délibéré
+    expect(cmp.resume()?.moyenne).toBe(11);
+    expect(el.textContent).toContain('Total (barème de délibération v1)');
+    expect(el.textContent).toContain('Total brut');
+  });
 });

@@ -47,13 +47,42 @@ export class AdminExamenDetailComponent {
     return e.statut === 'ok' ? e.valeur.nom : `Examen ${this.examenId}`;
   });
 
-  /** Résumé honnête des résultats : effectif noté et moyenne des totaux BRUTS (pas de /20 inventé). */
+  /**
+   * #401 (ADR-0030 D4 révisé) — la version de barème servie par scoring pour
+   * cet examen, ou null : quand elle existe, le total EFFECTIF est le total
+   * délibéré (le résultat), le total brut reste la trace.
+   */
+  readonly baremeVersion = computed<number | null>(() => {
+    const r = this.resultats();
+    if (r.statut !== 'ok') return null;
+    const servi = r.valeur.some((x) => x.baremeVersion != null && x.totalDelibere != null);
+    return servi ? (r.valeur.find((x) => x.baremeVersion != null)?.baremeVersion ?? null) : null;
+  });
+
+  /** Le total qui fait le résultat : délibéré quand une version est servie, brut sinon. */
+  totalEffectif(x: ExamenResult): number {
+    return this.baremeVersion() != null && x.totalDelibere != null ? x.totalDelibere : x.totalScore;
+  }
+
+  /** Lignes triées sur le total EFFECTIF (scoring les sert triées sur le brut). */
+  readonly lignes = computed<ExamenResult[]>(() => {
+    const r = this.resultats();
+    if (r.statut !== 'ok') return [];
+    return [...r.valeur].sort((a, b) => this.totalEffectif(b) - this.totalEffectif(a));
+  });
+
+  /** Résumé honnête des résultats : effectif noté et moyenne des totaux EFFECTIFS (pas de /20 inventé). */
   readonly resume = computed(() => {
     const r = this.resultats();
     if (r.statut !== 'ok' || r.valeur.length === 0) return null;
-    const totaux = r.valeur.map((x) => x.totalScore);
+    const totaux = r.valeur.map((x) => this.totalEffectif(x));
     const moyenne = totaux.reduce((a, b) => a + b, 0) / totaux.length;
     return { n: totaux.length, moyenne, max: Math.max(...totaux), min: Math.min(...totaux) };
+  });
+
+  readonly totalLabel = computed(() => {
+    const v = this.baremeVersion();
+    return v != null ? `barème de délibération v${v}` : 'brut';
   });
 
   constructor() {

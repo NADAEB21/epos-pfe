@@ -88,7 +88,7 @@
               @if (resume(); as z) {
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.n }}</div><div class="text-xs text-gray-500">étudiants notés</div></div>
-                  <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.moyenne | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total moyen (brut)</div></div>
+                  <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.moyenne | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total moyen ({{ totalLabel() }})</div></div>
                   <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.min | number: '1.1-1' }}</div><div class="text-xs text-gray-500">minimum</div></div>
                   <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.max | number: '1.1-1' }}</div><div class="text-xs text-gray-500">maximum</div></div>
                 </div>
@@ -100,17 +100,24 @@
                       <th class="py-2 pr-3">#</th>
                       <th class="py-2 pr-3">Étudiant</th>
                       <th class="py-2 pr-3">N° inscription</th>
-                      <th class="py-2 pr-3 text-right">Total (brut)</th>
+                      <th class="py-2 pr-3 text-right">Total ({{ totalLabel() }})</th>
+                      @if (baremeVersion() != null) {
+                        <!-- #401 — la trace : le total brut reste lisible à côté du résultat -->
+                        <th class="py-2 pr-3 text-right text-gray-400">Total brut</th>
+                      }
                       <th class="py-2 text-right">Stations notées</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-100">
-                    @for (x of r.valeur; track x.participationId; let i = $index) {
+                    @for (x of lignes(); track x.participationId; let i = $index) {
                       <tr>
                         <td class="py-2 pr-3 text-gray-400">{{ i + 1 }}</td>
                         <td class="py-2 pr-3 text-gray-800">{{ nomEtudiant(x) }}</td>
                         <td class="py-2 pr-3 text-gray-500">{{ x.numeroInscription ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-right font-medium text-gray-900">{{ x.totalScore | number: '1.1-2' }}</td>
+                        <td class="py-2 pr-3 text-right font-medium text-gray-900">{{ totalEffectif(x) | number: '1.1-2' }}</td>
+                        @if (baremeVersion() != null) {
+                          <td class="py-2 pr-3 text-right text-gray-400">{{ x.totalScore | number: '1.1-2' }}</td>
+                        }
                         <td class="py-2 text-right text-gray-600">{{ x.stationsNotees }}</td>
                       </tr>
                     }

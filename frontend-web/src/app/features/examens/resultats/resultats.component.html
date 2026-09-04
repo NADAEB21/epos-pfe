@@ -119,13 +119,15 @@
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">
         {{ moyennePromo() != null ? (moyennePromo() | number: '1.1-1') + ' /20' : '—' }}
       </div>
+      <!-- #401 — le barème qui fait le résultat est nommé, jamais implicite -->
+      <div class="text-xs text-gray-400 mt-0.5" data-testid="kpi-bareme">{{ lectureLabel() }}</div>
     </div>
     <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Taux de réussite</div>
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">
         {{ tauxReussite() != null ? (tauxReussite() | number: '1.0-0') + ' %' : '—' }}
       </div>
-      <div class="text-xs text-gray-400 mt-0.5">≥ 10/20</div>
+      <div class="text-xs text-gray-400 mt-0.5">≥ 10/20 · {{ lectureLabel() }}</div>
     </div>
     <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Min · Max</div>
@@ -193,6 +195,12 @@
             <div>
               <h3 class="text-sm font-medium text-gray-900">
                 <span class="text-gray-400">#{{ d.ordre }}</span> {{ d.nom }}
+                @if (stationsExcluesExam().has(d.stationId)) {
+                  <!-- #401 — la carte lit les notes saisies (ce que le jury délibère) ; la station n'entre plus dans le résultat -->
+                  <span class="ml-1 text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200" title="Retirée par le barème de délibération courant : ses notes restent lisibles ici, elles n'entrent plus dans le total ni le classement">
+                    exclue du barème v{{ baremeVersion() }}
+                  </span>
+                }
               </h3>
               <p class="text-xs text-gray-400">
                 / {{ d.noteMax }} ·
@@ -311,9 +319,14 @@
       Classement &middot; {{ stationCols().length }} stations
       @if (baremeVersion(); as v) {
         @if (delibereServi()) {
-          <!-- #363 — les DEUX lectures sont servies (ADR-0030 D4) : la version courante est nommée -->
-          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Le barème d'origine n'est jamais réécrit ; la lecture délibérée s'ajoute (onglet Délibération)">
-            Barème de délibération v{{ v }} appliqué
+          <!-- #401 (ADR-0030 D4 révisé) — la lecture délibérée EST le résultat ; l'origine reste la trace -->
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Le barème d'origine n'est jamais réécrit : les notes saisies restent dans les cellules et la colonne « Origine /20 » (onglet Délibération pour l'historique et les motifs)">
+            Barème de délibération v{{ v }} appliqué — classement, moyenne et mention sous ce barème
+          </span>
+        } @else if (lectureIncoherente()) {
+          <!-- #401 — Σ scoreDelibere ≠ totalDelibere : jamais un rang faux en silence -->
+          <span role="alert" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="La somme des scores délibérés par station ne retombe pas sur le total délibéré servi par scoring — classement au barème d'origine en attendant">
+            Barème v{{ v }} servi mais lecture délibérée incohérente — classement au barème d'origine
           </span>
         } @else {
           <!-- #399 — la version existe mais scoring ne sert AUCUN total délibéré (barème figé incomplet) : dit, pas « appliqué » -->
@@ -346,13 +359,19 @@
               <span class="block text-xs text-gray-400 font-normal">/ {{ col.noteMax }}</span>
             </th>
           }
-          <th class="px-3 py-3 font-medium text-center">Moyenne</th>
+          <th class="px-3 py-3 font-medium text-center">
+            Moyenne
+            @if (delibereServi()) {
+              <span class="block text-xs font-normal text-amber-800">barème v{{ baremeVersion() }}</span>
+            }
+          </th>
+          <th class="px-3 py-3 font-medium">Mention</th>
           @if (delibereServi()) {
-            <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-amber-800" title="Sous le barème de délibération courant — reconverti /20 depuis le total et le dénominateur délibérés servis par scoring">
-              Délibéré /20
+            <!-- #401 — la trace : la même moyenne au barème d'origine (notes saisies) -->
+            <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-gray-400" title="La note au barème d'origine — les notes saisies, jamais réécrites (ADR-0030 D4)">
+              Origine /20
             </th>
           }
-          <th class="px-3 py-3 font-medium">Mention</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
@@ -379,9 +398,15 @@
                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-brand-50 transition-colors"
                     [class.bg-brand-50]="isExpanded(row, col)"
                   >
-                    <span [class.text-status-danger]="isStationFail(row, col)">
+                    <span [class.text-status-danger]="isStationFail(row, col)" [class.line-through]="row.stationsExclues.has(col.stationId)" [class.text-gray-400]="row.stationsExclues.has(col.stationId)">
                       {{ row.scoreByStation.get(col.stationId) | number: '1.0-1' }}
                     </span>
+                    @if (delibereCellule(row, col); as d) {
+                      <!-- #401 — la note saisie reste la cellule ; ce que le barème délibéré en lit est dit à côté -->
+                      <span class="text-[10px] text-amber-800" [title]="d === 'exclue' ? 'Station retirée par le barème de délibération courant — hors du total' : 'Sous le barème délibéré : score / max'">
+                        {{ d === 'exclue' ? 'exclue' : '→ ' + d }}
+                      </span>
+                    }
                     @if (!row.lockedByStation.get(col.stationId)) {
                       <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Note non verrouillée"></span>
                     }
@@ -394,26 +419,27 @@
                 }
               </td>
             }
-            <td class="px-3 py-2.5 text-center font-semibold tabular-nums">
+            <td class="px-3 py-2.5 text-center font-semibold tabular-nums"
+                [title]="(row.total | number: '1.1-2') + ' / ' + (row.totalMax | number: '1.0-1') + (row.lecture === 'DELIBERE' ? ' — barème de délibération v' + row.baremeVersion : '')">
               {{ row.moyenne20 != null ? (row.moyenne20 | number: '1.1-1') : '—' }}
             </td>
-            @if (delibereServi()) {
-              <td class="px-3 py-2.5 text-center font-semibold tabular-nums text-amber-800"
-                  [title]="row.totalDelibere != null ? (row.totalDelibere | number: '1.1-2') + ' / ' + (row.denominateurDelibere | number: '1.0-1') : 'non servi'">
-                {{ row.moyenne20Delibere != null ? (row.moyenne20Delibere | number: '1.1-1') : '—' }}
-              </td>
-            }
             <td class="px-3 py-2.5">
               <span class="text-xs font-medium px-2 py-0.5 rounded-full" [class]="row.mentionClass">
                 {{ row.mention }}
               </span>
             </td>
+            @if (delibereServi()) {
+              <td class="px-3 py-2.5 text-center tabular-nums text-gray-400"
+                  [title]="(row.totalOrigine | number: '1.1-2') + ' / ' + (row.totalMaxOrigine | number: '1.0-1') + ' — notes saisies, barème d\'origine'">
+                {{ row.moyenne20Origine != null ? (row.moyenne20Origine | number: '1.1-1') : '—' }}
+              </td>
+            }
           </tr>
           <!-- Per-critère deep-dive (gap #3): one expansion row under the student,
                for whichever station cell is open. -->
           @if (expandedColFor(row); as col) {
             <tr class="bg-gray-50/80">
-              <td [attr.colspan]="stationCols().length + (baremeVersion() ? 6 : 5)" class="px-4 py-3 border-t border-gray-100">
+              <td [attr.colspan]="stationCols().length + (delibereServi() ? 6 : 5)" class="px-4 py-3 border-t border-gray-100">
                 <div class="flex items-center justify-between mb-2">
                   <h4 class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     Détail par critère · {{ col.nom }}

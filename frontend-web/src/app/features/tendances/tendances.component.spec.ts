@@ -31,6 +31,8 @@ describe('TendancesComponent — BI matière (#365)', () => {
     couverture_snapshot_complete: true,
     origine: { n_etudiants: 36, denominateur: 55, mediane: 28.5, moyenne: 29.6, taux_reussite: 0.5556 },
     delibere: null, bareme_version: null,
+    lecture: { n_etudiants: 36, denominateur: 55, mediane: 28.5, moyenne: 29.6, taux_reussite: 0.5556 },
+    lecture_officielle: 'ORIGINE', stations_exclues: [],
     bins: [
       { label: '0–11', count: 2, pct: 5.6, sousSeuil: true },
       { label: '11–22', count: 8, pct: 22.2, sousSeuil: true },
@@ -92,7 +94,9 @@ describe('TendancesComponent — BI matière (#365)', () => {
   const DEUX = [
     session({ examen_id: 80, nom: 'Rattrapage', date_examen: '2026-01-15' }),
     session({ examen_id: 92, nom: 'Jumeau F1', date_examen: '2026-06-10', bareme_version: 1,
-              delibere: { n_etudiants: 36, denominateur: 40, mediane: 24, moyenne: 25, taux_reussite: 0.75 } }),
+              delibere: { n_etudiants: 36, denominateur: 40, mediane: 24, moyenne: 25, taux_reussite: 0.75 },
+              lecture: { n_etudiants: 36, denominateur: 40, mediane: 24, moyenne: 25, taux_reussite: 0.75 },
+              lecture_officielle: 'DELIBERE' }),
   ];
 
   it('lit la matière du périmètre et rend les sessions closes, la dernière sélectionnée', () => {
@@ -169,5 +173,14 @@ describe('TendancesComponent — BI matière (#365)', () => {
     c.onMatiereChange('2');
     fixture.detectChanges(); // le rechargement est porté par un effect : un tick
     expect(ai.getTendances).toHaveBeenCalledWith(2);
+  });
+  it('#401 : la barre d’une session délibérée porte la lecture EFFECTIVE (taux délibéré), l’origine reste dans la carte', () => {
+    const { c, el } = build({ data: tendances(DEUX) });
+    const l92 = c.lignesSessions().find((l) => l.id === 92)!;
+    expect(l92.valeurPct).toBeCloseTo(75, 5);          // 0.75 délibéré, pas 0.5556 origine
+    expect(l92.detail).toContain('barème v1');
+    const l80 = c.lignesSessions().find((l) => l.id === 80)!;
+    expect(l80.valeurPct).toBeCloseTo(55.56, 1);
+    expect(el.textContent).toContain('Barème de délibération v1 appliqué');
   });
 });

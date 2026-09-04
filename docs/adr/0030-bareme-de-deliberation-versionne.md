@@ -3,7 +3,8 @@
 **Statut : Accepté (2026-08-21, avec ADR-0021 et ADR-0029 — voir ADR-0021 §Status). Livré :
 #361 entité + V25 + les deux dénominateurs (PR #380) · #362 propositions (l'effet projeté
 AVANT décision est calculé par ai-service avec l'arithmétique EXACTE de
-`BaremeDeliberationEngine`, lue par les vues V26) · #364 recette (PR #387). Reste : #363 UI.**
+`BaremeDeliberationEngine`, lue par les vues V26) · #364 recette (PR #387) · #363 UI (PR #394)
+· **#401 (2026-09-04) : la lecture délibérée EST le résultat — D4 révisé.**
 **Décideuse : Nada. Préparé en S43, sur le plan IA/BI de S42.**
 **Exécute : ADR-0021 D6–D10 (Part 2 — « ce que changer le barème veut dire »). Donne sa
 forme au besoin que D9 nommait sans le dessiner (« a barème needs versions »), et sa
@@ -69,6 +70,21 @@ L'écran Résultats sert **toujours les deux lectures** : le résultat au barèm
 au barème délibéré, l'historique et les motifs visibles. Le jury voit ce qui a changé, par
 qui, pourquoi.
 
+> **Révision 2026-09-04 (décision Nada, #401)** — les deux lectures restent servies, mais
+> elles n'ont pas le même statut : **la lecture délibérée EST le résultat**. Dès qu'une
+> version existe et que scoring la sert (couverture snapshot complète, ADR-0015), le total,
+> la moyenne /20, le rang, la mention, l'export et les agrégats BI (tendances, synthèse) sont
+> calculés sous le barème délibéré. La note saisie reste **la trace** : jamais réécrite,
+> toujours visible (cellules par station, colonne « Origine /20 », colonnes « … origine » de
+> l'export). Deux règles d'arithmétique d'écran, fixées ici : le dénominateur effectif est
+> **par étudiant** (somme des maxima délibérés des stations qu'il a passées — jamais le
+> dénominateur d'examen, identique pour tous), et la garde de verdict #297 (verrou sur toutes
+> les stations) vaut pour les deux lectures. Une station exclue sort des deux sommes et n'est
+> plus un échec de personne. Invariant tenu côté écran : Σ des scores délibérés par station =
+> total délibéré servi ; sinon la lecture délibérée n'est pas servie comme résultat et l'écran
+> le dit. N9 (#394) avait livré une simple colonne à côté du classement d'origine — c'était
+> une lecture trop timide de ce paragraphe, corrigée par #401.
+
 ### D5 — Les gardes, héritées telles quelles
 
 Refus nominatifs et sentinelles exigés (recette adversariale #364) : examen non clos ·
@@ -89,7 +105,10 @@ per-étudiant reste le territoire de la réclamation (ADR-0013 / #136) — jamai
 
 ## Explicitement NON décidé ici
 
-- La présentation par défaut (brut « /15 » vs reconverti « /20 ») — choix d'écran, à
-  trancher en #363 avec Nada devant les maquettes.
+- ~~La présentation par défaut (brut « /15 » vs reconverti « /20 ») — choix d'écran, à
+  trancher en #363 avec Nada devant les maquettes.~~ **Tranché** : #363 sert les deux
+  écritures (brut « x / d » et « ≈ y /20 ») ; #401 (2026-09-04) tranche le point qui restait
+  implicite — **la lecture délibérée est le résultat**, l'origine est la trace (voir D4,
+  révision).
 - L'éventuelle signature/verrouillage du barème à la clôture institutionnelle (#236/W12) —
   après l'IA, avec le dossier P1.

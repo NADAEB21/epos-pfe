@@ -499,15 +499,22 @@ describe('ResultatsComponent — #355 délibération', () => {
     expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).not.toContain('Délibéré /20');
   });
 
-  it('#399 : totaux délibérés servis → badge « appliqué » et colonne « Délibéré /20 » (inchangé)', () => {
+  it('#399/#401 : totaux délibérés servis → badge « appliqué » et colonne « Origine /20 »', () => {
     scoring.getExamenResults.and.returnValue(
-      of(results.map((r) => ({ ...r, baremeVersion: 1, totalDelibere: r.totalScore, denominateurDelibere: 25 }))),
+      // #401 — la forme RÉELLE servie par scoring : délibéré PAR STATION + total sommé.
+      of(results.map((r) => ({
+        ...r,
+        baremeVersion: 1,
+        stations: r.stations.map((s) => ({ ...s, maxOriginal: s.stationId === 101 ? 20 : 10, scoreDelibere: s.score, maxDelibere: s.stationId === 101 ? 20 : 10 })),
+        totalDelibere: r.totalScore,
+        denominateurDelibere: 30,
+      }))),
     );
     const { c, el } = createDom399();
     expect(c.delibereServi()).toBeTrue();
     const t = el.textContent ?? '';
     expect(t).toContain('Barème de délibération v1 appliqué');
     expect(t).not.toContain('non servie');
-    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).toContain('Délibéré /20');
+    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.replace(/\s+/g, ' ').trim())).toContain('Origine /20');
   });
 });

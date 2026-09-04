@@ -128,3 +128,12 @@ def test_synthese_plan_de_donnees_mort_503(client_bi, monkeypatch):
         raise ConnectionError("postgres injoignable")
     monkeypatch.setattr("app.db.examens_clos_toutes_matieres", _boom)
     assert client_bi.get("/ai/faculte/synthese", headers=ADMIN).status_code == 503
+
+
+def test_tendances_porte_la_lecture_officielle(client_bi):
+    """#401 — chaque session dit quelle lecture fait le résultat."""
+    d = client_bi.get("/ai/matieres/1/tendances", headers=RESP_M1).json()["data"]
+    for e in d["examens"]:
+        assert e["lecture_officielle"] == "ORIGINE"     # aucun barème dans conftest
+        assert e["lecture"] == e["origine"]
+        assert e["stations_exclues"] == []

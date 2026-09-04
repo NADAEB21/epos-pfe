@@ -741,6 +741,11 @@ class _PlanningTable extends StatelessWidget {
     final isDarkPlan = Theme.of(context).brightness == Brightness.dark;
     final planBorder = _C(isDarkPlan).planBorder;
 
+    // #409 — au-delà de quelques lots, le tableau se ROGNAIT (Clip.hardEdge, aucun
+    // défilement) : chaque colonne a désormais un minimum et le tableau défile
+    // horizontalement quand il dépasse, comme la carte du lot actuel.
+    const double minHeureCol = 56;
+    const double minLotCol = 64;
     return Container(
       decoration: BoxDecoration(
         color: _C(isDarkPlan).planning,
@@ -749,7 +754,17 @@ class _PlanningTable extends StatelessWidget {
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: isDarkPlan ? 0.20 : 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       clipBehavior: Clip.hardEdge,
-      child: Table(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final minWidth = minHeureCol + minLotCol * lots.length;
+          final width = constraints.maxWidth.isFinite && constraints.maxWidth > minWidth
+              ? constraints.maxWidth
+              : minWidth;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: width,
+              child: Table(
         border: TableBorder(
           horizontalInside: BorderSide(color: planBorder, width: 0.8),
           verticalInside:   BorderSide(color: planBorder, width: 0.8),
@@ -773,6 +788,10 @@ class _PlanningTable extends StatelessWidget {
             ],
           )),
         ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

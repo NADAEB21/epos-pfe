@@ -202,7 +202,7 @@ describe('ResultatsComponent — la lecture délibérée EST le résultat (#401)
     const { c, el } = build(V1);
     expect(c.moyennePromo()).toBeCloseTo((19.2 + 9.6) / 2, 5);
     expect(c.tauxReussite()).toBeCloseTo(50, 5);
-    expect(c.minMaxLabel()).toBe('9.6 · 19.2');
+    expect(c.minMaxLabel()).toBe('9,6 · 19,2');
     expect(el.querySelector('[data-testid="kpi-bareme"]')?.textContent?.trim()).toBe('barème de délibération v1');
   });
 

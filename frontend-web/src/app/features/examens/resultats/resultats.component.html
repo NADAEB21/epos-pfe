@@ -232,35 +232,12 @@
             </div>
           }
           @if (indicesEtat() === 'prets') {
-            <div class="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 tabular-nums">
-              <p class="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">Indices cohorte</p>
-              <div class="space-y-1">
-                @if (alphaDe(d.stationId); as alpha) {
-                  <p class="text-xs">
-                    <span class="text-gray-500">α de Cronbach :</span>
-                    @if (alpha.statut === 'CONCLUANT') {
-                      <span class="text-sm font-semibold text-gray-900">{{ alpha.valeur | number: '1.2-2' }}</span>
-                      @if (alpha.ic) {
-                        <span class="text-gray-500"> [{{ alpha.ic[0] | number: '1.2-2' }}–{{ alpha.ic[1] | number: '1.2-2' }}]</span>
-                      }
-                      <span class="text-gray-500"> (n={{ alpha.n }})</span>
-                    } @else {
-                      <span class="ml-0.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800 italic">{{ alpha.raison }}</span>
-                    }
-                  </p>
-                }
-                @if (concentrationDe(d.stationId); as conc) {
-                  <p class="text-xs">
-                    <span class="text-gray-500">Concentration d'échec :</span>
-                    @if (conc.statut === 'CONCLUANT') {
-                      <span class="text-sm font-semibold text-gray-900">{{ (conc.valeur ?? 0) * 100 | number: '1.0-1' }}&nbsp;%</span>
-                      <span class="text-gray-500"> (n={{ conc.n }}{{ pLabel(conc) }})</span>
-                    } @else {
-                      <span class="ml-0.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800 italic">{{ conc.raison }}</span>
-                    }
-                  </p>
-                }
-              </div>
+            <!-- #407 — les indices se lisent en phrases (app-lecture-indice, F4), plus en nombres nus ;
+                 le détail complet est dans l'onglet Analyse. -->
+            <div class="mb-3 space-y-1.5" data-testid="indices-cohorte">
+              <p class="text-[11px] font-medium uppercase tracking-wide text-gray-500">Indices cohorte</p>
+              <app-lecture-indice [indice]="asIndice(alphaDe(d.stationId))" />
+              <app-lecture-indice [indice]="asIndice(concentrationDe(d.stationId))" />
             </div>
           }
 

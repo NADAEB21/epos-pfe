@@ -19,6 +19,8 @@ import {
 } from '../../../core/api/models';
 import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 import { ReclamationsPanelComponent } from './reclamations-panel.component';
+import { LectureIndiceComponent } from '../../../shared/ia/lecture-indice.component';
+import { Indice } from '../../../shared/ia/lecture-indices';
 
 /** A station column header — name + ordre + the grille's noteMax denominator. */
 interface StationCol {
@@ -184,7 +186,7 @@ const DELIBERATION_BINS = 5;
 @Component({
   selector: 'app-resultats',
   standalone: true,
-  imports: [DecimalPipe, DatePipe, ReclamationsPanelComponent],
+  imports: [DecimalPipe, DatePipe, ReclamationsPanelComponent, LectureIndiceComponent],
   templateUrl: './resultats.component.html',
 })
 export class ResultatsComponent {
@@ -301,6 +303,11 @@ export class ResultatsComponent {
 
   /** ", p=0,032" quand le test en porte une — construit ici pour éviter un @if
    *  imbriqué dans une interpolation (famille NG5002). Virgule décimale (fr). */
+  /** #407 — l'atome de lecture attend le type `Indice` (code fermé) ; la donnée servie l'est déjà. */
+  asIndice(i: IndiceAi | null): Indice | null {
+    return i as Indice | null;
+  }
+
   pLabel(indice: IndiceAi): string {
     const p = indice.details?.['p_value'];
     if (typeof p !== 'number') return '';
@@ -464,7 +471,7 @@ export class ResultatsComponent {
     if (vals.length === 0) return '—';
     const min = Math.min(...vals);
     const max = Math.max(...vals);
-    return `${min.toFixed(1)} · ${max.toFixed(1)}`;
+    return `${min.toFixed(1).replace('.', ',')} · ${max.toFixed(1).replace('.', ',')}`;
   });
 
   constructor() {

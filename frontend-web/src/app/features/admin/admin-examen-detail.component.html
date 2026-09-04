@@ -52,7 +52,7 @@
                   <li class="py-2 text-sm">
                     <div class="font-medium text-gray-800">{{ st.ordre != null ? '#' + st.ordre + ' ' : '' }}{{ st.nom ?? ('Station ' + st.id) }}</div>
                     <div class="text-xs text-gray-500">
-                      {{ st.type ?? '—' }}
+                      {{ st.type ? st.type.charAt(0) + st.type.slice(1).toLowerCase() : '—' }}
                       · {{ st.hasGrille ? 'grille définie' : 'sans grille' }}
                       · {{ (st.evaluateurIds?.length ?? 0) }} évaluateur(s)
                     </div>

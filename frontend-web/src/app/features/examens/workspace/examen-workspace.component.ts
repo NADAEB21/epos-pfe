@@ -29,6 +29,8 @@ const TABS_LIVE: WorkspaceTab[] = [
 ];
 const TABS_DONE: WorkspaceTab[] = [
   { label: 'Résultats', segment: 'resultats' },
+  // #407 — ce que l'analyse a lu, en français, avant de décider.
+  { label: 'Analyse', segment: 'analyse' },
   // #363 (N9) — le volet IA existe désormais (N8 #362) : l'onglet revient,
   // vivant — propositions, effet projeté AVANT décision, acte motivé (D10),
   // barème de délibération versionné (ADR-0030).

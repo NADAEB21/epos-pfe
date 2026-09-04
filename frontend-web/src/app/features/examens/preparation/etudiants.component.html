@@ -546,7 +546,7 @@
       @if (showDayOf()) {
         @if (presentsCount() > 0) {
           <span class="text-gray-500"
-            >{{ presentsCount() }} present(s)</span
+            >{{ presentsCount() }} présent(s)</span
           >
         }
         @if (absentsCount() > 0) {
@@ -570,10 +570,10 @@
           (change)="presenceFilter.set($any($event.target).value)"
           class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
         >
-          <option value="all">Presence : toutes</option>
-          <option value="present">Presents</option>
+          <option value="all">Présence : toutes</option>
+          <option value="present">Présents</option>
           <option value="absent">Absents</option>
-          <option value="unmarked">Non marquee</option>
+          <option value="unmarked">Non marquée</option>
         </select>
       }
       <select
@@ -607,7 +607,7 @@
             <th class="px-4 py-2.5 font-medium">N&deg; échantillon</th>
             <th class="px-4 py-2.5 font-medium">Lot</th>
             @if (showDayOf()) {
-              <th class="px-4 py-2.5 font-medium">Presence</th>
+              <th class="px-4 py-2.5 font-medium">Présence</th>
               <th class="px-4 py-2.5 font-medium text-right">Note</th>
             }
             @if (editable()) {
@@ -690,7 +690,7 @@
                   @if (r.present === true) {
                     <span
                       class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white"
-                      >Present</span
+                      >Présent</span
                     >
                   } @else if (r.present === false) {
                     <span
@@ -762,7 +762,7 @@
 
     <p class="text-xs text-gray-400 mt-3">
       @if (showDayOf()) {
-        Presence, note et numéro d'echantillon se remplissent le jour de
+        Présence, note et numéro d'échantillon se remplissent le jour de
         l'examen — non editables ici.
       } @else {
         La presence et les notes apparaitront ici une fois l'examen lance.

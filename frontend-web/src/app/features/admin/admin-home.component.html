@@ -42,6 +42,32 @@
     }
   </section>
 
+  <!-- #407 — réussite par matière : la synthèse facultaire, agrégée d'abord, chargée à part -->
+  <section class="card p-5 mb-6" data-testid="synthese-console">
+    <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+      <h3 class="font-semibold text-gray-900 flex items-center gap-2"><app-icon name="chart" cls="w-4 h-4 text-brand" /> Réussite par matière</h3>
+      <a routerLink="/admin/synthese" class="text-sm text-brand hover:underline">Synthèse complète &rarr;</a>
+    </div>
+    @switch (syntheseEtat()) {
+      @case ('chargement') { <div class="h-24 rounded-lg bg-gray-100 animate-pulse" aria-hidden="true"></div> }
+      @case ('absents') { <p class="text-sm text-gray-400" role="status">Synthèse indisponible — l'analyse ne répond pas pour le moment.</p> }
+      @case ('prets') {
+        @if (synthese(); as s) {
+          @if (s.matieres.length === 0) {
+            <p class="text-sm text-gray-400">Aucune session close dans la faculté pour l'instant.</p>
+          } @else {
+            <div class="grid grid-cols-3 gap-3 mb-4">
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Sessions closes</div><div class="text-xl font-semibold tabular-nums">{{ s.faculte.nb_examens_clos }}</div></div>
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Étudiants notés</div><div class="text-xl font-semibold tabular-nums">{{ s.faculte.n_etudiants }}</div></div>
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Réussite</div><div class="text-xl font-semibold tabular-nums">{{ fmtTaux(s.faculte.taux_reussite) }}</div></div>
+            </div>
+            <app-barres-concentration [lignes]="lignesMatieres()" [largeurLabel]="180" titreValeur="Taux de réussite" />
+          }
+        }
+      }
+    }
+  </section>
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Admin quick links -->
     <section class="card p-5">

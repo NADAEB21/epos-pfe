@@ -1,6 +1,6 @@
 # Lire les indices — guide du responsable de matière
 
-*Écran de délibération, onglet Analyses IA. Concerne les examens **clos**
+*Écran de délibération, onglet Analyse. Concerne les examens **clos**
 uniquement (ADR-0029 D2) — l'onglet reste inutilisable pendant que l'examen
 tourne, la notation elle continue normalement.*
 

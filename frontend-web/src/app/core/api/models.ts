@@ -1218,3 +1218,26 @@ export interface SyntheseFaculte {
   matieres: MatiereSyntheseAi[];
   exclusions: { sans_snapshot: number };
 }
+
+// ── Sévérité des évaluateurs (#359 backend, #407 premier client web) ──────────
+
+export interface SeveriteEvaluateurAi {
+  evaluateur_id: number;
+  n: number;
+  severite: IndiceAi;
+}
+
+export interface StationEvaluateursAi {
+  station_id: number;
+  nb_evaluateurs: number;
+  evaluateurs: SeveriteEvaluateurAi[];
+}
+
+/** GET /ai/examens/{id}/evaluateurs — écart INTRA-station uniquement (ADR-0021 D2), ids seuls : les noms se résolvent via /users. */
+export interface EvaluateursExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  exclusions: ExclusionsAi;
+  par_station: StationEvaluateursAi[];
+}

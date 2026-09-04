@@ -1,0 +1,150 @@
+<header class="mb-5">
+  <h1 class="text-lg font-semibold text-gray-900">Analyse de l'épreuve</h1>
+  <p class="text-sm text-gray-500">
+    Ce que l'analyse a lu dans les notes verrouillées, station par station — en français, avec la prudence qu'imposent des effectifs de quelques dizaines.
+  </p>
+</header>
+
+@if (!estClos()) {
+  <div class="banner-warning mb-6" role="status">
+    <app-icon name="info" cls="w-5 h-5 shrink-0 mt-0.5" />
+    <span>L'analyse ne lit que les examens terminés ou archivés : les notes doivent être verrouillées pour être interprétées.</span>
+  </div>
+}
+
+<!-- Ce que l'analyse fait — trois phrases, une seule fois -->
+<section class="card p-5 mb-6 border-brand-100 bg-brand-50/40">
+  <div class="flex items-start gap-3">
+    <span class="mt-0.5 inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><app-icon name="sparkles" cls="w-5 h-5" /></span>
+    <div class="text-sm text-gray-700 space-y-1.5">
+      <p><span class="font-medium text-gray-900">Ce que fait l'analyse.</span> Elle mesure, pour chaque critère et chaque station, ce que les notes disent de la grille elle-même : un critère que personne ne réussit, un critère qui ne sépare pas les bons étudiants des faibles, une grille dont les critères ne mesurent pas la même chose, une station qui met tout le monde en échec, un évaluateur plus sévère que ses collègues sur la même station.</p>
+      <p><span class="font-medium text-gray-900">Ce qu'elle ne fait pas.</span> Elle ne note personne, ne classe aucun évaluateur et n'applique jamais rien seule : quand l'effectif est trop petit pour conclure, elle le dit au lieu d'inventer un chiffre. Ce qu'elle suggère se décide dans l'onglet Délibération.</p>
+      @if (cohorteDeReference()) {
+        <p class="text-brand-dark"><span class="font-medium">Cet examen est une cohorte de référence.</span> Trois défauts y ont été plantés volontairement — un critère impossible, un critère sans lien avec le reste, un évaluateur plus sévère de deux points — pour vérifier que l'analyse les retrouve seule.</p>
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Par station -->
+<section class="mb-8">
+  <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+    <h2 class="section-title">Par station</h2>
+    @if (indicesEtat() === 'prets') {
+      <span class="text-xs text-gray-500" data-testid="alertes">
+        @if (nbAlertes() > 0) { {{ nbAlertes() }} lecture{{ nbAlertes() > 1 ? 's' : '' }} à regarder de près } @else { rien d'anormal détecté }
+      </span>
+    }
+  </div>
+
+  @switch (indicesEtat()) {
+    @case ('chargement') {
+      <div class="space-y-3 animate-pulse" aria-hidden="true"><div class="h-40 rounded-xl bg-gray-200"></div><div class="h-40 rounded-xl bg-gray-200"></div></div>
+    }
+    @case ('absents') {
+      <div class="banner-warning" role="status">
+        <app-icon name="warning" cls="w-5 h-5 shrink-0 mt-0.5" />
+        <div>
+          <p class="font-medium">Analyse indisponible — le module ne répond pas.</p>
+          <p class="text-amber-700">Les résultats et la délibération restent accessibles.</p>
+          <button type="button" (click)="reload()" class="mt-2 text-sm text-brand hover:underline">Réessayer</button>
+        </div>
+      </div>
+    }
+    @case ('refus') {
+      <div class="banner-warning" role="status"><app-icon name="info" cls="w-5 h-5 shrink-0 mt-0.5" /><span>{{ indicesMessage() }}</span></div>
+    }
+    @case ('prets') {
+      @if (indices(); as ind) {
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          @for (st of parStation(); track st.stationId) {
+            <article class="card p-5">
+              <div class="flex items-start justify-between gap-2 mb-3">
+                <h3 class="font-semibold text-gray-900"><span class="text-gray-400">#{{ st.ordre }}</span> {{ st.nom }}</h3>
+                @if (st.alertes > 0) {
+                  <span class="badge-warning">{{ st.alertes }} à regarder</span>
+                } @else {
+                  <span class="badge-success">rien d'anormal</span>
+                }
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                <app-lecture-indice [indice]="st.alpha" />
+                <app-lecture-indice [indice]="st.concentration" />
+              </div>
+
+              <h4 class="section-title mb-2">Critère par critère</h4>
+              <div class="overflow-x-auto">
+                <table class="table text-xs">
+                  <thead>
+                    <tr><th>Critère</th><th>Difficulté</th><th>Discrimination</th></tr>
+                  </thead>
+                  <tbody>
+                    @for (c of st.criteres; track c.libelle) {
+                      <tr>
+                        <td class="font-medium text-gray-800 whitespace-nowrap">{{ c.libelle }}<span class="block text-[10px] font-normal text-gray-400">{{ c.type === 'BINAIRE' ? 'oui / non' : 'note' }} · n={{ c.difficulte.n }}</span></td>
+                        @for (cell of [phrase(c.difficulte), phrase(c.discrimination)]; track $index) {
+                          <td [class]="cell.refus ? 'text-amber-800 italic' : 'text-gray-700'">{{ cell.texte }}</td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          }
+        </div>
+
+        <p class="text-xs text-gray-400 mt-3 tabular-nums">
+          {{ ind.exclusions.notations_analysees }} notation{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }} verrouillée{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }} analysée{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }}
+          @if (ind.exclusions.detail_incomplet > 0) { · {{ ind.exclusions.detail_incomplet }} au détail incomplet (hors matrices) }
+          @if (ind.exclusions.saisi_par_null > 0) { · {{ ind.exclusions.saisi_par_null }} sans auteur (hors analyse des évaluateurs) }
+          @if (ind.exclusions.sans_aucun_item > 0) { · {{ ind.exclusions.sans_aucun_item }} sans détail par critère }
+        </p>
+      }
+    }
+  }
+</section>
+
+<!-- Évaluateurs -->
+<section class="mb-8">
+  <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+    <h2 class="section-title">Évaluateurs</h2>
+    <span class="text-xs text-gray-400">Écart d'un évaluateur à ses collègues sur la même station, jamais un classement.</span>
+  </div>
+  @switch (evaluateursEtat()) {
+    @case ('chargement') { <div class="h-24 rounded-xl bg-gray-200 animate-pulse" aria-hidden="true"></div> }
+    @case ('prets') {
+      @if (evaluateursParStation().length === 0) {
+        <p class="empty-state">Aucune notation attribuée à un évaluateur sur cet examen.</p>
+      } @else {
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          @for (st of evaluateursParStation(); track st.stationId) {
+            <article class="card p-5">
+              <h3 class="font-semibold text-gray-900 mb-3">{{ st.nom }}</h3>
+              <div class="space-y-2">
+                @for (e of st.evaluateurs; track e.nom) {
+                  <div>
+                    <div class="flex items-center justify-between text-xs text-gray-500 mb-1"><span class="font-medium text-gray-800">{{ e.nom }}</span><span class="tabular-nums">{{ e.n }} notation{{ e.n > 1 ? 's' : '' }}</span></div>
+                    <app-lecture-indice [indice]="e.severite" />
+                  </div>
+                }
+              </div>
+            </article>
+          }
+        </div>
+      }
+    }
+    @default {
+      <p class="text-xs text-gray-400" role="status">Analyse des évaluateurs non disponible pour le moment.</p>
+    }
+  }
+</section>
+
+<div class="card p-5 flex items-center justify-between gap-4 flex-wrap">
+  <div>
+    <p class="font-medium text-gray-900">Et maintenant ?</p>
+    <p class="text-sm text-gray-500">Les lectures qui appellent une décision deviennent des suggestions dans l'onglet Délibération — avec l'effet montré avant tout clic.</p>
+  </div>
+  <a [routerLink]="['/examens', examenIdNum(), 'deliberation']" class="btn-primary">Passer à la délibération <app-icon name="arrow-right" cls="w-4 h-4" /></a>
+</div>

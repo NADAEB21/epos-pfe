@@ -104,7 +104,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     const { el } = build();
     const t = el.textContent ?? '';
     expect(t).toContain('Critère impossible');
-    expect(t).toContain('Effet projeté sur les 36 étudiants');
+    expect(t).toContain('Ce que cela changerait pour les 36 étudiants');
     expect(t).toContain('47 %');
     expect(t).toContain('56 %');
     expect(t).toContain('28,5 / 55');
@@ -146,7 +146,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     expect(ai.deciderProposition).toHaveBeenCalledWith(92, 'a1b2', {
       decision: 'REFUSER', motif: 'On garde le critère', bareme_version_resultat: null,
     });
-    expect(c.succes()).toContain('Refus journalisé');
+    expect(c.succes()).toContain('Refus enregistré');
   });
 
   it("#363 : journalisation en échec après un barème écrit → l'écran le DIT, ne cache rien, ne retente pas le POST", () => {
@@ -187,7 +187,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     expect(t).toContain('v1');
     expect(t).toContain('Personne n a pu marquer');
     expect(t).toContain('Retirer le critère « Critère impossible »');
-    expect(t).toContain('Composer…');
+    expect(t).toContain('Modifier…');
   });
 
   it("#363 : examen non clos → aucun acte possible, l'historique reste lisible", () => {
@@ -196,7 +196,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     const t = el.textContent ?? '';
     expect(t).toContain("n'est possible qu'une fois l'examen clos");
     expect(t).not.toContain('Accepter…');
-    expect(t).not.toContain('Composer…');
+    expect(t).not.toContain('Modifier…');
   });
 
   it('#363 : un code de proposition inconnu dégrade VISIBLEMENT (pas d’écran cassé, pas d’invention)', () => {
@@ -276,7 +276,7 @@ describe('DeliberationComponent — proposition → effet projeté → acte moti
     c.ouvrirComposition();
     fixture.detectChanges();
     expect(c.compositionOuverte()).toBeFalse();
-    expect(el.textContent).toContain('remplacerait ses opérations');
+    expect(el.textContent).toContain('remplacerait les modifications');
   });
 
   it('#399 : historique scoring vide → « Aucun barème », même quand le module IA est absent', () => {

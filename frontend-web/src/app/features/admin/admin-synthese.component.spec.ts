@@ -99,7 +99,7 @@ describe('AdminSyntheseComponent — synthèse facultaire (#365)', () => {
 
   it('module IA injoignable → bandeau ambre nominatif', () => {
     const { el } = build({ error: { status: 503 } });
-    expect(el.textContent).toContain('Synthèse indisponible — module IA injoignable.');
+    expect(el.textContent).toContain("Synthèse indisponible — l'analyse ne répond pas.");
   });
 
   it('refus nominatif (403) → affiché verbatim', () => {

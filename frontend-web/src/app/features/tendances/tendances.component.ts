@@ -133,8 +133,8 @@ export class TendancesComponent {
     if (!x) return '';
     const parts: string[] = [];
     if (x.non_clos > 0) parts.push(`${x.non_clos} session(s) non close(s)`);
-    if (x.sans_snapshot > 0) parts.push(`${x.sans_snapshot} sans snapshot scoring`);
-    if (x.hors_snapshot > 0) parts.push(`${x.hors_snapshot} dont le snapshot pointe une autre matière`);
+    if (x.sans_snapshot > 0) parts.push(`${x.sans_snapshot} sans barème enregistré au moment de l'épreuve`);
+    if (x.hors_snapshot > 0) parts.push(`${x.hors_snapshot} rattachée(s) à une autre matière au moment de l'épreuve`);
     return parts.join(' · ');
   });
 

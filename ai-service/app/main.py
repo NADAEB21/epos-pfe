@@ -170,7 +170,7 @@ def _servir(examen_id: int, x_user_authorities: str | None, vue: str) -> dict:
         # (ADR-0029 D7).
         raise HTTPException(
             status_code=503,
-            detail="Plan de données du module IA indisponible — réessayez.",
+            detail="L'analyse est momentanément indisponible — réessayez.",
         )
     return _envelope(
         success=True,
@@ -205,7 +205,7 @@ def evaluateurs(
 
 # ── Étage C : propositions (#362 / N8) ───────────────────────────────────────
 
-_INDISPONIBLE = "Plan de données du module IA indisponible — réessayez."
+_INDISPONIBLE = "L'analyse est momentanément indisponible — réessayez."
 
 DECISIONS = frozenset({"ACCEPTER", "REFUSER"})
 
@@ -355,7 +355,7 @@ def projection(
         donnees, courant, grilles = _contexte_bareme(examen_id)
         refus = pj.valider(operations, donnees.criteres, props.items_snapshotes(donnees), grilles, courant)
         if refus is not None:
-            raise HTTPException(status_code=400, detail=f"Opérations refusées ({refus.code}) : {refus.detail}.")
+            raise HTTPException(status_code=400, detail=f"Modification refusée ({refus.code}) : {refus.detail}.")
         avant = pj.appliquer(list(courant.operations), donnees.criteres, grilles) if courant else None
         apres = pj.appliquer(operations, donnees.criteres, grilles)
         eff = pj.effet(avant, apres, donnees, grilles)

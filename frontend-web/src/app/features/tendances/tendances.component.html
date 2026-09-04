@@ -6,12 +6,12 @@
     <h1 class="text-2xl font-semibold text-gray-900">Tendances — {{ matiereLabel() }}</h1>
     <span
       class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
-      title="ADR-0029 D2 : le module IA ne lit que les examens terminés ou archivés"
+      title="L'analyse ne lit que les examens terminés ou archivés"
     >
       Sessions closes uniquement
     </span>
     @if (estAdmin()) {
-      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="ADR-0018 D5 : l'administration lit partout, n'écrit rien de pédagogique">
+      <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="L'administration consulte ; les décisions pédagogiques restent au responsable de matière">
         Lecture seule
       </span>
     }
@@ -56,7 +56,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
       </svg>
       <div class="text-sm text-amber-800">
-        <p class="font-medium">Tendances indisponibles — module IA injoignable.</p>
+        <p class="font-medium">Tendances indisponibles — l'analyse ne répond pas.</p>
         <p class="text-amber-700">Les résultats et la délibération de chaque examen restent accessibles depuis « Mes examens ».</p>
         <button type="button" (click)="reload()" class="mt-2 text-sm text-brand hover:underline">Réessayer</button>
       </div>
@@ -64,7 +64,7 @@
   }
   @case ('refus') {
     <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      <p class="font-medium">Accès refusé par le module IA</p>
+      <p class="font-medium">Accès refusé</p>
       <p class="text-amber-700">{{ message() }}</p>
     </div>
   }
@@ -157,8 +157,7 @@
               {{ e.exclusions.notations_analysees }} notation(s) verrouillée(s) analysée(s)
               @if (e.exclusions.saisi_par_null > 0) { · {{ e.exclusions.saisi_par_null }} sans auteur (comptées) }
               @if (e.exclusions.detail_incomplet > 0) { · {{ e.exclusions.detail_incomplet }} au détail incomplet }
-              @if (e.exclusions.sans_aucun_item > 0) { · {{ e.exclusions.sans_aucun_item }} sans aucun item (invisibles du module) }
-              · empreinte {{ e.entrees_hash.slice(0, 8) }}
+              @if (e.exclusions.sans_aucun_item > 0) { · {{ e.exclusions.sans_aucun_item }} sans détail par critère }
             </p>
           </section>
         }

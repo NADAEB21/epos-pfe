@@ -243,7 +243,7 @@ describe('ResultatsComponent — la lecture délibérée EST le résultat (#401)
     expect(c.delibereServi()).toBeFalse();
     expect(row(c, 'Bob').lecture).toBe('ORIGINE');
     expect(row(c, 'Bob').rang).toBe(1);
-    expect(el.textContent).toContain('lecture délibérée non servie');
+    expect(el.textContent).toContain('enregistré mais non appliqué');
   });
 
   it('invariant : Σ scoreDelibere ≠ totalDelibere servi → JAMAIS classé dessus, origine + pastille, console.error', () => {
@@ -257,7 +257,7 @@ describe('ResultatsComponent — la lecture délibérée EST le résultat (#401)
     expect(c.delibereServi()).toBeFalse();
     expect(row(c, 'Bob').lecture).toBe('ORIGINE');
     expect(row(c, 'Bob').moyenne20).toBeCloseTo(16, 5);
-    expect(el.textContent).toContain('lecture délibérée incohérente — classement au barème d\'origine');
+    expect(el.textContent).toContain('totaux reçus incohérents — classement au barème d\'origine');
     expect(console.error).toHaveBeenCalled();
   });
 });

@@ -2,7 +2,7 @@
   <a routerLink="/admin/examens" class="text-sm text-gray-500 hover:text-brand">&larr; Examens de la faculté</a>
   <div class="mt-1 flex flex-wrap items-center gap-3">
     <h1 class="text-2xl font-semibold text-gray-900">{{ titre() }}</h1>
-    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="ADR-0018 D5 : l'administration lit partout, n'écrit rien de pédagogique">
+    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="L'administration consulte ; les décisions pédagogiques restent au responsable de matière">
       Lecture seule
     </span>
     @if (examen(); as e) {
@@ -70,14 +70,14 @@
   <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 lg:col-span-2">
     <div class="flex items-baseline justify-between mb-3">
       <h2 class="font-semibold text-gray-900">Résultats consolidés</h2>
-      <span class="text-xs text-gray-400">totaux bruts tels que servis par scoring — aucune conversion</span>
+      <span class="text-xs text-gray-400">totaux tels que calculés par le service des notes — sans conversion sur 20</span>
     </div>
     @switch (resultats().statut) {
       @case ('chargement') {
         <div class="space-y-2 animate-pulse"><div class="h-10 rounded bg-gray-200"></div><div class="h-10 rounded bg-gray-200"></div><div class="h-10 rounded bg-gray-200"></div></div>
       }
       @case ('indisponible') {
-        <p class="text-sm text-status-danger">Résultats indisponibles (scoring-service ne répond pas).</p>
+        <p class="text-sm text-status-danger">Résultats indisponibles : le service des notes ne répond pas.</p>
       }
       @default {
         @if (resultats(); as r) {

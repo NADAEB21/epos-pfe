@@ -148,8 +148,8 @@
       </h2>
       @if (baremeLiveStations().length > 0) {
         <span role="status" class="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-800"
-          title="Le barème figé au lancement (snapshot) est indisponible pour ces stations — les chiffres s'appuient sur la grille actuelle, qui peut avoir changé depuis l'épreuve.">
-          Barème vivant utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — snapshot indisponible
+          title="Le barème enregistré au moment de l'épreuve est indisponible pour ces stations — les chiffres s'appuient sur la grille actuelle, qui peut avoir changé depuis.">
+          Barème actuel de la grille utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — barème de l'épreuve indisponible
         </span>
       }
       <!-- #359 — note DISCRÈTE, pas un bandeau : l'écran ne dépend jamais du module
@@ -157,7 +157,7 @@
            Le silence, lui, est interdit (leçon du 403 avalé). -->
       @if (indicesEtat() === 'absents') {
         <span role="status" class="text-xs text-gray-400">
-          Indices psychométriques non disponibles
+          Analyse statistique non disponible
         </span>
       }
     </div>
@@ -320,18 +320,18 @@
       @if (baremeVersion(); as v) {
         @if (delibereServi()) {
           <!-- #401 (ADR-0030 D4 révisé) — la lecture délibérée EST le résultat ; l'origine reste la trace -->
-          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Le barème d'origine n'est jamais réécrit : les notes saisies restent dans les cellules et la colonne « Origine /20 » (onglet Délibération pour l'historique et les motifs)">
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Les notes saisies ne changent pas : elles restent dans les cellules et la colonne « Origine /20 » — les versions du barème et leurs motifs sont dans l'onglet Délibération">
             Barème de délibération v{{ v }} appliqué — classement, moyenne et mention sous ce barème
           </span>
         } @else if (lectureIncoherente()) {
           <!-- #401 — Σ scoreDelibere ≠ totalDelibere : jamais un rang faux en silence -->
-          <span role="alert" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="La somme des scores délibérés par station ne retombe pas sur le total délibéré servi par scoring — classement au barème d'origine en attendant">
-            Barème v{{ v }} servi mais lecture délibérée incohérente — classement au barème d'origine
+          <span role="alert" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Les totaux reçus pour cette version ne sont pas cohérents entre eux — le classement reste au barème d'origine en attendant">
+            Barème v{{ v }} enregistré mais non appliqué : totaux reçus incohérents — classement au barème d'origine
           </span>
         } @else {
           <!-- #399 — la version existe mais scoring ne sert AUCUN total délibéré (barème figé incomplet) : dit, pas « appliqué » -->
-          <span role="status" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Scoring ne sert les totaux délibérés que si le barème figé couvre toutes les stations notées (ADR-0015) — voir l'onglet Délibération">
-            Barème v{{ v }} enregistré — lecture délibérée non servie : le barème figé ne couvre pas toutes les stations notées
+          <span role="status" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Une station notée n'a pas de barème enregistré au moment de l'épreuve : aucun total délibéré ne peut être calculé — voir l'onglet Délibération">
+            Barème v{{ v }} enregistré mais non appliqué : une station notée n'a pas de barème enregistré au moment de l'épreuve
           </span>
         }
       }
@@ -368,7 +368,7 @@
           <th class="px-3 py-3 font-medium">Mention</th>
           @if (delibereServi()) {
             <!-- #401 — la trace : la même moyenne au barème d'origine (notes saisies) -->
-            <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-gray-400" title="La note au barème d'origine — les notes saisies, jamais réécrites (ADR-0030 D4)">
+            <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-gray-400" title="La même moyenne au barème d'origine — les notes saisies, jamais modifiées">
               Origine /20
             </th>
           }

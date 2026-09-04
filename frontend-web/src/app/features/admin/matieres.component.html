@@ -2,7 +2,7 @@
   <!-- Header -->
   <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div>
-      <h1 class="text-xl font-semibold text-gray-900">Matières</h1>
+      <h1 class="page-title">Matières</h1>
       <p class="text-sm text-gray-500">
         Le catalogue des matières de la faculté — c'est ici qu'une matière naît, se renomme,
         se retire. Les examens et les responsables s'y rattachent ; une matière retirée garde
@@ -20,7 +20,7 @@
       <button
         type="button"
         (click)="openCreate()"
-        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors"
+        class="btn-primary"
       >
         Ajouter une matière
       </button>
@@ -29,7 +29,7 @@
 
   <!-- Create / rename panel -->
   @if (formOpen()) {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+    <section class="card p-5 mb-6">
       <h2 class="font-semibold text-gray-900 mb-1">
         @if (editing(); as m) { Renommer « {{ m.libelle }} » } @else { Nouvelle matière }
       </h2>
@@ -68,7 +68,7 @@
           <button
             type="submit"
             [disabled]="submitting()"
-            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+            class="btn-primary"
           >
             {{ submitting() ? 'Enregistrement…' : (editing() ? 'Renommer' : 'Créer la matière') }}
           </button>
@@ -82,7 +82,7 @@
 
   <!-- Bulk import panel -->
   @if (importOpen()) {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+    <section class="card p-5 mb-6">
       <h2 class="font-semibold text-gray-900 mb-1">Importer une liste de matières</h2>
       <p class="text-sm text-gray-500 mb-4">
         Une ligne par matière : <code class="font-mono">CODE ; Libellé</code> — le point-virgule
@@ -134,7 +134,7 @@
           type="button"
           (click)="submitImport()"
           [disabled]="importSubmitting()"
-          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+          class="btn-primary"
         >
           {{ importSubmitting() ? 'Import…' : 'Importer' }}
         </button>
@@ -153,18 +153,18 @@
       <div class="h-14 rounded-xl bg-gray-200"></div>
     </div>
   } @else if (error()) {
-    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <div class="card p-8 text-center">
       <p class="text-gray-700 mb-4">Impossible de charger le catalogue des matières.</p>
       <button
         type="button"
         (click)="load()"
-        class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+        class="btn-primary"
       >
         Réessayer
       </button>
     </div>
   } @else {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card">
+    <section class="card">
       <div class="p-4 border-b border-gray-100">
         <input
           type="search"

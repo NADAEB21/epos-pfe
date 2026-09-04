@@ -316,10 +316,10 @@ export class ExamenWorkspaceStore {
     const hasStations = n > 0;
     return [
       {
-        label: 'Stations definies',
+        label: 'Stations définies',
         ok: hasStations,
         blocking: true,
-        hint: hasStations ? `${n} station(s)` : 'Aucune station definie',
+        hint: hasStations ? `${n} station(s)` : 'Aucune station définie',
       },
       {
         label: 'Un evaluateur par station',
@@ -367,7 +367,7 @@ export class ExamenWorkspaceStore {
         blocking: true,
         hint:
           this.rosterCount() > 0
-            ? `${this.rosterCount()} etudiant(s)`
+            ? `${this.rosterCount()} étudiant(s)`
             : 'Aucun etudiant inscrit — requis pour lancer',
       },
       {
@@ -395,7 +395,7 @@ export class ExamenWorkspaceStore {
       {
         // #265 — a human cannot hold stations in two live exams at once. The
         // backend refuses the launch; this row says it BEFORE the click.
-        label: 'Evaluateurs disponibles',
+        label: 'Évaluateurs disponibles',
         ok: this.conflitsEvaluateurs().length === 0,
         blocking: true,
         hint:
@@ -423,7 +423,7 @@ export class ExamenWorkspaceStore {
         // second ne justifie PAS de déranger l'administration.
         label:
           this.evaluateursInactifs().length === 0
-            ? 'Evaluateurs actifs'
+            ? 'Évaluateurs actifs'
             : 'Compte(s) d’evaluateur indisponible(s)',
         ok: this.evaluateursInactifs().length === 0,
         blocking: false,

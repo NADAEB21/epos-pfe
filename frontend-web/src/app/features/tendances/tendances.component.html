@@ -3,7 +3,7 @@
     <a routerLink="/admin/synthese" class="text-sm text-gray-500 hover:text-brand">&larr; Synthèse de la faculté</a>
   }
   <div class="mt-1 flex flex-wrap items-center gap-3">
-    <h1 class="text-2xl font-semibold text-gray-900">Tendances — {{ matiereLabel() }}</h1>
+    <h1 class="page-title">Tendances — {{ matiereLabel() }}</h1>
     <span
       class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
       title="L'analyse ne lit que les examens terminés ou archivés"
@@ -71,7 +71,7 @@
   @case ('prets') {
     @if (data(); as d) {
       @if (d.examens.length === 0) {
-        <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+        <div class="card p-8 text-center">
           @for (l of lecturesMatiere(); track l.libelle) {
             <p class="text-gray-700 font-medium" [class.italic]="l.degrade">{{ l.libelle }}</p>
             <p class="text-sm text-gray-500 mt-1">{{ l.raison }}</p>
@@ -84,7 +84,7 @@
         </div>
       } @else {
         <!-- Les sessions closes, dans l'ordre des dates : le taux de réussite avec son n. -->
-        <section class="rounded-xl bg-white border border-gray-200 shadow-card p-4 mb-6">
+        <section class="card p-4 mb-6">
           <div class="flex items-baseline justify-between gap-3 flex-wrap mb-2">
             <h2 class="text-xs font-semibold uppercase tracking-wide text-gray-500">
               Sessions closes ({{ d.examens.length }})
@@ -103,7 +103,7 @@
         </section>
 
         @if (selected(); as e) {
-          <section class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+          <section class="card p-4">
             <div class="flex items-start justify-between gap-3 flex-wrap">
               <div>
                 <h2 class="text-lg font-semibold text-gray-900">{{ e.nom ?? 'Examen ' + e.examen_id }}</h2>

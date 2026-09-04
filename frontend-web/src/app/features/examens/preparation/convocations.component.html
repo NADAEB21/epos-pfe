@@ -1,7 +1,7 @@
 @if (loading()) {
   <div class="h-24 rounded-xl bg-gray-200 animate-pulse"></div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700">Impossible de charger les convocations.</p>
   </div>
 } @else {
@@ -22,11 +22,11 @@
           type="button"
           (click)="envoyer()"
           [disabled]="envoiEnCours() || avecEmailCount() === 0"
-          class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+          class="btn-primary"
           [title]="
             avecEmailCount() === 0
-              ? 'Aucun étudiant n\'a d\'adresse e-mail'
-              : 'Envoyer la convocation aux ' + avecEmailCount() + ' étudiant(s) joignable(s)'
+              ? 'Aucun etudiant n\'a d\'adresse e-mail'
+              : 'Envoyer la convocation aux ' + avecEmailCount() + ' etudiant(s) joignable(s)'
           "
         >
           {{
@@ -38,14 +38,14 @@
         <button
           type="button"
           (click)="print()"
-          class="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+          class="btn-primary"
         >
           Imprimer / PDF
         </button>
         <button
           type="button"
           (click)="exportCsv()"
-          class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          class="btn-secondary"
         >
           Exporter (CSV)
         </button>
@@ -97,7 +97,7 @@
                 type="button"
                 (click)="saveEmail(c)"
                 [disabled]="savingId() === c.etudiantId || !draftFor(c.etudiantId).trim()"
-                class="px-2.5 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                class="btn-primary btn-xs text-xs"
               >
                 {{ savingId() === c.etudiantId ? '…' : 'Enregistrer' }}
               </button>
@@ -179,7 +179,7 @@
   </div>
 
   @if (convocations().length === 0) {
-    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card no-print">
+    <div class="card p-8 text-center no-print">
       <p class="text-gray-700 mb-1">Aucun lot réparti.</p>
       <p class="text-sm text-gray-500 mb-3">
         Répartissez d'abord les étudiants en lots pour générer leurs convocations.
@@ -197,7 +197,7 @@
     <!-- Print sheet: one slip per student -->
     <div id="convocation-print">
       @for (c of convocations(); track c.participationId) {
-        <article class="convocation-card rounded-xl border border-gray-200 bg-white p-6 shadow-card mb-4">
+        <article class="card convocation-card p-6 mb-4">
           <div class="flex items-start justify-between border-b border-gray-100 pb-3 mb-3">
             <div>
               <p class="text-xs uppercase tracking-wide text-gray-400">Convocation à l'examen</p>

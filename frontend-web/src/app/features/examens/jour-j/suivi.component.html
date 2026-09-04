@@ -4,19 +4,19 @@
     <div class="h-40 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger le suivi.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else if (lanes().length === 0) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Aucune rotation à suivre.</p>
     <p class="text-sm text-gray-500">
       Générez les rotations dans l'onglet
@@ -231,7 +231,7 @@
             type="button"
             [disabled]="demarrageEnCours()"
             (click)="demarrerLot(suivant.id)"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
+            class="btn-primary"
           >
             {{ demarrageEnCours() ? '…' : '✓ Présence & démarrer le lot ' + suivant.numeroLot }}
           </button>
@@ -240,7 +240,7 @@
             type="button"
             [disabled]="ouvertureEnCours()"
             (click)="ouvrirLotSuivant()"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50"
+            class="btn-primary"
           >
             {{ ouvertureEnCours() ? '…' : '▶ Ouvrir le lot ' + suivant.numeroLot }}
           </button>
@@ -299,7 +299,7 @@
           type="button"
           [disabled]="demarrageEnCours()"
           (click)="demarrerLot(lot.id)"
-          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50 shrink-0"
+          class="btn-primary shrink-0"
         >
           {{ demarrageEnCours() ? '…' : '▶ Présence & démarrer' }}
         </button>
@@ -360,7 +360,7 @@
   <!-- Per-station lanes -->
   <div class="space-y-4">
     @for (lane of lanes(); track lane.stationId) {
-      <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+      <section class="card p-5">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
           <div>
             <h3 class="font-semibold text-gray-900">
@@ -436,7 +436,7 @@
                     type="button"
                     [disabled]="remplacementEnCours() || remplacantsPossibles(lane).length === 0"
                     (click)="confirmerRemplacement(lane)"
-                    class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark transition-colors disabled:opacity-40"
+                    class="btn-primary btn-sm"
                   >
                     {{ remplacementEnCours() ? 'Remplacement…' : 'Remplacer' }}
                   </button>

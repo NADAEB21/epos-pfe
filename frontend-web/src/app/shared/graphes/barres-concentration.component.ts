@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { GRAPH_PALETTE } from './palette';
 import { NgxEchartsDirective } from 'ngx-echarts';
 // Type-only : effacé à la compilation — voir histogramme-station.component.ts.
 import type { EChartsOption } from 'echarts';
@@ -23,9 +24,10 @@ export interface BarreConcentrationLigne {
   detail?: string;
 }
 
+/** #405 — palette centralisée (`palette.ts`) ; `bar` = le vert nominal. */
 const PALETTE = {
-  light: { bar: '#1f5e3a', track: '#f3f4f6', text: '#374151', muted: '#9ca3af' },
-  dark: { bar: '#2d8050', track: '#374151', text: '#e5e7eb', muted: '#9ca3af' },
+  light: { bar: GRAPH_PALETTE.light.nominal, track: GRAPH_PALETTE.light.track, text: GRAPH_PALETTE.light.text, muted: GRAPH_PALETTE.light.muted },
+  dark: { bar: GRAPH_PALETTE.dark.nominal, track: GRAPH_PALETTE.dark.track, text: GRAPH_PALETTE.dark.text, muted: GRAPH_PALETTE.dark.muted },
 } as const;
 
 const DEFAULT_ABSENT = 'aucune notation verrouillée';

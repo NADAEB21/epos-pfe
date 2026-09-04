@@ -4,20 +4,20 @@
     <div class="h-40 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger les lots.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else {
   <!-- Intro / sizing -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+  <section class="card p-5 mb-6">
     <h2 class="font-semibold text-gray-900 mb-1">Lots (vagues d'étudiants)</h2>
     <p class="text-sm text-gray-500">
       Un lot est une vague d'étudiants qui parcourent le circuit ensemble à un horaire donné.
@@ -33,7 +33,7 @@
   <!-- Setup phase: répartition (#185 — reachable from BROUILLON: the required
        CONFIGURE transition happens silently inside the click) -->
   @if (isSetupPhase()) {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+    <section class="card p-5 mb-6">
       <div class="flex items-center justify-between gap-4 mb-3">
         <h3 class="font-semibold text-gray-900">Répartition</h3>
         @if (lots().length > 0) {
@@ -61,7 +61,7 @@
         type="button"
         [disabled]="busy() || rosterCount() === 0"
         (click)="repartir()"
-        class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        class="btn-primary"
       >
         {{ busy() ? 'Répartition…' : lots().length > 0 ? 'Re-répartir en lots' : 'Répartir en lots' }}
       </button>
@@ -78,7 +78,7 @@
   @if (lotViews().length > 0) {
     <div class="space-y-4">
       @for (lot of lotViews(); track lot.id) {
-        <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+        <section class="card p-5">
           <div class="flex items-center justify-between gap-4 mb-1">
             <h3 class="font-semibold text-gray-900">Lot {{ lot.numeroLot }}</h3>
             <span
@@ -268,7 +268,7 @@
       }
     </div>
   } @else if (!isSetupPhase()) {
-    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+    <div class="card p-8 text-center">
       <p class="text-gray-700 mb-1">Aucun lot pour cet examen.</p>
       <p class="text-sm text-gray-500">Les lots se répartissent en phase de configuration.</p>
     </div>

@@ -1,5 +1,5 @@
 <header class="mb-6">
-  <h1 class="text-2xl font-semibold text-gray-900">Bonjour {{ firstName() }}</h1>
+  <h1 class="page-title">Bonjour {{ firstName() }}</h1>
   <p class="text-sm text-gray-500">
     {{ matiereLine() }}
     <!-- #365 (N10) — la lecture d'une session à l'autre vit dans Tendances. -->
@@ -19,22 +19,22 @@
     <div class="h-40 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger l'accueil.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="load()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else {
   @if (data(); as d) {
   <!-- Big card: closest exam, or empty-state CTA -->
   @if (d.closestExam; as exam) {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-6 mb-6">
+    <section class="card p-6 mb-6">
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div class="flex items-center gap-3">
@@ -50,7 +50,7 @@
         </div>
         <a
           [routerLink]="cta(exam).link"
-          class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+          class="btn-primary"
         >
           {{ cta(exam).label }}
         </a>
@@ -99,23 +99,23 @@
       </div>
     </section>
   } @else {
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-8 mb-6 text-center">
-      <h2 class="text-lg font-semibold text-gray-900 mb-1">Aucun examen a venir</h2>
-      <p class="text-sm text-gray-500 mb-5">Creez un nouvel examen pour demarrer.</p>
+    <section class="card p-8 mb-6 text-center">
+      <h2 class="text-lg font-semibold text-gray-900 mb-1">Aucun examen à venir</h2>
+      <p class="text-sm text-gray-500 mb-5">Créez un nouvel examen pour démarrer.</p>
       <div class="flex flex-wrap justify-center gap-3">
         <a
           [routerLink]="['/examens', 'nouveau']"
-          class="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
-          >Partir de zero</a
+          class="btn-primary"
+          >Partir de zéro</a
         >
         <a
           [routerLink]="['/bibliotheque']"
-          class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
-          >Depuis un modele</a
+          class="btn-secondary"
+          >Depuis un modèle</a
         >
         <a
           [routerLink]="['/examens']"
-          class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+          class="btn-secondary"
           >Dupliquer le semestre dernier</a
         >
       </div>
@@ -124,30 +124,30 @@
 
   <!-- Stat tiles -->
   <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.upcomingCount }}</div>
-      <div class="text-sm text-gray-500">examens a venir</div>
+    <div class="kpi">
+      <div class="kpi-label">examens à venir</div>
+      <div class="kpi-value">{{ d.upcomingCount }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.studentCount }}</div>
-      <div class="text-sm text-gray-500">etudiants (roster)</div>
+    <div class="kpi">
+      <div class="kpi-label">étudiants inscrits</div>
+      <div class="kpi-value">{{ d.studentCount }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.evaluateurCount }}</div>
-      <div class="text-sm text-gray-500">evaluateurs</div>
+    <div class="kpi">
+      <div class="kpi-label">évaluateurs</div>
+      <div class="kpi-value">{{ d.evaluateurCount }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.pendingLockCount }}</div>
-      <div class="text-sm text-gray-500">notations a verrouiller</div>
+    <div class="kpi">
+      <div class="kpi-label">notations à verrouiller</div>
+      <div class="kpi-value">{{ d.pendingLockCount }}</div>
     </div>
   </section>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Actions requises -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+    <section class="card p-5">
       <h3 class="font-semibold text-gray-900 mb-3">Actions requises</h3>
       @if (d.actionsRequises.length === 0) {
-        <p class="text-sm text-gray-400">Rien a signaler.</p>
+        <p class="text-sm text-gray-400">Rien à signaler.</p>
       } @else {
         <ul class="space-y-2">
           @for (a of d.actionsRequises; track $index) {
@@ -173,8 +173,8 @@
     </section>
 
     <!-- Recent exams -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
-      <h3 class="font-semibold text-gray-900 mb-3">Mes examens recents</h3>
+    <section class="card p-5">
+      <h3 class="font-semibold text-gray-900 mb-3">Mes examens récents</h3>
       @if (d.recentExams.length === 0) {
         <p class="text-sm text-gray-400">Aucun examen.</p>
       } @else {

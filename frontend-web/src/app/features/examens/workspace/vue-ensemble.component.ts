@@ -2,8 +2,9 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { catchError, forkJoin, of } from 'rxjs';
 import { ExamApiService } from '../../../core/api/exam-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import { ExamenResponse, StationSummary, TypeStation } from '../../../core/api/models';
 import { ExamenWorkspaceStore } from './examen-workspace.store';
 
@@ -37,6 +38,7 @@ const TYPE_LABELS: Record<TypeStation, string> = {
 })
 export class VueEnsembleComponent {
   private readonly examApi = inject(ExamApiService);
+  private readonly scoring = inject(ScoringApiService);
   private readonly store = inject(ExamenWorkspaceStore);
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
@@ -51,6 +53,32 @@ export class VueEnsembleComponent {
 
   /** Metadata is editable only while BROUILLON (mirrors Examen.isModifiable). */
   readonly canEdit = computed(() => this.exam()?.statut === 'BROUILLON');
+
+  /** #405 — un examen clos n'a plus d'« état de préparation » : il a un résumé. */
+  readonly isClos = computed(() => {
+    const s = this.exam()?.statut;
+    return s === 'TERMINE' || s === 'ARCHIVE';
+  });
+  /** Résumé d'un examen clos : compteurs servis par scoring, aucune moyenne recalculée ici. */
+  readonly resume = signal<{ notes: number; verrouillees: number; bareme: number | null } | null>(null);
+  readonly resumeEtat = signal<'chargement' | 'absent' | 'pret'>('chargement');
+
+  private chargerResume(examId: number): void {
+    this.resumeEtat.set('chargement');
+    this.scoring
+      .getExamenResults(examId)
+      .pipe(catchError(() => of(null)))
+      .subscribe((rows) => {
+        if (!rows) {
+          this.resumeEtat.set('absent');
+          return;
+        }
+        const verrouillees = rows.filter((r) => r.stations.length > 0 && r.stations.every((st) => st.verrouillee === true)).length;
+        const bareme = rows.find((r) => r.baremeVersion != null && r.totalDelibere != null)?.baremeVersion ?? null;
+        this.resume.set({ notes: rows.length, verrouillees, bareme });
+        this.resumeEtat.set('pret');
+      });
+  }
 
   /**
    * Delete/cancel is allowed only while BROUILLON or CONFIGURE — mirrors the
@@ -298,6 +326,7 @@ export class VueEnsembleComponent {
         this.exam.set(exam);
         this.stations.set(stations);
         this.loading.set(false);
+        if (exam.statut === 'TERMINE' || exam.statut === 'ARCHIVE') this.chargerResume(examId);
       },
       error: () => {
         this.error.set(true);
@@ -337,12 +366,12 @@ export class VueEnsembleComponent {
 
     return [
       {
-        label: 'Stations definies',
+        label: 'Stations définies',
         state: hasStations ? 'ok' : 'todo',
         hint: hasStations ? `${stations.length} station(s)` : undefined,
       },
       {
-        label: 'Evaluateurs affectes',
+        label: 'Évaluateurs affectés',
         state: coverState(this.stationsSansEvaluateur()),
         hint:
           hasStations && this.stationsSansEvaluateur() > 0
@@ -350,7 +379,7 @@ export class VueEnsembleComponent {
             : undefined,
       },
       {
-        label: 'Grilles completes',
+        label: 'Grilles complètes',
         state: coverState(this.stationsSansGrille()),
         hint:
           hasStations && this.stationsSansGrille() > 0
@@ -360,8 +389,8 @@ export class VueEnsembleComponent {
       { label: 'Sujet PDF', state: e?.hasPdfSujet ? 'ok' : 'todo' },
       // Roster / planning / launch readiness need the backend pre-launch
       // validation endpoint (Task B backlog) — neutral until then.
-      { label: 'Roster charge', state: 'unknown' },
-      { label: 'Pret au lancement', state: 'unknown' },
+      { label: 'Liste des étudiants chargée', state: 'unknown' },
+      { label: 'Prêt au lancement', state: 'unknown' },
     ];
   });
 
@@ -371,7 +400,7 @@ export class VueEnsembleComponent {
 
   evalLabel(s: StationSummary): string {
     const n = this.evalCount(s);
-    return n === 0 ? 'Aucun evaluateur' : `${n} evaluateur(s)`;
+    return n === 0 ? 'Aucun évaluateur' : `${n} évaluateur(s)`;
   }
 
   typeLabel(t: TypeStation): string {

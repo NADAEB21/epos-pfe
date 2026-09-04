@@ -49,14 +49,14 @@
           <button
             type="button"
             (click)="cancelMeta()"
-            class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+            class="btn-secondary btn-sm"
           >
             Annuler
           </button>
           <button
             type="submit"
             [disabled]="metaForm.invalid || savingMeta()"
-            class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+            class="btn-primary btn-sm"
           >
             {{ savingMeta() ? 'Enregistrement…' : 'Enregistrer' }}
           </button>
@@ -110,7 +110,7 @@
           <button
             type="button"
             (click)="cancelReplace()"
-            class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+            class="btn-secondary btn-sm"
           >
             Annuler
           </button>
@@ -219,14 +219,14 @@
             <button
               type="submit"
               [disabled]="templateNameForm.invalid || savingTemplateBusy()"
-              class="px-3 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-primary"
             >
               {{ savingTemplateBusy() ? 'Enregistrement…' : 'Enregistrer' }}
             </button>
             <button
               type="button"
               (click)="cancelSaveTemplate()"
-              class="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              class="btn-secondary"
             >
               Annuler
             </button>
@@ -261,7 +261,7 @@
             type="button"
             (click)="confirmDeleteGrille.set(false)"
             [disabled]="deletingGrille()"
-            class="px-3 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-40"
+            class="btn-secondary text-xs"
           >
             Annuler
           </button>
@@ -548,14 +548,14 @@
           <button
             type="button"
             (click)="cancelCreate()"
-            class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+            class="btn-secondary btn-sm"
           >
             Annuler
           </button>
           <button
             type="submit"
             [disabled]="createForm.invalid || creating()"
-            class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+            class="btn-primary btn-sm"
           >
             {{ creating() ? 'Création…' : 'Créer la grille' }}
           </button>
@@ -580,7 +580,7 @@
               <button
                 type="button"
                 (click)="openCreate()"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+                class="btn-primary btn-sm"
               >
                 + Créer une grille
               </button>
@@ -683,14 +683,14 @@
       <button
         type="button"
         (click)="cancelItem()"
-        class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+        class="btn-secondary btn-sm"
       >
         Annuler
       </button>
       <button
         type="submit"
         [disabled]="itemFormGroup.invalid || valeurMaxExceedsPonderation() || savingItem()"
-        class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+        class="btn-primary btn-sm"
       >
         {{ savingItem() ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : 'Ajouter' }}
       </button>
@@ -747,7 +747,7 @@
               type="button"
               (click)="cancelApply()"
               [disabled]="applying()"
-              class="px-3 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-40"
+              class="btn-secondary text-xs"
             >
               Annuler
             </button>

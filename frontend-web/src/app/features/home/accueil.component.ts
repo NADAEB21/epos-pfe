@@ -50,7 +50,7 @@ export class AccueilComponent {
     const labels = this.data()?.matiereLabels ?? {};
     if (ids.length === 0) return 'Espace de travail';
     const named = ids.map((id) => labels[id]).filter(Boolean);
-    return named.length ? `Matiere : ${named.join(', ')}` : 'Espace de travail';
+    return named.length ? `Matière : ${named.join(', ')}` : 'Espace de travail';
   });
 
   constructor() {

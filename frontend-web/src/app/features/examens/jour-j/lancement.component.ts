@@ -114,7 +114,7 @@ export class LancementComponent {
     this.submitError.set(
       typeof err?.error?.message === 'string' && err.error.message
         ? err.error.message
-        : 'Echec du lancement. Verifiez votre connexion puis reessayez.',
+        : 'Echec du lancement. Vérifiez votre connexion puis réessayez.',
     );
   }
 }

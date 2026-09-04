@@ -1,21 +1,38 @@
 .nav-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.625rem 0.75rem;
+  padding: 0.6rem 0.75rem;
   border-radius: 0.5rem;
   font-size: 0.875rem;
-  color: rgb(255 255 255 / 0.85);
+  color: rgb(255 255 255 / 0.82);
   transition: background-color 150ms, color 150ms;
 
   &:hover {
-    background-color: rgb(255 255 255 / 0.06);
+    background-color: rgb(255 255 255 / 0.07);
     color: white;
   }
 
+  // #405 — état actif marqué : fond + barre verticale claire à gauche, icône pleine.
   &.active {
-    background-color: rgb(255 255 255 / 0.12);
+    background-color: rgb(255 255 255 / 0.14);
     color: white;
     font-weight: 600;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -0.75rem;
+      top: 0.45rem;
+      bottom: 0.45rem;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: #b5d9c3;
+    }
+
+    app-icon {
+      opacity: 1;
+    }
   }
 }

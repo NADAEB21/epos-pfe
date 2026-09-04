@@ -1,5 +1,5 @@
 <header class="mb-6">
-  <h1 class="text-2xl font-semibold text-gray-900">Bibliothèque de grilles</h1>
+  <h1 class="page-title">Bibliothèque de grilles</h1>
   <p class="text-sm text-gray-500 mt-1">
     Modèles de grilles réutilisables, partagés entre toutes les matières. Enregistrez une
     grille comme modèle depuis l'éditeur d'une station, puis appliquez-la ici à une autre
@@ -13,7 +13,7 @@
     <div class="h-24 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (loadError()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-3">Impossible de charger la bibliothèque.</p>
     <button type="button" (click)="load()" class="text-sm text-brand hover:underline">
       Réessayer
@@ -21,7 +21,7 @@
   </div>
 } @else if (templates().length === 0) {
   <!-- empty state -->
-  <div class="rounded-xl bg-white border border-gray-200 p-10 text-center shadow-card">
+  <div class="card p-10 text-center">
     <div class="text-gray-700 font-medium mb-1">Aucun modèle pour le moment</div>
     <p class="text-sm text-gray-500 mb-5 max-w-md mx-auto">
       Ouvrez la grille d'une station dans l'onglet « Stations &amp; Grilles » d'un examen,
@@ -29,7 +29,7 @@
     </p>
     <a
       [routerLink]="['/examens']"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
       Voir mes examens
     </a>
@@ -37,7 +37,7 @@
 } @else {
   <ul class="space-y-4">
     @for (t of templates(); track t.id) {
-      <li class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+      <li class="card p-5">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="text-sm font-semibold text-gray-900">{{ t.nom }}</div>
@@ -183,7 +183,7 @@
                       type="button"
                       (click)="cancelApply()"
                       [disabled]="applying()"
-                      class="px-3 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-40"
+                      class="btn-secondary text-xs"
                     >
                       Annuler
                     </button>

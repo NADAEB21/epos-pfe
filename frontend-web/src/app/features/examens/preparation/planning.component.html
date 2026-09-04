@@ -4,32 +4,32 @@
     <div class="h-28 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-4">Impossible de charger le planning.</p>
     <button
       type="button"
       (click)="store.reloadPrep()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else if (days().length === 0) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-800 font-medium mb-1">Pas encore de planning.</p>
     <p class="text-sm text-gray-500 mb-4">
       Le planning se construit tout seul dès que les étudiants sont répartis en lots.
     </p>
     <a
       routerLink="../lots"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
       Répartir en lots
     </a>
   </div>
 } @else {
   <!-- Intro -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+  <section class="card p-5 mb-6">
     <h2 class="font-semibold text-gray-900 mb-1">Planning des passages</h2>
     <p class="text-sm text-gray-500">
       Qui passe quel jour, à quelle heure d'arrivée.
@@ -45,7 +45,7 @@
   <!-- One card per day -->
   <div class="space-y-4">
     @for (day of days(); track day.date) {
-      <section class="rounded-xl bg-white border border-gray-200 shadow-card">
+      <section class="card">
         <header class="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-gray-100">
           <h3 class="font-medium text-gray-900">{{ day.label }}</h3>
           @if (multiDay() && day.isExamDate) {

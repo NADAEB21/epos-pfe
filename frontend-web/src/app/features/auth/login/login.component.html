@@ -1,76 +1,112 @@
-<div class="min-h-screen flex items-center justify-center px-4">
-  <div class="w-full max-w-md bg-surface-card rounded-2xl shadow-card p-8">
-    <div class="text-center mb-8">
-      <h1 class="text-2xl font-semibold text-brand">EPOS</h1>
-      <p class="text-sm text-gray-500 mt-1">Plateforme d'évaluation</p>
+<!-- #405 — connexion en deux volets : l'identité de la faculté à gauche, le
+     formulaire à droite. Mêmes identifiants (#email, #password, submit) : le
+     harnais Playwright et les specs s'y accrochent. -->
+<div class="min-h-screen flex">
+  <section class="hidden lg:flex lg:w-[46%] xl:w-1/2 bg-brand text-white flex-col justify-between p-12 relative overflow-hidden">
+    <div class="absolute -right-24 -top-24 w-96 h-96 rounded-full bg-white/5" aria-hidden="true"></div>
+    <div class="absolute -left-16 bottom-10 w-72 h-72 rounded-full bg-brand-900/40" aria-hidden="true"></div>
+
+    <div class="relative flex items-center gap-3">
+      <svg viewBox="0 0 40 40" class="w-11 h-11" aria-hidden="true">
+        <rect x="1" y="1" width="38" height="38" rx="10" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.35" />
+        <path d="M13 12h14M13 20h11M13 28h14" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+        <circle cx="29" cy="20" r="2.2" fill="#8cc2a2" />
+      </svg>
+      <div>
+        <div class="text-xl font-semibold tracking-wide">EPOS</div>
+        <div class="text-xs text-white/60">Faculté de Pharmacie de Monastir</div>
+      </div>
     </div>
 
-    <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
-      <div>
-        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
-          Email
-        </label>
-        <input
-          id="email"
-          type="email"
-          formControlName="email"
-          autocomplete="email"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
-        />
-        @if (form.controls.email.touched && form.controls.email.invalid) {
-          <p class="text-xs text-status-danger mt-1">Adresse email invalide</p>
-        }
-      </div>
-
-      <div>
-        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
-          Mot de passe
-        </label>
-        <input
-          id="password"
-          type="password"
-          formControlName="password"
-          autocomplete="current-password"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
-        />
-      </div>
-
-      @switch (errorKind()) {
-        @case ('credentials') {
-          <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
-            Email ou mot de passe incorrect.
-          </div>
-        }
-        @case ('locked') {
-          <div role="alert" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-status-danger">
-            {{ lockedMessage() ?? 'Connexion refusée. Contactez l’administration de la faculté.' }}
-          </div>
-        }
-        @case ('network') {
-          <div role="alert" class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-            Erreur de connexion. Vérifiez votre réseau et réessayez.
-          </div>
-        }
-      }
-
-      <button
-        type="submit"
-        [disabled]="form.invalid || submitting()"
-        class="w-full bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {{ submitting() ? 'Connexion…' : 'Se connecter' }}
-      </button>
-
-      <!-- W10 — l'issue de secours qui manquait : responsable/admin n'ont pas
-           l'app mobile, sans ce lien un mot de passe oublié était une impasse. -->
-      <p class="text-center">
-        <a
-          [routerLink]="['/forgot-password']"
-          class="text-sm text-gray-500 hover:text-brand transition-colors"
-        >
-          Mot de passe oublié ?
-        </a>
+    <div class="relative max-w-md">
+      <h2 class="text-3xl font-semibold leading-tight tracking-tight">
+        L'examen pratique, de la grille au procès-verbal.
+      </h2>
+      <p class="mt-4 text-white/75 text-sm leading-relaxed">
+        Concevoir les stations et leurs grilles, faire tourner les rotations le jour J, noter sur
+        tablette même sans réseau, puis délibérer sur des chiffres lisibles.
       </p>
-    </form>
-  </div>
+      <ul class="mt-8 space-y-4 text-sm">
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 inline-flex w-7 h-7 items-center justify-center rounded-lg bg-white/10"><app-icon name="clipboard" cls="w-4 h-4" /></span>
+          <span><span class="font-medium">Stations, grilles et rotations</span><span class="text-white/70"> — préparés une fois, rejoués chaque session.</span></span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 inline-flex w-7 h-7 items-center justify-center rounded-lg bg-white/10"><app-icon name="play" cls="w-4 h-4" /></span>
+          <span><span class="font-medium">Notation hors ligne</span><span class="text-white/70"> — l'évaluateur note sur son téléphone, la synchronisation suit.</span></span>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 inline-flex w-7 h-7 items-center justify-center rounded-lg bg-white/10"><app-icon name="sparkles" cls="w-4 h-4" /></span>
+          <span><span class="font-medium">Délibération assistée</span><span class="text-white/70"> — l'analyse suggère, le jury décide, l'effet est montré avant.</span></span>
+        </li>
+      </ul>
+    </div>
+
+    <p class="relative text-xs text-white/45">Plateforme d'évaluation des compétences pratiques · projet de fin d'études 2026</p>
+  </section>
+
+  <section class="flex-1 flex items-center justify-center px-4 py-10">
+    <div class="w-full max-w-md">
+      <div class="lg:hidden flex items-center justify-center gap-2 mb-8">
+        <svg viewBox="0 0 40 40" class="w-9 h-9" aria-hidden="true">
+          <rect x="1" y="1" width="38" height="38" rx="10" fill="#1f5e3a" />
+          <path d="M13 12h14M13 20h11M13 28h14" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+          <circle cx="29" cy="20" r="2.2" fill="#8cc2a2" />
+        </svg>
+        <span class="text-xl font-semibold text-brand tracking-wide">EPOS</span>
+      </div>
+
+      <div class="card p-8">
+        <div class="mb-6">
+          <h1 class="page-title">Connexion</h1>
+          <p class="page-subtitle">Espace des responsables de matière et de l'administration.</p>
+        </div>
+
+        <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
+          <div>
+            <label for="email" class="label">Adresse e-mail</label>
+            <input id="email" type="email" formControlName="email" autocomplete="email" class="input" placeholder="prenom.nom@fphm.tn" />
+            @if (form.controls.email.touched && form.controls.email.invalid) {
+              <p class="text-xs text-status-danger mt-1">Adresse e-mail invalide</p>
+            }
+          </div>
+
+          <div>
+            <label for="password" class="label">Mot de passe</label>
+            <input id="password" type="password" formControlName="password" autocomplete="current-password" class="input" />
+          </div>
+
+          @switch (errorKind()) {
+            @case ('credentials') {
+              <div role="alert" class="banner-danger">E-mail ou mot de passe incorrect.</div>
+            }
+            @case ('locked') {
+              <div role="alert" class="banner-danger">
+                {{ lockedMessage() ?? 'Connexion refusée. Contactez l’administration de la faculté.' }}
+              </div>
+            }
+            @case ('network') {
+              <div role="alert" class="banner-warning">Erreur de connexion. Vérifiez votre réseau et réessayez.</div>
+            }
+          }
+
+          <button type="submit" [disabled]="form.invalid || submitting()" class="btn-primary w-full py-2.5">
+            {{ submitting() ? 'Connexion…' : 'Se connecter' }}
+          </button>
+
+          <!-- W10 — l'issue de secours qui manquait : responsable/admin n'ont pas
+               l'app mobile, sans ce lien un mot de passe oublié était une impasse. -->
+          <p class="text-center">
+            <a [routerLink]="['/forgot-password']" class="text-sm text-gray-500 hover:text-brand transition-colors">
+              Mot de passe oublié ?
+            </a>
+          </p>
+        </form>
+      </div>
+
+      <p class="mt-6 text-center text-xs text-gray-400">
+        Les évaluateurs utilisent l'application mobile EPOS.
+      </p>
+    </div>
+  </section>
 </div>

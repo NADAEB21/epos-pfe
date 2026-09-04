@@ -121,8 +121,8 @@
               @if (canDeliberer() && !p.deja_appliquee && !p.decision) {
                 @if (decisionOuverte()?.propositionId !== p.proposition_id) {
                   <div class="mt-4 flex gap-2">
-                    <button type="button" (click)="ouvrirDecision(p, 'ACCEPTER')" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-brand hover:bg-brand-dark">Accepter…</button>
-                    <button type="button" (click)="ouvrirDecision(p, 'REFUSER')" class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Refuser…</button>
+                    <button type="button" (click)="ouvrirDecision(p, 'ACCEPTER')" class="btn-primary btn-sm">Accepter…</button>
+                    <button type="button" (click)="ouvrirDecision(p, 'REFUSER')" class="btn-secondary btn-sm">Refuser…</button>
                   </div>
                 } @else {
                   <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
@@ -180,7 +180,7 @@
       }
     </div>
     @if (compositionOuverte()) {
-      <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+      <div class="card p-5">
         <p class="text-xs text-gray-500 mb-3">
           Vous enregistrez la liste complète des modifications : elle remplace la version en vigueur. Une liste vide ramène au barème d'origine.
           Repondérer un critère ou une station est un choix de jury que l'analyse ne suggère jamais : vous le composez ici et vous en voyez l'effet avant de décider.
@@ -295,7 +295,7 @@
       @if (historique().length === 0) {
         <p class="text-sm text-gray-400">Aucune version — résultats au barème d'origine.</p>
       } @else {
-        <ul class="rounded-xl bg-white border border-gray-200 shadow-card divide-y divide-gray-100">
+        <ul class="card divide-y divide-gray-100">
           @for (v of historique(); track v.id) {
             <li class="px-4 py-3">
               <div class="flex items-center justify-between text-sm">

@@ -17,26 +17,10 @@ export interface HistogrammeBin {
   sousSeuil: boolean;
 }
 
-/** Jetons Tailwind du projet (tailwind.config.js) — palette figée ici, pas de
- *  thème ECharts par défaut (spec N4, règle transverse 1). */
-const PALETTE = {
-  light: {
-    nominal: '#1f5e3a', // brand
-    sousSeuil: '#f87171', // red-400
-    track: '#f3f4f6', // gray-100
-    text: '#374151', // gray-700
-    muted: '#9ca3af', // gray-400
-    axis: '#e5e7eb', // gray-200
-  },
-  dark: {
-    nominal: '#2d8050', // brand-light — le vert nominal reste lisible sur fond sombre
-    sousSeuil: '#f87171', // red-400 — inchangé, déjà assez saturé
-    track: '#374151', // gray-700
-    text: '#e5e7eb', // gray-200
-    muted: '#9ca3af', // gray-400
-    axis: '#4b5563', // gray-600
-  },
-} as const;
+import { GRAPH_PALETTE } from './palette';
+
+/** #405 — palette centralisée (`palette.ts`), plus de doublon d'hex ici. */
+const PALETTE = GRAPH_PALETTE;
 
 /**
  * `HistogrammeStation` (#356) — la distribution des notes verrouillées d'une

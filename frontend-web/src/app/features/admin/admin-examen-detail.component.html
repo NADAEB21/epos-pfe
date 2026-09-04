@@ -1,7 +1,7 @@
 <header class="mb-6">
   <a routerLink="/admin/examens" class="text-sm text-gray-500 hover:text-brand">&larr; Examens de la faculté</a>
   <div class="mt-1 flex flex-wrap items-center gap-3">
-    <h1 class="text-2xl font-semibold text-gray-900">{{ titre() }}</h1>
+    <h1 class="page-title">{{ titre() }}</h1>
     <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600" title="L'administration consulte ; les décisions pédagogiques restent au responsable de matière">
       Lecture seule
     </span>
@@ -32,7 +32,7 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
   <!-- Stations -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 lg:col-span-1">
+  <section class="card p-5 lg:col-span-1">
     <h2 class="font-semibold text-gray-900 mb-3">Stations</h2>
     @switch (stations().statut) {
       @case ('chargement') {
@@ -67,7 +67,7 @@
   </section>
 
   <!-- Résultats consolidés -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 lg:col-span-2">
+  <section class="card p-5 lg:col-span-2">
     <div class="flex items-baseline justify-between mb-3">
       <h2 class="font-semibold text-gray-900">Résultats consolidés</h2>
       <span class="text-xs text-gray-400">totaux tels que calculés par le service des notes — sans conversion sur 20</span>

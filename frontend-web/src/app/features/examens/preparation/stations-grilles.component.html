@@ -5,15 +5,15 @@
     <div class="h-28 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger les stations.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else {
@@ -25,7 +25,7 @@
           [formGroup]="createForm"
           (ngSubmit)="submitCreate()"
           novalidate
-          class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+          class="card p-5 space-y-4"
         >
           <div class="text-sm font-semibold text-gray-900">Nouvelle station</div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -72,14 +72,14 @@
             <button
               type="button"
               (click)="cancelCreate()"
-              class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              class="btn-secondary btn-sm"
             >
               Annuler
             </button>
             <button
               type="submit"
               [disabled]="createForm.invalid || creating()"
-              class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-primary btn-sm"
             >
               {{ creating() ? 'Ajout…' : 'Ajouter la station' }}
             </button>
@@ -89,7 +89,7 @@
         <button
           type="button"
           (click)="openCreate()"
-          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+          class="btn-primary"
         >
           + Ajouter une station
         </button>
@@ -98,11 +98,11 @@
   }
 
   @if (stations().length === 0) {
-    <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
-      <p class="text-gray-700 mb-1">Aucune station definie.</p>
+    <div class="card p-8 text-center">
+      <p class="text-gray-700 mb-1">Aucune station définie.</p>
       <p class="text-sm text-gray-500">
         @if (editable()) {
-          Ajoutez votre premiere station pour commencer la configuration.
+          Ajoutez votre première station pour commencer la configuration.
         } @else {
           Aucune station n'a ete configuree pour cet examen.
         }
@@ -111,7 +111,7 @@
   } @else {
     <ul class="space-y-4">
       @for (s of stations(); track s.id) {
-        <li class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+        <li class="card p-5">
           <!-- header / inline edit -->
           @if (editingId() === s.id) {
             <form
@@ -163,14 +163,14 @@
                 <button
                   type="button"
                   (click)="cancelEdit()"
-                  class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                  class="btn-secondary btn-sm"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
                   [disabled]="editForm.invalid || savingStationId() === s.id"
-                  class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="btn-primary btn-sm"
                 >
                   {{ savingStationId() === s.id ? 'Enregistrement…' : 'Enregistrer' }}
                 </button>
@@ -230,7 +230,7 @@
                     type="button"
                     (click)="cancelDelete()"
                     [disabled]="deletingId() === s.id"
-                    class="px-3 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-40"
+                    class="btn-secondary text-xs"
                   >
                     Annuler
                   </button>
@@ -252,7 +252,7 @@
 
           <!-- évaluateurs -->
           <div class="mb-4">
-            <div class="text-xs text-gray-400 mb-2">Evaluateurs</div>
+            <div class="text-xs text-gray-400 mb-2">Évaluateurs</div>
             <div class="flex flex-wrap items-center gap-2">
               @for (id of s.evaluateurIds ?? []; track id) {
                 <span
@@ -278,7 +278,7 @@
                   }
                 </span>
               } @empty {
-                <span class="text-xs text-gray-400">Aucun evaluateur affecte</span>
+                <span class="text-xs text-gray-400">Aucun évaluateur affecte</span>
               }
 
               <!-- picker (#163: évaluateurs pris par une autre station sont
@@ -325,7 +325,7 @@
                 <span>{{ expandedId() === s.id ? '▾' : '▸' }}</span>
                 Grille d'evaluation
                 @if (!s.hasGrille) {
-                  <span class="text-xs text-gray-400">(a creer)</span>
+                  <span class="text-xs text-gray-400">(a créer)</span>
                 }
               </button>
               @if (expandedId() === s.id) {

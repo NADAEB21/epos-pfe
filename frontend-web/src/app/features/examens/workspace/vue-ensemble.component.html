@@ -10,15 +10,15 @@
     <div class="h-40 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger la vue d'ensemble.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else {
@@ -31,7 +31,7 @@
           [formGroup]="editForm"
           (ngSubmit)="submitEdit()"
           novalidate
-          class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+          class="card p-5 space-y-4"
         >
           <div class="text-sm font-semibold text-gray-900">Modifier l'examen</div>
           <div>
@@ -113,14 +113,14 @@
             <button
               type="button"
               (click)="cancelEdit()"
-              class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              class="btn-secondary btn-sm"
             >
               Annuler
             </button>
             <button
               type="submit"
               [disabled]="editForm.invalid || saving()"
-              class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-primary btn-sm"
             >
               {{ saving() ? 'Enregistrement…' : 'Enregistrer' }}
             </button>
@@ -131,7 +131,7 @@
           <button
             type="button"
             (click)="openEdit(e)"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+            class="btn-secondary btn-sm"
           >
             Modifier l'examen
           </button>
@@ -142,14 +142,14 @@
 
   <!-- Revert CONFIGURE → BROUILLON (re-open metadata for editing) -->
   @if (canRevert()) {
-    <section class="mb-6 rounded-xl bg-white border border-gray-200 shadow-card p-5">
+    <section class="card mb-6 p-5">
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div class="min-w-0">
           <h3 class="font-semibold text-gray-900">Revenir au brouillon</h3>
           <p class="text-sm text-gray-500 mt-1 max-w-xl">
-            L'examen est configure : sa date, son heure et sa duree ne sont plus
+            L'examen est configuré : sa date, son heure et sa durée ne sont plus
             modifiables. Revenez au brouillon pour corriger ces informations, puis
-            reconfigurez-le. La configuration (stations, grilles) est conservee.
+            reconfigurez-le. La configuration (stations, grilles) est conservée.
           </p>
         </div>
         <div class="shrink-0">
@@ -157,7 +157,7 @@
             type="button"
             [disabled]="reverting()"
             (click)="revertToBrouillon(e)"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="btn-secondary btn-sm"
           >
             {{ reverting() ? 'En cours…' : 'Revenir au brouillon' }}
           </button>
@@ -169,10 +169,43 @@
     </section>
   }
 
+  <!-- #405 — examen clos : un résumé et les trois portes (résultats, analyse, délibération),
+       pas un « état de préparation » qui n'a plus de sens. -->
+  @if (isClos()) {
+    <section class="card p-5 mb-6">
+      <div class="flex items-center justify-between gap-4 flex-wrap mb-4">
+        <h2 class="font-semibold text-gray-900">Résumé de l'épreuve</h2>
+        @switch (resumeEtat()) {
+          @case ('chargement') { <span class="text-xs text-gray-400">Chargement…</span> }
+          @case ('absent') { <span class="text-xs text-amber-700">Résultats indisponibles pour le moment</span> }
+          @case ('pret') {
+            @if (resume(); as r) {
+              <span class="text-xs text-gray-500 tabular-nums">
+                {{ r.notes }} étudiant{{ r.notes > 1 ? 's' : '' }} noté{{ r.notes > 1 ? 's' : '' }} ·
+                {{ r.verrouillees }} dossier{{ r.verrouillees > 1 ? 's' : '' }} complet{{ r.verrouillees > 1 ? 's' : '' }}
+                @if (r.bareme !== null) { · <span class="badge-warning">barème de délibération v{{ r.bareme }}</span> }
+              </span>
+            }
+          }
+        }
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <a [routerLink]="['/examens', e.id, 'resultats']" class="btn-secondary justify-start">
+          <span class="font-medium">Résultats</span><span class="text-gray-400 text-xs">classement, mentions, export</span>
+        </a>
+        <a [routerLink]="['/examens', e.id, 'deliberation']" class="btn-secondary justify-start">
+          <span class="font-medium">Délibération</span><span class="text-gray-400 text-xs">suggestions, barème, versions</span>
+        </a>
+        <a [routerLink]="['/tendances']" class="btn-secondary justify-start">
+          <span class="font-medium">Tendances</span><span class="text-gray-400 text-xs">d'une session à l'autre</span>
+        </a>
+      </div>
+    </section>
+  } @else {
   <!-- Readiness summary -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+  <section class="card p-5 mb-6">
     <div class="flex items-center justify-between gap-4 flex-wrap mb-4">
-      <h2 class="font-semibold text-gray-900">Etat de preparation</h2>
+      <h2 class="font-semibold text-gray-900">État de préparation</h2>
       <span class="text-xs text-gray-500">{{ readinessSummary() }}</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -198,30 +231,31 @@
       }
     </div>
   </section>
+  }
 
   <!-- Key facts -->
-  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ e.dateExamen }}</div>
-      <div class="text-sm text-gray-500">date de l'examen</div>
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="kpi">
+      <div class="kpi-label">Date de l'examen</div>
+      <div class="kpi-value">{{ e.dateExamen }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ value(e.dureeStationMin, 'min') }}</div>
-      <div class="text-sm text-gray-500">duree / station</div>
+    <div class="kpi">
+      <div class="kpi-label">Durée par station</div>
+      <div class="kpi-value">{{ value(e.dureeStationMin, 'min') }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ value(e.nbEtudiantsParStation) }}</div>
-      <div class="text-sm text-gray-500">etudiants / station</div>
+    <div class="kpi">
+      <div class="kpi-label">Étudiants par station</div>
+      <div class="kpi-value">{{ value(e.nbEtudiantsParStation) }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ stations().length }}</div>
-      <div class="text-sm text-gray-500">stations</div>
+    <div class="kpi">
+      <div class="kpi-label">Stations</div>
+      <div class="kpi-value">{{ stations().length }}</div>
     </div>
   </section>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Description + sujet -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 lg:col-span-1">
+    <section class="card p-5 lg:col-span-1">
       <h3 class="font-semibold text-gray-900 mb-3">Informations</h3>
       <dl class="space-y-3 text-sm">
         <div>
@@ -239,7 +273,7 @@
                 class="inline-flex items-center gap-1.5 text-brand hover:underline disabled:opacity-50 disabled:no-underline"
               >
                 <span class="w-2 h-2 rounded-full bg-status-success"></span>
-                {{ pdfDownloading() ? 'Ouverture…' : (e.pdfSujetNom || 'Telecharger le sujet') }}
+                {{ pdfDownloading() ? 'Ouverture…' : (e.pdfSujetNom || 'Télécharger le sujet') }}
               </button>
             } @else {
               <span class="inline-flex items-center gap-1.5 text-gray-400">
@@ -261,7 +295,7 @@
                   type="button"
                   [disabled]="pdfUploading()"
                   (click)="pdfInput.click()"
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="btn-secondary btn-xs text-xs"
                 >
                   {{ pdfUploading() ? 'Import…' : (e.hasPdfSujet ? 'Remplacer le PDF' : 'Importer un PDF') }}
                 </button>
@@ -277,18 +311,18 @@
     </section>
 
     <!-- Stations + coverage -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 lg:col-span-2">
+    <section class="card p-5 lg:col-span-2">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-gray-900">Stations &amp; couverture</h3>
         <a
           [routerLink]="['/examens', e.id, 'stations-grilles']"
           class="text-xs text-brand hover:underline"
-          >Gerer</a
+          >Gérer</a
         >
       </div>
       @if (stations().length === 0) {
         <p class="text-sm text-gray-400">
-          Aucune station definie. Commencez par la configuration des stations.
+          Aucune station définie. Commencez par la configuration des stations.
         </p>
       } @else {
         <ul class="divide-y divide-gray-100">
@@ -341,11 +375,11 @@
           <p class="text-sm text-gray-500 mt-1 max-w-xl">
             @if (e.statut === 'BROUILLON') {
               Cet examen et toute sa configuration (stations, grilles) seront
-              definitivement supprimes. Action irreversible.
+              définitivement supprimés. Action irréversible.
             } @else {
-              L'examen est configure. Le supprimer retire sa configuration
-              (stations, grilles) ; les inscriptions et lots eventuels ne sont
-              plus rattaches a aucun examen. Action irreversible.
+              L'examen est configuré. Le supprimer retire sa configuration
+              (stations, grilles) ; les inscriptions et lots éventuels ne sont
+              plus rattachés à aucun examen. Action irréversible.
             }
           </p>
         </div>
@@ -372,7 +406,7 @@
                 type="button"
                 [disabled]="deleting()"
                 (click)="cancelDelete()"
-                class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                class="btn-secondary btn-sm"
               >
                 Annuler
               </button>

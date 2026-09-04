@@ -427,7 +427,7 @@ describe('ResultatsComponent — #355 délibération', () => {
     return { c, el: fixture.nativeElement as HTMLElement };
   }
 
-  it('#359-bis : indices prêts → bloc « Indices cohorte » contenu, valeur au poids de lecture', () => {
+  it('#359-bis/#407 : indices prêts → bloc « Indices cohorte » lu en PHRASES (app-lecture-indice), valeur dans la phrase', () => {
     ai.getIndices.and.returnValue(of(indicesPayload()));
     const { c, el } = createDom();
     expect(c.indicesEtat()).toBe('prets');
@@ -435,15 +435,13 @@ describe('ResultatsComponent — #355 délibération', () => {
     const entetes = Array.from(el.querySelectorAll('p')).filter(
       (p) => p.textContent?.trim() === 'Indices cohorte',
     );
-    expect(entetes.length).withContext('un en-tête par carte porteuse d\'indices').toBeGreaterThan(0);
+    expect(entetes.length).withContext("un en-tête par carte porteuse d'indices").toBeGreaterThan(0);
 
-    const bloc = entetes[0].closest('div.rounded-lg')!;
-    expect(bloc.className).withContext('le bloc est CONTENU (fond + bord)').toContain('bg-gray-50');
-    const valeur = Array.from(bloc.querySelectorAll('span.font-semibold')).find((s) =>
-      /0[.,]71/.test(s.textContent ?? ''),
-    );
-    expect(valeur).withContext('α rendu en font-semibold, pas en gris discret').toBeDefined();
-    expect(valeur!.className).toContain('text-gray-900');
+    const bloc = entetes[0].closest('[data-testid="indices-cohorte"]')!;
+    const atomes = bloc.querySelectorAll('app-lecture-indice');
+    expect(atomes.length).withContext("α et concentration, chacun par l'atome de lecture F4").toBe(2);
+    expect(bloc.textContent).withContext('la valeur α reste lisible dans la phrase').toMatch(/0[.,]71/);
+    expect(bloc.textContent).withContext('le libellé du code, pas un sigle nu').toContain('Cohérence');
   });
 
   it('#359-bis : un refus se rend en pastille ambre, texte backend VERBATIM dedans', () => {
@@ -456,12 +454,14 @@ describe('ResultatsComponent — #355 délibération', () => {
     ai.getIndices.and.returnValue(of(payload));
     const { el } = createDom();
 
-    const pastille = Array.from(el.querySelectorAll('span')).find(
-      (s) => s.textContent?.trim() === 'non concluant — effectif insuffisant (n=4 < 10)',
+    // #407 — l'atome F4 rend la raison VERBATIM dans un bloc ambre (jamais confondu avec une lecture)
+    const pastille = Array.from(el.querySelectorAll('app-lecture-indice p')).find(
+      (p) => p.textContent?.trim() === 'non concluant — effectif insuffisant (n=4 < 10)',
     );
     expect(pastille).withContext('la raison du backend rendue telle quelle').toBeDefined();
-    expect(pastille!.className).toContain('bg-amber-50');
-    expect(pastille!.className).toContain('text-amber-800');
+    const bloc = pastille!.closest('div[role="status"]')!;
+    expect(bloc.className).toContain('bg-amber-50');
+    expect(bloc.className).toContain('text-amber-800');
   });
 
   it('#359-bis : indices absents → AUCUN bloc sur les cartes, seule la note discrète', () => {

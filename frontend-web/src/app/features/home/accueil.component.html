@@ -142,6 +142,26 @@
     </div>
   </section>
 
+  <!-- #407 — la matière d'une session à l'autre : servi par l'analyse, chargé à part -->
+  <section class="card p-5 mb-6" data-testid="tendances-accueil">
+    <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+      <h3 class="font-semibold text-gray-900 flex items-center gap-2"><app-icon name="trend" cls="w-4 h-4 text-brand" /> Ma matière d'une session à l'autre</h3>
+      <a routerLink="/tendances" class="text-sm text-brand hover:underline">Toutes les tendances &rarr;</a>
+    </div>
+    @switch (tendancesEtat()) {
+      @case ('chargement') { <div class="h-24 rounded-lg bg-gray-100 animate-pulse" aria-hidden="true"></div> }
+      @case ('absents') { <p class="text-sm text-gray-400" role="status">Tendances indisponibles — l'analyse ne répond pas pour le moment.</p> }
+      @case ('prets') {
+        @if (lignesTendances().length === 0) {
+          <p class="text-sm text-gray-400">Aucune session close pour l'instant — les tendances apparaîtront après le premier examen terminé.</p>
+        } @else {
+          <p class="text-xs text-gray-500 mb-2">Taux de réussite des dernières sessions closes (réussite = total ≥ 50 % du barème).</p>
+          <app-barres-concentration [lignes]="lignesTendances()" [largeurLabel]="260" titreValeur="Taux de réussite" />
+        }
+      }
+    }
+  </section>
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Actions requises -->
     <section class="card p-5">

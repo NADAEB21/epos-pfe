@@ -43,3 +43,12 @@ Si une station notée n'a pas de barème figé (cas d'un examen ancien), le serv
 refuse de calculer des totaux délibérés partiels. L'écran affiche alors une pastille rouge
 « Barème vN enregistré — lecture délibérée non servie » et garde le classement d'origine.
 Ce n'est pas une panne : c'est le refus de servir un chiffre incomplet.
+
+## L'onglet Analyse
+
+Avant de délibérer, l'onglet **Analyse** d'un examen terminé lit les notes verrouillées en
+français : pour chaque station, la cohérence de la grille, la concentration d'échec, puis
+critère par critère la difficulté et la discrimination ; ensuite, l'écart de chaque évaluateur
+à ses collègues sur la même station (jamais un classement, et un refus nommé quand une station
+n'a qu'un seul évaluateur). Les lectures « à regarder de près » y sont comptées ; celles qui
+appellent une décision deviennent des suggestions dans l'onglet Délibération.

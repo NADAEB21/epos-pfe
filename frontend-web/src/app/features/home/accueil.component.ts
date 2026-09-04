@@ -1,8 +1,12 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthStore } from '../../core/auth/auth.store';
-import { ExamenResponse, StatutExamen } from '../../core/api/models';
+import { AiApiService } from '../../core/api/ai-api.service';
+import { ExamenResponse, StatutExamen, TendancesMatiere } from '../../core/api/models';
 import { statutDisplayLabel } from '../../core/api/exam-status';
+import { BarreConcentrationLigne, BarresConcentrationComponent } from '../../shared/graphes/barres-concentration.component';
+import { fmtDate, fmtNum, sur20 } from '../../shared/ia/lecture-bi';
+import { IconComponent } from '../../shared/ui/icon.component';
 import { AccueilData, HomeService } from './home.service';
 
 interface Cta {
@@ -23,12 +27,37 @@ const STATUT_LABELS: Record<StatutExamen, string> = {
 @Component({
   selector: 'app-accueil',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, BarresConcentrationComponent, IconComponent],
   templateUrl: './accueil.component.html',
 })
 export class AccueilComponent {
   private readonly home = inject(HomeService);
   private readonly authStore = inject(AuthStore);
+  private readonly ai = inject(AiApiService);
+
+  /**
+   * #407 — « Ma matière d'une session à l'autre » : les dernières sessions closes
+   * (taux de réussite sous le barème effectif), servies par l'analyse. Chargé À
+   * PART de l'accueil (jamais dans son forkJoin critique) : le module IA absent
+   * ne blanchit pas la page, la carte le dit.
+   */
+  readonly tendances = signal<TendancesMatiere | null>(null);
+  readonly tendancesEtat = signal<'chargement' | 'absents' | 'prets'>('chargement');
+
+  readonly lignesTendances = computed<BarreConcentrationLigne[]>(() => {
+    const t = this.tendances();
+    if (!t) return [];
+    return t.examens.slice(-6).map((e) => {
+      const l = e.lecture ?? e.origine;
+      return {
+        id: e.examen_id,
+        label: `${fmtDate(e.date_examen)} · ${e.nom ?? `Examen ${e.examen_id}`}`,
+        valeurPct: l.taux_reussite === null ? null : l.taux_reussite * 100,
+        n: l.n_etudiants,
+        detail: l.taux_reussite === null ? e.lectures[0]?.raison : `médiane ${fmtNum(sur20(l.mediane, l.denominateur))} /20${e.lecture_officielle === 'DELIBERE' ? ` · barème v${e.bareme_version}` : ''}`,
+      };
+    });
+  });
 
   readonly lifecycle = LIFECYCLE;
 
@@ -55,6 +84,24 @@ export class AccueilComponent {
 
   constructor() {
     this.load();
+    effect(
+      () => {
+        const id = this.authStore.responsableMatiereIds()[0];
+        if (id !== undefined) untracked(() => this.loadTendances(id));
+      },
+      { allowSignalWrites: true },
+    );
+  }
+
+  private loadTendances(matiereId: number): void {
+    this.tendancesEtat.set('chargement');
+    this.ai.getTendances(matiereId).subscribe({
+      next: (t) => {
+        this.tendances.set(t);
+        this.tendancesEtat.set('prets');
+      },
+      error: () => this.tendancesEtat.set('absents'),
+    });
   }
 
   load(): void {

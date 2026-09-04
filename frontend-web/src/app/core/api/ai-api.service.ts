@@ -6,6 +6,7 @@ import { ApiResponse } from '../auth/auth.models';
 import {
   DecisionPropositionAi,
   DecisionRequestAi,
+  EvaluateursExamen,
   IndicesExamen,
   OperationBareme,
   ProjectionAi,
@@ -37,6 +38,13 @@ export class AiApiService {
   getIndices(examenId: number): Observable<IndicesExamen> {
     return this.http
       .get<ApiResponse<IndicesExamen>>(`${this.baseUrl}/examens/${examenId}/indices`)
+      .pipe(map((r) => r.data));
+  }
+
+  /** #407 — sévérité des évaluateurs, INTRA-station uniquement (ADR-0021 D2) ; refus nommé sur station à évaluateur unique. */
+  getEvaluateurs(examenId: number): Observable<EvaluateursExamen> {
+    return this.http
+      .get<ApiResponse<EvaluateursExamen>>(`${this.baseUrl}/examens/${examenId}/evaluateurs`)
       .pipe(map((r) => r.data));
   }
 

@@ -293,14 +293,19 @@ export class DeliberationComponent {
     return sur20(v, d);
   }
 
-  /** L'effet AVANT → APRÈS, ligne par ligne (D10 : lisible avant le clic). */
-  lignesEffet(e: EffetProjeteAi | null): { label: string; avant: string; apres: string; change: boolean }[] {
+  /**
+   * L'effet AVANT → APRÈS, ligne par ligne (D10 : lisible avant le clic).
+   * #407 — pour une suggestion DÉJÀ appliquée, « avant » est le barème
+   * d'origine (sinon la carte lirait « 55 → 55 » et semblerait sans effet).
+   */
+  lignesEffet(e: EffetProjeteAi | null, depuisOrigine = false): { label: string; avant: string; apres: string; change: boolean }[] {
     if (!e) return [];
+    const a = depuisOrigine ? e.origine : e.avant;
     return [
-      { label: 'Note maximale', avant: fmtNum(e.avant.denominateur, 0), apres: fmtNum(e.apres.denominateur, 0), change: e.avant.denominateur !== e.apres.denominateur },
-      { label: 'Médiane', avant: sur20(e.avant.mediane, e.avant.denominateur), apres: sur20(e.apres.mediane, e.apres.denominateur), change: e.avant.mediane !== e.apres.mediane || e.avant.denominateur !== e.apres.denominateur },
-      { label: 'Moyenne', avant: sur20(e.avant.moyenne, e.avant.denominateur), apres: sur20(e.apres.moyenne, e.apres.denominateur), change: e.avant.moyenne !== e.apres.moyenne || e.avant.denominateur !== e.apres.denominateur },
-      { label: 'Taux de réussite (≥ moitié)', avant: fmtPct(e.avant.taux_reussite), apres: fmtPct(e.apres.taux_reussite), change: e.avant.taux_reussite !== e.apres.taux_reussite },
+      { label: 'Note maximale', avant: fmtNum(a.denominateur, 0), apres: fmtNum(e.apres.denominateur, 0), change: a.denominateur !== e.apres.denominateur },
+      { label: 'Médiane', avant: sur20(a.mediane, a.denominateur), apres: sur20(e.apres.mediane, e.apres.denominateur), change: a.mediane !== e.apres.mediane || a.denominateur !== e.apres.denominateur },
+      { label: 'Moyenne', avant: sur20(a.moyenne, a.denominateur), apres: sur20(e.apres.moyenne, e.apres.denominateur), change: a.moyenne !== e.apres.moyenne || a.denominateur !== e.apres.denominateur },
+      { label: 'Taux de réussite (≥ moitié)', avant: fmtPct(a.taux_reussite), apres: fmtPct(e.apres.taux_reussite), change: a.taux_reussite !== e.apres.taux_reussite },
     ];
   }
 

@@ -61,6 +61,12 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
+  // #407 — l'onglet « Analyse » : indices lus en français + évaluateurs.
+  {
+    path: 'analyse',
+    loadComponent: () =>
+      import('./features/examens/analyse/analyse.component').then((m) => m.AnalyseComponent),
+  },
   // #363 (N9) — le volet IA existe (N8 #362) : l'onglet « Délibération »
   // rend des propositions vivantes, jamais un bouchon (W2/ADR-0028 respecté).
   {

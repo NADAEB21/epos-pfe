@@ -10,6 +10,8 @@
 //          seule, sous-total calculé) + N lignes sous-critères saisissables.
 //          Voir _GradingRow / _buildRows ci-dessous.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -42,37 +44,41 @@ class _Layout {
     required this.isTablet,
   });
 
+  /// #409 — la grille REMPLIT la largeur utile : la colonne étudiant vaut
+  /// (largeur utile − colonne critère) / n, jamais sous le minimum (alors la
+  /// grille déborde et défile horizontalement). Avant : constantes sur
+  /// téléphone (125 + 95 × n) et plafond de 160 sur tablette/paysage — une
+  /// bande nue à droite dès que le contenu était plus étroit que l'écran.
+  /// La largeur utile exclut les encarts latéraux (encoche en paysage).
   factory _Layout.of(BuildContext context, int nbEtudiants) {
-    final width    = MediaQuery.of(context).size.width;
+    final mq       = MediaQuery.of(context);
+    final width    = mq.size.width;
+    final usable   = width - mq.padding.left - mq.padding.right;
     final isTablet = width >= 600;
+    final n        = nbEtudiants < 1 ? 1 : nbEtudiants;
 
-    if (isTablet) {
-      const double critereWidth = 160.0;
-      const double minStudentW  =  90.0;
-      const double divider      =   1.0;
-      final available           = width - critereWidth - divider;
-      final studentW = (available / nbEtudiants).clamp(minStudentW, 160.0);
-      return _Layout(
-        critereColWidth: critereWidth,
-        studentColWidth: studentW,
-        headerHeight:    120.0,
-        cellMinHeight:    80.0,
-        isTablet:        true,
-      );
-    } else {
-      return const _Layout(
-        critereColWidth: 125.0,
-        studentColWidth:  95.0,
-        headerHeight:    110.0,
-        cellMinHeight:    75.0,
-        isTablet:        false,
-      );
-    }
+    final critereWidth = isTablet ? 160.0 : 125.0;
+    final minStudentW  = isTablet ? 90.0 : 95.0;
+    final available    = usable - critereWidth;
+    final studentW     = math.max(minStudentW, available / n);
+
+    return _Layout(
+      critereColWidth: critereWidth,
+      studentColWidth: studentW,
+      headerHeight:    isTablet ? 120.0 : 110.0,
+      cellMinHeight:   isTablet ? 80.0 : 75.0,
+      isTablet:        isTablet,
+    );
   }
 
+  /// Largeur totale du contenu de la grille (colonne critère + n étudiants).
+  double contentWidth(int nbEtudiants) =>
+      critereColWidth + studentColWidth * nbEtudiants;
+
   bool needsHScroll(BuildContext context, int nbEtudiants) {
-    final totalContent = critereColWidth + 1 + studentColWidth * nbEtudiants;
-    return totalContent > MediaQuery.of(context).size.width;
+    final mq = MediaQuery.of(context);
+    return contentWidth(nbEtudiants) >
+        mq.size.width - mq.padding.left - mq.padding.right;
   }
 }
 
@@ -266,32 +272,38 @@ class _GradingViewState extends State<_GradingView> {
        listener: (context, state) {
          HapticFeedback.heavyImpact();
        },
-       child: Column(
-         children: [
-           _GradingAppBar(state: widget.state),
-           PassageWarningBanner(
-             tempsRestant: widget.state.tempsRestant,
-             avertissementLeadSec: widget.state.avertissementLeadSec,
-             enPause: widget.state.enPause,
-           ),
-           _StickyStudentHeader(
-             state:   widget.state,
-             hScroll: _headerHScroll,
-             layout:  layout,
-           ),
-           Expanded(
-             child: _GradingBody(
+       // #409 — encarts LATÉRAUX respectés (encoche en paysage) ; le haut et le
+       // bas sont déjà gérés par l'en-tête et le pied (padding.top / bottom).
+       child: SafeArea(
+         top: false,
+         bottom: false,
+         child: Column(
+           children: [
+             _GradingAppBar(state: widget.state),
+             PassageWarningBanner(
+               tempsRestant: widget.state.tempsRestant,
+               avertissementLeadSec: widget.state.avertissementLeadSec,
+               enPause: widget.state.enPause,
+             ),
+             _StickyStudentHeader(
                state:   widget.state,
-               hScroll: _bodyHScroll,
+               hScroll: _headerHScroll,
                layout:  layout,
              ),
-           ),
-           _GradingFooter(
-             state:   widget.state,
-             hScroll: _footerHScroll,
-             layout:  layout,
-           ),
-         ],
+             Expanded(
+               child: _GradingBody(
+                 state:   widget.state,
+                 hScroll: _bodyHScroll,
+                 layout:  layout,
+               ),
+             ),
+             _GradingFooter(
+               state:   widget.state,
+               hScroll: _footerHScroll,
+               layout:  layout,
+             ),
+           ],
+         ),
        ),
      );
    }
@@ -317,17 +329,32 @@ class _GradingBody extends StatelessWidget {
     final rows      = _buildRows(state.grille.items);
     final etudiants = state.lot.etudiants;
 
-    return SingleChildScrollView(
+    // #409 — la grille remplit aussi la HAUTEUR : sous la dernière ligne, le
+    // fond reste celui des lignes (plus de bande nue), et la largeur du contenu
+    // est explicite (colonne critère + n étudiants) — plus d'IntrinsicWidth,
+    // qui épinglait le contenu à sa largeur intrinsèque ET coûtait une passe
+    // de mesure O(n²) à chaque layout.
+    final contentWidth = layout.contentWidth(etudiants.length);
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
       scrollDirection: Axis.vertical,
-      child: Stack(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Container(
+          color: gc.rowEven,
+          child: Stack(
         children: [
           // ── 1. Grille scrollable horizontalement ──────────────────────────
           SingleChildScrollView(
             controller:      hScroll,
             scrollDirection: Axis.horizontal,
             physics:         const ClampingScrollPhysics(),
-            child: IntrinsicWidth(
+            child: SizedBox(
+              key: const Key('grading-grid'),
+              width: contentWidth,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: rows.asMap().entries.map((entry) {
                   final row = entry.value;
                   return IntrinsicHeight(
@@ -382,8 +409,10 @@ class _GradingBody extends StatelessWidget {
           ),
 
           // ── 2. Overlay Critère fixe (ne scroll pas horizontalement) ───────
-          Positioned(
-            left: 0, top: 0, bottom: 0,
+          // #409 — PositionedDirectional : en arabe (RTL) la colonne se colle
+          // au bord de DÉPART, pas au bord visuel gauche (qui couvrait les élèves).
+          PositionedDirectional(
+            start: 0, top: 0, bottom: 0,
             child: Container(
               width: layout.critereColWidth,
               decoration: BoxDecoration(
@@ -410,6 +439,9 @@ class _GradingBody extends StatelessWidget {
             ),
           ),
         ],
+          ),
+        ),
+      ),
       ),
     );
   }
@@ -1176,21 +1208,29 @@ class _GradingAppBar extends StatelessWidget {
               const OfflinePendingBadge(),
             ],
           ),
+          // #409 — les badges de gauche se REPLIENT (Wrap) sur un téléphone
+          // étroit au lieu de déborder ; les indicateurs d'état restent à droite.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                _badge(state.lot.label, bold: true),
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _badge(state.lot.label, bold: true),
+                      _badge('${state.lot.etudiants.length} étudiants'),
+                      // (#244) — la grille sert au chemin d'ÉCRITURE : l'évaluateur
+                      // doit savoir qu'il travaille sur une copie locale, pas sur du repli
+                      // silencieux (même doctrine qu'ADR-0015 pour "Intitulé indisponible").
+                      if (state.grille.depuisCache) _badge('Grille hors-ligne'),
+                    ],
+                  ),
+                ),
                 const SizedBox(width: 8),
-                _badge('${state.lot.etudiants.length} étudiants'),
-                // (#244) — la grille sert au chemin d'ÉCRITURE : l'évaluateur
-                // doit savoir qu'il travaille sur une copie locale, pas sur du repli
-                // silencieux (même doctrine qu'ADR-0015 pour "Intitulé indisponible").
-                if (state.grille.depuisCache) ...[
-                  const SizedBox(width: 8),
-                  _badge('Grille hors-ligne'),
-                ],
-                const Spacer(),
                 // BF6.1 — Indicateur de connexion WebSocket temps réel
                 _WsStatusBadge(),
                 const SizedBox(width: 8),

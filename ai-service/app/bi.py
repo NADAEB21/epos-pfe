@@ -67,6 +67,10 @@ RAISON_AUCUN_EXAMEN_CLOS = (
 
 NB_BINS = 5          # même découpage que l'écran A (resultats.component.ts, DELIBERATION_BINS)
 SEUIL_N_SYNTHESE = engine.SEUIL_N_DIFFICULTE   # 10 — le plancher le plus bas du moteur
+# Une SESSION sous ce plancher n'entre pas dans une comparaison : sa barre est un
+# refus nommé (même contrat que la synthèse), ses chiffres restent dans ``origine`` /
+# ``delibere`` (trace) mais la lecture EFFECTIVE ne porte aucun nombre nu.
+SEUIL_N_SESSION = SEUIL_N_SYNTHESE
 SUR_20 = 20.0
 
 
@@ -203,6 +207,14 @@ def _carte(examen_id: int, nom: str | None, date_examen, statut: str) -> tuple[d
         lectures.append({"code": SANS_NOTATION, "raison": RAISON_SANS_NOTATION})
     elif not t.couverture_complete:
         lectures.append({"code": COUVERTURE_INCOMPLETE, "raison": RAISON_COUVERTURE_INCOMPLETE})
+    elif lecture["n_etudiants"] < SEUIL_N_SESSION:
+        # Trop peu d'étudiants pour comparer cette session aux autres : refus
+        # nommé, la lecture effective est vidée de ses nombres (la trace reste).
+        lectures.append({
+            "code": EFFECTIF_INSUFFISANT,
+            "raison": engine._refus_effectif(lecture["n_etudiants"], SEUIL_N_SESSION),
+        })
+        lecture = {**lecture, "mediane": None, "moyenne": None, "taux_reussite": None}
 
     carte = {
         "examen_id": examen_id,

@@ -38,6 +38,11 @@ responsable de la matière, dans son écran de délibération.
 
 ## Pourquoi l'écran refuse parfois de conclure
 
+Une **session** de moins de 10 étudiants notés n'a pas de barre : elle s'affiche avec la
+mention « non concluant — effectif insuffisant (n=… < 10) ». Ses résultats existent (onglet
+Résultats de l'examen), mais un taux de réussite sur trois copies ne se compare pas à une
+session de trente-six. La session détaillée par défaut est la plus récente **lisible**.
+
 Comme les indices, la synthèse applique le contrat de refus : sous **10 étudiants notés**
 pour une matière, la barre reste grise et porte la raison, par exemple
 « non concluant — effectif insuffisant (n=3 < 10) ». Ce n'est pas une panne : c'est le

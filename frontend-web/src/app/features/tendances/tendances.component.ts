@@ -204,7 +204,11 @@ export class TendancesComponent {
       next: (d) => {
         this.data.set(d);
         this.etat.set('prets');
-        const derniere = d.examens[d.examens.length - 1];
+        // La session détaillée par défaut : la plus récente qui a une lecture
+        // (une session refusée — effectif insuffisant, couverture incomplète —
+        // ne raconte rien) ; à défaut, la dernière quand même.
+        const lisibles = d.examens.filter((e) => (e.lecture ?? e.origine).taux_reussite !== null);
+        const derniere = (lisibles.length ? lisibles : d.examens)[Math.max(0, (lisibles.length || d.examens.length) - 1)];
         if (derniere) this.selectExamen(derniere.examen_id);
       },
       error: (err: { status?: number; error?: { message?: string } }) => {

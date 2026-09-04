@@ -48,6 +48,7 @@
       <h3 class="font-semibold text-gray-900 flex items-center gap-2"><app-icon name="chart" cls="w-4 h-4 text-brand" /> Réussite par matière</h3>
       <a routerLink="/admin/synthese" class="text-sm text-brand hover:underline">Synthèse complète &rarr;</a>
     </div>
+    <p class="text-sm text-gray-700 mb-3"><span class="font-medium">Où la réussite est-elle la plus faible ?</span> Toutes les sessions closes d'une matière mises ensemble ; sous 10 étudiants, la matière n'est pas lue.</p>
     @switch (syntheseEtat()) {
       @case ('chargement') { <div class="h-24 rounded-lg bg-gray-100 animate-pulse" aria-hidden="true"></div> }
       @case ('absents') { <p class="text-sm text-gray-400" role="status">Synthèse indisponible — l'analyse ne répond pas pour le moment.</p> }

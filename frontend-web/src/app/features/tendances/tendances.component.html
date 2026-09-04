@@ -91,6 +91,11 @@
             </h2>
             <span class="text-xs text-gray-400">Cliquer une session pour la détailler</span>
           </div>
+          <p class="text-sm text-gray-700 mb-3">
+            <span class="font-medium">La réussite change-t-elle d'une session à l'autre ?</span>
+            Une barre par session close : la part des étudiants qui ont atteint la moitié du barème en vigueur.
+            Une session de moins de 10 étudiants n'a pas de barre — trop peu pour comparer.
+          </p>
           <app-barres-concentration
             [lignes]="lignesSessions()"
             [largeurLabel]="260"
@@ -144,6 +149,7 @@
             }
 
             <h3 class="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Distribution des totaux</h3>
+            <p class="text-sm text-gray-700 mb-2"><span class="font-medium">Où se situent les totaux de cette session ?</span> Les classes en rouge sont sous la moitié du barème.</p>
             <app-histogramme-station
               [bins]="e.bins"
               [n]="e.origine.n_etudiants"
@@ -151,6 +157,7 @@
             />
 
             <h3 class="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Échec par station</h3>
+            <p class="text-sm text-gray-700 mb-2"><span class="font-medium">Quelle station a fait échouer le plus d'étudiants ?</span> Une station qui domine ici session après session mérite un regard sur sa grille (onglet Analyse).</p>
             <app-barres-concentration [lignes]="lignesStations()" titreValeur="Taux d'échec" />
 
             <p class="text-xs text-gray-400 mt-3 tabular-nums">

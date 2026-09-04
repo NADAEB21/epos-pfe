@@ -135,5 +135,9 @@ def test_tendances_porte_la_lecture_officielle(client_bi):
     d = client_bi.get("/ai/matieres/1/tendances", headers=RESP_M1).json()["data"]
     for e in d["examens"]:
         assert e["lecture_officielle"] == "ORIGINE"     # aucun barème dans conftest
-        assert e["lecture"] == e["origine"]
+        # 3 étudiants < 10 : la lecture effective est un refus nommé (pas de barre),
+        # la trace ``origine`` garde ses nombres.
+        assert e["lecture"]["taux_reussite"] is None and e["lecture"]["n_etudiants"] == 3
+        assert e["origine"]["taux_reussite"] is not None
+        assert [x["code"] for x in e["lectures"]] == ["EFFECTIF_INSUFFISANT"]
         assert e["stations_exclues"] == []

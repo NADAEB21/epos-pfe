@@ -174,6 +174,21 @@ describe('TendancesComponent — BI matière (#365)', () => {
     fixture.detectChanges(); // le rechargement est porté par un effect : un tick
     expect(ai.getTendances).toHaveBeenCalledWith(2);
   });
+  it('une session refusée (effectif insuffisant) n’a pas de barre, porte la raison, et n’est pas détaillée par défaut', () => {
+    const petite = session({
+      examen_id: 85, nom: 'Recette', date_examen: '2026-08-25', n_notations_verrouillees: 1,
+      origine: { n_etudiants: 1, denominateur: 20, mediane: 20, moyenne: 20, taux_reussite: 1 },
+      lecture: { n_etudiants: 1, denominateur: 20, mediane: null, moyenne: null, taux_reussite: null },
+      lectures: [{ code: 'EFFECTIF_INSUFFISANT', raison: 'non concluant — effectif insuffisant (n=1 < 10)' }],
+    });
+    const { c, el } = build({ data: tendances([...DEUX, petite]) });
+    const l85 = c.lignesSessions().find((l) => l.id === 85)!;
+    expect(l85.valeurPct).toBeNull();
+    expect(l85.detail).toContain('effectif insuffisant (n=1 < 10)');
+    expect(c.selected()?.examen_id).toBe(92);                 // la plus récente LISIBLE, pas la plus récente
+    expect(el.textContent).toContain('La réussite change-t-elle d\'une session à l\'autre ?');
+  });
+
   it('#401 : la barre d’une session délibérée porte la lecture EFFECTIVE (taux délibéré), l’origine reste dans la carte', () => {
     const { c, el } = build({ data: tendances(DEUX) });
     const l92 = c.lignesSessions().find((l) => l.id === 92)!;

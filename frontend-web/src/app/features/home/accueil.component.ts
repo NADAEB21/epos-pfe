@@ -44,10 +44,17 @@ export class AccueilComponent {
   readonly tendances = signal<TendancesMatiere | null>(null);
   readonly tendancesEtat = signal<'chargement' | 'absents' | 'prets'>('chargement');
 
+  /** Les sessions closes qui ne portent pas de lecture (effectif insuffisant, couverture
+   *  incomplète, sans notation) : COMPTÉES sous la carte, jamais tracées — l'accueil est
+   *  un coup d'œil, l'écran Tendances les liste toutes avec leur raison. */
+  readonly tendancesNonLues = computed<number>(() =>
+    (this.tendances()?.examens ?? []).filter((e) => (e.lecture ?? e.origine).taux_reussite === null).length,
+  );
+
   readonly lignesTendances = computed<BarreConcentrationLigne[]>(() => {
     const t = this.tendances();
     if (!t) return [];
-    return t.examens.slice(-6).map((e) => {
+    return t.examens.filter((e) => (e.lecture ?? e.origine).taux_reussite !== null).slice(-6).map((e) => {
       const l = e.lecture ?? e.origine;
       return {
         id: e.examen_id,

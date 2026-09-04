@@ -152,7 +152,7 @@ describe('TendancesComponent — BI matière (#365)', () => {
 
   it('module IA injoignable → bandeau ambre nominatif', () => {
     const { el } = build({ error: { status: 503 } });
-    expect(el.textContent).toContain('Tendances indisponibles — module IA injoignable.');
+    expect(el.textContent).toContain("Tendances indisponibles — l'analyse ne répond pas.");
   });
 
   it('refus nominatif du serveur (403) → affiché verbatim', () => {

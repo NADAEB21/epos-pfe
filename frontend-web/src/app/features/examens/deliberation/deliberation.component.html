@@ -1,8 +1,8 @@
 <header class="mb-5">
   <h1 class="text-lg font-semibold text-gray-900">Délibération</h1>
   <p class="text-sm text-gray-500">
-    Le module propose, le jury décide (ADR-0021 D10). L'effet est affiché <span class="font-medium">avant</span> tout clic ;
-    le barème d'origine n'est jamais réécrit — chaque acte crée une version, avec son motif.
+    L'analyse suggère, vous décidez. Chaque suggestion montre d'abord ce qu'elle <span class="font-medium">changerait</span> ;
+    les notes saisies par les évaluateurs ne sont jamais modifiées — chaque décision crée une nouvelle version du barème, avec son motif.
   </p>
   <!-- #399 — le barème courant est lu dans SCORING (historique), jamais conditionné au module IA. -->
   @if (baremeCourant(); as b) {
@@ -11,10 +11,10 @@
       @if (b.operations.length === 0) {
         <span class="text-gray-500 ml-2">retour au barème d'origine</span>
       } @else {
-        <span class="text-gray-500 ml-2">{{ b.operations.length }} opération(s) appliquée(s)</span>
+        <span class="text-gray-500 ml-2">{{ b.operations.length }} modification(s) en vigueur</span>
       }
       @if (baremeSource() === 'ia') {
-        <span class="text-xs text-amber-700 ml-2" title="L'historique scoring ne répond pas ; cette version est celle que le module IA a relue">(lu par le module IA — scoring injoignable)</span>
+        <span class="text-xs text-amber-700 ml-2" title="Le service des notes ne répond pas ; cette version est celle que l'analyse a lue">(version connue de l'analyse — le service des notes ne répond pas)</span>
       }
     </p>
   } @else if (baremeSource() !== null) {
@@ -35,9 +35,9 @@
   <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-4" role="alert">{{ a }}</div>
 }
 
-<!-- ── Propositions du module IA ─────────────────────────────────────────── -->
+<!-- ── Suggestions de l'analyse ──────────────────────────────────────────── -->
 <section class="mb-8">
-  <h2 class="text-sm font-medium text-gray-500 mb-3">Propositions du module IA</h2>
+  <h2 class="text-sm font-medium text-gray-500 mb-3">Suggestions de l'analyse</h2>
 
   @switch (aiEtat()) {
     @case ('chargement') {
@@ -45,7 +45,7 @@
     }
     @case ('absents') {
       <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-500" role="status">
-        Propositions non disponibles — le module IA ne répond pas. L'historique et la composition manuelle restent utilisables.
+        Propositions non disponibles — l'analyse ne répond pas pour le moment. Les versions du barème et la modification manuelle restent utilisables.
       </p>
     }
     @case ('refus') {
@@ -55,12 +55,12 @@
       @if (propositions(); as pr) {
         @if (!pr.couverture_snapshot_complete) {
           <p class="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800" role="status">
-            Le barème figé ne couvre pas toutes les stations notées : aucun effet ne peut être projeté, et scoring refuserait un barème sur les stations manquantes.
+            Une station notée n'a pas de barème enregistré au moment de l'épreuve : aucun effet ne peut être calculé, et aucune modification n'est possible sur cette station.
           </p>
         }
         @if (pr.propositions.length === 0) {
           <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-500" role="status">
-            Aucune opération proposée sur cet examen — les indices ne franchissent aucun seuil de déclenchement.
+            Aucune suggestion pour cet examen — rien d'anormal n'a été détecté dans les notes.
           </p>
         }
         <div class="space-y-4">
@@ -75,7 +75,7 @@
                       <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-800 border border-green-200">déjà appliquée</span>
                     }
                   </div>
-                  <p class="text-sm text-gray-600 mt-1">Cible : <span class="font-medium text-gray-800">{{ cibleLabel(p) }}</span></p>
+                  <p class="text-sm text-gray-600 mt-1">Concerne : <span class="font-medium text-gray-800">{{ cibleLabel(p) }}</span></p>
                 </div>
                 @if (p.decision; as d) {
                   <div class="text-right text-xs">
@@ -91,15 +91,15 @@
               <p class="text-sm text-gray-700 mt-3" [class.italic]="lecture(p).degrade">{{ lecture(p).phrase }}</p>
               <ul class="mt-2 text-xs text-gray-500 space-y-0.5">
                 @for (d of p.declencheur; track d.code) {
-                  <li>Déclencheur : {{ declencheur(d) }}@if (d.n != null) { · n={{ d.n }} }</li>
+                  <li>Pourquoi : {{ declencheur(d) }}@if (d.n != null) { · n={{ d.n }} }</li>
                 }
               </ul>
-              <p class="mt-2 text-sm text-gray-800">Opération : {{ operation(p.operation) }}</p>
+              <p class="mt-2 text-sm text-gray-800">Modification proposée : {{ operation(p.operation) }}</p>
 
-              <!-- L'effet PROJETÉ — avant le clic, jamais après (D10) -->
+              <!-- L'effet, montré AVANT la décision -->
               @if (p.effet_projete; as e) {
                 <div class="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3">
-                  <div class="text-xs font-medium text-gray-500 mb-2">Effet projeté sur les {{ e.apres.n_etudiants }} étudiants — barème courant → barème proposé</div>
+                  <div class="text-xs font-medium text-gray-500 mb-2">Ce que cela changerait pour les {{ e.apres.n_etudiants }} étudiants (barème actuel → barème proposé)</div>
                   <table class="w-full text-sm">
                     <tbody>
                       @for (l of lignesEffet(e); track l.label) {
@@ -114,7 +114,7 @@
                   </table>
                 </div>
               } @else {
-                <p class="mt-3 text-xs text-amber-800 italic">Effet non projetable (couverture du barème figé incomplète).</p>
+                <p class="mt-3 text-xs text-amber-800 italic">Effet non calculable : une station notée n'a pas de barème enregistré au moment de l'épreuve.</p>
               }
 
               <!-- L'acte -->
@@ -127,7 +127,7 @@
                 } @else {
                   <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
                     <div class="text-sm font-medium text-gray-900 mb-2">
-                      {{ decisionOuverte()?.decision === 'ACCEPTER' ? 'Accepter la proposition — le barème v' + ((baremeCourant()?.version ?? 0) + 1) + ' sera créé' : 'Refuser la proposition — le barème reste inchangé' }}
+                      {{ decisionOuverte()?.decision === 'ACCEPTER' ? 'Accepter — une nouvelle version du barème (v' + ((baremeCourant()?.version ?? 0) + 1) + ') sera créée' : 'Refuser la proposition — le barème reste inchangé' }}
                     </div>
                     <label class="block text-xs text-gray-600">
                       Motif <span class="text-status-danger">*</span>
@@ -139,11 +139,11 @@
                     <div class="mt-2 flex items-center gap-2">
                       <button type="button" (click)="confirmerDecision(p)" [disabled]="busy()"
                         class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50">
-                        {{ busy() ? 'Enregistrement…' : (decisionOuverte()?.decision === 'ACCEPTER' ? 'Enregistrer le barème' : 'Journaliser le refus') }}
+                        {{ busy() ? 'Enregistrement…' : (decisionOuverte()?.decision === 'ACCEPTER' ? 'Enregistrer le barème' : 'Enregistrer le refus') }}
                       </button>
                       <button type="button" (click)="annulerDecision()" class="text-sm text-gray-500 hover:text-gray-700">Annuler</button>
                     </div>
-                    <p class="mt-2 text-xs text-gray-500">Le barème d'origine n'est jamais réécrit ; la version, son auteur et son motif sont tracés. Le refus est journalisé aussi.</p>
+                    <p class="mt-2 text-xs text-gray-500">Les notes saisies ne changent pas. La version, son auteur et son motif sont conservés ; un refus est conservé aussi.</p>
                   </div>
                 }
               }
@@ -153,7 +153,7 @@
 
         <!-- Le silence est dit -->
         @if (pr.lectures_sans_proposition.length > 0) {
-          <h3 class="text-xs font-medium text-gray-500 mt-5 mb-2">Lectures sans proposition</h3>
+          <h3 class="text-xs font-medium text-gray-500 mt-5 mb-2">Remarques sans suggestion</h3>
           <ul class="space-y-2">
             @for (l of pr.lectures_sans_proposition; track $index) {
               <li class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
@@ -174,16 +174,16 @@
 @if (canDeliberer()) {
   <section class="mb-8">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-medium text-gray-500">Composer un barème (manuel)</h2>
+      <h2 class="text-sm font-medium text-gray-500">Modifier le barème moi-même</h2>
       @if (!compositionOuverte()) {
-        <button type="button" (click)="ouvrirComposition()" class="text-sm text-brand hover:underline">Composer…</button>
+        <button type="button" (click)="ouvrirComposition()" class="text-sm text-brand hover:underline">Modifier…</button>
       }
     </div>
     @if (compositionOuverte()) {
       <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
         <p class="text-xs text-gray-500 mb-3">
-          La version enregistrée est COMPLÈTE (elle remplace la courante) ; une liste vide = retour au barème d'origine.
-          La repondération n'est jamais proposée par le module (un jugement, pas une observation) : ici, vous la composez et vous en voyez l'effet avant d'agir.
+          Vous enregistrez la liste complète des modifications : elle remplace la version en vigueur. Une liste vide ramène au barème d'origine.
+          Repondérer un critère ou une station est un choix de jury que l'analyse ne suggère jamais : vous le composez ici et vous en voyez l'effet avant de décider.
         </p>
         <ul class="divide-y divide-gray-100 mb-3">
           @for (op of composition(); track $index) {
@@ -192,12 +192,12 @@
               <button type="button" (click)="retirerOperation($index)" class="text-xs text-status-danger hover:underline">retirer</button>
             </li>
           } @empty {
-            <li class="py-1.5 text-sm text-gray-400">Aucune opération — retour au barème d'origine.</li>
+            <li class="py-1.5 text-sm text-gray-400">Aucune modification — retour au barème d'origine.</li>
           }
         </ul>
         <div class="flex flex-wrap items-end gap-2 text-sm">
           <label class="block">
-            <span class="text-xs text-gray-600">Opération</span>
+            <span class="text-xs text-gray-600">Modification</span>
             <select (change)="onCompoType($any($event.target).value)" class="mt-1 block rounded border border-gray-300 px-2 py-1 bg-white">
               <option value="EXCLURE_CRITERE">Retirer un critère</option>
               <option value="EXCLURE_STATION">Exclure une station</option>
@@ -222,7 +222,7 @@
           }
           @if (compoType() === 'REPONDERER') {
             <label class="block">
-              <span class="text-xs text-gray-600">Nouvelle échelle</span>
+              <span class="text-xs text-gray-600">Nouveau maximum (points)</span>
               <input type="number" min="0.5" step="0.5" (input)="onCompoEchelle($any($event.target).value)" class="mt-1 block w-24 rounded border border-gray-300 px-2 py-1" />
             </label>
           }
@@ -236,7 +236,7 @@
             class="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium border border-brand text-brand hover:bg-brand-50 disabled:opacity-50">
             {{ projectionBusy() ? 'Calcul…' : "Prévisualiser l'effet" }}
           </button>
-          <span class="text-xs text-gray-400">même arithmétique que scoring — ce que Résultats affichera après</span>
+          <span class="text-xs text-gray-400">exactement ce que l'onglet Résultats affichera ensuite</span>
         </div>
         @if (projection(); as proj) {
           <div class="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3">
@@ -254,7 +254,7 @@
                 </tbody>
               </table>
             } @else {
-              <p class="text-xs text-amber-800 italic">Effet non projetable (couverture du barème figé incomplète).</p>
+              <p class="text-xs text-amber-800 italic">Effet non calculable : une station notée n'a pas de barème enregistré au moment de l'épreuve.</p>
             }
           </div>
           <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
@@ -283,13 +283,13 @@
 
 <!-- ── Historique des versions ───────────────────────────────────────────── -->
 <section>
-  <h2 class="text-sm font-medium text-gray-500 mb-3">Historique du barème de délibération</h2>
+  <h2 class="text-sm font-medium text-gray-500 mb-3">Versions du barème</h2>
   @switch (histEtat()) {
     @case ('chargement') {
       <div class="h-16 rounded-xl bg-gray-200 animate-pulse"></div>
     }
     @case ('indisponible') {
-      <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-status-danger" role="status">Historique indisponible (scoring ne répond pas).</p>
+      <p class="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-status-danger" role="status">Versions indisponibles : le service des notes ne répond pas.</p>
     }
     @default {
       @if (historique().length === 0) {
@@ -299,8 +299,8 @@
           @for (v of historique(); track v.id) {
             <li class="px-4 py-3">
               <div class="flex items-center justify-between text-sm">
-                <span class="font-medium text-gray-900">v{{ v.version }}@if ($first) { <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">courante</span> }</span>
-                <span class="text-xs text-gray-400">{{ v.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (v.creePar) { · auteur {{ v.creePar }} }</span>
+                <span class="font-medium text-gray-900">v{{ v.version }}@if ($first) { <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">en vigueur</span> }</span>
+                <span class="text-xs text-gray-400">{{ v.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (v.creePar) { · auteur n° {{ v.creePar }} }</span>
               </div>
               <p class="text-sm text-gray-600 italic mt-1">« {{ v.motif }} »</p>
               <ul class="mt-1 text-xs text-gray-700 list-disc pl-5">

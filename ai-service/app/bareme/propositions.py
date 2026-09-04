@@ -199,7 +199,7 @@ def candidats(indices: Mapping) -> tuple[list[dict], list[dict]]:
                 "raison": (
                     "le total de référence de cette grille est lui-même incohérent — "
                     "la discrimination de ses critères n'est pas interprétable, "
-                    "aucun retrait d'item n'est proposé"
+                    "aucun retrait de critère n'est proposé"
                 ),
             })
 
@@ -281,8 +281,8 @@ def construire(
                                            if n.station_id is not None}),
             },
             "raison": (
-                "le snapshot de grille ne couvre pas toutes les stations notées — "
-                "scoring ne servirait aucun total délibéré, aucun effet n'est projeté"
+                "une station notée n'a pas de barème enregistré au moment de l'épreuve — "
+                "aucun total délibéré ne peut être calculé, aucun effet ne peut être montré"
             ),
         })
 
@@ -346,9 +346,9 @@ def construire(
         "code": REPONDERATION_JAMAIS_AUTOMATIQUE,
         "details": {"rang_defendabilite": RANG_REPONDERER},
         "raison": (
-            "la repondération est un jugement, pas une observation (ADR-0021 D8) — "
-            "le module ne la propose jamais de lui-même ; POST /projection en "
-            "prévisualise l'effet avant l'acte"
+            "repondérer un critère ou une station est un choix de jury, pas un constat — "
+            "l'analyse ne le propose jamais d'elle-même ; vous pouvez le composer vous-même "
+            "et en voir l'effet avant de décider"
         ),
     })
 

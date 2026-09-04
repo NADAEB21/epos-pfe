@@ -471,7 +471,7 @@ describe('ResultatsComponent — #355 délibération', () => {
 
     expect(el.textContent).not.toContain('Indices cohorte');
     const note = Array.from(el.querySelectorAll('span[role="status"]')).find(
-      (s) => s.textContent?.trim() === 'Indices psychométriques non disponibles',
+      (s) => s.textContent?.trim() === 'Analyse statistique non disponible',
     );
     expect(note).withContext('le silence est interdit — la note discrète le dit').toBeDefined();
     expect(note!.className).withContext('l\'état ABSENT, lui, reste discret').toContain('text-gray-400');
@@ -494,7 +494,7 @@ describe('ResultatsComponent — #355 délibération', () => {
     expect(c.baremeVersion()).toBe(1);
     expect(c.delibereServi()).toBeFalse();
     const t = el.textContent ?? '';
-    expect(t).toContain('Barème v1 enregistré — lecture délibérée non servie');
+    expect(t).toContain('Barème v1 enregistré mais non appliqué');
     expect(t).not.toContain('Barème de délibération v1 appliqué');
     expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).not.toContain('Délibéré /20');
   });

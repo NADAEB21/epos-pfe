@@ -278,7 +278,7 @@ export class DeliberationComponent {
   }
 
   rangLabel(rang: number): string {
-    return rang === 1 ? 'Rang 1 — observation' : rang === 2 ? 'Rang 2 — station' : `Rang ${rang}`;
+    return rang === 1 ? 'Priorité 1 — un constat' : rang === 2 ? 'Priorité 2 — une station' : `Priorité ${rang}`;
   }
 
   fmt(x: number | null | undefined, d = 2): string {
@@ -297,7 +297,7 @@ export class DeliberationComponent {
   lignesEffet(e: EffetProjeteAi | null): { label: string; avant: string; apres: string; change: boolean }[] {
     if (!e) return [];
     return [
-      { label: 'Dénominateur', avant: fmtNum(e.avant.denominateur, 0), apres: fmtNum(e.apres.denominateur, 0), change: e.avant.denominateur !== e.apres.denominateur },
+      { label: 'Note maximale', avant: fmtNum(e.avant.denominateur, 0), apres: fmtNum(e.apres.denominateur, 0), change: e.avant.denominateur !== e.apres.denominateur },
       { label: 'Médiane', avant: sur20(e.avant.mediane, e.avant.denominateur), apres: sur20(e.apres.mediane, e.apres.denominateur), change: e.avant.mediane !== e.apres.mediane || e.avant.denominateur !== e.apres.denominateur },
       { label: 'Moyenne', avant: sur20(e.avant.moyenne, e.avant.denominateur), apres: sur20(e.apres.moyenne, e.apres.denominateur), change: e.avant.moyenne !== e.apres.moyenne || e.avant.denominateur !== e.apres.denominateur },
       { label: 'Taux de réussite (≥ moitié)', avant: fmtPct(e.avant.taux_reussite), apres: fmtPct(e.apres.taux_reussite), change: e.avant.taux_reussite !== e.apres.taux_reussite },
@@ -337,7 +337,7 @@ export class DeliberationComponent {
     if (!ouverte || ouverte.propositionId !== p.proposition_id || this.busy()) return;
     const motif = this.motif().trim();
     if (!motif) {
-      this.erreur.set('Le motif est obligatoire — la délibération se raconte (ADR-0030 D1).');
+      this.erreur.set('Le motif est obligatoire : il sera conservé avec la version.');
       return;
     }
     this.busy.set(true);
@@ -351,12 +351,12 @@ export class DeliberationComponent {
           next: () => {
             this.busy.set(false);
             this.decisionOuverte.set(null);
-            this.succes.set('Refus journalisé — le barème reste inchangé.');
+            this.succes.set('Refus enregistré — le barème reste inchangé.');
             this.reload();
           },
           error: (err: { status?: number; error?: { message?: string } }) => {
             this.busy.set(false);
-            this.erreur.set(this.messageErreur(err, 'Le refus n’a pas pu être journalisé.'));
+            this.erreur.set(this.messageErreur(err, 'Le refus n’a pas pu être enregistré.'));
           },
         });
       return;
@@ -375,15 +375,15 @@ export class DeliberationComponent {
             next: () => {
               this.busy.set(false);
               this.decisionOuverte.set(null);
-              this.succes.set(`Barème de délibération v${version.version} enregistré et décision journalisée.`);
+              this.succes.set(`Barème v${version.version} enregistré — votre décision est conservée. L'onglet Résultats est recalculé.`);
               this.reload();
             },
             error: (err: { status?: number; error?: { message?: string } }) => {
               this.busy.set(false);
               this.decisionOuverte.set(null);
               this.avertissement.set(
-                `Le barème v${version.version} est bien enregistré dans scoring, mais la décision n'a pas pu être journalisée côté module IA : `
-                  + this.messageErreur(err, 'module indisponible') + ' — rechargez : la proposition apparaîtra comme déjà appliquée.',
+                `Le barème v${version.version} est bien enregistré, mais votre décision n'a pas pu être conservée côté analyse : `
+                  + this.messageErreur(err, 'analyse indisponible') + ' — rechargez la page : la suggestion apparaîtra comme déjà appliquée.',
               );
               this.reload();
             },
@@ -408,8 +408,8 @@ export class DeliberationComponent {
     // opérations en silence (les versions sont complètes) : on refuse, dit.
     if (this.baremeSource() === null) {
       this.avertissement.set(
-        'Historique du barème indisponible (scoring et module IA ne répondent pas) — composer sans connaître '
-          + 'le barème courant remplacerait ses opérations. Rechargez avant de délibérer.',
+        'Impossible de connaître la version en vigueur (les services ne répondent pas) : modifier maintenant '
+          + 'remplacerait les modifications déjà en vigueur sans les voir. Rechargez la page avant de délibérer.',
       );
       return;
     }
@@ -489,7 +489,7 @@ export class DeliberationComponent {
       },
       error: (err: { status?: number; error?: { message?: string } }) => {
         this.projectionBusy.set(false);
-        this.compoErreur.set(this.messageErreur(err, 'Prévisualisation indisponible (module IA).'));
+        this.compoErreur.set(this.messageErreur(err, "Aperçu indisponible : l'analyse ne répond pas."));
       },
     });
   }
@@ -499,11 +499,11 @@ export class DeliberationComponent {
     if (this.compoBusy()) return;
     const motif = this.compoMotif().trim();
     if (!motif) {
-      this.compoActErreur.set('Le motif est obligatoire — la délibération se raconte (ADR-0030 D1).');
+      this.compoActErreur.set('Le motif est obligatoire : il sera conservé avec la version.');
       return;
     }
     if (!this.projection()) {
-      this.compoActErreur.set("Prévisualisez l'effet avant d'enregistrer — il ne se découvre jamais après coup (D10).");
+      this.compoActErreur.set("Prévisualisez l'effet avant d'enregistrer : vous devez voir ce que cette version changera.");
       return;
     }
     this.compoBusy.set(true);

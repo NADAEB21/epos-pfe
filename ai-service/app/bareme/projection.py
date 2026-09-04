@@ -444,7 +444,7 @@ def valider(
     if not operations:
         return None  # version « retour au barème du lancement » (D3)
     if not grilles and not items_snapshotes:
-        return Refus("AUCUN_SNAPSHOT", "examen sans barème snapshoté (antérieur à V19)")
+        return Refus("AUCUN_SNAPSHOT", "aucun barème n'a été enregistré au moment de l'épreuve (examen ancien) — aucune modification possible")
 
     station_par_grille = {g.grille_id: g.station_id for g in grilles.values()}
     vmax_par_item: dict[int, float] = {}
@@ -458,15 +458,15 @@ def valider(
     def cible_item(op: Operation) -> Refus | int:
         if op.cible_item_id not in items_snapshotes or op.cible_item_id not in criteres:
             return Refus("CIBLE_ITEM_ABSENTE",
-                         f"critère {op.cible_item_id} absent du snapshot de l'examen")
+                         f"le critère {op.cible_item_id} n'existe pas dans le barème enregistré de cet examen")
         if max_de_item(criteres[op.cible_item_id], vmax_par_item) is None:
             return Refus("CIBLE_ITEM_SANS_VALEUR_MAX",
-                         f"critère {op.cible_item_id} sans valeur maximale au snapshot")
+                         f"le critère {op.cible_item_id} n'a pas de note maximale dans le barème enregistré")
         station = station_par_grille.get(criteres[op.cible_item_id].grille_id)
         if station is None:
             return Refus("GRILLE_NON_SNAPSHOTEE",
                          f"grille {criteres[op.cible_item_id].grille_id} du critère "
-                         f"{op.cible_item_id} jamais snapshotée (station jamais notée)")
+                         f"{op.cible_item_id} n'a pas de barème enregistré (station jamais notée)")
         if op.cible_item_id in items_cibles:
             return Refus("DOUBLE_CIBLE", f"critère {op.cible_item_id} ciblé deux fois")
         items_cibles.add(op.cible_item_id)
@@ -500,12 +500,12 @@ def valider(
         else:  # REPONDERER
             if op.nouvelle_echelle is None or op.nouvelle_echelle <= 0:
                 return Refus("REPONDERER_SANS_ECHELLE",
-                             "REPONDERER exige nouvelleEchelle strictement positive")
+                             "repondérer exige un nouveau maximum strictement positif")
             sur_item = op.cible_item_id is not None
             sur_station = op.cible_station_id is not None
             if sur_item == sur_station:
                 return Refus("CIBLE_MAL_FORMEE",
-                             "REPONDERER cible SOIT un critère SOIT une station, exactement un")
+                             "repondérer vise soit un critère, soit une station — pas les deux")
             if sur_item:
                 r = cible_item(op)
                 if isinstance(r, Refus):
@@ -517,16 +517,16 @@ def valider(
                     return r
         if op.type != REPONDERER and op.nouvelle_echelle is not None:
             return Refus("ECHELLE_HORS_REPONDERER",
-                         "nouvelleEchelle n'a de sens que pour REPONDERER")
+                         "un nouveau maximum ne se donne que pour une repondération")
 
     for station_id in stations_cibles:
         if station_id in stations_des_items:
             return Refus("NIVEAUX_MELANGES",
-                         f"station {station_id} ciblée en même temps que ses critères")
+                         f"la station {station_id} est visée en même temps que l'un de ses critères — choisir l'un ou l'autre")
 
     if courant is not None and memes_operations(courant.operations, operations):
         return Refus("IDENTIQUE_VERSION_COURANTE",
-                     f"opérations identiques à la version courante v{courant.version}")
+                     f"ces modifications sont identiques à la version en vigueur (v{courant.version})")
     return None
 
 

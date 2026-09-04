@@ -58,8 +58,8 @@ EFFECTIF_INSUFFISANT = "EFFECTIF_INSUFFISANT"
 
 RAISON_SANS_NOTATION = "aucune notation verrouillée — rien à lire pour cette session"
 RAISON_COUVERTURE_INCOMPLETE = (
-    "snapshot de grille incomplet — totaux et taux de réussite non calculables "
-    "(scoring ne servirait aucun total délibéré non plus)"
+    "une station notée n'a pas de barème enregistré au moment de l'épreuve — "
+    "totaux et taux de réussite non calculables"
 )
 RAISON_AUCUN_EXAMEN_CLOS = (
     "aucune session close pour cette matière — les tendances n'existent qu'à l'usage"

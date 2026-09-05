@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- #415 : indispensable en RELEASE. Les manifestes debug/ et profile/ la
+         déclarent « pour le développement » ; sans elle ici, chaque connect()
+         du build release échoue (EACCES → « Connection failed » au login). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="epos_mobile"
         android:name="${applicationName}"

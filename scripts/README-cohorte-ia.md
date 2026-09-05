@@ -17,6 +17,24 @@ python scripts/generate-cohorte-ia.py
 python scripts/generate-cohorte-ia.py --base-url http://host:8080/api/v1 --n-control 3
 ```
 
+### Une session nommée, saine — l'historique BI (#413)
+
+Les écrans Tendances / accueil / synthèse comparent des sessions **dans le temps** ;
+une seule session réelle ne raconte rien. Le mode « session nommée » fabrique une
+session **sans défaut planté**, avec le nom, la date, l'effectif (un lot par 18) et
+les noms de station de votre choix, et un décalage d'habileté moyenne de la
+promotion (`--session-theta-mu`) qui règle son taux de réussite :
+
+```bash
+python scripts/generate-cohorte-ia.py --skip-reference --n-control 1   --session-nom "Examen pratique de chimie thérapeutique — session principale 2024"   --session-date 2024-06-15 --session-n 36 --session-prefixe 2024   --session-stations "Station Défauts,Station Sévérité,Station Témoin"   --session-theta-mu 0.45 --seed 20240615
+```
+
+Générées le 04/09/2026 sur la pile de développement : **2024** (examen 97, θ̄ = +0,45 →
+réussite 66,7 %, médiane 12,3/20) et **2025** (examen 98, θ̄ = +0,2 → 58,3 %, 10,5/20),
+mêmes stations que l'examen vitrine 80 (juin 2026, 47,2 %, défauts de grille) : la
+tendance 2024 → 2025 → 2026 → délibération est lisible. Données synthétiques, à dire
+comme telles dans le rapport.
+
 Rejouable d'une seule commande sur une pile fraîche. Chaque run crée de **nouveaux**
 examens et étudiants, noms et matricules suffixés par la graine RNG **et** un
 identifiant de run (`run_id`, aléatoire, découplé de `--seed`) — deux runs au

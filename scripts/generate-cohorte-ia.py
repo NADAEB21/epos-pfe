@@ -32,6 +32,13 @@ présents (admin@epos.tn / resp@epos.tn).
 Usage :
     python scripts/generate-cohorte-ia.py
     python scripts/generate-cohorte-ia.py --base-url http://host:8080/api/v1 --n-control 3
+
+    # Une session NOMMÉE, saine, pour l'historique BI (point 2 du programme S54) :
+    python scripts/generate-cohorte-ia.py --skip-reference --n-control 1 \
+        --session-nom "Examen pratique de chimie thérapeutique — session principale 2024" \
+        --session-date 2024-06-15 --session-n 36 --session-prefixe 2024 \
+        --session-stations "Station Défauts,Station Sévérité,Station Témoin" \
+        --session-theta-mu 0.4 --seed 20240615
 """
 
 from __future__ import annotations
@@ -264,7 +271,8 @@ def creer_station_avec_grille(base, resp_token, examen_id, nom_station, evaluate
     return StationInfo(id=station["id"], grille_id=grille["id"], items_par_libelle=items_par_libelle)
 
 
-def creer_etudiants_et_inscrire(base, resp_token, examen_id, n, prefixe, rng, theta_sigma=1.0):
+def creer_etudiants_et_inscrire(base, resp_token, examen_id, n, prefixe, rng, theta_sigma=1.0,
+                                theta_mu=0.0):
     etudiants: list[Etudiant] = []
     for i in range(n):
         nom = rng.choice(NOMS)
@@ -275,7 +283,7 @@ def creer_etudiants_et_inscrire(base, resp_token, examen_id, n, prefixe, rng, th
             {"nom": nom, "prenom": prenom, "numero_inscription": matricule},
             ok=(201,), what=f"créer étudiant {matricule}",
         )
-        theta = rng.gauss(0, theta_sigma)
+        theta = rng.gauss(theta_mu, theta_sigma)
         must(
             base, "POST", "/participations", resp_token,
             {"examen_id": examen_id, "etudiantId": etu["id"]},
@@ -557,14 +565,21 @@ def construire_examen_reference(base, resp_token, run_tag, run_id, rng,
 def construire_examen_controle(base, resp_token, run_tag, run_id, indice, rng,
                                eval_a_id, eval_a_token,
                                eval_b_id, eval_b_token,
-                               eval_c_id, eval_c_token):
-    nom = f"IA-F1 — Cohorte contrôle {indice} — {run_tag}-{run_id}"
+                               eval_c_id, eval_c_token,
+                               nom=None, date_examen="2026-06-21", n_etudiants=18,
+                               noms_stations=None, theta_mu=0.0, prefixe=None):
+    """Un examen SAIN (aucun défaut planté). Par défaut : « Cohorte contrôle »,
+    18 étudiants, un lot. Avec ``nom``/``date_examen``/``n_etudiants``/
+    ``noms_stations``/``theta_mu`` : une session nommée pour l'historique BI
+    (un lot par tranche de 3 × 6 étudiants ; ``theta_mu`` décale l'habileté
+    moyenne de la promotion, donc son taux de réussite)."""
+    nom = nom or f"IA-F1 — Cohorte contrôle {indice} — {run_tag}-{run_id}"
     print(f"\n== Examen de contrôle {indice} ({nom}) ==")
 
     examen = must(
         base, "POST", "/examens", resp_token,
         {
-            "nom": nom, "matiereId": 1, "dateExamen": "2026-06-21",
+            "nom": nom, "matiereId": 1, "dateExamen": date_examen,
             "heureDebut": "09:00", "dureeStationMin": 12, "nbEtudiantsParStation": 6,
         },
         ok=(201,), what="créer examen de contrôle",
@@ -580,10 +595,12 @@ def construire_examen_controle(base, resp_token, run_tag, run_id, indice, rng,
             ("C", eval_c_id, eval_c_token)
         ]
 
+        noms = list(noms_stations) if noms_stations else [f"Station {l}" for l, _, _ in config_stations]
+        assert len(noms) == 3, f"3 noms de station attendus, obtenu {noms}"
         stations_creees = []
-        for lettre, eid, etoken in config_stations:
+        for (lettre, eid, etoken), nom_station in zip(config_stations, noms):
             s = creer_station_avec_grille(
-                base, resp_token, examen_id, f"Station {lettre}", [eid], 20.0,
+                base, resp_token, examen_id, nom_station, [eid], 20.0,
                 [
                     ("Étape 1 conforme", "BINAIRE", 5.0, None),
                     ("Étape 2 conforme", "BINAIRE", 5.0, None),
@@ -594,13 +611,14 @@ def construire_examen_controle(base, resp_token, run_tag, run_id, indice, rng,
             stations_creees.append((s, eid, etoken))
 
         etudiants = creer_etudiants_et_inscrire(
-            base, resp_token, examen_id, 18, f"CTRL{indice}-{run_tag}-{run_id}", rng, theta_sigma=1.0
+            base, resp_token, examen_id, n_etudiants,
+            prefixe or f"CTRL{indice}-{run_tag}-{run_id}", rng, theta_sigma=1.0, theta_mu=theta_mu,
         )
         etudiants_par_id = {e.id: e for e in etudiants}
 
         lots = repartir_lancer_repartir(base, resp_token, examen_id)
-        assert len(lots) == 1, f"attendu 1 lot, obtenu {len(lots)} — {lots}"
-        demarrer_lot(base, resp_token, lots[0]["lotId"], est_premier_lot=True)
+        attendus = max(1, math.ceil(n_etudiants / 18))
+        assert len(lots) == attendus, f"attendu {attendus} lot(s), obtenu {len(lots)} — {lots}"
 
         def note_normale(etu, item, libelle, r):
             if item["type"] == "BINAIRE":
@@ -608,10 +626,14 @@ def construire_examen_controle(base, resp_token, run_tag, run_id, indice, rng,
             return valeur_numerique_correlee(etu.theta, r, item["valeurMax"])
 
         rapport = Rapport()
-        # On note chaque station avec son évaluateur respectif
-        for s_info, eid, etoken in stations_creees:
-            grader_station_lot_courant(base, etoken, eid, s_info,
-                                        etudiants_par_id, note_normale, rapport, rng)
+        # Lot après lot (ADR-0014-B : le suivant s'ouvre quand le précédent est
+        # fini), chaque station notée par son évaluateur.
+        for idx, lot in enumerate(lots):
+            print(f"  -- lot {lot['numeroLot']} (taille {lot['taille']}) --")
+            demarrer_lot(base, resp_token, lot["lotId"], est_premier_lot=(idx == 0))
+            for s_info, eid, etoken in stations_creees:
+                grader_station_lot_courant(base, etoken, eid, s_info,
+                                            etudiants_par_id, note_normale, rapport, rng)
     finally:
         # Filet de sécurité : même si le script plante en cours de route, l'examen
         # ne doit jamais rester EN_COURS et bloquer les runs suivants (#265).
@@ -691,7 +713,18 @@ def main():
     parser.add_argument("--base-url", default="http://localhost:8080/api/v1")
     parser.add_argument("--n-control", type=int, default=2, help="nombre d'examens de contrôle sans défaut")
     parser.add_argument("--seed", type=int, default=20260821, help="graine RNG — fixe par défaut pour la reproductibilité")
+    parser.add_argument("--skip-reference", action="store_true",
+                        help="ne pas construire l'examen de référence (défauts plantés) — seulement des examens sains")
+    parser.add_argument("--session-nom", default=None, help="nom d'une session saine nommée (à la place de « Cohorte contrôle »)")
+    parser.add_argument("--session-date", default="2026-06-21", help="date de la session (AAAA-MM-JJ)")
+    parser.add_argument("--session-n", type=int, default=18, help="étudiants de la session (un lot par 18)")
+    parser.add_argument("--session-prefixe", default=None, help="préfixe des numéros d'inscription (ex. 2024)")
+    parser.add_argument("--session-stations", default=None,
+                        help="3 noms de station séparés par des virgules (ex. ceux de l'examen vitrine)")
+    parser.add_argument("--session-theta-mu", type=float, default=0.0,
+                        help="décalage de l'habileté moyenne de la promotion (0 = neutre, +0.4 = promotion forte)")
     args = parser.parse_args()
+    noms_stations = [x.strip() for x in args.session_stations.split(",")] if args.session_stations else None
 
     base = args.base_url
     rng = random.Random(args.seed)
@@ -722,20 +755,31 @@ def main():
     assert user_id_from_token(eval_c_token) == eval_c_id
     assert user_id_from_token(eval_d_token) == eval_d_id
 
-    examen_ref_id, rapport, ids = construire_examen_reference(
-        base, resp_token, run_tag, run_id, rng,
-        eval_a_id, eval_a_token, eval_b_id, eval_b_token, eval_c_id, eval_c_token, eval_d_id, eval_d_token
-    )
-    ids["examen_reference_id"] = examen_ref_id
+    ids = {}
+    rapport = None
+    if not args.skip_reference:
+        examen_ref_id, rapport, ids = construire_examen_reference(
+            base, resp_token, run_tag, run_id, rng,
+            eval_a_id, eval_a_token, eval_b_id, eval_b_token, eval_c_id, eval_c_token, eval_d_id, eval_d_token
+        )
+        ids["examen_reference_id"] = examen_ref_id
 
     controle_ids = []
     for i in range(1, args.n_control + 1):
         controle_ids.append(
-            construire_examen_controle(base, resp_token, run_tag, run_id, i, rng, eval_a_id, eval_a_token, eval_b_id, eval_b_token, eval_c_id, eval_c_token)
+            construire_examen_controle(
+                base, resp_token, run_tag, run_id, i, rng,
+                eval_a_id, eval_a_token, eval_b_id, eval_b_token, eval_c_id, eval_c_token,
+                nom=args.session_nom, date_examen=args.session_date, n_etudiants=args.session_n,
+                noms_stations=noms_stations, theta_mu=args.session_theta_mu, prefixe=args.session_prefixe,
+            )
         )
     ids["examens_controle_ids"] = controle_ids
 
-    imprimer_bilan(rapport, ids)
+    if rapport is not None:
+        imprimer_bilan(rapport, ids)
+    else:
+        print(f"\n  Identifiants : {json.dumps(ids)}")
     print("\nTerminé.")
 
 

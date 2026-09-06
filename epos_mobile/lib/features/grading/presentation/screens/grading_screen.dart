@@ -807,12 +807,6 @@ class _GradingFooter extends StatelessWidget {
       .where((e) => !state.etudiantsValides.contains(e.id))
       .toList();
 
-  /// Temps encore dû au groupe (zéro en pause : l'horloge n'y court pas).
-  Duration _tempsDu() {
-    final reste = state.tempsRestant ?? Duration.zero;
-    return (reste > Duration.zero && !state.enPause) ? reste : Duration.zero;
-  }
-
   void _confirmerValidation(BuildContext context) {
     final nonValides = _nonValides();
     if (nonValides.isNotEmpty) {
@@ -826,35 +820,13 @@ class _GradingFooter extends StatelessWidget {
       return;
     }
 
-    // #423 (recette du 06/09) — l'avertissement de temps vit ICI, sur l'acte
-    // qui CLÔT le groupe. Posé sur « Groupe suivant » (#417), il arrivait après
-    // le verrouillage et la validation : il ne pouvait plus rien changer. Le
-    // verrouillage individuel, lui, reste silencieux — un étudiant peut finir
-    // en avance. Confirmer, jamais bloquer (ADR-0014 : l'horloge est un
-    // plancher, le guidage n'interdit rien).
-    final du = _tempsDu();
-    if (du > Duration.zero) {
-      _demanderConfirmation(
-        context,
-        titre: 'Valider le groupe maintenant ?',
-        raisons: [
-          'Il reste ${_mmss(du)} aux étudiants de ce groupe : ils ont droit à '
-              'leur temps. Valider fige leurs notes.',
-        ],
-        refuser: 'Attendre',
-        accepter: 'Valider quand même',
-        onAccepter: () =>
-            context.read<GradingBloc>().add(const GradingGroupeValide()),
-      );
-      return;
-    }
-
+    // #423 (recette du 06/09) — AUCUN avertissement de temps ici. L'acte
+    // irréversible est le VERROUILLAGE de chaque étudiant, et il porte déjà sa
+    // confirmation (« Verrouiller les notes ? ») ; valider un groupe dont tous
+    // les étudiants sont verrouillés ne fige rien de plus. La boîte de temps
+    // posée sur « Groupe suivant » (#417) puis un instant sur « Valider groupe »
+    // arrivait toujours APRÈS le verrouillage : retirée (décision Nada).
     context.read<GradingBloc>().add(const GradingGroupeValide());
-  }
-
-  static String _mmss(Duration d) {
-    final s = d.inSeconds.abs();
-    return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
   }
 
   /// #423 — « Groupe suivant » ne saute plus la validation. Trois cas :
@@ -884,15 +856,12 @@ class _GradingFooter extends StatelessWidget {
       return;
     }
 
-    final du = _tempsDu();
     _demanderConfirmation(
       context,
       titre: 'Groupe non validé',
       raisons: [
         'Les notes de ce groupe sont verrouillées mais le groupe n\'a pas été '
-            'validé. « Valider puis passer » fige le groupe et ouvre le suivant.',
-        if (du > Duration.zero)
-          'Il reste ${_mmss(du)} aux étudiants de ce groupe : ils ont droit à leur temps.',
+            'validé. « Valider puis passer » clôt le groupe et ouvre le suivant.',
       ],
       refuser: 'Rester sur ce groupe',
       accepter: 'Valider puis passer',

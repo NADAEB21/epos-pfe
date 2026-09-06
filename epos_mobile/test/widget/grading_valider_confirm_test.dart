@@ -1,21 +1,18 @@
 // test/widget/grading_valider_confirm_test.dart
 // ================================================
-// #423 (recette du 06/09) — L'AVERTISSEMENT DE TEMPS VIT SUR « VALIDER GROUPE ».
+// #423 (recette du 06/09) — « VALIDER GROUPE » NE PORTE AUCUN AVERTISSEMENT
+// DE TEMPS.
 //
-// C'est l'acte qui CLÔT le groupe : c'est là qu'un temps encore dû aux
-// étudiants a un sens. Confirmer, jamais bloquer (ADR-0014 : l'horloge est un
-// plancher, le guidage n'interdit rien). Le verrouillage individuel, lui, reste
-// silencieux.
+// L'acte irréversible est le VERROUILLAGE de chaque étudiant, et il a déjà sa
+// confirmation dans la fiche (« Verrouiller les notes ? »). Valider un groupe
+// dont tous les étudiants sont verrouillés ne fige rien de plus : une boîte de
+// temps ici (essayée un instant) arrivait toujours après coup — retirée sur
+// décision de Nada. ADR-0014 : l'horloge est un plancher, jamais une garde.
 //
 // Contrat :
-//   1. tout verrouillé + temps restant → « Valider le groupe maintenant ? »
-//      avec MM:SS ; « Attendre » n'envoie rien ; « Valider quand même » envoie
-//      GradingGroupeValide (sans puisAvancer) ;
-//   2. tout verrouillé + temps écoulé → aucune boîte, la validation part ;
-//   3. tout verrouillé + temps restant MAIS en pause → aucune boîte (l'horloge
-//      ne court pas en pause) ;
-//   4. groupe incomplet → « Groupe incomplet » (contrat #417 inchangé), et
-//      pas d'avertissement de temps par-dessus.
+//   1. tout verrouillé, il reste du temps → AUCUNE boîte, la validation part ;
+//   2. tout verrouillé, temps écoulé → idem ;
+//   3. groupe incomplet → « Groupe incomplet » (contrat #417 inchangé).
 
 import 'dart:async';
 
@@ -87,7 +84,6 @@ const _karim =
 GradingLoaded _etat({
   Duration? tempsRestant,
   Set<int> valides = const {},
-  bool enPause = false,
 }) =>
     GradingLoaded(
       rotationId: 1,
@@ -108,7 +104,6 @@ GradingLoaded _etat({
       },
       etudiantsValides: valides,
       tempsRestant: tempsRestant,
-      enPause: enPause,
     );
 
 const _session = Session(
@@ -151,25 +146,17 @@ Future<void> _tap(WidgetTester tester, String label) async {
 
 void main() {
   testWidgets(
-      '#423 — tout verrouillé, il reste du temps : boîte avec MM:SS ; « Attendre » '
-      'n\'envoie rien ; « Valider quand même » valide', (tester) async {
+      '#423 — tout verrouillé, il reste du temps : aucune boîte, la validation part',
+      (tester) async {
     final bloc = await _pump(tester,
         _etat(tempsRestant: const Duration(minutes: 2, seconds: 18), valides: {1, 2}));
 
     await _tap(tester, 'Valider groupe');
 
-    expect(find.text('Valider le groupe maintenant ?'), findsOneWidget);
-    expect(find.textContaining('Il reste 02:18'), findsOneWidget);
-    expect(bloc.events, isEmpty, reason: 'rien ne part sans confirmation');
-
-    await _tap(tester, 'Attendre');
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(bloc.events, isEmpty);
-
-    await _tap(tester, 'Valider groupe');
-    await _tap(tester, 'Valider quand même');
+    expect(find.byType(AlertDialog), findsNothing,
+        reason: 'le verrouillage a déjà eu sa confirmation ; ici il n\'y a plus rien à protéger');
     final valides = bloc.events.whereType<GradingGroupeValide>().toList();
-    expect(valides.length, 1, reason: 'confirmer, jamais bloquer (ADR-0014)');
+    expect(valides.length, 1);
     expect(valides.single.puisAvancer, isFalse);
   });
 
@@ -184,23 +171,7 @@ void main() {
     expect(bloc.events.whereType<GradingGroupeValide>().length, 1);
   });
 
-  testWidgets('#423 — en pause : l\'horloge ne court pas, aucune boîte de temps',
-      (tester) async {
-    final bloc = await _pump(
-        tester,
-        _etat(
-            tempsRestant: const Duration(minutes: 5),
-            valides: {1, 2},
-            enPause: true));
-
-    await _tap(tester, 'Valider groupe');
-
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(bloc.events.whereType<GradingGroupeValide>().length, 1);
-  });
-
-  testWidgets(
-      '#417/#423 — groupe incomplet : « Groupe incomplet » d\'abord, jamais la boîte de temps',
+  testWidgets('#417/#423 — groupe incomplet : « Groupe incomplet », aucun événement',
       (tester) async {
     final bloc = await _pump(
         tester, _etat(tempsRestant: const Duration(minutes: 5), valides: {1}));
@@ -208,7 +179,6 @@ void main() {
     await _tap(tester, 'Valider groupe');
 
     expect(find.text('Groupe incomplet'), findsOneWidget);
-    expect(find.text('Valider le groupe maintenant ?'), findsNothing);
     expect(find.textContaining('Karim Mzoughi'), findsOneWidget);
     expect(bloc.events, isEmpty);
   });

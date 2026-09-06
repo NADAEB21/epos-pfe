@@ -17,6 +17,11 @@ mobile). Différences voulues :
 Aucun INSERT SQL : tout passe par le gateway, mêmes gardes qu'en production.
 
 Usage :
+    # répétition courte (2 stations, 3 min par station, groupes de 3, 6 étudiants) :
+    python scripts/session-live.py preparer --nom "Répétition — recette mobile" \
+        --date 2026-09-06 --n 6 --stations 2 --duree 3 --par-station 3 \
+        --etat scratchpad/repetition.json
+
     python scripts/session-live.py preparer \
         --nom "Examen pratique de chimie thérapeutique — session de septembre 2026" \
         --date 2026-09-05 --n 36 --prefixe 2026 --theta-mu 0.15 \
@@ -89,7 +94,10 @@ def preparer(args):
     rng = random.Random(args.seed)
     resp_token = gen.login(base, "resp@epos.tn", "Resp@1234")
 
-    emails = [args.eval_titrimetrie, args.eval_identification, args.eval_tampon]
+    # --stations N : les N premières stations de STATIONS, tenues par les N premiers
+    # évaluateurs (titrimétrie, identification, tampon) — répétition courte à 2 stations.
+    stations_voulues = STATIONS[:args.stations]
+    emails = [args.eval_titrimetrie, args.eval_identification, args.eval_tampon][:args.stations]
     pool = _login_pool(base, emails)
     id_par_email = {email: uid for uid, (email, _) in pool.items()}
     manquants = [e for e in emails if e not in id_par_email]
@@ -99,14 +107,14 @@ def preparer(args):
     examen = gen.must(
         base, "POST", "/examens", resp_token,
         {"nom": args.nom, "matiereId": 1, "dateExamen": args.date, "heureDebut": args.heure,
-         "dureeStationMin": 12, "nbEtudiantsParStation": 6},
+         "dureeStationMin": args.duree, "nbEtudiantsParStation": args.par_station},
         ok=(201,), what="créer l'examen",
     )
     examen_id = examen["id"]
     print(f"examen {examen_id} créé : {args.nom} ({args.date})")
 
     stations_etat = []
-    for (nom_station, items), email in zip(STATIONS, emails):
+    for (nom_station, items), email in zip(stations_voulues, emails):
         s = gen.creer_station_avec_grille(base, resp_token, examen_id, nom_station,
                                           [id_par_email[email]], 20.0, items)
         stations_etat.append({
@@ -226,6 +234,11 @@ def main():
     a.add_argument("--date", required=True, help="AAAA-MM-JJ — le jour J (le bouton « Lancer » du web l'exige)")
     a.add_argument("--heure", default="09:00")
     a.add_argument("--n", type=int, default=36)
+    a.add_argument("--stations", type=int, default=len(STATIONS), choices=range(1, len(STATIONS) + 1),
+                   help="nombre de stations (les premières de STATIONS) — 2 pour une répétition courte")
+    a.add_argument("--duree", type=int, default=12, help="durée d'une station en minutes (dureeStationMin)")
+    a.add_argument("--par-station", type=int, default=6,
+                   help="étudiants par station et par vague (taille d'un groupe)")
     a.add_argument("--prefixe", default="2026")
     a.add_argument("--theta-mu", type=float, default=0.15)
     a.add_argument("--seed", type=int, default=20260905)

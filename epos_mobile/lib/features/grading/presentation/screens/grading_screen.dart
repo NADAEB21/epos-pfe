@@ -802,106 +802,149 @@ class _GradingFooter extends StatelessWidget {
     return feuilles.where((i) => !notations.containsKey(i.id)).length;
   }
 
-  void _confirmerValidation(BuildContext context) {
-    final nonValides = state.lot.etudiants
-        .where((e) => !state.etudiantsValides.contains(e.id))
-        .toList();
+  /// Étudiants du groupe sans verdict (ni verrouillés, ni déclarés absents).
+  List<dynamic> _nonValides() => state.lot.etudiants
+      .where((e) => !state.etudiantsValides.contains(e.id))
+      .toList();
 
+  void _confirmerValidation(BuildContext context) {
+    final nonValides = _nonValides();
     if (nonValides.isNotEmpty) {
       // #297 — refus DUR : aucune option "continuer quand même".
-      // #417 — le refus nomme la CAUSE (même partition que le serveur) : « non
-      // noté » se répare en saisissant, « noté mais non verrouillé » en
-      // verrouillant ; et l'absence se déclare ICI, sans détour par la fiche.
-      final nonNotes       = nonValides.where((e) => _criteresManquants(e.id) > 0).toList();
-      final nonVerrouilles = nonValides.where((e) => _criteresManquants(e.id) == 0).toList();
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Groupe incomplet'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (nonNotes.isNotEmpty) ...[
-                  Text('Non noté${nonNotes.length > 1 ? 's' : ''} :',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final e in nonNotes)
-                    _LigneEtudiantRefus(
-                      libelle: '${e.nomComplet} — ${_criteresManquants(e.id)} critère'
-                          '${_criteresManquants(e.id) > 1 ? 's' : ''} non noté'
-                          '${_criteresManquants(e.id) > 1 ? 's' : ''}',
-                      onAbsent: () {
-                        Navigator.pop(context);
-                        _confirmerAbsence(context, e);
-                      },
-                    ),
-                  const SizedBox(height: 8),
-                ],
-                if (nonVerrouilles.isNotEmpty) ...[
-                  Text('Noté${nonVerrouilles.length > 1 ? 's' : ''} mais non verrouillé'
-                      '${nonVerrouilles.length > 1 ? 's' : ''} :',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final e in nonVerrouilles)
-                    _LigneEtudiantRefus(libelle: e.nomComplet, onAbsent: null),
-                  const SizedBox(height: 8),
-                ],
-                const Text(
-                  'Verrouillez chaque étudiant depuis sa fiche, ou déclarez-le absent, '
-                  'avant de valider le groupe.',
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Compris'),
-            ),
-          ],
-        ),
+      _montrerGroupeIncomplet(
+        context, nonValides,
+        titre: 'Groupe incomplet',
+        consigne: 'Verrouillez chaque étudiant depuis sa fiche, ou déclarez-le absent, '
+            'avant de valider le groupe.',
       );
       return;
     }
 
+    // #423 (recette du 06/09) — AUCUN avertissement de temps ici. L'acte
+    // irréversible est le VERROUILLAGE de chaque étudiant, et il porte déjà sa
+    // confirmation (« Verrouiller les notes ? ») ; valider un groupe dont tous
+    // les étudiants sont verrouillés ne fige rien de plus. La boîte de temps
+    // posée sur « Groupe suivant » (#417) puis un instant sur « Valider groupe »
+    // arrivait toujours APRÈS le verrouillage : retirée (décision Nada).
     context.read<GradingBloc>().add(const GradingGroupeValide());
   }
 
-  static String _mmss(Duration d) {
-    final s = d.inSeconds.abs();
-    return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
-  }
-
-  /// #417 — avancer AVANT l'heure ou AVANT d'avoir tout validé se confirme,
-  /// ne se bloque pas (ADR-0014 : l'horloge est un plancher, jamais un
-  /// plafond ; le guidage n'interdit rien). Une seule boîte, qui dit ce qui
-  /// reste : du temps au groupe, des étudiants sans verdict — ou les deux.
+  /// #423 — « Groupe suivant » ne saute plus la validation. Trois cas :
+  ///   · groupe validé → on avance, sans question (il n'y a plus rien à
+  ///     protéger : les notes sont figées) ;
+  ///   · groupe complet mais non validé → « Valider puis passer », qui
+  ///     enchaîne les deux actes (l'avance ne part qu'après le succès de la
+  ///     validation) ;
+  ///   · groupe incomplet → le refus nominatif, sans option de passage : un
+  ///     groupe passé sans validation resterait EN_COURS à cette station,
+  ///     sans chemin de retour, et le serveur le refuse désormais aussi.
   void _confirmerGroupeSuivant(BuildContext context) {
-    final reste = state.tempsRestant ?? Duration.zero;
-    final tempsRestant = reste > Duration.zero && !state.enPause;
-    final sansVerdict  = state.lot.etudiants
-        .where((e) => !state.etudiantsValides.contains(e.id))
-        .toList();
-
-    if (!tempsRestant && sansVerdict.isEmpty) {
+    if (state.lotValide) {
       context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
       return;
     }
 
-    final raisons = <String>[
-      if (tempsRestant)
-        'Le groupe en cours dispose encore de ${_mmss(reste)} : les étudiants ont droit à leur temps.',
-      if (sansVerdict.isNotEmpty)
-        '${sansVerdict.length} étudiant${sansVerdict.length > 1 ? 's' : ''} sans verdict : '
-            '${sansVerdict.map((e) => e.nomComplet).join(", ")}.',
-    ];
+    final nonValides = _nonValides();
+    if (nonValides.isNotEmpty) {
+      _montrerGroupeIncomplet(
+        context, nonValides,
+        titre: 'Groupe non validé',
+        consigne: 'Le groupe suivant ne s\'ouvre qu\'une fois ce groupe validé : '
+            'verrouillez chaque étudiant depuis sa fiche, ou déclarez-le absent, '
+            'puis validez le groupe.',
+      );
+      return;
+    }
 
+    _demanderConfirmation(
+      context,
+      titre: 'Groupe non validé',
+      raisons: [
+        'Les notes de ce groupe sont verrouillées mais le groupe n\'a pas été '
+            'validé. « Valider puis passer » clôt le groupe et ouvre le suivant.',
+      ],
+      refuser: 'Rester sur ce groupe',
+      accepter: 'Valider puis passer',
+      onAccepter: () => context
+          .read<GradingBloc>()
+          .add(const GradingGroupeValide(puisAvancer: true)),
+    );
+  }
+
+  /// #417 — le refus nomme la CAUSE (même partition que le serveur) : « non
+  /// noté » se répare en saisissant, « noté mais non verrouillé » en
+  /// verrouillant ; et l'absence se déclare ICI, sans détour par la fiche.
+  /// Partagé par « Valider groupe » et « Groupe suivant » (#423).
+  void _montrerGroupeIncomplet(
+    BuildContext context,
+    List<dynamic> nonValides, {
+    required String titre,
+    required String consigne,
+  }) {
+    final nonNotes       = nonValides.where((e) => _criteresManquants(e.id) > 0).toList();
+    final nonVerrouilles = nonValides.where((e) => _criteresManquants(e.id) == 0).toList();
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Passer au groupe suivant maintenant ?'),
+        title: Text(titre),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (nonNotes.isNotEmpty) ...[
+                Text('Non noté${nonNotes.length > 1 ? 's' : ''} :',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                for (final e in nonNotes)
+                  _LigneEtudiantRefus(
+                    libelle: '${e.nomComplet} — ${_criteresManquants(e.id)} critère'
+                        '${_criteresManquants(e.id) > 1 ? 's' : ''} non noté'
+                        '${_criteresManquants(e.id) > 1 ? 's' : ''}',
+                    onAbsent: () {
+                      Navigator.pop(context);
+                      _confirmerAbsence(context, e);
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+              if (nonVerrouilles.isNotEmpty) ...[
+                Text('Noté${nonVerrouilles.length > 1 ? 's' : ''} mais non verrouillé'
+                    '${nonVerrouilles.length > 1 ? 's' : ''} :',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                for (final e in nonVerrouilles)
+                  _LigneEtudiantRefus(libelle: e.nomComplet, onAbsent: null),
+                const SizedBox(height: 8),
+              ],
+              Text(consigne),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Compris'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Boîte de confirmation à deux issues : refuser ne fait rien, accepter
+  /// exécute [onAccepter] après fermeture. Les raisons sont des puces.
+  void _demanderConfirmation(
+    BuildContext context, {
+    required String titre,
+    required List<String> raisons,
+    required String refuser,
+    required String accepter,
+    required VoidCallback onAccepter,
+  }) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(titre),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -922,14 +965,14 @@ class _GradingFooter extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Rester sur ce groupe'),
+            child: Text(refuser),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
+              onAccepter();
             },
-            child: const Text('Passer quand même'),
+            child: Text(accepter),
           ),
         ],
       ),

@@ -211,6 +211,16 @@ public class EvaluateurDashboardService {
                 .orElseThrow(() -> new ResourceNotFoundException("Rotation introuvable : " + rotationId));
         verifierProprietaire(courante, evaluateurId);
 
+        // #423 — on n'avance pas par-dessus un groupe non validé. Sans cette garde, un
+        // client pouvait ouvrir le rang suivant en laissant la rotation courante EN_COURS
+        // à jamais : tableau de suivi « en cours », clôture impossible, et aucun chemin de
+        // retour fiable pour l'évaluateur (deux sessions EN_COURS à la même station). La
+        // validation reste un acte séparé (#209) ; elle est simplement exigée AVANT.
+        if (courante.getStatut() != RotationStatus.TERMINE) {
+            throw new BusinessException(
+                    "Validez d'abord ce groupe (« Valider groupe ») avant de passer au suivant.");
+        }
+
         // #248 — séquencé sur ordrePassage et borné à (cette station, ce lot), exactement comme
         // la garde du bouton. L'horloge ne séquence rien.
         Rotation suivante = rotationSuivante(courante)

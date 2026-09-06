@@ -13,7 +13,8 @@ public class ItemRequest {
     private TypeItem type;
 
     @NotNull(message = "La pondération est obligatoire")
-    @DecimalMin(value = "0.5", message = "La pondération minimale est 0.5")
+    // #418 — quart de point autorisé (sous-critères réels à 0,25).
+    @DecimalMin(value = "0.25", message = "La pondération minimale est 0,25")
     @DecimalMax(value = "20.0")
     private Double ponderation;
 

@@ -277,3 +277,35 @@ déclencheur n'y part — c'est le test de non-faux-positif de la démo.
   (avant l'ajout du `finally`) : si un examen `IA-F1*` reste visible
   `EN_COURS`, le clôturer via `PATCH /examens/{id}/statut?statut=TERMINE`
   avant de relancer.
+## Répétition générale — `session-live.py` (S55, 2026-09-05)
+
+Le générateur ci-dessus **joue tout** (lancement, présence, vagues, clôture). Pour une
+répétition générale, ces actes doivent rester ceux du responsable, à l'écran ; et
+l'évaluateur note SA station sur le téléphone. `scripts/session-live.py` découpe donc :
+
+```bash
+# 1. préparer un examen réaliste jusqu'à CONFIGURE + lots (PAS de lancement)
+python scripts/session-live.py preparer \
+    --nom "Examen pratique de chimie thérapeutique — session de septembre 2026" \
+    --date 2026-09-05 --n 36 --prefixe 2026 --theta-mu 0.15 \
+    --eval-titrimetrie eval@epos.tn --eval-identification leila.kacem@epos.tn \
+    --eval-tampon sami.marzouki@epos.tn --etat /tmp/session-live.json
+
+# 2. le responsable lance, fait la présence, ouvre les vagues (web) ; l'évaluateur
+#    note sur le téléphone ; les stations « des collègues » se notent à la demande :
+python scripts/session-live.py noter --etat /tmp/session-live.json \
+    --stations "Identification d'un principe actif,Préparation d'une solution tampon"
+python scripts/session-live.py noter --etat /tmp/session-live.json --toutes
+```
+
+- La date doit être **le jour J** : le bouton « Lancer » du web l'exige (le backend, non).
+- `noter` incarne l'évaluateur que **les rotations désignent** (pool de comptes dans
+  l'état) : une suppléance ADR-0017 faite à l'écran est suivie d'elle-même si le
+  remplaçant est dans le pool (`--pool-extra`).
+- Trois stations plausibles de TP (titrimétrie, identification, solution tampon), 2 BINAIRE
+  (5) + 2 NUMERIQUE (5/5) = 20 chacune ; habileté latente `theta` par étudiant, comme F1.
+- Aucun INSERT SQL ; mêmes gardes qu'en production. Ne crée **aucun** compte (avec
+  `MAIL_ENABLED=true`, créer un compte enverrait une vraie invitation).
+
+Joué le 2026-09-05 : examen 99 (36 étudiants, 2 lots), conduit de bout en bout par Nada,
+délibération v1 (exclusion d'une station), clos — 5ᵉ session lisible dans Tendances.

@@ -398,6 +398,37 @@ class GrilleControllerTest {
                     .andExpect(jsonPath("$.data.valeurMax").value(6.0));
         }
 
+        /**
+         * #418 — les grilles réelles portent des sous-critères au quart de point.
+         * L'ancien plancher (0,5) refusait une pondération de 0,25 que la grille
+         * papier utilise ; 0,2 reste refusé (le quart est le grain minimal).
+         */
+        @Test
+        @DisplayName("#418 — 201 : une pondération de 0,25 est acceptée")
+        void ajouterItem_ponderationQuartDePoint_devraitRetourner201() throws Exception {
+            itemBinaireRequest.setPonderation(0.25);
+            when(grilleService.ajouterItem(eq(1L), any(ItemRequest.class)))
+                    .thenReturn(itemBinaireResponse);
+
+            mockMvc.perform(post("/api/grilles/1/items")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(itemBinaireRequest)))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("#418 — 400 : une pondération de 0,2 reste refusée (grain minimal = quart)")
+        void ajouterItem_ponderationSousLeQuart_devraitRetourner400() throws Exception {
+            itemBinaireRequest.setPonderation(0.2);
+
+            mockMvc.perform(post("/api/grilles/1/items")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(itemBinaireRequest)))
+                    .andExpect(status().isBadRequest());
+
+            verify(grilleService, never()).ajouterItem(any(), any());
+        }
+
         @Test
         @DisplayName("400 - Libellé vide")
         void ajouterItem_libelleVide_devraitRetourner400() throws Exception {

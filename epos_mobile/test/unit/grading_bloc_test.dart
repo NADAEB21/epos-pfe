@@ -66,6 +66,17 @@ class _FakeGradingRepository implements GradingRepository {
   @override
   Future<void> saveNotations(List<Notation> notations) async {}
 
+  // #417 — journalise les effacements pour les assertions.
+  final List<(int, int)> effaces = [];
+  @override
+  Future<void> effacerNotationItem({
+    required int etudiantId,
+    required int stationId,
+    required int itemId,
+  }) async {
+    effaces.add((etudiantId, itemId));
+  }
+
   @override
   Future<void> validerEtudiant(
       int etudiantId,
@@ -303,6 +314,59 @@ void main() {
           final s = bloc.state as GradingLoaded;
           expect(s.notations[1], isNull);
         });
+  });
+
+  // #417 (recette du 05/09) — une cellule VIDÉE ramène le critère à « non
+  // noté ». Avant, l'écran envoyait GradingNumericUpdated(valeur: 0) : le
+  // critère non noté devenait un zéro noté, passait la garde « il reste N
+  // critère(s) » et pesait dans le total.
+  group('GradingNumericCleared (#417)', () {
+    late _FakeGradingRepository repo;
+    late GradingBloc bloc;
+
+    setUp(() {
+      repo = _FakeGradingRepository();
+      bloc = GradingBloc(repository: repo);
+    });
+    tearDown(() => bloc.close());
+
+    test('retire la notation locale ET demande l\'effacement au dépôt', () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(notations: {
+        1: {2: const Notation(etudiantId: 1, itemId: 2, valeur: 3.0)},
+      }));
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+
+      final s = bloc.state as GradingLoaded;
+      expect(s.notations[1]!.containsKey(2), isFalse,
+          reason: 'la cellule vidée n\'est plus une notation (ni 0, ni rien)');
+      expect(repo.effaces, [(1, 2)]);
+      // La garde de complétude compte désormais ce critère comme manquant.
+      expect(s.etudiantComplet(1), isFalse);
+    });
+
+    test('rien à effacer (cellule déjà vide) → aucun appel au dépôt', () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState());
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+      expect(repo.effaces, isEmpty);
+    });
+
+    test('étudiant verrouillé → ignoré (le verrou protège aussi l\'effacement)',
+        () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(
+        notations: {1: {2: const Notation(etudiantId: 1, itemId: 2, valeur: 3.0)}},
+        etudiantsValides: {1},
+      ));
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+      final s = bloc.state as GradingLoaded;
+      expect(s.notations[1]!.containsKey(2), isTrue);
+      expect(repo.effaces, isEmpty);
+    });
   });
 
   group('GradingNumericUpdated', () {

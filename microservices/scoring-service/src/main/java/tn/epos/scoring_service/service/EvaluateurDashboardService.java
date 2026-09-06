@@ -514,6 +514,51 @@ public class EvaluateurDashboardService {
         }
     }
 
+    /**
+     * #417 — nombre de critères notables (définition figée, ADR-0015) sans valeur
+     * saisie pour cette notation. 0 = notation complète. Même source de vérité que
+     * {@link #assertCompletudeAvantVerrouillage}, sans lever : ici on décrit, on
+     * ne refuse pas encore.
+     */
+    private int nombreCriteresManquants(ExamenParticipation participation, Notation notation) {
+        Map<Long, ExamItemSnapshot> definition =
+                examDefinitionSnapshot.resolveItems(participation.getExamen_id(), notation.getGrilleId());
+        Set<Long> saisis = notationItemRepository.findByNotationId(notation.getId()).stream()
+                .map(NotationItem::getItemId)
+                .collect(Collectors.toSet());
+        Set<Long> manquants = new LinkedHashSet<>(definition.keySet());
+        manquants.removeAll(saisis);
+        return manquants.size();
+    }
+
+    /**
+     * #417 — EFFACER la valeur d'un critère (cellule vidée à l'écran). Avant, le
+     * mobile envoyait {@code valeur: 0} : un critère NON NOTÉ devenait un zéro
+     * NOTÉ, passait la garde de complétude, et pesait dans le total. Effacer doit
+     * ramener le critère à « non noté » — donc supprimer la ligne, pas la mettre à
+     * zéro. Même gardes que {@link #saisirNotation} (station, verrou) ; idempotent
+     * (rien à effacer = succès).
+     */
+    public void effacerNotationItem(Long etudiantId, Long stationId, Long itemId, Long evaluateurId) {
+        verifierAffectationStation(evaluateurId, stationId);
+        ExamenParticipation participation = resolverParticipation(etudiantId, stationId);
+        Optional<RotationAssignment> assignment = rotationAssignmentRepository
+                .findByParticipationIdAndStationId(participation.getId(), stationId);
+        if (assignment.isEmpty()) return;
+        Optional<Notation> notation = notationRepository.findByAssignmentId(assignment.get().getId());
+        if (notation.isEmpty()) return;
+        Notation n = notation.get();
+        if (Boolean.TRUE.equals(n.getVerouillee())) {
+            throw new BusinessException("Notation déjà verrouillée pour " + nomEtudiant(participation.getEtudiant())
+                    + ". Utilisez le canal de réajustement (réclamation) pour la modifier.");
+        }
+        Optional<NotationItem> item = notationItemRepository.findByNotationIdAndItemId(n.getId(), itemId);
+        if (item.isEmpty()) return;
+        notationItemRepository.delete(item.get());
+        n.setSaisiPar(evaluateurId);
+        recalculerScoreFinal(n); // recalcule ET sauve la notation
+    }
+
     private String nomEtudiant(Etudiant e) {
         if (e == null) return "cet étudiant";
         String full = ((e.getPrenom() != null ? e.getPrenom() : "") + " "
@@ -582,21 +627,47 @@ public class EvaluateurDashboardService {
         // acte contrôlé (validerEtudiant, cf. assertCompletudeAvantVerrouillage) :
         // une notation absente ou non verrouillée ICI signifie que l'évaluateur ne
         // l'a jamais validée — jamais qu'on peut le faire à sa place.
+        //
+        // #417 (recette du 05/09) — le refus NOMME LA CAUSE, pas seulement l'étudiant.
+        // « Aucun verdict pour X » couvrait deux situations que l'évaluateur ne
+        // répare pas de la même manière : X n'est pas (entièrement) noté — il faut
+        // saisir ; X est noté mais pas verrouillé — il faut verrouiller. Deux listes,
+        // un seul message, et le nombre de critères manquants quand il est connu.
         List<RotationAssignment> assignments = rotationAssignmentRepository.findByRotationId(rotationId);
-        List<String> sansVerdict = assignments.stream()
-                .filter(a -> a.getParticipation() != null && a.getParticipation().getEtudiant() != null)
-                .filter(a -> notationRepository.findByAssignmentId(a.getId())
-                        .map(n -> !Boolean.TRUE.equals(n.getVerouillee()))
-                        .orElse(true))
-                .map(a -> nomEtudiant(a.getParticipation().getEtudiant()))
-                .toList();
+        List<String> nonNotes = new ArrayList<>();
+        List<String> nonVerrouilles = new ArrayList<>();
+        for (RotationAssignment a : assignments) {
+            if (a.getParticipation() == null || a.getParticipation().getEtudiant() == null) continue;
+            String nom = nomEtudiant(a.getParticipation().getEtudiant());
+            Optional<Notation> notation = notationRepository.findByAssignmentId(a.getId());
+            if (notation.isEmpty()) {
+                nonNotes.add(nom);
+                continue;
+            }
+            Notation n = notation.get();
+            if (Boolean.TRUE.equals(n.getVerouillee())) continue;
+            int manquants = nombreCriteresManquants(a.getParticipation(), n);
+            if (manquants > 0) {
+                nonNotes.add(nom + " (" + manquants + " critère" + (manquants > 1 ? "s" : "") + " manquant"
+                        + (manquants > 1 ? "s" : "") + ")");
+            } else {
+                nonVerrouilles.add(nom);
+            }
+        }
 
-        if (!sansVerdict.isEmpty()) {
-            throw new BusinessException(
-                    "Impossible de valider le groupe : aucun verdict pour "
-                            + String.join(", ", sansVerdict)
-                            + ". Verrouillez chaque étudiant restant (noté ou déclaré absent) "
-                            + "avant de valider le groupe.");
+        if (!nonNotes.isEmpty() || !nonVerrouilles.isEmpty()) {
+            StringBuilder message = new StringBuilder("Impossible de valider le groupe.");
+            if (!nonNotes.isEmpty()) {
+                message.append(" Non noté").append(nonNotes.size() > 1 ? "s" : "").append(" : ")
+                        .append(String.join(", ", nonNotes)).append(".");
+            }
+            if (!nonVerrouilles.isEmpty()) {
+                message.append(" Noté").append(nonVerrouilles.size() > 1 ? "s" : "")
+                        .append(" mais non verrouillé").append(nonVerrouilles.size() > 1 ? "s" : "").append(" : ")
+                        .append(String.join(", ", nonVerrouilles)).append(".");
+            }
+            message.append(" Verrouillez chaque étudiant, ou déclarez-le absent.");
+            throw new BusinessException(message.toString());
         }
 
         rotation.setStatut(RotationStatus.TERMINE);

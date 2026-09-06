@@ -123,6 +123,25 @@ public class EvaluateurDashboardController {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // DELETE /api/evaluateur/notations/items?etudiantId=&stationId=&itemId=
+    //
+    // #417 — une cellule VIDÉE à l'écran efface la valeur du critère (retour à
+    // « non noté »), au lieu d'enregistrer un zéro. Idempotent.
+    // Correspond à GradingRepository.effacerNotationItem(...) Flutter.
+    // ──────────────────────────────────────────────────────────────────────────
+    @DeleteMapping("/notations/items")
+    public ResponseEntity<ApiResponse<Void>> effacerNotationItem(
+            @RequestParam Long etudiantId,
+            @RequestParam Long stationId,
+            @RequestParam Long itemId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long evaluateurId = extractUserId(jwt);
+        dashboardService.effacerNotationItem(etudiantId, stationId, itemId, evaluateurId);
+        return ResponseEntity.ok(ApiResponse.ok("Critère effacé"));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // POST /api/evaluateur/etudiants/{etudiantId}/stations/{stationId}/valider
     //
     // Verrouille toutes les notes d'un étudiant pour une station.

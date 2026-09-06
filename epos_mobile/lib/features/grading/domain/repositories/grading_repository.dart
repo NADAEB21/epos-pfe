@@ -34,6 +34,17 @@ abstract class GradingRepository {
   /// Sauvegarde plusieurs notations en batch (sync offline)
   Future<void> saveNotations(List<Notation> notations);
 
+  /// #417 — EFFACE la valeur d'un critère : la cellule vidée ramène le critère
+  /// à « non noté ». Avant, vider envoyait `valeur: 0` — un critère non noté
+  /// devenait un zéro noté, passait la garde « il reste N critère(s) » et pesait
+  /// dans le total. En ligne : DELETE côté scoring. Hors ligne : la notation
+  /// en attente correspondante est retirée de la file locale (rien ne partira).
+  Future<void> effacerNotationItem({
+    required int etudiantId,
+    required int stationId,
+    required int itemId,
+  });
+
   /// Valide un étudiant (verrouille ses notes) ou le marque absent (score=0).
   Future<void> validerEtudiant(
   int etudiantId,

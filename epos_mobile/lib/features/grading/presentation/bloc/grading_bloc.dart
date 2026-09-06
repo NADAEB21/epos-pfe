@@ -20,6 +20,7 @@
 //     pour le dashboard.
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
@@ -104,6 +105,18 @@ class GradingNumericUpdated extends GradingEvent {
 
   @override
   List<Object?> get props => [etudiantId, itemId, valeur];
+}
+
+/// #417 — la cellule numérique a été VIDÉE : le critère redevient « non noté ».
+/// Distinct de GradingNumericUpdated(valeur: 0), qui est une NOTE (zéro).
+class GradingNumericCleared extends GradingEvent {
+  final int etudiantId;
+  final int itemId;
+
+  const GradingNumericCleared({required this.etudiantId, required this.itemId});
+
+  @override
+  List<Object?> get props => [etudiantId, itemId];
 }
 
 class GradingEtudiantValide extends GradingEvent {
@@ -206,6 +219,12 @@ class GradingLoaded extends GradingState {
   final Lot                          lot;
   final Map<int, Map<int, Notation>> notations;
   final Set<int>                     etudiantsValides;
+
+  /// #417 — étudiants déclarés ABSENTS à cette station (verdict « absent »,
+  /// serveur ou saisi dans la session). Sous-ensemble de [etudiantsValides] :
+  /// un absent est validé, mais la grille doit le montrer comme absent (gris,
+  /// pastille), jamais comme un étudiant noté et verrouillé (vert).
+  final Set<int>                     etudiantsAbsents;
   final Duration?                    tempsRestant;
   final bool                         lotEnCoursDeValidation;
   final String?                      messageSucces;
@@ -246,6 +265,7 @@ class GradingLoaded extends GradingState {
     required this.lot,
     required this.notations,
     required this.etudiantsValides,
+    this.etudiantsAbsents = const {},
     this.tempsRestant,
     this.lotEnCoursDeValidation = false,
     this.messageSucces,
@@ -285,6 +305,7 @@ class GradingLoaded extends GradingState {
     int?                   rotationId,
     Map<int, Map<int, Notation>>? notations,
     Set<int>?              etudiantsValides,
+    Set<int>?              etudiantsAbsents,
     Duration?              tempsRestant,
     bool?                  lotEnCoursDeValidation,
     String?                messageSucces,
@@ -305,6 +326,7 @@ class GradingLoaded extends GradingState {
         lot:                    lot              ?? this.lot,
         notations:              notations        ?? this.notations,
         etudiantsValides:       etudiantsValides ?? this.etudiantsValides,
+        etudiantsAbsents:       etudiantsAbsents ?? this.etudiantsAbsents,
         tempsRestant:           tempsRestant     ?? this.tempsRestant,
         lotEnCoursDeValidation: lotEnCoursDeValidation ?? this.lotEnCoursDeValidation,
         messageSucces:          messageSucces,
@@ -320,7 +342,7 @@ class GradingLoaded extends GradingState {
   @override
   List<Object?> get props => [
     rotationId, stationId, grilleId, stationNom, grille, lot,
-    notations, etudiantsValides, tempsRestant,
+    notations, etudiantsValides, etudiantsAbsents, tempsRestant,
     lotEnCoursDeValidation, messageSucces, lotValide, wsScores,
     avertissementLeadSec, enPause, vagueTerminee, messageErreur,
   ];
@@ -350,6 +372,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     on<GradingSessionStarted>   (_onSessionStarted);
     on<GradingBinaryUpdated>    (_onBinaryUpdated);
     on<GradingNumericUpdated>   (_onNumericUpdated);
+    on<GradingNumericCleared>   (_onNumericCleared); // #417
     on<GradingEtudiantValide>   (_onEtudiantValide);
     on<GradingGroupeValide>        (_onGroupeValide);
     on<GradingGroupeSuivantDemande>(_onGroupeSuivant);
@@ -405,11 +428,13 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
       // ── Restaurer la progression et le verrouillage depuis le serveur ──
       final Map<int, Map<int, Notation>> notations        = {};
       final Set<int>                     etudiantsValides = {};
+      final Set<int>                     etudiantsAbsents = {}; // #417
 
       for (final etudiant in lot.etudiants) {
         if (etudiant.absent || etudiant.verrouille) {
           etudiantsValides.add(etudiant.id);
         }
+        if (etudiant.absent) etudiantsAbsents.add(etudiant.id);
         if (etudiant.notationExistante.isNotEmpty) {
           notations[etudiant.id] = {
             for (final e in etudiant.notationExistante.entries)
@@ -439,6 +464,7 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         lot:              lot,
         notations:        notations,
         etudiantsValides: etudiantsValides,
+        etudiantsAbsents: etudiantsAbsents,
         tempsRestant:     tempsRestant,
         lotValide:        lot.valide,
         avertissementLeadSec: event.avertissementLeadSec,
@@ -580,6 +606,46 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
     ));
   }
 
+  // ── #417 — cellule numérique VIDÉE = critère non noté ─────────────────────
+  //
+  // Symétrique du binaire décoché (`fait == null` → la notation locale est
+  // retirée). Avant, le champ vide envoyait `valeur: 0` : un critère jamais
+  // noté devenait un zéro noté, passait la garde de complétude et pesait dans
+  // le total. Ici on retire la notation locale ET on demande l'effacement au
+  // serveur (ou à la file hors ligne) ; un échec réseau n'est pas fatal — la
+  // vérité serveur se relit au prochain chargement du groupe.
+  void _onNumericCleared(
+      GradingNumericCleared event,
+      Emitter<GradingState> emit,
+      ) {
+    final current = state;
+    if (current is! GradingLoaded) return;
+    if (current.etudiantsValides.contains(event.etudiantId)) return;
+    if (current.lotValide) return;
+
+    final etudiantNotations =
+        Map<int, Notation>.from(current.notations[event.etudiantId] ?? {});
+    if (!etudiantNotations.containsKey(event.itemId)) return; // rien à effacer
+    etudiantNotations.remove(event.itemId);
+    emit(current.copyWith(notations: {
+      ...current.notations,
+      event.etudiantId: etudiantNotations,
+    }));
+
+    _repository
+        .effacerNotationItem(
+          etudiantId: event.etudiantId,
+          stationId:  current.stationId,
+          itemId:     event.itemId,
+        )
+        .then((_) => offlineBloc?.refreshPendingCount())
+        .catchError((e) {
+          // Non fatal : la cellule est vide à l'écran, le serveur garde peut-être
+          // l'ancienne valeur ; le rechargement du groupe rétablira la vérité.
+          if (kDebugMode) debugPrint('effacerNotationItem: $e');
+        });
+  }
+
   /// BF6.2 — Sauvegarde la notation (online ou locale) puis notifie l'OfflineBloc.
   void _saveAndRefreshOffline(Notation notation) {
     _repository.saveNotation(notation).then((_) {
@@ -626,6 +692,11 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
 
     emit(current.copyWith(
       etudiantsValides: {...current.etudiantsValides, event.etudiantId},
+      // #417 — l'absence se VOIT dans la grille (gris + pastille), pas seulement
+      // dans la fiche : sans ce marquage, l'absent portait l'avatar vert du noté.
+      etudiantsAbsents: event.absent
+          ? {...current.etudiantsAbsents, event.etudiantId}
+          : current.etudiantsAbsents,
       notations:        updatedNotations,
     ));
 
@@ -731,6 +802,8 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         // #209 — le serveur vient d'ouvrir ce groupe et de poser son debutReel : le
         // minuteur repart de la durée pleine, ancré sur ce fait observé.
         notations: {}, etudiantsValides: {},
+        // #417 — un groupe peut arriver avec des absents déjà déclarés (présence).
+        etudiantsAbsents: {for (final e in prochain.etudiants) if (e.absent) e.id},
         tempsRestant: _computeTempsRestant(prochain.debutReel),
         lotValide: prochain.valide,
         avertissementLeadSec: current.avertissementLeadSec, enPause: current.enPause,

@@ -179,7 +179,20 @@ class GradingScreen extends StatelessWidget {
                  // lui-même, plutôt que de le voir disparaître après quelques secondes.
                  if (state is GradingLoaded && state.messageErreur != null) {
                    _showBlockingErrorDialog(context, state.messageErreur!);
-                 } 
+                 }
+                 // #417 — le succès se DIT aussi. `messageSucces` était écrit par le
+                 // bloc (« Groupe validé ! ») et lu par personne : l'évaluateur validait
+                 // sans aucun retour, et le bouton se réarmait.
+                 if (state is GradingLoaded && state.messageSucces != null) {
+                   ScaffoldMessenger.of(context)
+                     ..hideCurrentSnackBar()
+                     ..showSnackBar(SnackBar(
+                       content:         Text(state.messageSucces!),
+                       backgroundColor: AppTheme.scoreGreen,
+                       behavior:        SnackBarBehavior.floating,
+                       duration:        const Duration(seconds: 3),
+                     ));
+                 }
                },
                builder: (context, state) {
                  if (state is GradingLoaded) {
@@ -623,9 +636,9 @@ class _GradingFooter extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  s.toStringAsFixed(
-                                    s == s.truncateToDouble() ? 0 : 1,
-                                  ),
+                                  // #417 — même format que les critères : le quart
+                                  // de point s'affiche tel qu'il est stocké (1,75).
+                                  ScoreUtils.fmtPoints(s),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color:      Colors.white,
@@ -692,6 +705,37 @@ class _GradingFooter extends StatelessWidget {
               ),
             ),
 
+          // ── #417 — groupe validé : l'état est DIT, et l'action suivante désignée ──
+          // Après « Valider groupe », rien ne changeait à l'écran : l'évaluateur ne
+          // savait pas s'il pouvait avancer. Le bandeau reste tant que le groupe
+          // validé est affiché ; il ne s'affiche pas au dernier passage, où c'est la
+          // bannière « Vague terminée » qui prend le relais.
+          if (state.lotValide && !state.vagueTerminee && state.lot.groupeSuivantDisponible)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Container(
+                key: const Key('bandeau-groupe-valide'),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.scoreGreen.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.scoreGreen),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, size: 18, color: AppTheme.scoreGreen),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Groupe ${state.lot.numero} validé — vous pouvez passer au groupe suivant.',
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── Boutons « Valider groupe » / « Groupe suivant » ────────────────
           // (le commentaire disait « Valider lot » : ce bouton n'a jamais existe ici,
           //  et l'endpoint de validation de lot est supprime — le lot se cloture seul.)
@@ -701,7 +745,9 @@ class _GradingFooter extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: state.lotEnCoursDeValidation
+                    // #417 — une fois le groupe validé, le bouton ne se réarme plus
+                    // (un second POST était possible et n'apportait qu'un refus).
+                    onPressed: (state.lotEnCoursDeValidation || state.lotValide)
                         ? null
                         : () => _confirmerValidation(context),
                     icon:  const Icon(Icons.check, size: 18),
@@ -749,23 +795,64 @@ class _GradingFooter extends StatelessWidget {
     );
   }
 
+  /// #417 — nombre de critères (feuilles) sans valeur pour cet étudiant.
+  int _criteresManquants(int etudiantId) {
+    final feuilles  = ScoreUtils.feuilles(state.grille.items);
+    final notations = state.notations[etudiantId] ?? const {};
+    return feuilles.where((i) => !notations.containsKey(i.id)).length;
+  }
+
   void _confirmerValidation(BuildContext context) {
     final nonValides = state.lot.etudiants
         .where((e) => !state.etudiantsValides.contains(e.id))
         .toList();
 
     if (nonValides.isNotEmpty) {
-      // #297 — refus DUR : aucune option "continuer quand même". Les deux
-      // seules sorties honnêtes restent : noter l'étudiant restant, ou le
-      // déclarer absent depuis son écran de détail.
+      // #297 — refus DUR : aucune option "continuer quand même".
+      // #417 — le refus nomme la CAUSE (même partition que le serveur) : « non
+      // noté » se répare en saisissant, « noté mais non verrouillé » en
+      // verrouillant ; et l'absence se déclare ICI, sans détour par la fiche.
+      final nonNotes       = nonValides.where((e) => _criteresManquants(e.id) > 0).toList();
+      final nonVerrouilles = nonValides.where((e) => _criteresManquants(e.id) == 0).toList();
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text('Groupe incomplet'),
-          content: Text(
-            'Aucun verdict pour : ${nonValides.map((e) => e.nomComplet).join(", ")}.\n\n'
-                'Notez chaque étudiant restant, ou déclarez-le absent, avant de valider le groupe.',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (nonNotes.isNotEmpty) ...[
+                  Text('Non noté${nonNotes.length > 1 ? 's' : ''} :',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  for (final e in nonNotes)
+                    _LigneEtudiantRefus(
+                      libelle: '${e.nomComplet} — ${_criteresManquants(e.id)} critère'
+                          '${_criteresManquants(e.id) > 1 ? 's' : ''} non noté'
+                          '${_criteresManquants(e.id) > 1 ? 's' : ''}',
+                      onAbsent: () {
+                        Navigator.pop(context);
+                        _confirmerAbsence(context, e);
+                      },
+                    ),
+                  const SizedBox(height: 8),
+                ],
+                if (nonVerrouilles.isNotEmpty) ...[
+                  Text('Noté${nonVerrouilles.length > 1 ? 's' : ''} mais non verrouillé'
+                      '${nonVerrouilles.length > 1 ? 's' : ''} :',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  for (final e in nonVerrouilles)
+                    _LigneEtudiantRefus(libelle: e.nomComplet, onAbsent: null),
+                  const SizedBox(height: 8),
+                ],
+                const Text(
+                  'Verrouillez chaque étudiant depuis sa fiche, ou déclarez-le absent, '
+                  'avant de valider le groupe.',
+                ),
+              ],
+            ),
           ),
           actions: [
             ElevatedButton(
@@ -781,35 +868,129 @@ class _GradingFooter extends StatelessWidget {
     context.read<GradingBloc>().add(const GradingGroupeValide());
   }
 
+  static String _mmss(Duration d) {
+    final s = d.inSeconds.abs();
+    return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
+  /// #417 — avancer AVANT l'heure ou AVANT d'avoir tout validé se confirme,
+  /// ne se bloque pas (ADR-0014 : l'horloge est un plancher, jamais un
+  /// plafond ; le guidage n'interdit rien). Une seule boîte, qui dit ce qui
+  /// reste : du temps au groupe, des étudiants sans verdict — ou les deux.
   void _confirmerGroupeSuivant(BuildContext context) {
-    if (!state.tousLesEtudiantsValides) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title:   const Text('Groupe suivant ?'),
-          content: const Text(
-            'Certains étudiants ne sont pas validés. Voulez-vous continuer ?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                context
-                    .read<GradingBloc>()
-                    .add(const GradingGroupeSuivantDemande());
-              },
-              child: const Text('Continuer'),
-            ),
+    final reste = state.tempsRestant ?? Duration.zero;
+    final tempsRestant = reste > Duration.zero && !state.enPause;
+    final sansVerdict  = state.lot.etudiants
+        .where((e) => !state.etudiantsValides.contains(e.id))
+        .toList();
+
+    if (!tempsRestant && sansVerdict.isEmpty) {
+      context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
+      return;
+    }
+
+    final raisons = <String>[
+      if (tempsRestant)
+        'Le groupe en cours dispose encore de ${_mmss(reste)} : les étudiants ont droit à leur temps.',
+      if (sansVerdict.isNotEmpty)
+        '${sansVerdict.length} étudiant${sansVerdict.length > 1 ? 's' : ''} sans verdict : '
+            '${sansVerdict.map((e) => e.nomComplet).join(", ")}.',
+    ];
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Passer au groupe suivant maintenant ?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final r in raisons)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• '),
+                    Expanded(child: Text(r)),
+                  ],
+                ),
+              ),
           ],
         ),
-      );
-    } else {
-      context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Rester sur ce groupe'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              context.read<GradingBloc>().add(const GradingGroupeSuivantDemande());
+            },
+            child: const Text('Passer quand même'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// #417 — déclarer un étudiant absent depuis la grille (appui long) ou depuis
+/// le refus de validation : même acte, même confirmation que la fiche étudiant.
+/// Fonction de fichier : appelée depuis la vue ET depuis l'en-tête collant.
+void _confirmerAbsence(BuildContext context, dynamic etudiant) {
+  final bloc = context.read<GradingBloc>();
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Marquer absent ?'),
+      content: Text(
+        '${etudiant.nomComplet} sera marqué absent à cette station, avec un score '
+        'de 0/20. Les notes déjà saisies pour cet étudiant à cette station seront '
+        'effacées.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Annuler'),
+        ),
+        ElevatedButton(
+          key: const Key('confirmer-absence'),
+          onPressed: () {
+            Navigator.pop(dialogContext);
+            bloc.add(GradingEtudiantValide(etudiant.id as int, absent: true));
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.scoreRed),
+          child: const Text('Confirmer l\'absence',
+              style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// #417 — une ligne du refus de validation : le nom, et l'acte possible ici.
+class _LigneEtudiantRefus extends StatelessWidget {
+  final String libelle;
+  final VoidCallback? onAbsent;
+  const _LigneEtudiantRefus({required this.libelle, required this.onAbsent});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Text('• $libelle')),
+        if (onAbsent != null)
+          TextButton(
+            onPressed: onAbsent,
+            style: TextButton.styleFrom(foregroundColor: AppTheme.scoreRed),
+            child: const Text('Déclarer absent'),
+          ),
+      ],
+    );
   }
 }
 
@@ -981,10 +1162,10 @@ class _NumericCellState extends State<_NumericCell> {
           ),
           onChanged: (val) {
             if (val.trim().isEmpty || val == '.') {
-              context.read<GradingBloc>().add(GradingNumericUpdated(
+              // #417 — vider la cellule = critère NON NOTÉ, jamais un zéro.
+              context.read<GradingBloc>().add(GradingNumericCleared(
                 etudiantId: widget.etudiant.id,
                 itemId:     widget.item.id,
-                valeur:     0,
               ));
               return;
             }
@@ -1091,7 +1272,9 @@ class _StickyStudentHeader extends StatelessWidget {
                   child:  _EtudiantHeader(
                     etudiant:  e,
                     estValide: state.etudiantsValides.contains(e.id),
+                    estAbsent: state.etudiantsAbsents.contains(e.id),
                     state:     state,
+                    onDeclarerAbsent: () => _confirmerAbsence(context, e),
                   ),
                 ))
                     .toList(),
@@ -1107,44 +1290,109 @@ class _StickyStudentHeader extends StatelessWidget {
 class _EtudiantHeader extends StatelessWidget {
   final dynamic        etudiant;
   final bool           estValide;
+  /// #417 — déclaré absent : gris + pastille, jamais le vert du « noté ».
+  final bool           estAbsent;
   final GradingLoaded  state;
+  /// #417 — l'absence se déclare depuis la grille (appui long sur l'étudiant).
+  final VoidCallback?  onDeclarerAbsent;
 
   const _EtudiantHeader({
     required this.etudiant,
     required this.estValide,
+    this.estAbsent = false,
     required this.state,
+    this.onDeclarerAbsent,
   });
+
+  void _ouvrirFiche(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BlocProvider.value(
+        value: context.read<GradingBloc>(),
+        child: StudentDetailScreen(
+          etudiant:   etudiant,
+          stationNom: state.stationNom,
+        ),
+      ),
+    ));
+  }
+
+  /// #417 — menu d'actions sur l'étudiant. Avant, l'absence n'était accessible
+  /// que deux écrans plus loin (fiche → bascule → confirmer) : un enseignant qui
+  /// constate un absent laissait la colonne vide, puis butait sur le refus.
+  void _ouvrirMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(etudiant.nomComplet,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(estAbsent
+                  ? 'Déclaré absent à cette station'
+                  : estValide
+                      ? 'Notes verrouillées'
+                      : 'Notation en cours'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.badge_outlined),
+              title: const Text('Ouvrir la fiche'),
+              onTap: () { Navigator.pop(context); _ouvrirFiche(context); },
+            ),
+            if (!estValide && onDeclarerAbsent != null)
+              ListTile(
+                leading: const Icon(Icons.person_off_outlined, color: AppTheme.scoreRed),
+                title: const Text('Déclarer absent',
+                    style: TextStyle(color: AppTheme.scoreRed)),
+                onTap: () { Navigator.pop(context); onDeclarerAbsent!(); },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final gc = _GC(Theme.of(context).brightness == Brightness.dark);
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => BlocProvider.value(
-          value: context.read<GradingBloc>(),
-          child: StudentDetailScreen(
-            etudiant:   etudiant,
-            stationNom: state.stationNom,
-          ),
-        ),
-      )),
+      onTap:       () => _ouvrirFiche(context),
+      onLongPress: () => _ouvrirMenu(context),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           CircleAvatar(
             radius:          20,
-            backgroundColor: estValide
-                ? AppTheme.scoreGreen
-                : AppTheme.primaryDark,
-            child: Text(
-              etudiant.initiales,
-              style: const TextStyle(
-                color:      Colors.white,
-                fontSize:   13,
-                fontWeight: FontWeight.bold,
+            backgroundColor: estAbsent
+                ? Colors.grey
+                : estValide
+                    ? AppTheme.scoreGreen
+                    : AppTheme.primaryDark,
+            child: estAbsent
+                ? const Icon(Icons.person_off_outlined, size: 18, color: Colors.white)
+                : Text(
+                    etudiant.initiales,
+                    style: const TextStyle(
+                      color:      Colors.white,
+                      fontSize:   13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+          ),
+          if (estAbsent)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Absent',
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
               ),
             ),
-          ),
           const SizedBox(height: 6),
           Text(
             etudiant.prenom,

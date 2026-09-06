@@ -1,21 +1,21 @@
-// test/widget/grading_suivant_confirm_test.dart
+// test/widget/grading_valider_confirm_test.dart
 // ================================================
-// #423 (recette du 06/09) — « GROUPE SUIVANT » NE SAUTE PLUS LA VALIDATION.
+// #423 (recette du 06/09) — L'AVERTISSEMENT DE TEMPS VIT SUR « VALIDER GROUPE ».
 //
-// #417 avait posé la boîte « Passer au groupe suivant maintenant ? » sur ce
-// bouton : elle arrivait APRÈS le verrouillage et la validation, quand le temps
-// restant ne pouvait plus rien changer (remarque de Nada). L'avertissement de
-// temps vit désormais sur « Valider groupe » (grading_valider_confirm_test).
+// C'est l'acte qui CLÔT le groupe : c'est là qu'un temps encore dû aux
+// étudiants a un sens. Confirmer, jamais bloquer (ADR-0014 : l'horloge est un
+// plancher, le guidage n'interdit rien). Le verrouillage individuel, lui, reste
+// silencieux.
 //
 // Contrat :
-//   1. groupe validé (lotValide) → AUCUNE boîte, même s'il reste du temps :
-//      GradingGroupeSuivantDemande part directement ;
-//   2. groupe complet mais non validé → boîte « Groupe non validé » ; « Rester
-//      sur ce groupe » n'envoie rien ; « Valider puis passer » envoie
-//      GradingGroupeValide(puisAvancer: true) — et PAS l'avance directe ;
-//      s'il reste du temps, la boîte le dit (MM:SS) ;
-//   3. groupe incomplet → boîte « Groupe non validé » qui NOMME les étudiants
-//      sans verdict, un seul bouton « Compris », aucun événement.
+//   1. tout verrouillé + temps restant → « Valider le groupe maintenant ? »
+//      avec MM:SS ; « Attendre » n'envoie rien ; « Valider quand même » envoie
+//      GradingGroupeValide (sans puisAvancer) ;
+//   2. tout verrouillé + temps écoulé → aucune boîte, la validation part ;
+//   3. tout verrouillé + temps restant MAIS en pause → aucune boîte (l'horloge
+//      ne court pas en pause) ;
+//   4. groupe incomplet → « Groupe incomplet » (contrat #417 inchangé), et
+//      pas d'avertissement de temps par-dessus.
 
 import 'dart:async';
 
@@ -87,7 +87,7 @@ const _karim =
 GradingLoaded _etat({
   Duration? tempsRestant,
   Set<int> valides = const {},
-  bool lotValide = false,
+  bool enPause = false,
 }) =>
     GradingLoaded(
       rotationId: 1,
@@ -95,22 +95,20 @@ GradingLoaded _etat({
       grilleId: 1,
       stationNom: 'Station',
       grille: _grille,
-      lot: Lot(
+      lot: const Lot(
         id: 1,
         numero: 1,
         total: 3,
-        etudiants: const [_amina, _karim],
-        valide: lotValide,
+        etudiants: [_amina, _karim],
         groupeSuivantDisponible: true,
       ),
-      // Tout le monde est noté : la seule chose qui manque est le verrou/verdict.
       notations: const {
         1: {7: Notation(etudiantId: 1, itemId: 7, valeur: 1)},
         2: {7: Notation(etudiantId: 2, itemId: 7, valeur: 1)},
       },
       etudiantsValides: valides,
       tempsRestant: tempsRestant,
-      lotValide: lotValide,
+      enPause: enPause,
     );
 
 const _session = Session(
@@ -145,12 +143,6 @@ Future<_FakeGradingBloc> _pump(WidgetTester tester, GradingLoaded etat) async {
   return bloc;
 }
 
-Future<void> _tapSuivant(WidgetTester tester) async {
-  await tester.tap(find.text('Groupe suivant'));
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 300));
-}
-
 Future<void> _tap(WidgetTester tester, String label) async {
   await tester.tap(find.text(label));
   await tester.pump();
@@ -159,77 +151,65 @@ Future<void> _tap(WidgetTester tester, String label) async {
 
 void main() {
   testWidgets(
-      '#423 — groupe validé : aucune boîte même s\'il reste du temps, l\'avance part',
+      '#423 — tout verrouillé, il reste du temps : boîte avec MM:SS ; « Attendre » '
+      'n\'envoie rien ; « Valider quand même » valide', (tester) async {
+    final bloc = await _pump(tester,
+        _etat(tempsRestant: const Duration(minutes: 2, seconds: 18), valides: {1, 2}));
+
+    await _tap(tester, 'Valider groupe');
+
+    expect(find.text('Valider le groupe maintenant ?'), findsOneWidget);
+    expect(find.textContaining('Il reste 02:18'), findsOneWidget);
+    expect(bloc.events, isEmpty, reason: 'rien ne part sans confirmation');
+
+    await _tap(tester, 'Attendre');
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(bloc.events, isEmpty);
+
+    await _tap(tester, 'Valider groupe');
+    await _tap(tester, 'Valider quand même');
+    final valides = bloc.events.whereType<GradingGroupeValide>().toList();
+    expect(valides.length, 1, reason: 'confirmer, jamais bloquer (ADR-0014)');
+    expect(valides.single.puisAvancer, isFalse);
+  });
+
+  testWidgets('#423 — tout verrouillé, temps écoulé : aucune boîte, la validation part',
+      (tester) async {
+    final bloc = await _pump(
+        tester, _etat(tempsRestant: const Duration(seconds: -30), valides: {1, 2}));
+
+    await _tap(tester, 'Valider groupe');
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(bloc.events.whereType<GradingGroupeValide>().length, 1);
+  });
+
+  testWidgets('#423 — en pause : l\'horloge ne court pas, aucune boîte de temps',
       (tester) async {
     final bloc = await _pump(
         tester,
         _etat(
-            tempsRestant: const Duration(minutes: 4, seconds: 7),
+            tempsRestant: const Duration(minutes: 5),
             valides: {1, 2},
-            lotValide: true));
+            enPause: true));
 
-    await _tapSuivant(tester);
+    await _tap(tester, 'Valider groupe');
 
-    expect(find.byType(AlertDialog), findsNothing,
-        reason: 'les notes sont figées : un avertissement de temps ne changerait rien');
-    expect(bloc.events.whereType<GradingGroupeSuivantDemande>().length, 1);
-  });
-
-  testWidgets(
-      '#423 — complet mais non validé : « Groupe non validé » ; « Rester » n\'envoie '
-      'rien ; « Valider puis passer » envoie GradingGroupeValide(puisAvancer)',
-      (tester) async {
-    final bloc = await _pump(tester,
-        _etat(tempsRestant: const Duration(minutes: 4, seconds: 7), valides: {1, 2}));
-
-    await _tapSuivant(tester);
-
-    expect(find.text('Groupe non validé'), findsOneWidget);
-    expect(find.textContaining('Il reste 04:07'), findsOneWidget,
-        reason: 'le temps dû est dit, en clair');
-    expect(bloc.events, isEmpty);
-
-    await _tap(tester, 'Rester sur ce groupe');
     expect(find.byType(AlertDialog), findsNothing);
-    expect(bloc.events, isEmpty);
-
-    await _tapSuivant(tester);
-    await _tap(tester, 'Valider puis passer');
-    final valides = bloc.events.whereType<GradingGroupeValide>().toList();
-    expect(valides.length, 1);
-    expect(valides.single.puisAvancer, isTrue,
-        reason: 'l\'avance est enchaînée PAR le bloc, après le succès de la validation');
-    expect(bloc.events.whereType<GradingGroupeSuivantDemande>(), isEmpty,
-        reason: 'jamais d\'avance directe par-dessus un groupe non validé');
+    expect(bloc.events.whereType<GradingGroupeValide>().length, 1);
   });
 
   testWidgets(
-      '#423 — complet, non validé, temps écoulé : la boîte reste (validation exigée), '
-      'sans mention de temps', (tester) async {
-    final bloc = await _pump(
-        tester, _etat(tempsRestant: const Duration(seconds: -12), valides: {1, 2}));
-
-    await _tapSuivant(tester);
-
-    expect(find.text('Groupe non validé'), findsOneWidget);
-    expect(find.textContaining('Il reste'), findsNothing);
-    expect(find.text('Valider puis passer'), findsOneWidget);
-    expect(bloc.events, isEmpty);
-  });
-
-  testWidgets('#423 — groupe incomplet : le refus NOMME, sans option de passage',
+      '#417/#423 — groupe incomplet : « Groupe incomplet » d\'abord, jamais la boîte de temps',
       (tester) async {
-    final bloc = await _pump(tester, _etat(tempsRestant: Duration.zero, valides: {1}));
+    final bloc = await _pump(
+        tester, _etat(tempsRestant: const Duration(minutes: 5), valides: {1}));
 
-    await _tapSuivant(tester);
+    await _tap(tester, 'Valider groupe');
 
-    expect(find.text('Groupe non validé'), findsOneWidget);
-    expect(find.textContaining('non verrouillé'), findsOneWidget);
+    expect(find.text('Groupe incomplet'), findsOneWidget);
+    expect(find.text('Valider le groupe maintenant ?'), findsNothing);
     expect(find.textContaining('Karim Mzoughi'), findsOneWidget);
-    expect(find.text('Compris'), findsOneWidget);
-    expect(find.text('Valider puis passer'), findsNothing);
-    expect(find.text('Passer quand même'), findsNothing,
-        reason: 'plus aucun chemin ne laisse un groupe ouvert derrière soi');
     expect(bloc.events, isEmpty);
   });
 }

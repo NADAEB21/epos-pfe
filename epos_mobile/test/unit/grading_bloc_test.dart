@@ -604,6 +604,70 @@ void main() {
         });
   });
 
+  group('GradingGroupeValide(puisAvancer) — #423 « Valider puis passer »', () {
+    test('succès de la validation → la suite part et le nouveau groupe est chargé',
+            () async {
+          final repo = _FakeGradingRepository()
+            ..onValiderGroupe = (_) async {}
+            ..onGroupeSuivant = (rotationId) async => const Lot(
+              id: 29, numero: 2, total: 2,
+              etudiants: [_etudiant1, _etudiant2],
+              valide: false,
+            );
+          final bloc = GradingBloc(repository: repo);
+          // ignore: invalid_use_of_visible_for_testing_member
+          bloc.emit(_seedState(groupeSuivantDisponible: true, etudiantsValides: {1, 2}));
+
+          bloc.add(const GradingGroupeValide(puisAvancer: true));
+          await _settle();
+          await _settle();
+
+          expect(repo.validerGroupeCalls, 1);
+          expect(repo.groupeSuivantCalls, 1, reason: 'validé, PUIS avancé');
+          final s = bloc.state as GradingLoaded;
+          expect(s.lot.id, 29);
+          expect(s.lotValide, isFalse, reason: 'le nouveau groupe est non validé');
+          await bloc.close();
+        });
+
+    test('refus serveur de la validation → AUCUNE avance, motif affiché', () async {
+      final repo = _FakeGradingRepository()
+        ..onValiderGroupe = (_) async => throw Exception('Groupe incomplet.');
+      final bloc = GradingBloc(repository: repo);
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(groupeSuivantDisponible: true));
+
+      bloc.add(const GradingGroupeValide(puisAvancer: true));
+      await _settle();
+      await _settle();
+
+      expect(repo.groupeSuivantCalls, 0,
+          reason: 'jamais une avance par-dessus un groupe non validé');
+      final s = bloc.state as GradingLoaded;
+      expect(s.lotValide, isFalse);
+      expect(s.messageErreur, 'Groupe incomplet.');
+      await bloc.close();
+    });
+
+    test('pas de groupe suivant → validation seule, vagueTerminee, aucune avance appelée',
+            () async {
+          final repo = _FakeGradingRepository()..onValiderGroupe = (_) async {};
+          final bloc = GradingBloc(repository: repo);
+          // ignore: invalid_use_of_visible_for_testing_member
+          bloc.emit(_seedState(groupeSuivantDisponible: false));
+
+          bloc.add(const GradingGroupeValide(puisAvancer: true));
+          await _settle();
+          await _settle();
+
+          expect(repo.groupeSuivantCalls, 0);
+          final s = bloc.state as GradingLoaded;
+          expect(s.lotValide, isTrue);
+          expect(s.vagueTerminee, isTrue);
+          await bloc.close();
+        });
+  });
+
   group('GradingGroupeSuivantDemande', () {
     test('pas de groupe suivant → vagueTerminee=true, AUCUN appel réseau',
             () async {

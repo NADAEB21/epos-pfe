@@ -1017,6 +1017,7 @@ class EvaluateurDashboardServiceTest {
 
             Rotation courante = rotationWithLot(1L, lot, 1);
             courante.setOrdrePassage(1);
+            courante.setStatut(RotationStatus.TERMINE);   // #423 — validé d'abord
 
             Rotation suivante = rotationWithLot(2L, lot, 2);
             suivante.setOrdrePassage(2);
@@ -1042,12 +1043,37 @@ class EvaluateurDashboardServiceTest {
                     .findFirstByEvaluateurIdAndDebutCreneauAfterOrderByDebutCreneauAsc(any(), any());
         }
 
+        /**
+         * #423 (recette du 06/09) — « Groupe suivant » ne saute plus la validation : une
+         * rotation courante encore EN_COURS (ou EN_ATTENTE) est refusée AVANT toute lecture
+         * du rang suivant, et rien n'est ouvert ni horodaté.
+         */
+        @Test
+        @DisplayName("#423 : groupe courant non validé → BusinessException, rien n'est ouvert")
+        void groupeSuivant_refuseSiCourantNonValide() {
+            Lot lot = new Lot(); lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            Rotation courante = rotationWithLot(1L, lot, 1);
+            courante.setOrdrePassage(1);
+            courante.setStatut(RotationStatus.EN_COURS);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
+
+            assertThatThrownBy(() -> service.avancerGroupe(1L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Validez d'abord");
+            verify(rotationRepository, never())
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            any(), any(), anyInt());
+            verify(rotationRepository, never()).save(any());
+        }
+
         @Test
         @DisplayName("Dernier passage de la station pour ce lot → ResourceNotFoundException")
         void groupeSuivant_aucunSuivant() {
             Lot lot = new Lot(); lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
             Rotation courante = rotationWithLot(1L, lot, 1);
             courante.setOrdrePassage(2);
+            courante.setStatut(RotationStatus.TERMINE);   // #423 — validé d'abord
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
             when(rotationRepository

@@ -135,7 +135,11 @@ class GradingEtudiantValide extends GradingEvent {
 }
 
 class GradingGroupeValide extends GradingEvent {
-  const GradingGroupeValide();
+  /// #423 — « Valider puis passer » : valider, et si le serveur accepte, ouvrir
+  /// le groupe suivant dans la foulée. Le chemin « Groupe suivant » ne saute
+  /// plus la validation ; ceci est la seule manière d'enchaîner les deux actes.
+  final bool puisAvancer;
+  const GradingGroupeValide({this.puisAvancer = false});
 }
 
 class GradingGroupeSuivantDemande extends GradingEvent {
@@ -763,6 +767,13 @@ class GradingBloc extends Bloc<GradingEvent, GradingState> {
         // n'aurait jamais pu s'afficher.
         vagueTerminee: !current.lot.groupeSuivantDisponible,
       ));
+      // #423 — « Valider puis passer » : l'avance ne part QU'APRÈS le succès de
+      // la validation (un refus serveur ci-dessous laisse l'évaluateur sur son
+      // groupe, avec le motif). S'il n'y a pas de suivant, la bannière « Vague
+      // terminée » posée juste au-dessus suffit.
+      if (event.puisAvancer && current.lot.groupeSuivantDisponible) {
+        add(const GradingGroupeSuivantDemande());
+      }
     } catch (e) {
       // #297 — un refus (groupe incomplet) doit être VU, pas juste avalé :
       // avant, catch(_) laissait le bouton s'arrêter de tourner sans aucune

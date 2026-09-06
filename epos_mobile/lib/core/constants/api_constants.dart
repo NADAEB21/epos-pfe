@@ -87,6 +87,8 @@ class ApiConstants {
 
   // === Notation (scoring-service via gateway) ===
   static const String saisirNotation = '/evaluateur/notations/saisir';
+  /// #417 — DELETE : efface la valeur d'un critère (cellule vidée → « non noté »).
+  static const String effacerNotationItem = '/evaluateur/notations/items';
 
   // === Validation ===
   // Deux grains, et deux seulement : un ETUDIANT, puis le GROUPE.

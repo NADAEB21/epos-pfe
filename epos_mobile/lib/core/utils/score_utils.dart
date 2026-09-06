@@ -6,8 +6,22 @@ import '../../features/grading/domain/entities/notation.dart';
 class ScoreUtils {
   ScoreUtils._();
 
-  static String fmtPoints(double v) =>
-      v == v.truncateToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+  /// Affichage d'un nombre de points en français : jusqu'à DEUX décimales,
+  /// zéros inutiles retirés, virgule décimale. 2 → « 2 », 1,5 → « 1,5 »,
+  /// 1,75 → « 1,75 ».
+  ///
+  /// #417 — avant, `toStringAsFixed(1)` arrondissait 1,75 en « 1.8 » : le
+  /// quart de point, courant dans les grilles réelles (sous-critères à 0,25),
+  /// était stocké exactement (REAL, aucun arrondi côté scoring) mais MENTI à
+  /// l'écran. Un affichage qui arrondit un score est une erreur de mesure,
+  /// pas un détail de présentation.
+  static String fmtPoints(double v) {
+    if (v == v.truncateToDouble()) return v.toInt().toString();
+    final deux = v.toStringAsFixed(2)
+        .replaceAll(RegExp(r'0+$'), '')   // 1.50 → 1.5 ; 10.00 → 10.
+        .replaceAll(RegExp(r'\.$'), '');  // 10. → 10
+    return deux.replaceAll('.', ',');
+  }
 
   /// Un seul niveau de profondeur (#160) : seules les feuilles sont notées ;
   /// le score d'un critère parent = somme de ses sous-critères.

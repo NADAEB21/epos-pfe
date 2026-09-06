@@ -290,7 +290,9 @@ class _DetailHeader extends StatelessWidget {
                         const SizedBox(width: 4),
                       ],
                       Text(
-                        'Score : ${score.toStringAsFixed(1)}/${noteMax.toInt()}',
+                        // #417 — 20 s'affichait « 20.0 », 1,75 « 1.8 » : un seul
+                        // format de points dans toute l'application.
+                        'Score : ${ScoreUtils.fmtPoints(score)}/${noteMax.toInt()}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14,
@@ -653,7 +655,7 @@ class _CritereRow extends StatelessWidget {
                   ? '—'
                   : item.type == TypeCritere.binaire
                   ? '${ScoreUtils.fmtPoints(itemScore)}/${ScoreUtils.fmtPoints(item.ponderation)}'
-                  : '${itemScore.toStringAsFixed(1)}/${ScoreUtils.fmtPoints(item.valeurMax)}',
+                  : '${ScoreUtils.fmtPoints(itemScore)}/${ScoreUtils.fmtPoints(item.valeurMax)}',
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 12,

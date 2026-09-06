@@ -1813,6 +1813,77 @@ class EvaluateurDashboardServiceTest {
     }
 
     // =========================================================================
+    // =========================================================================
+    // effacerNotationItem — #417 : une cellule VIDÉE efface le critère (non noté),
+    // elle n'enregistre pas un zéro.
+    // =========================================================================
+
+    @Nested
+    @DisplayName("effacerNotationItem() — #417")
+    class EffacerNotationItemLogic {
+
+        private Notation notationOuverte(Long assignmentId) {
+            ExamenParticipation p = participation(4L); p.setId(140L); p.setExamen_id(99L);
+            RotationAssignment ra = new RotationAssignment(); ra.setId(assignmentId); ra.setParticipation(p);
+            Notation n = new Notation(); n.setId(40L); n.setGrilleId(1L); n.setVerouillee(false);
+            n.setAssignment(ra);
+            when(rotationRepository.existsByEvaluateurIdAndStationId(EVAL_ID, STATION_ID)).thenReturn(true);
+            when(participationRepository.findByEtudiantIdAndStationId(4L, STATION_ID)).thenReturn(Optional.of(p));
+            when(rotationAssignmentRepository.findByParticipationIdAndStationId(140L, STATION_ID)).thenReturn(Optional.of(ra));
+            when(notationRepository.findByAssignmentId(assignmentId)).thenReturn(Optional.of(n));
+            return n;
+        }
+
+        @Test
+        @DisplayName("le critère saisi est SUPPRIMÉ et le score recalculé sans lui")
+        void efface_etRecalcule() {
+            Notation n = notationOuverte(240L);
+            NotationItem cible = new NotationItem(); cible.setItemId(5L); cible.setValeur(1f); cible.setNotation(n);
+            NotationItem autre = new NotationItem(); autre.setItemId(6L); autre.setValeur(1f); autre.setNotation(n);
+            Map<Long, ExamItemSnapshot> def = new LinkedHashMap<>();
+            def.putAll(definition(5L, 4.0, "BINAIRE"));
+            def.putAll(definition(6L, 3.0, "BINAIRE"));
+            when(notationItemRepository.findByNotationIdAndItemId(40L, 5L)).thenReturn(Optional.of(cible));
+            // après suppression, il ne reste que l'autre critère
+            when(notationItemRepository.findByNotationId(40L)).thenReturn(List.of(autre));
+            when(examDefinitionSnapshot.resolveItems(any(), eq(1L))).thenReturn(def);
+            when(examDefinitionSnapshot.weigh(def, 6L, 1f)).thenReturn(3f);
+
+            service.effacerNotationItem(4L, STATION_ID, 5L, EVAL_ID);
+
+            verify(notationItemRepository).delete(cible);
+            assertThat(n.getScore_final()).isEqualTo(3f);
+            assertThat(n.getSaisiPar()).isEqualTo(EVAL_ID);
+            verify(notationRepository).save(n);
+        }
+
+        @Test
+        @DisplayName("rien à effacer (critère jamais saisi) → succès silencieux, aucune écriture")
+        void idempotent_sansItem() {
+            notationOuverte(241L);
+            when(notationItemRepository.findByNotationIdAndItemId(40L, 5L)).thenReturn(Optional.empty());
+
+            service.effacerNotationItem(4L, STATION_ID, 5L, EVAL_ID);
+
+            verify(notationItemRepository, never()).delete(any());
+            verify(notationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("notation verrouillée → refus, rien n'est effacé")
+        void refuse_siVerrouillee() {
+            Notation n = notationOuverte(242L);
+            n.setVerouillee(true);
+
+            assertThatThrownBy(() -> service.effacerNotationItem(4L, STATION_ID, 5L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("déjà verrouillée");
+
+            verify(notationItemRepository, never()).delete(any());
+        }
+    }
+
+    // =========================================================================
     // validerGroupe — remplace la validation côté évaluateur (ex "validerLot"
     // appelée depuis le mobile). Clôture la ROTATION (groupe × station
     // courants), puis clôture automatiquement le LOT si c'était sa dernière
@@ -1868,10 +1939,12 @@ class EvaluateurDashboardServiceTest {
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
             when(notationRepository.findByAssignmentId(50L)).thenReturn(Optional.empty());
 
+            // #417 — le refus nomme la CAUSE : jamais noté → liste « Non noté ».
             assertThatThrownBy(() -> service.validerGroupe(1L, EVAL_ID))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("aucun verdict")
-                    .hasMessageContaining("Prenom7 Nom7");
+                    .hasMessageContaining("Non noté")
+                    .hasMessageContaining("Prenom7 Nom7")
+                    .satisfies(ex -> assertThat(ex.getMessage()).doesNotContain("non verrouillé"));
 
             assertThat(r.getStatut()).isNotEqualTo(RotationStatus.TERMINE);
             verify(rotationRepository, never()).save(r);
@@ -1884,17 +1957,78 @@ class EvaluateurDashboardServiceTest {
             Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
             Rotation r = rotationWithLot(1L, lot, 1);
 
-            ExamenParticipation p = participation(8L);
+            ExamenParticipation p = participation(8L); p.setExamen_id(99L);
             RotationAssignment ra = new RotationAssignment(); ra.setId(51L); ra.setParticipation(p);
-            Notation n = new Notation(); n.setId(20L); n.setVerouillee(false);
+            Notation n = new Notation(); n.setId(20L); n.setGrilleId(1L); n.setVerouillee(false);
+            NotationItem saisi = new NotationItem(); saisi.setItemId(5L); saisi.setValeur(1f);
 
             when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
             when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(ra));
             when(notationRepository.findByAssignmentId(51L)).thenReturn(Optional.of(n));
+            // Grille à UN critère, saisi : la notation est COMPLÈTE, seul le verrou manque.
+            when(examDefinitionSnapshot.resolveItems(99L, 1L)).thenReturn(definition(5L, 1.0, "BINAIRE"));
+            when(notationItemRepository.findByNotationId(20L)).thenReturn(List.of(saisi));
+
+            // #417 — la cause nommée est « noté mais non verrouillé », pas « non noté ».
+            assertThatThrownBy(() -> service.validerGroupe(1L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("non verrouillé")
+                    .hasMessageContaining("Prenom8 Nom8")
+                    .satisfies(ex -> assertThat(ex.getMessage()).doesNotContain("Non noté"));
+
+            verify(rotationRepository, never()).save(r);
+        }
+
+        /**
+         * #417 (recette du 05/09) — une notation ENTAMÉE mais incomplète est un « non
+         * noté » avec le compte des critères manquants : l'évaluateur sait quoi faire
+         * (saisir), pas seulement qui est concerné. Les deux listes coexistent dans un
+         * seul message.
+         */
+        @Test
+        @DisplayName("#417 : notation incomplète → « Non noté (N critères manquants) » ; les deux listes coexistent")
+        void validerGroupe_deuxListes_nonNoteEtNonVerrouille() {
+            Lot lot = new Lot(); lot.setId(10L); lot.setStatut(LotStatus.EN_COURS);
+            Rotation r = rotationWithLot(1L, lot, 1);
+
+            // A : 1 critère saisi sur 3 → non noté (2 manquants)
+            ExamenParticipation pa = participation(1L); pa.setExamen_id(99L);
+            RotationAssignment raA = new RotationAssignment(); raA.setId(61L); raA.setParticipation(pa);
+            Notation na = new Notation(); na.setId(31L); na.setGrilleId(1L); na.setVerouillee(false);
+            NotationItem s1 = new NotationItem(); s1.setItemId(5L); s1.setValeur(1f);
+            // B : complet, non verrouillé
+            ExamenParticipation pb = participation(2L); pb.setExamen_id(99L);
+            RotationAssignment raB = new RotationAssignment(); raB.setId(62L); raB.setParticipation(pb);
+            Notation nb = new Notation(); nb.setId(32L); nb.setGrilleId(1L); nb.setVerouillee(false);
+            NotationItem b5 = new NotationItem(); b5.setItemId(5L);
+            NotationItem b6 = new NotationItem(); b6.setItemId(6L);
+            NotationItem b7 = new NotationItem(); b7.setItemId(7L);
+            // C : verrouillé → absent du message
+            ExamenParticipation pc = participation(3L); pc.setExamen_id(99L);
+            RotationAssignment raC = new RotationAssignment(); raC.setId(63L); raC.setParticipation(pc);
+            Notation nc = new Notation(); nc.setId(33L); nc.setGrilleId(1L); nc.setVerouillee(true);
+
+            Map<Long, ExamItemSnapshot> troisCriteres = new LinkedHashMap<>();
+            for (long id : new long[]{5L, 6L, 7L}) {
+                troisCriteres.put(id, ExamItemSnapshot.builder().examenId(99L).grilleId(1L).itemId(id)
+                        .ponderation(1.0).type("BINAIRE").build());
+            }
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(r));
+            when(rotationAssignmentRepository.findByRotationId(1L)).thenReturn(List.of(raA, raB, raC));
+            when(notationRepository.findByAssignmentId(61L)).thenReturn(Optional.of(na));
+            when(notationRepository.findByAssignmentId(62L)).thenReturn(Optional.of(nb));
+            when(notationRepository.findByAssignmentId(63L)).thenReturn(Optional.of(nc));
+            when(examDefinitionSnapshot.resolveItems(99L, 1L)).thenReturn(troisCriteres);
+            when(notationItemRepository.findByNotationId(31L)).thenReturn(List.of(s1));
+            when(notationItemRepository.findByNotationId(32L)).thenReturn(List.of(b5, b6, b7));
 
             assertThatThrownBy(() -> service.validerGroupe(1L, EVAL_ID))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("Prenom8 Nom8");
+                    .hasMessageContaining("Non noté : Prenom1 Nom1 (2 critères manquants).")
+                    .hasMessageContaining("Noté mais non verrouillé : Prenom2 Nom2.")
+                    .hasMessageContaining("déclarez-le absent")
+                    .satisfies(ex -> assertThat(ex.getMessage()).doesNotContain("Prenom3 Nom3"));
 
             verify(rotationRepository, never()).save(r);
         }

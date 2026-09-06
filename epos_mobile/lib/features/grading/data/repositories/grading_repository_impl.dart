@@ -235,6 +235,50 @@ class GradingRepositoryImpl implements GradingRepository {
   }
 }
 
+  // ── DELETE /evaluateur/notations/items — #417, cellule vidée ──────────────
+  //
+  // Miroir de saveNotation : en ligne on efface côté serveur ; hors ligne (ou
+  // erreur réseau) on retire de la file locale la notation en attente pour ce
+  // critère, pour qu'un zéro (ou l'ancienne valeur) ne parte pas à la
+  // synchronisation. Si le serveur porte déjà une valeur et qu'on est hors
+  // ligne, elle y reste : le rechargement du groupe la montrera, honnêtement.
+  @override
+  Future<void> effacerNotationItem({
+    required int etudiantId,
+    required int stationId,
+    required int itemId,
+  }) async {
+    Future<void> purgerFileLocale() async {
+      final pending = await OfflineStorageService.instance.getPendingNotations();
+      final ids = pending
+          .where((p) => p.etudiantId == etudiantId &&
+                        p.stationId  == stationId &&
+                        p.itemId     == itemId &&
+                        p.id != null)
+          .map((p) => p.id!)
+          .toList();
+      if (ids.isNotEmpty) await OfflineStorageService.instance.deleteByIds(ids);
+    }
+
+    if (ConnectivityService.instance.isOnline) {
+      try {
+        await _apiClient.delete(
+          '${ApiConstants.effacerNotationItem}'
+          '?etudiantId=$etudiantId&stationId=$stationId&itemId=$itemId',
+        );
+        await purgerFileLocale();
+        return;
+      } on DioException catch (e) {
+        if (e.type != DioExceptionType.connectionError &&
+            e.type != DioExceptionType.connectionTimeout) {
+          throw _handleError(e, 'Impossible d\'effacer le critère');
+        }
+        // erreur réseau → même traitement que hors ligne
+      }
+    }
+    await purgerFileLocale();
+  }
+
   // ── Substitution ──────────────────────────────────────────────────────────
   @override
   Future<Etudiant> substituerEtudiant({
@@ -268,10 +312,13 @@ class GradingRepositoryImpl implements GradingRepository {
         return Exception('Accès refusé.');
       case 404:
         return Exception('Ressource introuvable.');
+      // #417 — le message métier du serveur, quand il existe, prime sur le
+      // libellé générique : « Conflit : la notation existe déjà » ne dit rien
+      // d'un refus de validation de groupe.
       case 409:
-        return Exception('Conflit : la notation existe déjà.');
+        return Exception(_extractErrorMessage(e) ?? 'Conflit : la notation existe déjà.');
       case 423:
-        return Exception('Notes verrouillées. Demandez un déverrouillage.');
+        return Exception(_extractErrorMessage(e) ?? 'Notes verrouillées. Demandez un déverrouillage.');
       case 500:
         return Exception('Erreur serveur. Réessayez plus tard.');
       default:

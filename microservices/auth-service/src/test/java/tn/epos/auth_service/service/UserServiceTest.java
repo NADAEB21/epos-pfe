@@ -268,7 +268,7 @@ class UserServiceTest {
         var response = userService.createUser(createRequest("new@test.com", roles), auth);
 
         assertThat(response.getInvitation().simulee()).isTrue();
-        assertThat(response.getInvitation().envoyee()).isTrue(); // le stub a « envoye » dans le vide
+        assertThat(response.getInvitation().envoyee()).isFalse(); // rien n'est parti : envoyee = faux
         verify(auditService).log(eq(10L), eq("new@test.com"), eq(AuditAction.USER_INVITED),
                 eq("simulee (messagerie desactivee)"), isNull());
     }

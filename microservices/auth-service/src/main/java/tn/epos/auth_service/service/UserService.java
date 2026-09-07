@@ -222,6 +222,12 @@ public class UserService {
             log.error("Échec de l'envoi de l'invitation à {} : {}", user.getEmail(), e.getMessage(), e);
         }
         boolean simulee = emailService.estSimule();
+        // Messagerie désactivée : le bouchon a « accepté » dans le vide, rien n'est parti.
+        // « envoyée » signifie qu'un courriel a quitté le système : elle est donc fausse ici
+        // (remarque de l'encadrante sur le diagramme de séquence, 2026-09-07).
+        if (simulee) {
+            envoyee = false;
+        }
 
         auditService.log(user.getId(), user.getEmail(), AuditAction.USER_INVITED,
                 simulee ? "simulee (messagerie desactivee)" : (envoyee ? "envoyee" : "echec d'envoi"),

@@ -58,7 +58,7 @@ export function phraseProposition(code: string): string {
     case 'CRITERE_SANS_LIEN':
       return "Ce critère n'a séparé personne — les bons et les faibles y réussissent pareil, alors que le reste de la grille est cohérent. Suggestion : le retirer du barème et renormaliser.";
     case 'STATION_EN_ECHEC':
-      return "Cette station met en échec la majorité des candidats, nettement plus que les autres stations. Suggestion : l'exclure du barème (le cas de l'encadrant).";
+      return "Cette station met en échec la majorité des candidats, nettement plus que les autres stations. Suggestion : l'exclure du barème.";
     default:
       throw new Error(
         `Code de proposition inconnu côté web : "${code}" — mettre à jour lecture-deliberation.ts.`,

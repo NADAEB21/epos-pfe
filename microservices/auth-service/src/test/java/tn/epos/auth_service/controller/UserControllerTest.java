@@ -256,7 +256,7 @@ class UserControllerTest {
     @WithMockUser(authorities = "ROLE_RESPONSABLE_MATIERE:5")
     void renvoyerInvitation_responsable_200_etDitSiSimulee() throws Exception {
         when(userService.renvoyerInvitation(eq(42L), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new tn.epos.auth_service.dto.InvitationStatus(true, true));
+                .thenReturn(new tn.epos.auth_service.dto.InvitationStatus(false, true));
 
         mockMvc.perform(post("/api/v1/users/42/invitation"))
                 .andExpect(status().isOk())

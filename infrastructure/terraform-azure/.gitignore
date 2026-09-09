@@ -1,0 +1,20 @@
+# Terraform state contains every generated secret in plaintext — never commit it.
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+
+# Saved plan files embed the same secrets as state (a plan is a diff over full
+# resource attributes, sensitive values included). Never commit them either.
+tfplan
+*.tfplan
+
+# .terraform.lock.hcl is intentionally NOT ignored — it pins provider versions
+# so every run resolves the same ones. Commit it.
+
+# Generated SSH private key.
+*.pem
+
+# Local variable overrides.
+*.tfvars
+!*.tfvars.example

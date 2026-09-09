@@ -1,4 +1,4 @@
-# EPOS — AWS deployment stack.
+# EPOS — cloud deployment stack (AWS via terraform/, Azure via terraform-azure/).
 #
 # Standalone, NOT an overlay on docker-compose.yml. Compose *concatenates* the
 # `ports` lists of an override file rather than replacing them, so an overlay

@@ -18,8 +18,13 @@ output "instance_id" {
   value       = aws_instance.app.id
 }
 
+output "ssh_user" {
+  description = "Login user on the instance (Amazon Linux default). scripts/deploy.sh reads this."
+  value       = "ec2-user"
+}
+
 output "ssh_key_path" {
-  description = "Generated private key used by scripts/deploy.ps1."
+  description = "Generated private key used by scripts/deploy.sh."
   value       = local_sensitive_file.private_key.filename
 }
 

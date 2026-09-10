@@ -1,0 +1,10 @@
+#!/bin/bash
+# Azure cloud-init wrapper. The actual bootstrap is scripts/bootstrap-vps.sh,
+# shared with the plain-VPS path; Terraform pastes it in below (as a template
+# *value*, so nothing inside it is re-parsed) after exporting its inputs.
+export EPOS_DOMAIN='${domain}'
+export EPOS_ADMIN_USER='${admin_username}'
+export EPOS_DB_USERNAME='${db_username}'
+export EPOS_APP_TIMEZONE='${app_timezone}'
+
+${bootstrap}

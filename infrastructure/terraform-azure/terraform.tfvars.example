@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+# `az account show --query id -o tsv` prints the subscription id.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Optional overrides. Defaults are in variables.tf.
+# location  = "westeurope"        # if francecentral refuses the VM size
+# vm_size   = "Standard_B2ms"     # 8 GiB if the build OOMs on B2s
+# dns_label = "epos-fphm"         # <label>.<location>.cloudapp.azure.com

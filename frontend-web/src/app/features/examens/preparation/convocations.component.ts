@@ -150,7 +150,7 @@ export class ConvocationsComponent {
     // #433 — même refus que le serveur, sans aller-retour ni e-mail.
     if (this.datePassee()) {
       this.envoiError.set(
-        `La date de l'examen (${this.dernierJourLabel()}) est passée : modifiez-la dans Planning avant d'envoyer les convocations.`,
+        `La date de l'examen (${this.dernierJourLabel()}) est passée : dans Vue d'ensemble, revenez au brouillon et corrigez la date avant d'envoyer les convocations.`,
       );
       return;
     }

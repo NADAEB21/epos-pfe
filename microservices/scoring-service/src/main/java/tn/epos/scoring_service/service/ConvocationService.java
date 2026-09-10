@@ -181,8 +181,8 @@ public class ConvocationService {
         throw new BusinessException((multiJour
                 ? "Le dernier jour de l'examen (" + jour + ") est passé"
                 : "La date de l'examen (" + jour + ") est passée")
-                + " : modifiez-la dans Planning avant d'envoyer les convocations. "
-                + "Aucun e-mail n'est parti.");
+                + " : dans Vue d'ensemble, revenez au brouillon et corrigez la date avant "
+                + "d'envoyer les convocations. Aucun e-mail n'est parti.");
     }
 
     /**

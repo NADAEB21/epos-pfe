@@ -4,8 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.dto.DemarrageResult;
 import tn.epos.scoring_service.dto.GenerationResult;
+
+import tn.epos.scoring_service.repositories.ILotRepository;
 
 import java.util.List;
 
@@ -42,9 +45,16 @@ public class LotDemarrageService {
 
     private final LotAssignmentService    lotAssignmentService;
     private final RotationGenerationService rotationGenerationService;
+    private final ILotRepository          lotRepository;
 
     @Transactional
     public DemarrageResult presenceEtDemarrer(Long lotId, List<Long> absents) {
+        // #432 — verrou de ligne AVANT la présence : deux « Présence & démarrer » sur le même
+        // lot se sérialisent dès le premier octet écrit. Le second attend, relit la vague
+        // démarrée par le premier, et la génération le refuse nominativement ; sa présence
+        // (écrite dans la même transaction) est annulée avec le refus.
+        lotRepository.findByIdVerrouille(lotId)
+                .orElseThrow(() -> new BusinessException("Lot introuvable : " + lotId));
         var presence = lotAssignmentService.markPresence(lotId, absents);
         GenerationResult generation = rotationGenerationService.generateForLot(lotId);
         log.info("Lot {} : présence ({} présents / {} absents) + génération ({} rotations) en un acte.",

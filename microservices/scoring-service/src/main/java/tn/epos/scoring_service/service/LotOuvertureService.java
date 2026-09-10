@@ -92,7 +92,9 @@ public class LotOuvertureService {
      */
     @Transactional
     public void ouvrirLot(Long lotId) {
-        Lot lot = lotRepository.findById(lotId)
+        // #432 — verrou de ligne : deux ouvertures concurrentes du même lot se sérialisent et
+        // la seconde relit une vague déjà ouverte (garde 3) au lieu de la rouvrir.
+        Lot lot = lotRepository.findByIdVerrouille(lotId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lot introuvable : " + lotId));
 
         // 0. #274 — AVANT toute règle métier : la garde d'autorisation. Jusqu'ici la seule

@@ -46,6 +46,8 @@ public class EvaluateurDashboardService {
     private final IStudentGroupRepository        studentGroupRepository;
     private final ExamServiceClient              examServiceClient;
     private final ObjectMapper objectMapper;
+    /** #431 — « ce groupe est-il encore ouvert à une autre station ? », source unique. */
+    private final GroupeOccupationGuard          groupeOccupationGuard;
 
     /**
      * ADR-0015 — définition figée dans {@code scoring_db}. Remplace les lectures réseau pour le
@@ -228,6 +230,10 @@ public class EvaluateurDashboardService {
                         "Aucun groupe suivant : c'était le dernier passage de cette station pour ce lot."));
 
         if (suivante.getStatut() == RotationStatus.EN_ATTENTE) {
+            // #431 — le carré latin ne garantit « un groupe = une station » que tant que toutes
+            // les stations sont sur le même rang. Ici une station avance seule : si le groupe
+            // qu'elle veut recevoir est encore noté ailleurs, on refuse — nominativement.
+            groupeOccupationGuard.refuserSiOccupeAilleurs(suivante);
             suivante.setStatut(RotationStatus.EN_COURS);
             log.info("Station {} : groupe suivant (rotation {}, rang {}) ouvert par l'évaluateur.",
                     suivante.getStationId(), suivante.getId(), suivante.getOrdrePassage());

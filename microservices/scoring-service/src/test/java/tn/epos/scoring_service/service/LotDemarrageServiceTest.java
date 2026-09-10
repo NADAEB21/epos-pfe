@@ -10,13 +10,19 @@ import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.dto.DemarrageResult;
 import tn.epos.scoring_service.dto.GenerationResult;
 import tn.epos.scoring_service.dto.PresenceResult;
+import tn.epos.scoring_service.entities.Lot;
+import tn.epos.scoring_service.repositories.ILotRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -35,8 +41,31 @@ class LotDemarrageServiceTest {
 
     @Mock private LotAssignmentService      lotAssignmentService;
     @Mock private RotationGenerationService rotationGenerationService;
+    @Mock private ILotRepository            lotRepository;
 
     @InjectMocks private LotDemarrageService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void lotVerrouillable() {
+        // #432 — le lot existe et se verrouille ; le cas « introuvable » est épinglé à part.
+        lenient().when(lotRepository.findByIdVerrouille(LOT)).thenReturn(Optional.of(new Lot()));
+    }
+
+    /**
+     * #432 — le verrou de ligne est pris AVANT la présence : c'est lui qui sérialise deux
+     * « Présence & démarrer » concurrents. Sans lot, rien n'est écrit.
+     */
+    @Test
+    @DisplayName("#432 : le lot est verrouillé AVANT la présence ; introuvable → rien n'est écrit")
+    void demarre_verrouilleLeLotAvantLaPresence() {
+        when(lotRepository.findByIdVerrouille(LOT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.presenceEtDemarrer(LOT, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("introuvable");
+        verify(lotAssignmentService, never()).markPresence(any(), any());
+        verify(rotationGenerationService, never()).generateForLot(any());
+    }
 
     @Test
     @DisplayName("présence PUIS génération, résultat combiné fidèle")
@@ -48,8 +77,9 @@ class LotDemarrageServiceTest {
 
         DemarrageResult r = service.presenceEtDemarrer(LOT, List.of(9L));
 
-        // L'ordre est le contrat : la génération se construit sur la présence.
-        var ordre = inOrder(lotAssignmentService, rotationGenerationService);
+        // L'ordre est le contrat : verrou (#432), puis présence, puis génération.
+        var ordre = inOrder(lotRepository, lotAssignmentService, rotationGenerationService);
+        ordre.verify(lotRepository).findByIdVerrouille(LOT);
         ordre.verify(lotAssignmentService).markPresence(LOT, List.of(9L));
         ordre.verify(rotationGenerationService).generateForLot(LOT);
 

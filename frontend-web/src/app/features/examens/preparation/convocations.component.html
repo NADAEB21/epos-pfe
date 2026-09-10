@@ -25,7 +25,7 @@
           class="btn-primary"
           [title]="
             datePassee()
-              ? 'La date de l\'examen est passée — modifiez-la dans Planning'
+              ? 'La date de l\'examen est passée — corrigez-la depuis Vue d'ensemble'
               : avecEmailCount() === 0
                 ? 'Aucun etudiant n\'a d\'adresse e-mail'
                 : 'Envoyer la convocation aux ' + avecEmailCount() + ' etudiant(s) joignable(s)'
@@ -64,9 +64,10 @@
         La date de l'examen ({{ dernierJourLabel() }}) est passée — les convocations ne peuvent pas être envoyées.
       </p>
       <p class="mt-1">
-        Modifiez la date dans l'onglet
-        <a [routerLink]="['../planning']" class="underline hover:no-underline">Planning</a>,
-        puis revenez ici : les convocations reprendront la nouvelle date et la nouvelle heure.
+        Dans
+        <a [routerLink]="['../vue-ensemble']" class="underline hover:no-underline">Vue d'ensemble</a>,
+        revenez au brouillon, corrigez la date, reconfigurez l'examen et répartissez à nouveau les
+        lots : les convocations reprendront la nouvelle date et la nouvelle heure.
       </p>
     </div>
   }

@@ -2,6 +2,7 @@ package tn.epos.scoring_service.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.dto.ConvocationDTO;
@@ -15,6 +16,7 @@ import tn.epos.scoring_service.service.email.ConvocationEmailService;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -160,6 +162,30 @@ public class ConvocationService {
     }
 
     /**
+     * #433 — le DERNIER jour de l'examen (multi-jour #147 : le plus tardif des jours de lot,
+     * sinon la date de l'examen) est antérieur à aujourd'hui → refus nominatif, rien n'est
+     * envoyé ni horodaté. L'envoi le jour même reste permis (rattrapage en salle).
+     * L'horloge est celle de l'application (ADR-0010), pas celle du navigateur.
+     */
+    private void refuserSiDatePassee(List<ExamenParticipation> participations, LocalDate dateExamen) {
+        LocalDate dernier = dateExamen;
+        boolean multiJour = false;
+        for (ExamenParticipation p : participations) {
+            Lot l = p.getLot();
+            if (l == null || l.getJour() == null) continue;
+            if (dernier == null || l.getJour().isAfter(dernier)) dernier = l.getJour();
+            if (dateExamen != null && !l.getJour().equals(dateExamen)) multiJour = true;
+        }
+        if (dernier == null || !dernier.isBefore(LocalDate.now(clock))) return;
+        String jour = dernier.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        throw new BusinessException((multiJour
+                ? "Le dernier jour de l'examen (" + jour + ") est passé"
+                : "La date de l'examen (" + jour + ") est passée")
+                + " : modifiez-la dans Planning avant d'envoyer les convocations. "
+                + "Aucun e-mail n'est parti.");
+    }
+
+    /**
      * Envoie la convocation à chaque étudiant JOIGNABLE et note la date d'envoi.
      *
      * <p>Un destinataire en échec n'interrompt jamais les autres : chaque envoi
@@ -175,12 +201,19 @@ public class ConvocationService {
 
         ExamGenerationView exam = examServiceClient.getExamForGeneration(examenId);
         String examenNom = exam.nom() == null ? "Examen" : exam.nom();
+
+        List<ExamenParticipation> participations = participationRepository.findByExamenId(examenId);
+        // #433 — AVANT tout envoi : une convocation à une date révolue est un e-mail qu'on ne
+        // reprend pas. Jusqu'ici la « date dépassée » n'existait qu'à l'étape Lancer, et le
+        // responsable la découvrait APRÈS que les étudiants avaient reçu leur convocation.
+        refuserSiDatePassee(participations, exam.dateExamen());
+
         List<ConvocationDTO> convocations = construire(examenId);
 
         List<EnvoiConvocationsResult.EnvoiLigne> lignes = new ArrayList<>();
         List<ExamenParticipation> aMarquer = new ArrayList<>();
         Map<Long, ExamenParticipation> parId = new HashMap<>();
-        for (ExamenParticipation p : participationRepository.findByExamenId(examenId)) {
+        for (ExamenParticipation p : participations) {
             parId.put(p.getId(), p);
         }
 

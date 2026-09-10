@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.client.ExamGenerationView;
 import tn.epos.scoring_service.client.ExamServiceClient;
 import tn.epos.scoring_service.dto.ConvocationDTO;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -166,6 +168,61 @@ class ConvocationServiceTest {
     @Nested
     @DisplayName("envoyer()")
     class Envoyer {
+
+        /**
+         * #433 — l'horloge du test est le 28/07/2026 : un examen daté de la veille refuse
+         * AVANT tout envoi, avec la date en clair, et rien n'est horodaté.
+         */
+        @Test
+        @DisplayName("#433 : date de l'examen passée → refus nominatif, aucun envoi, aucun horodatage")
+        void datePassee_devraitRefuserAvantToutEnvoi() {
+            Lot l1 = lot(1L, 1, null);
+            ExamenParticipation p = part(1L, l1, 1, "Zouari", "z@etu.tn");
+            when(examServiceClient.getExamForGeneration(EXAM)).thenReturn(exam(JOUR1.minusDays(1)));
+            when(participationRepository.findByExamenId(EXAM)).thenReturn(List.of(p));
+
+            assertThatThrownBy(() -> service.envoyer(EXAM))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("27/07/2026")
+                    .hasMessageContaining("passée")
+                    .hasMessageContaining("Aucun e-mail n'est parti");
+            verify(emailService, never()).envoyerConvocation(any(), anyString());
+            verify(participationRepository, never()).saveAll(any());
+            assertThat(p.getConvocation_envoyee_a()).isNull();
+        }
+
+        /** #433 — multi-jour (#147) : c'est le DERNIER jour qui compte, pas la date de l'examen. */
+        @Test
+        @DisplayName("#433 : examen daté d'hier mais un lot aujourd'hui → l'envoi passe")
+        void multiJour_dernierJourAujourdhui_devraitEnvoyer() {
+            Lot hier = lot(1L, 1, JOUR1.minusDays(1));
+            Lot aujourdhui = lot(2L, 2, JOUR1);
+            when(examServiceClient.getExamForGeneration(EXAM)).thenReturn(exam(JOUR1.minusDays(1)));
+            when(participationRepository.findByExamenId(EXAM)).thenReturn(List.of(
+                    part(1L, hier, 1, "Zouari", "z@etu.tn"),
+                    part(2L, aujourdhui, 1, "Amri", "a@etu.tn")));
+
+            EnvoiConvocationsResult r = service.envoyer(EXAM);
+
+            assertThat(r.envoyes()).isEqualTo(2);
+        }
+
+        /** #433 — multi-jour dont le dernier jour est passé : le message nomme « dernier jour ». */
+        @Test
+        @DisplayName("#433 : multi-jour entièrement passé → refus qui nomme le dernier jour")
+        void multiJour_toutPasse_devraitRefuser() {
+            Lot j1 = lot(1L, 1, JOUR1.minusDays(3));
+            Lot j2 = lot(2L, 2, JOUR1.minusDays(2));
+            when(examServiceClient.getExamForGeneration(EXAM)).thenReturn(exam(JOUR1.minusDays(3)));
+            when(participationRepository.findByExamenId(EXAM)).thenReturn(List.of(
+                    part(1L, j1, 1, "Zouari", "z@etu.tn"),
+                    part(2L, j2, 1, "Amri", "a@etu.tn")));
+
+            assertThatThrownBy(() -> service.envoyer(EXAM))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("dernier jour")
+                    .hasMessageContaining("26/07/2026");
+        }
 
         @Test
         @DisplayName("Sans adresse : compté à part, ce n'est PAS un échec")

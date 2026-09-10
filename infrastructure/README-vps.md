@@ -142,6 +142,27 @@ For an application-level dump before risky changes:
 $C exec postgres-db pg_dumpall -U epos > /opt/epos/dump-$(date +%F).sql
 ```
 
+## Handover to the faculty (wipe everything but one admin)
+
+The development period leaves demo exams, synthetic students and test
+accounts in the databases. Before handing the deployment over, reset it to
+a blank state with a single SUPER_ADMIN account owned by the faculty:
+
+```bash
+# on the VM — backs up the 4 databases first, then recreates the Postgres
+# volume, creates the account through the public API and deletes the three
+# init.sql test accounts. Refuses to run without --yes.
+bash /opt/epos/app/scripts/handover-reset.sh --admin-email eposfphm@gmail.com --yes
+```
+
+Without `--admin-password` the account receives the "choose your password"
+e-mail (requires `MAIL_ENABLED=true` in `/opt/epos/epos.env`, checked before
+anything is destroyed), so nobody but the faculty ever knows the password.
+The subject catalogue (`matieres`) is kept; the Caddy volumes (TLS
+certificate) are untouched. The pre-reset backup lands in
+`/opt/epos/backups/handover-<stamp>/` and restores with
+`infrastructure/sauvegarde/restore-epos.ps1` or its bash port.
+
 ## Account validation at OVH
 
 OVH frequently asks new accounts for identity documents (ID card, proof of

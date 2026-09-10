@@ -15,15 +15,19 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { DirectoryApiService } from '../../core/api/directory-api.service';
 import { InvitationStatus, MatiereResponse, RoleAssignment, UserResponse } from '../../core/api/models';
+import { RoleType } from '../../core/auth/auth.models';
 import { AuthStore } from '../../core/auth/auth.store';
 
 /**
  * The « personnes » screen — ONE component, three route scopes (#259 / S5):
  *
- *   equipe/evaluateurs      responsable · directory of évaluateurs + create
+ *   equipe/evaluateurs      responsable · directory of évaluateurs + create,
+ *                           or appoint an existing person évaluateur (#436)
  *   equipe/co-responsables  responsable · co-responsables of MY matière(s):
  *                           appoint an existing person or create an account
  *   admin/utilisateurs      super-admin · full directory + create + deactivate
+ *                           + add a role to an existing account (#436),
+ *                           filters by role / matière / état (#437)
  *
  * Scope comes from route data. All three views derive from ONE unfiltered
  * GET /users (the response carries each person's full role list), because the
@@ -89,12 +93,40 @@ export class PersonnesComponent {
     roleEvaluateur: [false],
   });
 
-  // ---- appoint an existing person (co-responsables scope) -------------------
+  // ---- appoint an existing person (évaluateurs + co-responsables) — #436 ------
   readonly appointOpen = signal(false);
   readonly appointUserId = signal<number | null>(null);
   readonly appointMatiereId = signal<number | null>(null);
   readonly appointSubmitting = signal(false);
   readonly appointError = signal<string | null>(null);
+  /**
+   * #436 — le rôle que « Nommer une personne existante » ajoute, selon la portée. Le
+   * serveur (POST /users/{id}/roles, additif) savait déjà tout faire ; seul l'écran des
+   * évaluateurs n'offrait que « créer un compte » — et répondait 409 « ajoutez-lui plutôt
+   * le rôle » sans aucun bouton pour le faire.
+   */
+  readonly appointRole = computed<RoleType | null>(() =>
+    this.scope === 'evaluateurs' ? 'EVALUATEUR'
+      : this.scope === 'co-responsables' ? 'RESPONSABLE_MATIERE'
+        : null,
+  );
+
+  // ---- #436 admin : ajouter un rôle à un compte existant, ligne par ligne ---------
+  readonly roleAddUserId = signal<number | null>(null);
+  readonly roleAddSubmitting = signal(false);
+  readonly roleAddError = signal<string | null>(null);
+  readonly roleAddForm = this.fb.nonNullable.group({
+    evaluateur: [false],
+    responsable: [false],
+    respMatiereId: [null as number | null],
+    superAdmin: [false],
+  });
+
+  // ---- #437 filtres ------------------------------------------------------------
+  readonly roleFilter = signal<'all' | RoleType>('all');
+  readonly matiereFilter = signal<number | null>(null);
+  /** Actifs par défaut : un annuaire de travail ne montre pas les comptes fermés sans qu'on le demande. */
+  readonly etatFilter = signal<'actifs' | 'retires' | 'tous'>('actifs');
 
   // ---- retrait / rétablissement d'accès (admin scope) — #289 -----------------
   readonly confirmingDeactivation = signal<UserResponse | null>(null);
@@ -122,6 +154,7 @@ export class PersonnesComponent {
     if (this.confirmingDeactivation() || this.confirmingReactivation()) {
       this.annulerRetrait();
     }
+    if (this.roleAddUserId() != null) this.closeRoleAdd();
   }
 
   readonly myUserId = computed(() => this.auth.currentUser()?.userId ?? null);
@@ -180,25 +213,67 @@ export class PersonnesComponent {
     }
   });
 
+  /** #437 — les lignes affichées : portée, puis état, rôle, matière, recherche. */
   readonly rows = computed<UserResponse[]>(() => {
     const q = this.search().trim().toLowerCase();
+    const role = this.roleFilter();
+    const mid = this.matiereFilter();
+    const etat = this.etatFilter();
     const base = [...this.scoped()].sort((a, b) =>
       `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, 'fr'),
     );
-    if (!q) return base;
-    return base.filter((u) =>
-      `${u.prenom} ${u.nom} ${u.email}`.toLowerCase().includes(q),
-    );
+    return base.filter((u) => {
+      if (etat === 'actifs' && !u.isActive) return false;
+      if (etat === 'retires' && u.isActive) return false;
+      if (role !== 'all' && !u.roles?.some((r) => r.role === role)) return false;
+      if (mid != null && !u.roles?.some((r) => r.role === 'RESPONSABLE_MATIERE' && r.matiereId === mid)) return false;
+      if (q && !`${u.prenom} ${u.nom} ${u.email}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
   });
 
-  /** co-responsables scope: people appointable for the selected matière. */
+  /** #437 — « N affiché(s) sur M » : le total de la portée, avant filtres. */
+  readonly totalScoped = computed(() => this.scoped().length);
+  readonly filtresActifs = computed(
+    () => this.roleFilter() !== 'all' || this.matiereFilter() != null || this.etatFilter() !== 'actifs' || !!this.search().trim(),
+  );
+
+  reinitialiserFiltres(): void {
+    this.roleFilter.set('all');
+    this.matiereFilter.set(null);
+    this.etatFilter.set('actifs');
+    this.search.set('');
+  }
+
+  onRoleFilterChange(value: string): void {
+    this.roleFilter.set((value || 'all') as 'all' | RoleType);
+    if (this.roleFilter() !== 'RESPONSABLE_MATIERE') this.matiereFilter.set(null);
+  }
+
+  onMatiereFilterChange(value: string): void {
+    this.matiereFilter.set(value ? Number(value) : null);
+  }
+
+  onEtatFilterChange(value: string): void {
+    this.etatFilter.set((value || 'actifs') as 'actifs' | 'retires' | 'tous');
+  }
+
+  /**
+   * People appointable in this scope (#436) :
+   *  - évaluateurs : actifs sans le rôle EVALUATEUR ;
+   *  - co-responsables : actifs pas déjà responsables de la matière choisie.
+   * Un compte SUPER_ADMIN n'est jamais proposé à un responsable (#216 : il ne peut pas le
+   * modifier) — l'admin, lui, ajoute les rôles depuis son propre écran, ligne par ligne.
+   */
   readonly appointCandidates = computed<UserResponse[]>(() => {
     const mid = this.appointMatiereId();
+    const role = this.appointRole();
     return this.users()
       .filter((u) => u.isActive)
-      .filter((u) => !u.roles?.some((r) => r.role === 'RESPONSABLE_MATIERE' && r.matiereId === mid))
-      // #216: a responsable cannot modify a SUPER_ADMIN account — don't offer it.
-      .filter((u) => !u.roles?.some((r) => r.role === 'SUPER_ADMIN'))
+      .filter((u) => role !== 'EVALUATEUR' || !u.roles?.some((r) => r.role === 'EVALUATEUR'))
+      .filter((u) => role !== 'RESPONSABLE_MATIERE'
+        || !u.roles?.some((r) => r.role === 'RESPONSABLE_MATIERE' && r.matiereId === mid))
+      .filter((u) => this.auth.isSuperAdmin() || !u.roles?.some((r) => r.role === 'SUPER_ADMIN'))
       .sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, 'fr'));
   });
 
@@ -375,13 +450,20 @@ export class PersonnesComponent {
   submitAppoint(): void {
     const uid = this.appointUserId();
     const mid = this.appointMatiereId();
-    if (uid == null || mid == null) {
-      this.appointError.set('Choisissez la personne et la matière.');
+    const role = this.appointRole();
+    if (role == null) return;
+    if (uid == null || (role === 'RESPONSABLE_MATIERE' && mid == null)) {
+      this.appointError.set(role === 'RESPONSABLE_MATIERE'
+        ? 'Choisissez la personne et la matière.'
+        : 'Choisissez la personne.');
       return;
     }
+    const roles: RoleAssignment[] = role === 'RESPONSABLE_MATIERE'
+      ? [{ role: 'RESPONSABLE_MATIERE', matiereId: mid }]
+      : [{ role: 'EVALUATEUR', matiereId: null }];
     this.appointSubmitting.set(true);
     this.appointError.set(null);
-    this.api.addRoles(uid, [{ role: 'RESPONSABLE_MATIERE', matiereId: mid }]).subscribe({
+    this.api.addRoles(uid, roles).subscribe({
       next: () => {
         this.appointSubmitting.set(false);
         this.appointOpen.set(false);
@@ -390,6 +472,73 @@ export class PersonnesComponent {
       error: (e: HttpErrorResponse) => {
         this.appointSubmitting.set(false);
         this.appointError.set(e.error?.message ?? 'La nomination a échoué. Réessayez.');
+      },
+    });
+  }
+
+  // ---- #436 admin : ajouter un rôle à un compte existant ------------------------------
+
+  hasRole(u: UserResponse, role: RoleType, matiereId: number | null = null): boolean {
+    return !!u.roles?.some((r) => r.role === role && (role !== 'RESPONSABLE_MATIERE' || r.matiereId === matiereId));
+  }
+
+  /** Les matières dont ce compte n'est PAS encore responsable (actives seulement, #134). */
+  matieresAjoutables(u: UserResponse): MatiereResponse[] {
+    return this.matieresActives().filter((m) => !this.hasRole(u, 'RESPONSABLE_MATIERE', m.id));
+  }
+
+  openRoleAdd(u: UserResponse): void {
+    this.roleAddError.set(null);
+    this.roleAddForm.reset({ evaluateur: false, responsable: false, respMatiereId: null, superAdmin: false });
+    // Les rôles déjà portés se grisent PAR LE CONTRÔLE : un [attr.disabled] sur un
+    // formControlName est écrasé par la directive de formulaire (constaté au navigateur).
+    const c = this.roleAddForm.controls;
+    this.hasRole(u, 'EVALUATEUR') ? c.evaluateur.disable() : c.evaluateur.enable();
+    this.matieresAjoutables(u).length === 0 ? c.responsable.disable() : c.responsable.enable();
+    this.hasRole(u, 'SUPER_ADMIN') ? c.superAdmin.disable() : c.superAdmin.enable();
+    this.roleAddUserId.set(u.id);
+  }
+
+  closeRoleAdd(): void {
+    this.roleAddUserId.set(null);
+    this.roleAddError.set(null);
+  }
+
+  /** Les rôles cochés qui ne sont pas déjà portés — ce que le POST additif ajoutera. */
+  rolesToAdd(u: UserResponse): RoleAssignment[] {
+    const c = this.roleAddForm.controls;
+    const roles: RoleAssignment[] = [];
+    if (c.evaluateur.value && !this.hasRole(u, 'EVALUATEUR')) roles.push({ role: 'EVALUATEUR', matiereId: null });
+    if (c.responsable.value && c.respMatiereId.value != null && !this.hasRole(u, 'RESPONSABLE_MATIERE', c.respMatiereId.value)) {
+      roles.push({ role: 'RESPONSABLE_MATIERE', matiereId: c.respMatiereId.value });
+    }
+    if (c.superAdmin.value && !this.hasRole(u, 'SUPER_ADMIN')) roles.push({ role: 'SUPER_ADMIN', matiereId: null });
+    return roles;
+  }
+
+  submitRoleAdd(u: UserResponse): void {
+    const c = this.roleAddForm.controls;
+    if (c.responsable.value && c.respMatiereId.value == null) {
+      this.roleAddError.set('Choisissez la matière du responsable.');
+      return;
+    }
+    const roles = this.rolesToAdd(u);
+    if (roles.length === 0) {
+      this.roleAddError.set('Cochez au moins un rôle que ce compte ne porte pas déjà.');
+      return;
+    }
+    this.roleAddSubmitting.set(true);
+    this.roleAddError.set(null);
+    this.api.addRoles(u.id, roles).subscribe({
+      next: () => {
+        this.roleAddSubmitting.set(false);
+        this.closeRoleAdd();
+        this.load();
+      },
+      error: (e: HttpErrorResponse) => {
+        this.roleAddSubmitting.set(false);
+        // Les refus du serveur (délégation, matière retirée) sont nominatifs : mot pour mot.
+        this.roleAddError.set(e.error?.message ?? "L'ajout du rôle a échoué. Réessayez.");
       },
     });
   }

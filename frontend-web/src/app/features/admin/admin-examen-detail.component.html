@@ -70,7 +70,7 @@
   <section class="card p-5 lg:col-span-2">
     <div class="flex items-baseline justify-between mb-3">
       <h2 class="font-semibold text-gray-900">Résultats consolidés</h2>
-      <span class="text-xs text-gray-400">totaux tels que calculés par le service des notes — sans conversion sur 20</span>
+      <span class="text-xs text-gray-400">totaux servis par le service des notes, lus avec leur dénominateur et l'équivalent sur 20</span>
     </div>
     @switch (resultats().statut) {
       @case ('chargement') {
@@ -86,11 +86,57 @@
               <p class="text-sm text-gray-400">Aucune notation pour cet examen.</p>
             } @else {
               @if (resume(); as z) {
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <!-- Un total ne s'affiche jamais nu : « 22,9 » se lit comme une note /20 alors que c'était 22,9 / 40. -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" data-testid="resume-resultats">
                   <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.n }}</div><div class="text-xs text-gray-500">étudiants notés</div></div>
-                  <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.moyenne | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total moyen ({{ totalLabel() }})</div></div>
-                  <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.min | number: '1.1-1' }}</div><div class="text-xs text-gray-500">minimum</div></div>
-                  <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.max | number: '1.1-1' }}</div><div class="text-xs text-gray-500">maximum</div></div>
+                  @if (z.moyenne20 != null) {
+                    <div class="rounded-lg bg-gray-50 p-3">
+                      <div class="text-lg font-semibold text-gray-900">{{ z.moyenne20 | number: '1.1-1' }} <span class="text-sm font-normal text-gray-500">/20</span></div>
+                      <div class="text-xs text-gray-500">moyenne ({{ totalLabel() }})</div>
+                      <div class="text-xs text-gray-400">total moyen {{ z.moyenne | number: '1.1-1' }}@if (z.denominateur != null) { / {{ z.denominateur | number: '1.0-0' }}}</div>
+                    </div>
+                    <div class="rounded-lg bg-gray-50 p-3">
+                      <div class="text-lg font-semibold text-gray-900">{{ z.min20 | number: '1.1-1' }} <span class="text-sm font-normal text-gray-500">/20</span></div>
+                      <div class="text-xs text-gray-500">minimum</div>
+                      <div class="text-xs text-gray-400">total {{ z.min | number: '1.1-1' }}@if (z.denominateur != null) { / {{ z.denominateur | number: '1.0-0' }}}</div>
+                    </div>
+                    <div class="rounded-lg bg-gray-50 p-3">
+                      <div class="text-lg font-semibold text-gray-900">{{ z.max20 | number: '1.1-1' }} <span class="text-sm font-normal text-gray-500">/20</span></div>
+                      <div class="text-xs text-gray-500">maximum</div>
+                      <div class="text-xs text-gray-400">total {{ z.max | number: '1.1-1' }}@if (z.denominateur != null) { / {{ z.denominateur | number: '1.0-0' }}}</div>
+                    </div>
+                  } @else {
+                    <!-- Dénominateur non servi (résultats antérieurs au barème figé) : le total est dit brut, jamais déguisé en /20. -->
+                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.moyenne | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total moyen ({{ totalLabel() }}) — points, dénominateur non servi</div></div>
+                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.min | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total minimum</div></div>
+                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-lg font-semibold text-gray-900">{{ z.max | number: '1.1-1' }}</div><div class="text-xs text-gray-500">total maximum</div></div>
+                  }
+                </div>
+                @if (z.moyenne20 != null && z.n20 < z.n) {
+                  <p class="text-xs text-gray-500 mb-3">Lecture /20 établie sur {{ z.n20 }} étudiant(s) sur {{ z.n }} : les autres n'ont pas de dénominateur servi.</p>
+                }
+              }
+              @if (baremeVersion() != null) {
+                <!-- La décision qui produit la lecture servie (ADR-0030 D4 révisé, #401) : dite en toutes lettres, jamais modifiable ici (ADR-0018 D5). -->
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-4 text-sm" data-testid="decision-jury">
+                  @if (decision(); as d) {
+                    <div class="font-medium text-amber-900">Décision du jury — barème v{{ d.version }}, {{ dateDecision(d.createdAt) }}</div>
+                    <ul class="mt-1 list-disc list-inside text-amber-900">
+                      @for (op of operationsLisibles(); track $index) {
+                        <li>{{ op }}</li>
+                      }
+                    </ul>
+                    <div class="mt-1 text-amber-800">Motif : « {{ d.motif }} »</div>
+                    <div class="mt-1 text-xs text-amber-700">Les totaux et la lecture /20 ci-dessous suivent ce barème ; la note saisie reste visible comme trace (colonne « Total brut »).</div>
+                  } @else if (baremes().statut === 'indisponible') {
+                    <div class="font-medium text-amber-900">Décision du jury — barème v{{ baremeVersion() }}</div>
+                    <div class="text-amber-800">Le détail de la décision est indisponible (le service des notes ne répond pas sur l'historique du barème).</div>
+                  } @else if (baremes().statut === 'ok') {
+                    <div class="font-medium text-amber-900">Décision du jury — barème v{{ baremeVersion() }}</div>
+                    <div class="text-amber-800">Le service des notes sert cette version mais son historique ne la contient pas.</div>
+                  } @else {
+                    <div class="h-4 w-64 rounded bg-amber-100 animate-pulse"></div>
+                  }
                 </div>
               }
               <div class="overflow-x-auto">
@@ -100,7 +146,8 @@
                       <th class="py-2 pr-3">#</th>
                       <th class="py-2 pr-3">Étudiant</th>
                       <th class="py-2 pr-3">N° inscription</th>
-                      <th class="py-2 pr-3 text-right">Total ({{ totalLabel() }})</th>
+                      <th class="py-2 pr-3 text-right">/20 ({{ totalLabel() }})</th>
+                      <th class="py-2 pr-3 text-right text-gray-500">Total ({{ totalLabel() }})</th>
                       @if (baremeVersion() != null) {
                         <!-- #401 — la trace : le total brut reste lisible à côté du résultat -->
                         <th class="py-2 pr-3 text-right text-gray-400">Total brut</th>
@@ -114,9 +161,13 @@
                         <td class="py-2 pr-3 text-gray-400">{{ i + 1 }}</td>
                         <td class="py-2 pr-3 text-gray-800">{{ nomEtudiant(x) }}</td>
                         <td class="py-2 pr-3 text-gray-500">{{ x.numeroInscription ?? '—' }}</td>
-                        <td class="py-2 pr-3 text-right font-medium text-gray-900">{{ totalEffectif(x) | number: '1.1-2' }}</td>
+                        <td class="py-2 pr-3 text-right font-medium text-gray-900">
+                          <!-- Test sur null, pas sur la valeur : un 0 /20 est une note, pas une absence. -->
+                          @if (note20(x) != null) { {{ note20(x) | number: '1.1-2' }} } @else { <span class="text-gray-400" title="dénominateur non servi">—</span> }
+                        </td>
+                        <td class="py-2 pr-3 text-right text-gray-500 whitespace-nowrap">{{ totalEffectif(x) | number: '1.1-2' }}@if (denominateurEffectif(x); as d) { / {{ d | number: '1.0-0' }}}</td>
                         @if (baremeVersion() != null) {
-                          <td class="py-2 pr-3 text-right text-gray-400">{{ x.totalScore | number: '1.1-2' }}</td>
+                          <td class="py-2 pr-3 text-right text-gray-400 whitespace-nowrap">{{ x.totalScore | number: '1.1-2' }}@if (x.denominateurOriginal) { / {{ x.denominateurOriginal | number: '1.0-0' }}}</td>
                         }
                         <td class="py-2 text-right text-gray-600">{{ x.stationsNotees }}</td>
                       </tr>

@@ -35,6 +35,7 @@ import {
   StationGrilleSnapshot,
   SuiviProgression,
   BulkEnrolResult,
+  BulkRetraitResult,
 } from './models';
 
 /** scoring-service reads through the gateway. Lists are evaluateur-scope filtered (#91). */
@@ -289,6 +290,19 @@ export class ScoringApiService {
     return this.http
       .delete<ApiResponse<void>>(`${this.baseUrl}/participations/${participationId}`)
       .pipe(map(() => void 0));
+  }
+
+  /**
+   * #435 — retire toute une sélection du listing en UN appel
+   * (POST /participations/retrait?examenId=X), symétrique de {@link enrolParticipationsBulk}.
+   * Bilan ligne à ligne : un « introuvable » (déjà retiré) n'est pas une erreur ; une ligne
+   * refusée (déjà dans un circuit généré, ou d'un autre examen) n'interrompt pas les autres.
+   */
+  retirerParticipationsBulk(examenId: number, participationIds: number[]): Observable<BulkRetraitResult> {
+    const params = new HttpParams().set('examenId', examenId);
+    return this.http
+      .post<ApiResponse<BulkRetraitResult>>(`${this.baseUrl}/participations/retrait`, { participationIds }, { params })
+      .pipe(map((r) => r.data));
   }
 
   /**

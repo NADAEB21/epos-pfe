@@ -254,6 +254,24 @@ export interface BulkEnrolLigne {
  * /participations/bulk?examenId=X). Same honesty contract as {@link ImportResult}:
  * ALREADY_ENROLLED is never counted as an error.
  */
+/** #435 — une ligne du bilan de retrait groupé (miroir de BulkEnrolLigne). */
+export interface BulkRetraitLigne {
+  participationId: number;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'RETIRE' | 'INTROUVABLE' | 'REFUSE' | 'ERREUR';
+  message: string;
+}
+
+/** #435 — bilan d'un POST /participations/retrait?examenId=X. */
+export interface BulkRetraitResult {
+  total: number;
+  retires: number;
+  introuvables: number;
+  erreurs: number;
+  lignes: BulkRetraitLigne[];
+}
+
 export interface BulkEnrolResult {
   total: number;
   enrolled: number;

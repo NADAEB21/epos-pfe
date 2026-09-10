@@ -212,7 +212,7 @@ class LotOuvertureServiceTest {
     class LotSuivant {
 
         private void lotOuvrable(Lot lot) {
-            when(lotRepository.findById(lot.getId())).thenReturn(Optional.of(lot));
+            when(lotRepository.findByIdVerrouille(lot.getId())).thenReturn(Optional.of(lot));
             lenient().when(rotationRepository.countByStudentGroupLotId(lot.getId())).thenReturn(9L);
         }
 
@@ -290,7 +290,7 @@ class LotOuvertureServiceTest {
         @DisplayName("refuse si la présence n'a pas été enregistrée")
         void refuse_siPresenceNonPrise() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_ATTENTE); // EN_ATTENTE = présence non prise
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
 
             assertThatThrownBy(() -> service.ouvrirLot(LOT_2))
                     .isInstanceOf(BusinessException.class)
@@ -301,7 +301,7 @@ class LotOuvertureServiceTest {
         @DisplayName("refuse si le planning du lot n'a pas encore été généré")
         void refuse_siAucuneRotation() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
             when(rotationRepository.countByStudentGroupLotId(LOT_2)).thenReturn(0L);
 
             assertThatThrownBy(() -> service.ouvrirLot(LOT_2))
@@ -317,7 +317,7 @@ class LotOuvertureServiceTest {
         @DisplayName("refuse si la vague est déjà ouverte (jamais un no-op silencieux)")
         void refuse_siDejaOuverte() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
             when(rotationRepository.countByStudentGroupLotId(LOT_2)).thenReturn(9L);
             lotEnCours(LOT_2, 5L);
 
@@ -331,7 +331,7 @@ class LotOuvertureServiceTest {
         @Test
         @DisplayName("404 sur un lot inconnu")
         void refuse_siLotInconnu() {
-            when(lotRepository.findById(999L)).thenReturn(Optional.empty());
+            when(lotRepository.findByIdVerrouille(999L)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.ouvrirLot(999L))
                     .isInstanceOf(ResourceNotFoundException.class);
@@ -415,7 +415,7 @@ class LotOuvertureServiceTest {
         @DisplayName("Un responsable d'une AUTRE matière ne peut pas ouvrir la vague")
         void autreMatiere_refuse() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
             doThrow(new AccessDeniedException("matière hors périmètre"))
                     .when(matiereAccessGuard).checkExamenAccess(EXAM_ID);
 
@@ -437,7 +437,7 @@ class LotOuvertureServiceTest {
             // Lot EN_ATTENTE : le refus métier « enregistrez d'abord la présence » serait
             // normalement levé. Le refus d'autorisation doit passer devant.
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_ATTENTE);
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
             doThrow(new AccessDeniedException("matière hors périmètre"))
                     .when(matiereAccessGuard).checkExamenAccess(EXAM_ID);
 
@@ -458,7 +458,7 @@ class LotOuvertureServiceTest {
         @DisplayName("Un co-responsable de LA matière ouvre la vague sans obstacle")
         void memeMatiere_autorise() {
             Lot lot2 = lot(LOT_2, 2, LotStatus.EN_COURS);
-            when(lotRepository.findById(LOT_2)).thenReturn(Optional.of(lot2));
+            when(lotRepository.findByIdVerrouille(LOT_2)).thenReturn(Optional.of(lot2));
             lenient().when(rotationRepository.countByStudentGroupLotId(LOT_2)).thenReturn(9L);
             lotJamaisDemarre(LOT_2);
             when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot2));
@@ -486,7 +486,7 @@ class LotOuvertureServiceTest {
     class Attribution {
 
         private void vagueOuvrable(Lot lot) {
-            when(lotRepository.findById(lot.getId())).thenReturn(Optional.of(lot));
+            when(lotRepository.findByIdVerrouille(lot.getId())).thenReturn(Optional.of(lot));
             lenient().when(rotationRepository.countByStudentGroupLotId(lot.getId())).thenReturn(9L);
             lotJamaisDemarre(lot.getId());
             when(lotRepository.findByExamenId(EXAM_ID)).thenReturn(List.of(lot));

@@ -74,10 +74,25 @@ public class RotationGenerationService {
 
     @Transactional
     public GenerationResult generateForLot(Long lotId) {
-        Lot lot = lotRepository.findById(lotId)
+        // #432 — verrou de ligne : deux générations du même lot se sérialisent, la seconde
+        // relit l'état commis par la première et tombe sur la garde « vague déjà démarrée ».
+        Lot lot = lotRepository.findByIdVerrouille(lotId)
                 .orElseThrow(() -> new BusinessException("Lot introuvable : " + lotId));
 
         matiereAccessGuard.checkExamenAccess(lot.getExamenId());
+
+        // #432 — une vague DÉMARRÉE ne se régénère pas. Le garde #188 (ci-dessous) ne
+        // protège que les notations : entre l'ouverture et la première note, un second
+        // « Présence & démarrer » (co-responsable, ou page obsolète) effaçait le circuit que
+        // les téléphones suivaient déjà — nouveaux ids de rotations, écrans mobiles orphelins,
+        // présence réécrite « tous présents ». La ré-évaluation passe par la réinitialisation
+        // de l'examen (resetRotationsForExam), qui dit ce qu'elle détruit.
+        if (rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(lotId, RotationStatus.EN_ATTENTE) > 0) {
+            throw new BusinessException(
+                    "Le lot " + lot.getNumeroLot() + " a déjà démarré : sa vague est en salle. "
+                            + "Régénérer ses rotations effacerait le circuit que les évaluateurs "
+                            + "suivent. Aucune donnée n'a été modifiée.");
+        }
 
         ExamGenerationView exam = examServiceClient.getExamForGeneration(lot.getExamenId());
 

@@ -153,6 +153,32 @@ class RotationGenerationServiceTest {
         return list;
     }
 
+    /**
+     * #432 — une vague DÉMARRÉE (une rotation a quitté EN_ATTENTE) ne se régénère pas, même
+     * sans aucune notation : c'est le trou entre l'ouverture et la première note que #188
+     * ne couvrait pas. Refus AVANT tout effacement.
+     */
+    @Nested
+    @DisplayName("#432 — vague déjà démarrée")
+    class VagueDejaDemarree {
+
+        @Test
+        @DisplayName("une rotation hors EN_ATTENTE → refus nominatif, aucun effacement")
+        void refuse_siVagueDemarree() {
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(rotationRepository.countByStudentGroup_Lot_IdAndStatutNot(LOT_ID, RotationStatus.EN_ATTENTE))
+                    .thenReturn(1L);
+
+            assertThatThrownBy(() -> service.generateForLot(LOT_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("a déjà démarré");
+
+            verify(studentGroupRepository, never()).deleteAll(any());
+            verify(studentGroupRepository, never()).save(any(StudentGroup.class));
+            verify(examServiceClient, never()).getExamForGeneration(any());
+        }
+    }
+
     @Nested
     @DisplayName("Cas nominal — circuit Latin square du lot")
     class HappyPath {
@@ -160,7 +186,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("3 stations × 6 présents → 3 groupes, 9 rotations, 18 assignments")
         void genere_circuitComplet() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -203,7 +229,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("#256 : dernier lot d'UN étudiant → la génération survit (K-1 groupes vides)")
         void genere_survitAUnLotDUnSeulEtudiant() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(1, 0));
@@ -220,7 +246,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("ADR-0014-B : la génération planifie (tout EN_ATTENTE) et délègue l'ouverture")
         void genere_neDemarreAucuneRotationEtDelegueLOuverture() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -242,7 +268,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Latin square : chaque station hôte d'un seul groupe par créneau, chaque groupe visite chaque station une fois")
         void genere_proprietesLatinSquare() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -274,7 +300,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Lot 1 : créneaux à heureDebut, +durée, +2·durée ; assignments confirmés présents")
         void genere_timingLot1() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -302,7 +328,7 @@ class RotationGenerationServiceTest {
             // Planifié 09:00 mais lancé réellement à 09:37 → les créneaux du lot 1
             // doivent partir de 09:37, pas de 09:00.
             LocalDateTime launchedAt = LocalDateTime.of(2026, 6, 20, 9, 37);
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), launchedAt, 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -321,7 +347,7 @@ class RotationGenerationServiceTest {
         @DisplayName("ADR-0010 : lot 2 décalé back-to-back depuis launched_at (09:37 + 3·15 = 10:22)")
         void genere_lot2AncreSurLaunchedAt() {
             LocalDateTime launchedAt = LocalDateTime.of(2026, 6, 20, 9, 37);
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), launchedAt, 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -341,7 +367,7 @@ class RotationGenerationServiceTest {
         void genere_battementEspaceLesCreneaux() {
             // duree 15 + battement 5 = slot 20 : un tampon de transition s'insère
             // entre chaque passage du lot 1.
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), null, 15, 5));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -361,7 +387,7 @@ class RotationGenerationServiceTest {
         void genere_battementDecaleLesVagues() {
             // Le stagger de vague utilise le slot tamponné, pas la seule durée :
             // lot 2 démarre à examStart + K·slot = 09:00 + 3·20 = 10:00.
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), null, 15, 5));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -380,7 +406,7 @@ class RotationGenerationServiceTest {
         @DisplayName("ADR-0012 : battement 0 régénère le planning back-to-back identique")
         void genere_battementZeroIdentique() {
             // Rétro-compatibilité explicite : battement 0 === absence de battement.
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), null, 15, 0));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -398,7 +424,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Lot 2 : décalé back-to-back de K·durée après le lot 1 (09:00 + 3·15 = 09:45)")
         void genere_decalageVagueLot2() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(2, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -421,7 +447,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Les absents (est_present=false) du lot sont exclus")
         void genere_excluAbsents() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 3));
@@ -439,7 +465,7 @@ class RotationGenerationServiceTest {
         @DisplayName("Capacité dépassée → avertissement non bloquant")
         void genere_avertissementCapacite() {
             // 2 stations, 6 présents → groupes de 3 > capacité 2.
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 2, 2, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -458,7 +484,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Lot introuvable → BusinessException")
         void genere_rejetteSiLotIntrouvable() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.empty());
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> service.generateForLot(LOT_ID))
                     .isInstanceOf(BusinessException.class)
@@ -468,7 +494,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Examen ≠ EN_COURS → BusinessException, aucune écriture")
         void genere_rejetteSiExamenPasEnCours() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("CONFIGURE", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
 
@@ -482,7 +508,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Présence du lot non marquée (lot EN_ATTENTE) → BusinessException")
         void genere_rejetteSiPresenceNonMarquee() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_ATTENTE)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_ATTENTE)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
 
@@ -496,7 +522,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Aucune station → BusinessException")
         void genere_rejetteSiAucuneStation() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 0, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
 
@@ -508,7 +534,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Aucun étudiant présent dans le lot → BusinessException")
         void genere_rejetteSiAucunPresent() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(0, 5));
@@ -529,7 +555,7 @@ class RotationGenerationServiceTest {
             StudentGroup ancienGroupe = new StudentGroup();
             ancienGroupe.setId(70L);
 
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 0));
@@ -563,7 +589,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Lot déjà noté → BusinessException, et AUCUNE suppression n'est tentée")
         void genere_refuseSiNotationsExistantes() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -586,7 +612,7 @@ class RotationGenerationServiceTest {
         @Test
         @DisplayName("Une seule notation suffit à refuser (fail closed)")
         void genere_refuseDesLaPremiereNotation() {
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 3, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(6, 0));
@@ -604,7 +630,7 @@ class RotationGenerationServiceTest {
             StudentGroup ancienGroupe = new StudentGroup();
             ancienGroupe.setId(70L);
 
-            when(lotRepository.findById(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
+            when(lotRepository.findByIdVerrouille(LOT_ID)).thenReturn(Optional.of(lot(1, LotStatus.EN_COURS)));
             when(examServiceClient.getExamForGeneration(EXAM_ID)).thenReturn(
                     exam("EN_COURS", 2, 4, LocalDate.of(2026, 6, 20), LocalTime.of(9, 0), 15));
             when(participationRepository.findByLotId(LOT_ID)).thenReturn(participations(4, 0));

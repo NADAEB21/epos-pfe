@@ -67,6 +67,8 @@ class EvaluateurDashboardServiceTest {
 
     /** #274 — permissif ici : le perimetre de matiere a ses propres tests. */
     @Mock private MatiereAccessGuard matiereAccessGuard;
+    /** #431 — mock : par défaut ne refuse rien ; les tests inter-stations le font lever. */
+    @Mock private GroupeOccupationGuard groupeOccupationGuard;
 
     @InjectMocks
     private EvaluateurDashboardService service;
@@ -1048,6 +1050,62 @@ class EvaluateurDashboardServiceTest {
          * rotation courante encore EN_COURS (ou EN_ATTENTE) est refusée AVANT toute lecture
          * du rang suivant, et rien n'est ouvert ni horodaté.
          */
+        /**
+         * #431 — le groupe cible est encore EN_COURS à une AUTRE station : la garde
+         * inter-stations refuse AVANT toute écriture. Le rang suivant reste EN_ATTENTE, rien
+         * n'est horodaté ni sauvé — l'évaluateur voit le message, sa grille reste intacte.
+         */
+        @Test
+        @DisplayName("#431 : groupe suivant encore noté à une autre station → refus, rien n'est ouvert")
+        void groupeSuivant_refuseSiGroupeOccupeAilleurs() {
+            Lot lot = new Lot();
+            lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            Rotation courante = rotationWithLot(1L, lot, 1);
+            courante.setOrdrePassage(1);
+            courante.setStatut(RotationStatus.TERMINE);
+            Rotation suivante = rotationWithLot(2L, lot, 2);
+            suivante.setOrdrePassage(2);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
+            when(rotationRepository
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            STATION_ID, 5L, 1)).thenReturn(Optional.of(suivante));
+            doThrow(new BusinessException("Le groupe 2 est encore en cours d'évaluation à une autre station."))
+                    .when(groupeOccupationGuard).refuserSiOccupeAilleurs(suivante);
+
+            assertThatThrownBy(() -> service.avancerGroupe(1L, EVAL_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("autre station");
+            assertThat(suivante.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
+            assertThat(suivante.getDebutReel()).isNull();
+            verify(rotationRepository, never()).save(any());
+        }
+
+        /** #431 — rang suivant DÉJÀ EN_COURS (reprise après coupure) : la garde n'est pas consultée. */
+        @Test
+        @DisplayName("#431 : rang suivant déjà EN_COURS → reprise sans consulter la garde")
+        void groupeSuivant_reprendSansGardeSiDejaOuvert() {
+            Lot lot = new Lot();
+            lot.setId(5L); lot.setExamenId(1L); lot.setNumeroLot(1);
+            Rotation courante = rotationWithLot(1L, lot, 1);
+            courante.setOrdrePassage(1);
+            courante.setStatut(RotationStatus.TERMINE);
+            Rotation suivante = rotationWithLot(2L, lot, 2);
+            suivante.setOrdrePassage(2);
+            suivante.setStatut(RotationStatus.EN_COURS);
+
+            when(rotationRepository.findById(1L)).thenReturn(Optional.of(courante));
+            when(rotationRepository
+                    .findFirstByStationIdAndStudentGroup_Lot_IdAndOrdrePassageGreaterThanOrderByOrdrePassageAsc(
+                            STATION_ID, 5L, 1)).thenReturn(Optional.of(suivante));
+            when(studentGroupRepository.findByLotId(5L)).thenReturn(List.of(new StudentGroup(), new StudentGroup()));
+            when(rotationAssignmentRepository.findByRotationId(2L)).thenReturn(List.of());
+
+            service.avancerGroupe(1L, EVAL_ID);
+
+            verify(groupeOccupationGuard, never()).refuserSiOccupeAilleurs(any());
+        }
+
         @Test
         @DisplayName("#423 : groupe courant non validé → BusinessException, rien n'est ouvert")
         void groupeSuivant_refuseSiCourantNonValide() {

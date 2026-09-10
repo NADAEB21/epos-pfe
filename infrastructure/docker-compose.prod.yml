@@ -189,6 +189,18 @@ services:
       - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
       - EXAM_SERVICE_BASE_URL=http://exam-service:8082
       - TZ=${APP_TIMEZONE:-Africa/Tunis}
+      # #227 — convocations aux étudiants : même expéditeur que auth-service
+      # (reset + invitations). Sans MAIL_ENABLED=true dans /opt/epos/epos.env
+      # le service reste sur le stub « messagerie désactivée ».
+      - MANAGEMENT_HEALTH_MAIL_ENABLED=false
+      - MAIL_ENABLED=${MAIL_ENABLED:-false}
+      - MAIL_FROM=${MAIL_FROM:-noreply@epos.tn}
+      - MAIL_SMTP_HOST=${MAIL_SMTP_HOST:-smtp.gmail.com}
+      - MAIL_SMTP_PORT=${MAIL_SMTP_PORT:-587}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
+      - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-true}
+      - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-true}
     depends_on:
       postgres-db:
         condition: service_healthy

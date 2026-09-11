@@ -378,7 +378,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 | UC-72 | Consulter les résultats de l'épreuve | A3, A4 *(lecture)* | ✅ | `NotationController:80` · `resultats.component.ts` |
 | UC-73 | Analyser un critère en profondeur | A3, A4 *(lecture)* | ✅ | `NotationItemController:33` · `resultats.component.html:263-270` |
 | UC-74 | Délibérer en jury | A3 | 📐 | **ADR-0021 D4** — « l'écran de délibération précède toute statistique » |
-| UC-75 | Versionner le barème après délibération | A3 | 📐 | **ADR-0021 D9** · **#135** · seconde moitié de **#276** |
+| UC-75 | Versionner le barème après délibération | A3 | ✅ | **ADR-0021 D9 · ADR-0030** · #361 (entité + V25) · #394 (UI) · **#401 : la lecture délibérée EST le résultat — classement, moyenne, mention, export, BI (D4 révisé 2026-09-04)** |
 | UC-76 | Publier les résultats aux étudiants | A5 | ⛔ non retenu | **ADR-0022** (2026-07-31) : la faculté conserve ses canaux officiels ; le système s'arrête à la clôture + PV (UC-77). Exclusion décidée, plus une omission |
 | UC-77 | Produire un procès-verbal archivable | A3 | ❌ | aucun code, aucun ADR — voir §6.3 |
 
@@ -386,7 +386,7 @@ synthèse du rapport ; les quatre derniers le complètent.
 
 | UC | Cas d'utilisation | Acteur | État | Preuve / référence |
 |:--:|---|:--:|:--:|---|
-| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021** ; **le service `ai-service` n'existe pas dans le dépôt** ; route `analyses-ia` = page vide |
+| UC-78 | Calculer les indices psychométriques | A7 | 📐 | **ADR-0008**, **ADR-0021**, **ADR-0029** ; `ai-service` livré (#352/#357/#359 — `/ai/examens/{id}/indices` + `/evaluateurs`), indices sur les cartes de l'écran A (#374/#375) |
 | UC-79 | Détecter les anomalies de notation | A7 | 📐 | **ADR-0008** |
 | UC-80 | Comparer la sévérité des évaluateurs | A3, A4 | 📐 | **ADR-0021 D1/D2** — comparaison **intra-station obligatoire**, descriptive et jamais automatique (D3) |
 | UC-81 | Proposer un barème révisé motivé | A7 | 📐 | **ADR-0021 partie 2** — la finalité affichée du volet IA |
@@ -775,7 +775,7 @@ brouillons de travail, pas la référence.)
   | Consulter les résultats | Responsable **et Super-admin (lecture)** | UC-72 |
   | Gérer les utilisateurs | Super-admin | UC-11→14 |
   | Gérer les matières | Super-admin | UC-09, UC-10 |
-  | Consulter l'historique des épreuves de la faculté | Super-admin | lecture seule trans-matières — vérifié `admin-home.component.ts` (tous examens, toutes matières) |
+  | Consulter l'historique des épreuves de la faculté | Super-admin | lecture seule trans-matières — `admin-examens.component` + `admin-examen-detail.component` (#390, `/admin/examens`) : tous examens, toutes matières, aucun contrôle d'écriture, jamais le workspace |
 
 - **Écarts assumés vs l'ancienne spec à 11 bulles** (2026-08-01) :
   - « Gérer les matières et les utilisateurs » **scindée en deux** (le « et » cachait deux

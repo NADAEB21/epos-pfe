@@ -5,20 +5,20 @@
   </div>
 } @else if (error()) {
   <div
-    class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card"
+    class="card p-8 text-center"
   >
     <p class="text-gray-700 mb-1">
-      Impossible de charger la liste des etudiants.
+      Impossible de charger la liste des étudiants.
     </p>
     <p class="text-sm text-gray-500 mb-4">
-      Verifiez votre connexion puis reessayez.
+      Vérifiez votre connexion puis réessayez.
     </p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else {
@@ -30,21 +30,21 @@
           <button
             type="button"
             (click)="openAddNew()"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+            class="btn-primary"
           >
-            + Ajouter un nouvel etudiant
+            + Ajouter un nouvel étudiant
           </button>
           <button
             type="button"
             (click)="openAddExisting()"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+            class="btn-secondary"
           >
-            Ajouter un etudiant existant
+            Ajouter un étudiant existant
           </button>
           <button
             type="button"
             (click)="openImport()"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+            class="btn-secondary"
           >
             Importer (CSV/Excel)
           </button>
@@ -57,10 +57,10 @@
           [formGroup]="newForm"
           (ngSubmit)="submitAddNew()"
           novalidate
-          class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+          class="card p-5 space-y-4"
         >
           <div class="text-sm font-semibold text-gray-900">
-            Nouvel etudiant
+            Nouvel étudiant
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
@@ -115,7 +115,7 @@
                 newForm.controls.numeroInscription.invalid
               ) {
                 <p class="text-xs text-status-danger mt-1">
-                  Le numero est obligatoire.
+                  Le numéro est obligatoire.
                 </p>
               }
             </div>
@@ -144,14 +144,14 @@
             <button
               type="button"
               (click)="cancelAdd()"
-              class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+              class="btn-secondary btn-sm"
             >
               Annuler
             </button>
             <button
               type="submit"
               [disabled]="newForm.invalid || submitting()"
-              class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              class="btn-primary btn-sm"
             >
               {{ submitting() ? 'Ajout…' : 'Ajouter et inscrire' }}
             </button>
@@ -161,9 +161,9 @@
 
       <!-- Enrol an existing student from the directory -->
       @if (mode() === 'existing') {
-        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-3">
+        <div class="card p-5 space-y-3">
           <div class="flex items-center justify-between gap-3">
-            <div class="text-sm font-semibold text-gray-900">Ajouter des etudiants existants</div>
+            <div class="text-sm font-semibold text-gray-900">Ajouter des étudiants existants</div>
             <button type="button" (click)="cancelAdd()" class="text-xs text-gray-500 hover:text-gray-800">
               Fermer
             </button>
@@ -172,7 +172,7 @@
             type="text"
             [value]="search()"
             (input)="search.set($any($event.target).value)"
-            placeholder="Rechercher par nom ou numero…"
+            placeholder="Rechercher par nom ou numéro…"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           />
           @if (addError()) {
@@ -253,9 +253,9 @@
             } @empty {
               <p class="px-3 py-4 text-sm text-gray-400 text-center">
                 @if (availableStudents().length === 0) {
-                  Tous les etudiants du repertoire sont deja inscrits.
+                  Tous les étudiants du repertoire sont déjà inscrits.
                 } @else {
-                  Aucun etudiant ne correspond a la recherche.
+                  Aucun étudiant ne correspond à la recherche.
                 }
               </p>
             }
@@ -266,15 +266,15 @@
               type="button"
               [disabled]="selectedCount() === 0 || bulkEnrolling()"
               (click)="enrolSelected()"
-              class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed"
+              class="btn-primary btn-sm"
             >
               {{ bulkEnrolling() ? 'Inscription…' : 'Inscrire les ' + selectedCount() + ' étudiant(s) sélectionné(s)' }}
             </button>
           </div>
 
           <p class="text-xs text-gray-400">
-            Le repertoire est partage entre toutes les matieres (pas de
-            filtre par matiere cote scoring — #86).
+            Le repertoire est partage entre toutes les matières (pas de
+            filtre par matière cote scoring — #86).
           </p>
         </div>
       }
@@ -282,11 +282,11 @@
       <!-- Bulk import from CSV / Excel -->
       @if (mode() === 'import') {
         <div
-          class="rounded-xl bg-white border border-gray-200 shadow-card p-5 space-y-4"
+          class="card p-5 space-y-4"
         >
           <div class="flex items-center justify-between gap-3">
             <div class="text-sm font-semibold text-gray-900">
-              Importer des etudiants (CSV / Excel)
+              Importer des étudiants (CSV / Excel)
             </div>
             <button
               type="button"
@@ -355,7 +355,7 @@
                       <th class="px-3 py-2">Nom</th>
                       <th class="px-3 py-2">N&deg; inscription</th>
                       <th class="px-3 py-2">Email</th>
-                      <th class="px-3 py-2">Etat</th>
+                      <th class="px-3 py-2">État</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-50">
@@ -396,7 +396,7 @@
                 <button
                   type="button"
                   (click)="cancelImport()"
-                  class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                  class="btn-secondary btn-sm"
                 >
                   Annuler
                 </button>
@@ -404,7 +404,7 @@
                   type="button"
                   [disabled]="importing() || importValidCount() === 0"
                   (click)="submitImport()"
-                  class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="btn-primary btn-sm"
                 >
                   {{
                     importing()
@@ -426,13 +426,13 @@
                   >{{ res.total }} ligne(s)</span
                 >
                 <span class="text-status-success"
-                  >{{ res.created }} cree(s)</span
+                  >{{ res.created }} créé(s)</span
                 >
                 <span class="text-status-success"
                   >{{ res.enrolled }} inscrit(s)</span
                 >
                 <span class="text-gray-500"
-                  >{{ res.alreadyEnrolled }} deja inscrit(s)</span
+                  >{{ res.alreadyEnrolled }} déjà inscrit(s)</span
                 >
                 @if (res.errors > 0) {
                   <span class="text-status-danger"
@@ -462,7 +462,7 @@
                       class="text-left text-xs text-gray-400 border-b border-gray-100"
                     >
                       <th class="px-3 py-2 w-8">#</th>
-                      <th class="px-3 py-2">Etudiant</th>
+                      <th class="px-3 py-2">Étudiant</th>
                       <th class="px-3 py-2">N&deg; inscription</th>
                       <th class="px-3 py-2">Resultat</th>
                     </tr>
@@ -508,7 +508,7 @@
                 <button
                   type="button"
                   (click)="cancelImport()"
-                  class="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark"
+                  class="btn-primary btn-sm"
                 >
                   Terminer
                 </button>
@@ -522,12 +522,12 @@
 
   @if (rows().length === 0) {
     <div
-      class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card"
+      class="card p-8 text-center"
     >
-      <p class="text-gray-700 mb-1">Aucun etudiant inscrit a cet examen.</p>
+      <p class="text-gray-700 mb-1">Aucun étudiant inscrit à cet examen.</p>
       <p class="text-sm text-gray-500">
         @if (editable()) {
-          Ajoutez un nouvel etudiant ou inscrivez-en un depuis le repertoire
+          Ajoutez un nouvel étudiant ou inscrivez-en un depuis le repertoire
           pour commencer.
         } @else {
           La liste des inscrits apparaitra ici.
@@ -541,12 +541,12 @@
     <!-- summary -->
     <div class="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-sm">
       <span class="text-gray-900 font-semibold"
-        >{{ rows().length }} etudiant(s)</span
+        >{{ rows().length }} étudiant(s)</span
       >
       @if (showDayOf()) {
         @if (presentsCount() > 0) {
           <span class="text-gray-500"
-            >{{ presentsCount() }} present(s)</span
+            >{{ presentsCount() }} présent(s)</span
           >
         }
         @if (absentsCount() > 0) {
@@ -561,7 +561,7 @@
         type="text"
         [value]="rosterSearch()"
         (input)="rosterSearch.set($any($event.target).value)"
-        placeholder="Rechercher (nom ou numero)…"
+        placeholder="Rechercher (nom ou numéro)…"
         class="flex-1 min-w-[12rem] rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
       />
       @if (showDayOf()) {
@@ -570,10 +570,10 @@
           (change)="presenceFilter.set($any($event.target).value)"
           class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
         >
-          <option value="all">Presence : toutes</option>
-          <option value="present">Presents</option>
+          <option value="all">Présence : toutes</option>
+          <option value="present">Présents</option>
           <option value="absent">Absents</option>
-          <option value="unmarked">Non marquee</option>
+          <option value="unmarked">Non marquée</option>
         </select>
       }
       <select
@@ -591,23 +591,124 @@
       </select>
     </div>
 
+    <!-- #435 — retrait groupé : la barre de sélection du listing, symétrique de
+         « Tout sélectionner » de l'ajout depuis l'annuaire (#186). Elle n'existe
+         que tant que le listing est éditable (BROUILLON / CONFIGURE). -->
+    @if (editable() && rows().length > 0) {
+      <div class="flex flex-wrap items-center gap-3 mb-3 text-xs">
+        <label class="flex items-center gap-2 text-gray-600">
+          <input
+            type="checkbox"
+            [checked]="allRosterFilteredSelected()"
+            [disabled]="bulkRemoving()"
+            (change)="toggleSelectAllRosterFiltered()"
+            class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+          />
+          Tout sélectionner ({{ filteredRows().length }} affiché(s))
+        </label>
+        @if (rosterSelectedCount() > 0) {
+          <span class="text-gray-500">{{ rosterSelectedCount() }} sélectionné(s)</span>
+          <button
+            type="button"
+            [disabled]="bulkRemoving()"
+            (click)="askBulkRemove()"
+            class="px-3 py-1.5 rounded-lg border border-status-danger text-status-danger font-medium hover:bg-red-50 disabled:opacity-40"
+          >
+            Retirer les {{ rosterSelectedCount() }} sélectionné(s)
+          </button>
+          <button type="button" (click)="clearRosterSelection()" class="text-gray-500 hover:text-gray-700">
+            Tout décocher
+          </button>
+        }
+      </div>
+
+      @if (confirmBulkRemove()) {
+        <section role="alertdialog" class="rounded-lg border border-status-danger bg-red-50 p-4 mb-3">
+          <p class="text-sm font-medium text-gray-900 mb-1">
+            Retirer {{ rosterSelectedCount() }} étudiant(s) de cet examen ?
+          </p>
+          <p class="text-sm text-gray-700 mb-3">
+            Ils restent dans le répertoire et pourront être réinscrits. L'ordre du fichier importé
+            est conservé pour les étudiants qui restent.
+          </p>
+          @if (bulkRemoveError(); as err) {
+            <p role="alert" class="text-sm text-status-danger mb-3">{{ err }}</p>
+          }
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              [disabled]="bulkRemoving()"
+              (click)="retirerSelection()"
+              class="px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 disabled:opacity-40"
+            >
+              {{ bulkRemoving() ? 'Retrait…' : 'Retirer ' + rosterSelectedCount() + ' étudiant(s)' }}
+            </button>
+            <button type="button" [disabled]="bulkRemoving()" (click)="cancelBulkRemove()" class="text-sm text-gray-500 hover:text-gray-700">
+              Annuler
+            </button>
+          </div>
+        </section>
+      }
+
+      @if (bulkRemoveResult(); as r) {
+        <div
+          class="rounded-lg border px-3 py-2 text-xs space-y-1.5 mb-3"
+          [class.border-emerald-200]="r.erreurs === 0"
+          [class.bg-emerald-50]="r.erreurs === 0"
+          [class.text-emerald-800]="r.erreurs === 0"
+          [class.border-amber-200]="r.erreurs > 0"
+          [class.bg-amber-50]="r.erreurs > 0"
+          [class.text-amber-800]="r.erreurs > 0"
+        >
+          <p>
+            {{ r.retires }} retiré(s)
+            @if (r.introuvables > 0) {, {{ r.introuvables }} déjà retiré(s)}
+            @if (r.erreurs > 0) {, <strong>{{ r.erreurs }} non retiré(s)</strong>}.
+          </p>
+          @if (r.erreurs > 0) {
+            <ul class="list-disc pl-4 space-y-0.5">
+              @for (l of bulkRemoveLignesEchec(r); track l.participationId) {
+                <li>
+                  @if (l.nom || l.prenom) { {{ l.prenom }} {{ l.nom }} } @else { Inscription #{{ l.participationId }} }
+                  — {{ l.message }}
+                </li>
+              }
+            </ul>
+          }
+          <button type="button" (click)="bulkRemoveResult.set(null)" class="underline hover:no-underline">Fermer</button>
+        </div>
+      }
+    }
+
     <div
-      class="rounded-xl bg-white border border-gray-200 shadow-card overflow-hidden"
+      class="card overflow-hidden"
     >
       <table class="w-full text-sm">
         <thead>
           <tr
             class="text-left text-xs text-gray-400 border-b border-gray-100"
           >
+            @if (editable()) {
+              <th class="px-3 py-2.5 w-8">
+                <input
+                  type="checkbox"
+                  aria-label="Tout sélectionner"
+                  [checked]="allRosterFilteredSelected()"
+                  [disabled]="bulkRemoving()"
+                  (change)="toggleSelectAllRosterFiltered()"
+                  class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                />
+              </th>
+            }
             <th class="px-4 py-2.5 font-medium w-8">#</th>
-            <th class="px-4 py-2.5 font-medium">Etudiant</th>
+            <th class="px-4 py-2.5 font-medium">Étudiant</th>
             <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
             <!-- #227 Added Column -->
             <th class="px-4 py-2.5 font-medium">Email</th>
-            <th class="px-4 py-2.5 font-medium">N&deg; echantillon</th>
+            <th class="px-4 py-2.5 font-medium">N&deg; échantillon</th>
             <th class="px-4 py-2.5 font-medium">Lot</th>
             @if (showDayOf()) {
-              <th class="px-4 py-2.5 font-medium">Presence</th>
+              <th class="px-4 py-2.5 font-medium">Présence</th>
               <th class="px-4 py-2.5 font-medium text-right">Note</th>
             }
             @if (editable()) {
@@ -621,7 +722,19 @@
             track r.participationId;
             let i = $index
           ) {
-            <tr class="hover:bg-surface">
+            <tr class="hover:bg-surface" [class.bg-red-50]="editable() && isRosterSelected(r.participationId)">
+              @if (editable()) {
+                <td class="px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    [attr.aria-label]="'Sélectionner ' + displayName(r)"
+                    [checked]="isRosterSelected(r.participationId)"
+                    [disabled]="bulkRemoving()"
+                    (change)="toggleRosterSelect(r.participationId)"
+                    class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                </td>
+              }
               <td class="px-4 py-2.5 text-gray-400">{{ i + 1 }}</td>
               <td class="px-4 py-2.5 text-gray-800 font-medium">
                 {{ displayName(r) }}
@@ -650,7 +763,7 @@
                       type="button"
                       (click)="saveEmail(r)"
                       [disabled]="savingEmailId() === r.etudiantId"
-                      class="px-2 py-1 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-dark disabled:opacity-50"
+                      class="btn-primary px-2 text-xs"
                     >
                       {{ savingEmailId() === r.etudiantId ? '…' : 'OK' }}
                     </button>
@@ -690,7 +803,7 @@
                   @if (r.present === true) {
                     <span
                       class="text-xs px-2 py-0.5 rounded-full bg-status-success text-white"
-                      >Present</span
+                      >Présent</span
                     >
                   } @else if (r.present === false) {
                     <span
@@ -748,7 +861,7 @@
                 [attr.colspan]="colspan()"
                 class="px-4 py-6 text-center text-sm text-gray-400"
               >
-                Aucun etudiant ne correspond aux filtres.
+                Aucun étudiant ne correspond aux filtres.
               </td>
             </tr>
           }
@@ -762,7 +875,7 @@
 
     <p class="text-xs text-gray-400 mt-3">
       @if (showDayOf()) {
-        Presence, note et numero d'echantillon se remplissent le jour de
+        Présence, note et numéro d'échantillon se remplissent le jour de
         l'examen — non editables ici.
       } @else {
         La presence et les notes apparaitront ici une fois l'examen lance.

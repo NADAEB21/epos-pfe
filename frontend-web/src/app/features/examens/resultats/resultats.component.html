@@ -9,13 +9,13 @@
     <div class="h-64 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger les résultats.</p>
     <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
       Réessayer
     </button>
@@ -64,7 +64,7 @@
   }
 
   @if (rows().length === 0) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Aucune note saisie pour cet examen.</p>
     <p class="text-sm text-gray-500 max-w-md mx-auto">
       Les notes sont remontées par les évaluateurs depuis l'application mobile,
@@ -110,24 +110,26 @@
   }
   <!-- Summary stats -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+    <div class="card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Étudiants notés</div>
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">{{ rows().length }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+    <div class="card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Moyenne promo</div>
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">
         {{ moyennePromo() != null ? (moyennePromo() | number: '1.1-1') + ' /20' : '—' }}
       </div>
+      <!-- #401 — le barème qui fait le résultat est nommé, jamais implicite -->
+      <div class="text-xs text-gray-400 mt-0.5" data-testid="kpi-bareme">{{ lectureLabel() }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+    <div class="card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Taux de réussite</div>
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">
         {{ tauxReussite() != null ? (tauxReussite() | number: '1.0-0') + ' %' : '—' }}
       </div>
-      <div class="text-xs text-gray-400 mt-0.5">≥ 10/20</div>
+      <div class="text-xs text-gray-400 mt-0.5">≥ 10/20 · {{ lectureLabel() }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+    <div class="card p-4">
       <div class="text-xs text-gray-400 uppercase tracking-wide">Min · Max</div>
       <div class="text-2xl font-semibold text-gray-900 tabular-nums">
         {{ minMaxLabel() }}
@@ -146,11 +148,38 @@
       </h2>
       @if (baremeLiveStations().length > 0) {
         <span role="status" class="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-800"
-          title="Le barème figé au lancement (snapshot) est indisponible pour ces stations — les chiffres s'appuient sur la grille actuelle, qui peut avoir changé depuis l'épreuve.">
-          Barème vivant utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — snapshot indisponible
+          title="Le barème enregistré au moment de l'épreuve est indisponible pour ces stations — les chiffres s'appuient sur la grille actuelle, qui peut avoir changé depuis.">
+          Barème actuel de la grille utilisé pour {{ baremeLiveStations().length }} station{{ baremeLiveStations().length > 1 ? 's' : '' }} — barème de l'épreuve indisponible
+        </span>
+      }
+      <!-- #359 — note DISCRÈTE, pas un bandeau : l'écran ne dépend jamais du module
+           IA (ADR-0021 D4) ; aucun chiffre affiché ne change de sens quand il manque.
+           Le silence, lui, est interdit (leçon du 403 avalé). -->
+      @if (indicesEtat() === 'absents') {
+        <span role="status" class="text-xs text-gray-400">
+          Analyse statistique non disponible
         </span>
       }
     </div>
+    <!-- #359 — les exclusions du moteur, DITES : deux dénominateurs cohabitent sur
+         les cartes (le n d'un indice exclut les détails incomplets) — l'écart se
+         lit ici au lieu de se découvrir. -->
+    @if (indicesEtat() === 'prets' && indices(); as ind) {
+      @if (ind.exclusions.detail_incomplet > 0 || ind.exclusions.sans_aucun_item > 0 || ind.exclusions.saisi_par_null > 0) {
+        <p class="mb-3 text-xs text-gray-400">
+          Indices calculés sur {{ ind.exclusions.notations_analysees }} notation{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }} verrouillée{{ ind.exclusions.notations_analysees > 1 ? 's' : '' }}
+          @if (ind.exclusions.detail_incomplet > 0) {
+            · {{ ind.exclusions.detail_incomplet }} écartée{{ ind.exclusions.detail_incomplet > 1 ? 's' : '' }} des matrices (détail par critère incomplet)
+          }
+          @if (ind.exclusions.sans_aucun_item > 0) {
+            · {{ ind.exclusions.sans_aucun_item }} sans aucun détail (invisible{{ ind.exclusions.sans_aucun_item > 1 ? 's' : '' }} des indices)
+          }
+          @if (ind.exclusions.saisi_par_null > 0) {
+            · {{ ind.exclusions.saisi_par_null }} sans auteur (hors analyses évaluateur)
+          }
+        </p>
+      }
+    }
     @if (completeness(); as c) {
       @if (c.totalStations > stationCols().length) {
         <p role="status" class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -161,11 +190,17 @@
     }
     <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
       @for (d of deliberation(); track d.stationId) {
-        <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
+        <div class="card p-4">
           <div class="flex items-start justify-between gap-2 mb-2">
             <div>
               <h3 class="text-sm font-medium text-gray-900">
                 <span class="text-gray-400">#{{ d.ordre }}</span> {{ d.nom }}
+                @if (stationsExcluesExam().has(d.stationId)) {
+                  <!-- #401 — la carte lit les notes saisies (ce que le jury délibère) ; la station n'entre plus dans le résultat -->
+                  <span class="badge-neutral ml-1" title="Retirée par le barème de délibération courant : ses notes restent lisibles ici, elles n'entrent plus dans le total ni le classement">
+                    exclue du barème v{{ baremeVersion() }}
+                  </span>
+                }
               </h3>
               <p class="text-xs text-gray-400">
                 / {{ d.noteMax }} ·
@@ -182,6 +217,29 @@
               </span>
             }
           </div>
+
+          <!-- #359 — indices cohorte de la station (ai-service). Refus = texte du
+               backend VERBATIM (contrat ADR-0029 D6) ; valeur = jamais sans son n
+               (le n d'un indice est SON effectif, pas nVerrouillees).
+               Bloc CONTENU (constat S46) : le style discret est réservé à l'état
+               ABSENT — l'indice qui existe se lit au poids normal. Fond neutre,
+               pas brand : une teinte verte jugerait, or seul le statut du backend
+               colore (concluant neutre / refus ambre). -->
+          @if (indicesEtat() === 'chargement') {
+            <div class="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 space-y-2" aria-hidden="true">
+              <div class="h-3 w-2/3 animate-pulse rounded bg-gray-200"></div>
+              <div class="h-3 w-1/2 animate-pulse rounded bg-gray-200"></div>
+            </div>
+          }
+          @if (indicesEtat() === 'prets') {
+            <!-- #407 — les indices se lisent en phrases (app-lecture-indice, F4), plus en nombres nus ;
+                 le détail complet est dans l'onglet Analyse. -->
+            <div class="mb-3 space-y-1.5" data-testid="indices-cohorte">
+              <p class="text-[11px] font-medium uppercase tracking-wide text-gray-500">Indices cohorte</p>
+              <app-lecture-indice [indice]="asIndice(alphaDe(d.stationId))" />
+              <app-lecture-indice [indice]="asIndice(concentrationDe(d.stationId))" />
+            </div>
+          }
 
           @if (d.nVerrouillees === 0) {
             <p class="text-sm text-gray-500 italic py-3">
@@ -234,8 +292,26 @@
   </div>
 
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-sm font-medium text-gray-500">
+    <h2 class="text-sm font-medium text-gray-500 flex items-center gap-2">
       Classement &middot; {{ stationCols().length }} stations
+      @if (baremeVersion(); as v) {
+        @if (delibereServi()) {
+          <!-- #401 (ADR-0030 D4 révisé) — la lecture délibérée EST le résultat ; l'origine reste la trace -->
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200" title="Les notes saisies ne changent pas : elles restent dans les cellules et la colonne « Origine /20 » — les versions du barème et leurs motifs sont dans l'onglet Délibération">
+            Barème de délibération v{{ v }} appliqué — classement, moyenne et mention sous ce barème
+          </span>
+        } @else if (lectureIncoherente()) {
+          <!-- #401 — Σ scoreDelibere ≠ totalDelibere : jamais un rang faux en silence -->
+          <span role="alert" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Les totaux reçus pour cette version ne sont pas cohérents entre eux — le classement reste au barème d'origine en attendant">
+            Barème v{{ v }} enregistré mais non appliqué : totaux reçus incohérents — classement au barème d'origine
+          </span>
+        } @else {
+          <!-- #399 — la version existe mais scoring ne sert AUCUN total délibéré (barème figé incomplet) : dit, pas « appliqué » -->
+          <span role="status" class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-800 border border-red-200" title="Une station notée n'a pas de barème enregistré au moment de l'épreuve : aucun total délibéré ne peut être calculé — voir l'onglet Délibération">
+            Barème v{{ v }} enregistré mais non appliqué : une station notée n'a pas de barème enregistré au moment de l'épreuve
+          </span>
+        }
+      }
     </h2>
     <button
       type="button"
@@ -247,7 +323,7 @@
   </div>
 
   <!-- Results table -->
-  <div class="rounded-xl bg-white border border-gray-200 shadow-card overflow-x-auto">
+  <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-gray-200 text-left text-gray-500">
@@ -260,8 +336,19 @@
               <span class="block text-xs text-gray-400 font-normal">/ {{ col.noteMax }}</span>
             </th>
           }
-          <th class="px-3 py-3 font-medium text-center">Moyenne</th>
+          <th class="px-3 py-3 font-medium text-center">
+            Moyenne
+            @if (delibereServi()) {
+              <span class="block text-xs font-normal text-amber-800">barème v{{ baremeVersion() }}</span>
+            }
+          </th>
           <th class="px-3 py-3 font-medium">Mention</th>
+          @if (delibereServi()) {
+            <!-- #401 — la trace : la même moyenne au barème d'origine (notes saisies) -->
+            <th class="px-3 py-3 font-medium text-center whitespace-nowrap text-gray-400" title="La même moyenne au barème d'origine — les notes saisies, jamais modifiées">
+              Origine /20
+            </th>
+          }
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
@@ -288,9 +375,15 @@
                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-brand-50 transition-colors"
                     [class.bg-brand-50]="isExpanded(row, col)"
                   >
-                    <span [class.text-status-danger]="isStationFail(row, col)">
+                    <span [class.text-status-danger]="isStationFail(row, col)" [class.line-through]="row.stationsExclues.has(col.stationId)" [class.text-gray-400]="row.stationsExclues.has(col.stationId)">
                       {{ row.scoreByStation.get(col.stationId) | number: '1.0-1' }}
                     </span>
+                    @if (delibereCellule(row, col); as d) {
+                      <!-- #401 — la note saisie reste la cellule ; ce que le barème délibéré en lit est dit à côté -->
+                      <span class="text-[10px] text-amber-800" [title]="d === 'exclue' ? 'Station retirée par le barème de délibération courant — hors du total' : 'Sous le barème délibéré : score / max'">
+                        {{ d === 'exclue' ? 'exclue' : '→ ' + d }}
+                      </span>
+                    }
                     @if (!row.lockedByStation.get(col.stationId)) {
                       <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Note non verrouillée"></span>
                     }
@@ -303,7 +396,8 @@
                 }
               </td>
             }
-            <td class="px-3 py-2.5 text-center font-semibold tabular-nums">
+            <td class="px-3 py-2.5 text-center font-semibold tabular-nums"
+                [title]="(row.total | number: '1.1-2') + ' / ' + (row.totalMax | number: '1.0-1') + (row.lecture === 'DELIBERE' ? ' — barème de délibération v' + row.baremeVersion : '')">
               {{ row.moyenne20 != null ? (row.moyenne20 | number: '1.1-1') : '—' }}
             </td>
             <td class="px-3 py-2.5">
@@ -311,12 +405,18 @@
                 {{ row.mention }}
               </span>
             </td>
+            @if (delibereServi()) {
+              <td class="px-3 py-2.5 text-center tabular-nums text-gray-400"
+                  [title]="(row.totalOrigine | number: '1.1-2') + ' / ' + (row.totalMaxOrigine | number: '1.0-1') + ' — notes saisies, barème d\'origine'">
+                {{ row.moyenne20Origine != null ? (row.moyenne20Origine | number: '1.1-1') : '—' }}
+              </td>
+            }
           </tr>
           <!-- Per-critère deep-dive (gap #3): one expansion row under the student,
                for whichever station cell is open. -->
           @if (expandedColFor(row); as col) {
             <tr class="bg-gray-50/80">
-              <td [attr.colspan]="stationCols().length + 5" class="px-4 py-3 border-t border-gray-100">
+              <td [attr.colspan]="stationCols().length + (delibereServi() ? 6 : 5)" class="px-4 py-3 border-t border-gray-100">
                 <div class="flex items-center justify-between mb-2">
                   <h4 class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     Détail par critère · {{ col.nom }}
@@ -347,6 +447,16 @@
                             <th class="px-3 py-2 font-medium text-center w-28">Note</th>
                             <th class="px-3 py-2 font-medium">Attendu</th>
                             <th class="px-3 py-2 font-medium">Commentaire</th>
+                            <!-- #359 — indices COHORTE (tous étudiants), pas ceux de
+                                 cette copie : le sous-titre le dit, sinon la colonne ment. -->
+                            @if (indicesEtat() === 'prets') {
+                              <th class="px-3 py-2 font-medium text-center">
+                                Difficulté <span class="block text-[10px] font-normal normal-case">cohorte</span>
+                              </th>
+                              <th class="px-3 py-2 font-medium text-center">
+                                Discrimination <span class="block text-[10px] font-normal normal-case">cohorte</span>
+                              </th>
+                            }
                           </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
@@ -377,6 +487,29 @@
                                 }
                               </td>
                               <td class="px-3 py-2 text-gray-500">{{ l.commentaire || '—' }}</td>
+                              @if (indicesEtat() === 'prets') {
+                                @let ic = indiceCritereDe(l.itemId);
+                                <td class="px-3 py-2 text-center text-xs tabular-nums">
+                                  @if (ic && ic.difficulte.statut === 'CONCLUANT') {
+                                    <span class="font-medium text-gray-800">{{ ic.difficulte.valeur | number: '1.2-2' }}</span>
+                                    <span class="text-gray-400"> (n={{ ic.difficulte.n }})</span>
+                                  } @else if (ic) {
+                                    <span class="text-amber-700 italic">{{ ic.difficulte.raison }}</span>
+                                  } @else {
+                                    <span class="text-gray-300">—</span>
+                                  }
+                                </td>
+                                <td class="px-3 py-2 text-center text-xs tabular-nums">
+                                  @if (ic && ic.discrimination.statut === 'CONCLUANT') {
+                                    <span class="font-medium text-gray-800">{{ ic.discrimination.valeur | number: '1.2-2' }}</span>
+                                    <span class="text-gray-400"> (n={{ ic.discrimination.n }})</span>
+                                  } @else if (ic) {
+                                    <span class="text-amber-700 italic">{{ ic.discrimination.raison }}</span>
+                                  } @else {
+                                    <span class="text-gray-300">—</span>
+                                  }
+                                </td>
+                              }
                             </tr>
                           }
                         </tbody>

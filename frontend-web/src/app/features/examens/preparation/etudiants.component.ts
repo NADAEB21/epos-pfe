@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import {
   BulkEnrolLigne, BulkEnrolResult,
+  BulkRetraitLigne, BulkRetraitResult,
   EtudiantSummary,
   ImportEtudiantRow,
   ImportResult,
@@ -190,7 +191,8 @@ export class EtudiantsComponent {
 
   /** Visible column count, for the "no match" row's colspan. */
   readonly colspan = computed(
-    () => 6 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 1 : 0),
+    // #435 — en édition : la case à cocher (gauche) + la colonne d'actions (droite).
+    () => 6 + (this.showDayOf() ? 2 : 0) + (this.editable() ? 2 : 0),
   );
 
   readonly presentsCount = computed(() => this.rows().filter((r) => r.present === true).length);
@@ -214,6 +216,22 @@ export class EtudiantsComponent {
   readonly emailError = signal<string | null>(null);
   readonly removingId = signal<number | null>(null);
   readonly removeError = signal<string | null>(null);
+
+  // ---- #435 retrait groupé (sélection sur le listing) ------------------------
+  /** participationIds cochés dans le LISTING (distinct de `selectedIds`, qui vit dans l'annuaire). */
+  readonly rosterSelectedIds = signal<Set<number>>(new Set());
+  readonly rosterSelectedCount = computed(() => this.rosterSelectedIds().size);
+  /** « Tout sélectionner » porte sur le filtre ACTIF du listing, jamais sur tout l'examen. */
+  readonly allRosterFilteredSelected = computed(() => {
+    const visible = this.filteredRows();
+    if (visible.length === 0) return false;
+    const sel = this.rosterSelectedIds();
+    return visible.every((r) => sel.has(r.participationId));
+  });
+  readonly confirmBulkRemove = signal(false);
+  readonly bulkRemoving = signal(false);
+  readonly bulkRemoveResult = signal<BulkRetraitResult | null>(null);
+  readonly bulkRemoveError = signal<string | null>(null);
 
   // ---- bulk import (CSV / Excel) state ------------------------------------
   readonly importFileName = signal<string>('');
@@ -717,6 +735,81 @@ export class EtudiantsComponent {
     }
   }
 
+  // ---- #435 retrait groupé -------------------------------------------------
+
+  isRosterSelected(participationId: number): boolean {
+    return this.rosterSelectedIds().has(participationId);
+  }
+
+  toggleRosterSelect(participationId: number): void {
+    this.rosterSelectedIds.update((s) => {
+      const next = new Set(s);
+      next.has(participationId) ? next.delete(participationId) : next.add(participationId);
+      return next;
+    });
+  }
+
+  /** Coche / décoche les lignes ACTUELLEMENT FILTRÉES — jamais le listing entier en silence. */
+  toggleSelectAllRosterFiltered(): void {
+    const visible = this.filteredRows();
+    const allSelected = this.allRosterFilteredSelected();
+    this.rosterSelectedIds.update((s) => {
+      const next = new Set(s);
+      for (const r of visible) allSelected ? next.delete(r.participationId) : next.add(r.participationId);
+      return next;
+    });
+  }
+
+  clearRosterSelection(): void {
+    this.rosterSelectedIds.set(new Set());
+    this.confirmBulkRemove.set(false);
+    this.bulkRemoveError.set(null);
+  }
+
+  askBulkRemove(): void {
+    if (this.rosterSelectedCount() === 0) return;
+    this.bulkRemoveError.set(null);
+    this.bulkRemoveResult.set(null);
+    this.confirmBulkRemove.set(true);
+  }
+
+  cancelBulkRemove(): void {
+    this.confirmBulkRemove.set(false);
+  }
+
+  /**
+   * #435 — retire la sélection en un appel. Les lignes RETIRÉES quittent le listing ; les
+   * autres (refusées, déjà dans un circuit) y restent, nommées dans le bilan. L'ordre du
+   * fichier importé (#256) n'est pas touché : on filtre, on ne re-trie pas.
+   */
+  retirerSelection(): void {
+    const ids = [...this.rosterSelectedIds()];
+    if (ids.length === 0 || this.bulkRemoving()) return;
+    this.bulkRemoving.set(true);
+    this.bulkRemoveError.set(null);
+    this.bulkRemoveResult.set(null);
+    this.scoring.retirerParticipationsBulk(Number(this.id()), ids).subscribe({
+      next: (res) => {
+        this.bulkRemoving.set(false);
+        this.confirmBulkRemove.set(false);
+        this.bulkRemoveResult.set(res);
+        const retires = new Set(res.lignes.filter((l) => l.statut === 'RETIRE').map((l) => l.participationId));
+        this.rows.update((list) => list.filter((x) => !retires.has(x.participationId)));
+        this.rosterSelectedIds.set(new Set());
+        this.store.reloadPrep(); // #185 — tick the workspace stepper
+      },
+      error: (err: HttpErrorResponse) => {
+        this.bulkRemoving.set(false);
+        this.bulkRemoveError.set(`Echec du retrait : ${this.httpMessage(err)}`);
+      },
+    });
+  }
+
+  /** Les lignes NON retirées d'un bilan, pour dire QUI et POURQUOI. */
+  bulkRemoveLignesEchec(res: BulkRetraitResult): BulkRetraitLigne[] {
+    return res.lignes.filter((l) => l.statut !== 'RETIRE');
+  }
+
   // ---- remove -------------------------------------------------------------
 
   askRemove(r: RosterRow): void {
@@ -738,6 +831,12 @@ export class EtudiantsComponent {
         this.removingId.set(null);
         this.confirmRemoveId.set(null);
         this.rows.update((list) => list.filter((x) => x.participationId !== r.participationId));
+        // #435 — une ligne retirée à l'unité ne reste pas « cochée » dans le vide.
+        this.rosterSelectedIds.update((s) => {
+          const next = new Set(s);
+          next.delete(r.participationId);
+          return next;
+        });
         this.store.reloadPrep(); // #185 — tick the workspace stepper
       },
       error: (err: HttpErrorResponse) => {

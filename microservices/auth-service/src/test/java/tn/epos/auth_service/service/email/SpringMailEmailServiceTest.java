@@ -44,6 +44,31 @@ class SpringMailEmailServiceTest {
     }
 
     @Test
+    void sendInvitationEmail_linkCarriesBienvenueFlag_codeAndSevenDays() {
+        // #389 — le lien ouvre la page « Bienvenue » (bienvenue=1), le code brut
+        // reste copiable (mobile), la validite annoncee est celle du jeton (7 jours),
+        // et la personne est nommee.
+        SpringMailEmailService svc = new SpringMailEmailService(
+                mailSender, "eposfphm@gmail.com", "http://localhost:4200/reset-password");
+
+        svc.sendInvitationEmail("rania@epos.tn", "raw-invite", "Rania", "Aouina");
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage msg = captor.getValue();
+        assertThat(msg.getFrom()).isEqualTo("eposfphm@gmail.com");
+        assertThat(msg.getTo()).containsExactly("rania@epos.tn");
+        assertThat(msg.getSubject()).contains("compte est créé");
+        assertThat(msg.getText())
+                .contains("Bonjour Rania Aouina")
+                .contains("http://localhost:4200/reset-password?token=raw-invite&bienvenue=1")
+                .contains("    raw-invite")
+                .contains("7 jours")
+                .doesNotContain("30 minutes");
+        assertThat(svc.estSimule()).isFalse();
+    }
+
+    @Test
     void sendPasswordResetEmail_urlEncodesTokenWithSpecialCharacters() {
         SpringMailEmailService svc = new SpringMailEmailService(
                 mailSender,

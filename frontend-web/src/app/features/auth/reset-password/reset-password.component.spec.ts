@@ -108,4 +108,39 @@ describe('ResetPasswordComponent — consommer le code (W10)', () => {
     expect(cmp.erreurReseau()).toBeTrue();
     expect(cmp.erreurServeur()).toBeNull();
   });
+
+  describe('#389 — arrivée par le lien d’INVITATION (?bienvenue=1)', () => {
+    function buildBienvenue(params: Record<string, string>) {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [ResetPasswordComponent],
+        providers: [
+          provideRouter([]),
+          { provide: AuthService, useValue: auth },
+          { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(params) } } },
+        ],
+      });
+      const fixture = TestBed.createComponent(ResetPasswordComponent);
+      fixture.detectChanges();
+      return { cmp: fixture.componentInstance, el: fixture.nativeElement as HTMLElement };
+    }
+
+    it('lit « Bienvenue », pas « Réinitialiser » — même formulaire, même appel', () => {
+      const { cmp, el } = buildBienvenue({ token: 'invite-1', bienvenue: '1' });
+
+      expect(cmp.bienvenue()).toBeTrue();
+      expect(cmp.form.controls.token.value).toBe('invite-1');
+      expect(el.textContent).toContain('Bienvenue');
+      expect(el.textContent).toContain('Enregistrer mon mot de passe');
+      expect(el.textContent).not.toContain('Réinitialiser');
+    });
+
+    it('sans le drapeau : la lecture « mot de passe oublié » est inchangée', () => {
+      const { cmp, el } = buildBienvenue({ token: 'abc' });
+
+      expect(cmp.bienvenue()).toBeFalse();
+      expect(el.textContent).toContain('Réinitialiser');
+      expect(el.textContent).not.toContain('Bienvenue');
+    });
+  });
 });

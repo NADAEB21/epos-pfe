@@ -1,5 +1,5 @@
 <header class="mb-6">
-  <h1 class="text-2xl font-semibold text-gray-900">Console d'administration</h1>
+  <h1 class="page-title">Console d'administration</h1>
   <p class="text-sm text-gray-500">Vue d'ensemble de la plateforme — toutes matières confondues.</p>
 </header>
 
@@ -17,27 +17,61 @@
   @if (data(); as d) {
   <!-- Stat tiles -->
   <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.userCount }}</div>
-      <div class="text-sm text-gray-500">utilisateurs</div>
+    <div class="kpi">
+      <div class="kpi-label">utilisateurs</div>
+      <div class="kpi-value">{{ d.userCount }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.matiereCount }}</div>
-      <div class="text-sm text-gray-500">matières au catalogue</div>
+    <div class="kpi">
+      <div class="kpi-label">matières au catalogue</div>
+      <div class="kpi-value">{{ d.matiereCount }}</div>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.examTotal }}</div>
-      <div class="text-sm text-gray-500">examens (toutes matières)</div>
+    @if (examsError()) {
+      <div class="rounded-xl bg-white border border-status-danger shadow-card p-4 sm:col-span-2">
+        <div class="text-sm font-medium text-status-danger">Examens indisponibles</div>
+        <div class="text-xs text-gray-500">exam-service ne répond pas — les compteurs ne sont pas « 0 », ils sont inconnus.</div>
+      </div>
+    } @else {
+      <div class="kpi">
+        <div class="kpi-label">examens (toutes matières)</div>
+      <div class="kpi-value">{{ d.examTotal }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">examens actifs</div>
+      <div class="kpi-value">{{ d.examActive }}</div>
+      </div>
+    }
+  </section>
+
+  <!-- #407 — réussite par matière : la synthèse facultaire, agrégée d'abord, chargée à part -->
+  <section class="card p-5 mb-6" data-testid="synthese-console">
+    <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+      <h3 class="font-semibold text-gray-900 flex items-center gap-2"><app-icon name="chart" cls="w-4 h-4 text-brand" /> Réussite par matière</h3>
+      <a routerLink="/admin/synthese" class="text-sm text-brand hover:underline">Synthèse complète &rarr;</a>
     </div>
-    <div class="rounded-xl bg-white border border-gray-200 shadow-card p-4">
-      <div class="text-2xl font-semibold text-gray-900">{{ d.examActive }}</div>
-      <div class="text-sm text-gray-500">examens actifs</div>
-    </div>
+    <p class="text-sm text-gray-700 mb-3"><span class="font-medium">Où la réussite est-elle la plus faible ?</span> Toutes les sessions closes d'une matière mises ensemble ; sous 10 étudiants, la matière n'est pas lue.</p>
+    @switch (syntheseEtat()) {
+      @case ('chargement') { <div class="h-24 rounded-lg bg-gray-100 animate-pulse" aria-hidden="true"></div> }
+      @case ('absents') { <p class="text-sm text-gray-400" role="status">Synthèse indisponible — l'analyse ne répond pas pour le moment.</p> }
+      @case ('prets') {
+        @if (synthese(); as s) {
+          @if (s.matieres.length === 0) {
+            <p class="text-sm text-gray-400">Aucune session close dans la faculté pour l'instant.</p>
+          } @else {
+            <div class="grid grid-cols-3 gap-3 mb-4">
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Sessions closes</div><div class="text-xl font-semibold tabular-nums">{{ s.faculte.nb_examens_clos }}</div></div>
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Étudiants notés</div><div class="text-xl font-semibold tabular-nums">{{ s.faculte.n_etudiants }}</div></div>
+              <div class="rounded-lg bg-surface-muted px-3 py-2"><div class="kpi-label">Réussite</div><div class="text-xl font-semibold tabular-nums">{{ fmtTaux(s.faculte.taux_reussite) }}</div></div>
+            </div>
+            <app-barres-concentration [lignes]="lignesMatieres()" [largeurLabel]="180" titreValeur="Taux de réussite" />
+          }
+        }
+      }
+    }
   </section>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- Admin quick links -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+    <section class="card p-5">
       <h3 class="font-semibold text-gray-900 mb-3">Administration</h3>
       <ul class="divide-y divide-gray-100">
         @for (l of adminLinks; track l.link) {
@@ -58,16 +92,19 @@
     </section>
 
     <!-- Recent exams oversight -->
-    <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5">
+    <section class="card p-5">
       <h3 class="font-semibold text-gray-900 mb-3">Examens récents</h3>
       @if (d.recentExams.length === 0) {
         <p class="text-sm text-gray-400">Aucun examen.</p>
       } @else {
         <ul class="divide-y divide-gray-100">
           @for (e of d.recentExams; track e.id) {
-            <li class="flex items-center justify-between py-2 text-sm">
-              <span class="text-gray-700">{{ e.nom }}</span>
-              <span class="text-xs text-gray-400">{{ statutLabel(e.statut) }}</span>
+            <li class="text-sm">
+              <!-- #390 — vers le détail en LECTURE SEULE, jamais le workspace -->
+              <a [routerLink]="['/admin/examens', e.id]" class="flex items-center justify-between py-2 hover:text-brand">
+                <span class="text-gray-700">{{ e.nom }}</span>
+                <span class="text-xs text-gray-400">{{ statutLabel(e.statut) }}</span>
+              </a>
             </li>
           }
         </ul>

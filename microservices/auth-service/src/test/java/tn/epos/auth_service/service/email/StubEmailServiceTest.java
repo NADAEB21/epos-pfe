@@ -27,6 +27,29 @@ class StubEmailServiceTest {
     }
 
     @Test
+    void sendInvitationEmail_capturesAsInvitation_andSaysItIsSimulated() {
+        // #389 — le stub « envoie » dans le vide et le DIT : l'ecran ne doit
+        // jamais afficher « invitation envoyee » sur cette implementation.
+        StubEmailService svc = new StubEmailService();
+
+        svc.sendInvitationEmail("rania@epos.tn", "raw-invite", "Rania", "Aouina");
+
+        assertThat(svc.estSimule()).isTrue();
+        assertThat(svc.captured()).hasSize(1);
+        StubEmailService.CapturedEmail entry = svc.captured().get(0);
+        assertThat(entry.kind()).isEqualTo(StubEmailService.Kind.INVITATION);
+        assertThat(entry.recipientEmail()).isEqualTo("rania@epos.tn");
+        assertThat(entry.rawResetToken()).isEqualTo("raw-invite");
+    }
+
+    @Test
+    void sendPasswordResetEmail_isCapturedAsReset() {
+        StubEmailService svc = new StubEmailService();
+        svc.sendPasswordResetEmail("eval@epos.tn", "t");
+        assertThat(svc.captured().get(0).kind()).isEqualTo(StubEmailService.Kind.RESET);
+    }
+
+    @Test
     void captured_returnsImmutableView() {
         StubEmailService svc = new StubEmailService();
         svc.sendPasswordResetEmail("a@b.com", "t");

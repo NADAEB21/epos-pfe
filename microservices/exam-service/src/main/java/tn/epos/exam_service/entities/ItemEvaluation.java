@@ -36,7 +36,8 @@ public class ItemEvaluation {
 
 
     @NotNull(message = "La pondération est obligatoire")
-    @DecimalMin(value = "0.5", message = "La pondération minimale est 0.5")
+    // #418 — les grilles réelles portent des sous-critères au quart de point.
+    @DecimalMin(value = "0.25", message = "La pondération minimale est 0,25")
     @DecimalMax(value = "20.0", message = "La pondération maximale est 20")
     @Column(nullable = false)
     private Double ponderation;

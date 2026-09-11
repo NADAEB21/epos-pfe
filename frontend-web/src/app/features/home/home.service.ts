@@ -143,7 +143,7 @@ export class HomeService {
       const days = this.daysUntil(e.dateExamen, today);
       if (days !== null && days >= 0 && days <= 7) {
         actions.push({
-          label: `Examen ${e.nom} approche (J-${days}) — configuration a finaliser`,
+          label: `« ${e.nom} » approche (J-${days}) — configuration à finaliser`,
           examenId: e.id,
           tab: 'vue-ensemble',
           severity: 'warning',

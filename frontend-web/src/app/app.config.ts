@@ -4,6 +4,7 @@ import localeFr from '@angular/common/locales/fr';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
+import { provideEchartsCore } from 'ngx-echarts';
 
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth.interceptor';
@@ -40,6 +41,13 @@ export const appConfig: ApplicationConfig = {
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
+    }),
+    // #356, spec N4 règle 5 : init LAZY — l'import statique d'echarts/core ici
+    // mettait ~340 kB d'ECharts dans le bundle INITIAL de toutes les routes
+    // (login compris). La fabrique dynamique ne charge le chunk qu'au premier
+    // graphe réellement affiché.
+    provideEchartsCore({
+      echarts: () => import('./shared/graphes/echarts-setup').then((m) => m.loadEcharts()),
     }),
   ],
 };

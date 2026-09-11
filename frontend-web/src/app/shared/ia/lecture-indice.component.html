@@ -1,0 +1,18 @@
+@if (indice(); as i) {
+  <div
+    class="rounded-lg border px-3 py-2 text-sm"
+    [class]="
+      estRefus()
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-gray-200 bg-white text-gray-700'
+    "
+    role="status"
+    [attr.aria-label]="libelle() + ' — ' + texte()"
+  >
+    <div class="flex items-center justify-between gap-2">
+      <span class="font-medium text-gray-900">{{ libelle() }}</span>
+      <span class="text-xs text-gray-400 tabular-nums">n={{ i.n }}</span>
+    </div>
+    <p class="mt-1" [class.italic]="estRefus()">{{ texte() }}</p>
+  </div>
+}

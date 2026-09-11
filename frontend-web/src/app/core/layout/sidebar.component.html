@@ -1,15 +1,21 @@
 <aside class="w-64 h-full bg-brand text-white flex flex-col">
-  <div class="p-6 flex items-center gap-3 border-b border-white/10">
-    <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center font-bold text-lg">
-      E
+  <div class="px-5 py-5 flex items-center gap-3 border-b border-white/10">
+    <!-- #405 — un vrai monogramme, pas une lettre dans un rond -->
+    <svg viewBox="0 0 40 40" class="w-10 h-10 shrink-0" aria-hidden="true">
+      <rect x="1" y="1" width="38" height="38" rx="10" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.35" />
+      <path d="M13 12h14M13 20h11M13 28h14" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+      <circle cx="29" cy="20" r="2.2" fill="#8cc2a2" />
+    </svg>
+    <div class="leading-tight">
+      <div class="font-semibold tracking-wide text-lg">EPOS</div>
+      <div class="text-[10px] text-white/60 whitespace-nowrap">Faculté de Pharmacie de Monastir</div>
     </div>
-    <span class="font-semibold tracking-wide text-lg">EPOS</span>
   </div>
 
   <nav class="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
     @for (group of groups(); track group.title) {
-      <div class="space-y-1">
-        <p class="px-3 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+      <div class="space-y-0.5">
+        <p class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/45">
           {{ group.title }}
         </p>
         @for (item of group.items; track item.link) {
@@ -17,12 +23,18 @@
             [routerLink]="item.link"
             routerLinkActive="active"
             [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+            (click)="layout.closeSidebar()"
             class="nav-link"
           >
+            <app-icon [name]="item.icon" cls="w-5 h-5 shrink-0 opacity-80" />
             <span>{{ item.label }}</span>
           </a>
         }
       </div>
     }
   </nav>
+
+  <div class="px-5 py-3 border-t border-white/10 text-[11px] text-white/45">
+    Évaluation des compétences pratiques
+  </div>
 </aside>

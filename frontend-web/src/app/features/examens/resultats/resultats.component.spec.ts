@@ -4,12 +4,14 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { ResultatsComponent } from './resultats.component';
+import { AiApiService } from '../../../core/api/ai-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 import {
   ExamenResult,
   GrilleDetail,
+  IndicesExamen,
   ParticipationSummary,
   StationGrilleSnapshot,
   StationSummary,
@@ -25,6 +27,7 @@ import {
 describe('ResultatsComponent — #355 délibération', () => {
   let scoring: jasmine.SpyObj<ScoringApiService>;
   let examApi: jasmine.SpyObj<ExamApiService>;
+  let ai: jasmine.SpyObj<AiApiService>;
 
   const stations: StationSummary[] = [
     { id: 101, nom: 'Chimie analytique', ordre: 1, hasGrille: true },
@@ -95,18 +98,28 @@ describe('ResultatsComponent — #355 délibération', () => {
       'getNotationItems',
       'listReajustements',
       'reajusterNotation',
+      // #359-bis : les specs DOM flushent l'effect du panneau réclamations
+      // (enfant du template) — son forkJoin exige ces deux méthodes.
+      'listReclamations',
+      'listEtudiants',
     ]);
     examApi = jasmine.createSpyObj('ExamApiService', [
       'listStations',
       'getStationGrille',
       'changerStatut',
     ]);
+    ai = jasmine.createSpyObj('AiApiService', ['getIndices']);
+    // Défaut : ai-service ABSENT — chaque spec existante exerce ainsi le
+    // fail-soft (#359, ADR-0021 D4 : l'écran ne dépend jamais du module IA).
+    ai.getIndices.and.returnValue(throwError(() => ({ status: 503 })));
 
     scoring.getExamenResults.and.returnValue(of(results));
     scoring.getExamenGrillesSnapshot.and.returnValue(of(snapshots));
     scoring.listParticipations.and.returnValue(of(participations));
     scoring.getNotationItems.and.returnValue(of([]));
     scoring.listReajustements.and.returnValue(of([]));
+    scoring.listReclamations.and.returnValue(of([]));
+    scoring.listEtudiants.and.returnValue(of([]));
     examApi.listStations.and.returnValue(of(stations));
     examApi.getStationGrille.and.returnValue(
       of({ id: 201, nom: 'Grille vivante', noteMax: 20, items: [] } as GrilleDetail),
@@ -119,6 +132,7 @@ describe('ResultatsComponent — #355 délibération', () => {
         provideHttpClientTesting(),
         { provide: ScoringApiService, useValue: scoring },
         { provide: ExamApiService, useValue: examApi },
+        { provide: AiApiService, useValue: ai },
         ExamenWorkspaceStore,
       ],
     });
@@ -297,5 +311,210 @@ describe('ResultatsComponent — #355 délibération', () => {
     expect(alice.rang).toBe(2);
     const carla = c.rows().find((r) => r.participationId === 3)!;
     expect(carla.rang).toBe(0); // note non verrouillée → toujours pas de verdict
+  });
+
+  // ---- #359 — indices psychométriques : fail-soft strict (ADR-0021 D4) ------
+
+  function indicesPayload(): IndicesExamen {
+    return {
+      examen_id: 77,
+      entrees_hash: 'a'.repeat(64),
+      moteur_version: 'n5-test',
+      exclusions: {
+        saisi_par_null: 1,
+        detail_incomplet: 2,
+        notations_analysees: 4,
+        sans_aucun_item: 1,
+      },
+      par_critere: [
+        {
+          item_id: 301,
+          libelle: 'Pesée',
+          type: 'NUMERIQUE',
+          grille_id: 201,
+          station_id: 101,
+          difficulte: {
+            code: 'DIFFICULTE', statut: 'CONCLUANT', n: 12,
+            valeur: 0.42, ic: [0.31, 0.55], raison: null, details: {},
+          },
+          discrimination: {
+            code: 'DISCRIMINATION', statut: 'NON_CONCLUANT', n: 8,
+            valeur: null, ic: null,
+            raison: 'non concluant — effectif insuffisant (n=8 < 15)', details: {},
+          },
+        },
+      ],
+      par_grille: [
+        {
+          grille_id: 201, station_id: 101,
+          alpha_cronbach: {
+            code: 'ALPHA_CRONBACH', statut: 'CONCLUANT', n: 15,
+            valeur: 0.71, ic: [0.58, 0.81], raison: null, details: { k: 4 },
+          },
+        },
+      ],
+      par_station: [
+        {
+          station_id: 101,
+          concentration_echec: {
+            code: 'CONCENTRATION_ECHEC', statut: 'CONCLUANT', n: 12,
+            valeur: 0.45, ic: null, raison: null,
+            details: { p_value: 0.032, taux_autres: 0.2 },
+          },
+        },
+      ],
+    };
+  }
+
+  it('#359 : ai-service ABSENT → l\'écran reste intact, error() reste false', () => {
+    // Le défaut du beforeEach est déjà un throwError 503 — on vérifie l'effet.
+    const c = create();
+    expect(c.error()).toBeFalse();
+    expect(c.rows().length).toBe(3); // la table s'est construite sans le module IA
+    expect(c.deliberation().length).toBeGreaterThan(0);
+    expect(c.indicesEtat()).toBe('absents');
+    expect(c.indices()).toBeNull();
+  });
+
+  it('#359 : 403 / 409 / 501 se replient sur le MÊME état absents (aucune distinction de panne)', () => {
+    for (const status of [403, 409, 501]) {
+      ai.getIndices.and.returnValue(throwError(() => ({ status })));
+      const c = create();
+      expect(c.indicesEtat()).withContext(`status ${status}`).toBe('absents');
+      expect(c.error()).toBeFalse();
+    }
+  });
+
+  it('#359 : payload nominal → prets, lookups par station et par item peuplés', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    expect(c.indicesEtat()).toBe('prets');
+    expect(c.alphaDe(101)?.valeur).toBeCloseTo(0.71, 5);
+    expect(c.concentrationDe(101)?.valeur).toBeCloseTo(0.45, 5);
+    expect(c.indiceCritereDe(301)?.difficulte.n).toBe(12);
+    expect(c.alphaDe(999)).toBeNull(); // station sans indice → null, jamais inventé
+  });
+
+  it('#359 : un refus reste un refus — la raison du backend est servie VERBATIM', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    const disc = c.indiceCritereDe(301)!.discrimination;
+    expect(disc.statut).toBe('NON_CONCLUANT');
+    expect(disc.valeur).toBeNull();
+    expect(disc.raison).toBe('non concluant — effectif insuffisant (n=8 < 15)');
+  });
+
+  it('#359 : pLabel formate la p-value à la française, vide sans p_value', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const c = create();
+    expect(c.pLabel(c.concentrationDe(101)!)).toBe(', p=0,032');
+    expect(c.pLabel(c.alphaDe(101)!)).toBe('');
+  });
+
+  // ---- #359-bis (S46) — VISIBILITÉ : ce qui se REND, pas ce qui se calcule ---
+  // Constat de la passe navigateur de Nada : les indices étaient stylés comme
+  // l'état absent (gris minuscule) et devenaient introuvables. Ces specs
+  // épinglent le rendu DOM : le bloc contenu, le poids de lecture des valeurs,
+  // le refus en pastille ambre (texte backend VERBATIM), et l'état absent qui
+  // reste, LUI, discret.
+
+  function createDom(): { c: ResultatsComponent; el: HTMLElement } {
+    const fixture = TestBed.createComponent(ResultatsComponent);
+    const c = fixture.componentInstance;
+    (c as unknown as { id: () => string }).id = () => '77';
+    fixture.detectChanges(); // ngOnInit → load() (observables synchrones)
+    fixture.detectChanges(); // re-rendu après la pose des signaux
+    return { c, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('#359-bis/#407 : indices prêts → bloc « Indices cohorte » lu en PHRASES (app-lecture-indice), valeur dans la phrase', () => {
+    ai.getIndices.and.returnValue(of(indicesPayload()));
+    const { c, el } = createDom();
+    expect(c.indicesEtat()).toBe('prets');
+
+    const entetes = Array.from(el.querySelectorAll('p')).filter(
+      (p) => p.textContent?.trim() === 'Indices cohorte',
+    );
+    expect(entetes.length).withContext("un en-tête par carte porteuse d'indices").toBeGreaterThan(0);
+
+    const bloc = entetes[0].closest('[data-testid="indices-cohorte"]')!;
+    const atomes = bloc.querySelectorAll('app-lecture-indice');
+    expect(atomes.length).withContext("α et concentration, chacun par l'atome de lecture F4").toBe(2);
+    expect(bloc.textContent).withContext('la valeur α reste lisible dans la phrase').toMatch(/0[.,]71/);
+    expect(bloc.textContent).withContext('le libellé du code, pas un sigle nu').toContain('Cohérence');
+  });
+
+  it('#359-bis : un refus se rend en pastille ambre, texte backend VERBATIM dedans', () => {
+    const payload = indicesPayload();
+    payload.par_station[0].concentration_echec = {
+      code: 'CONCENTRATION_ECHEC', statut: 'NON_CONCLUANT', n: 4,
+      valeur: null, ic: null,
+      raison: 'non concluant — effectif insuffisant (n=4 < 10)', details: {},
+    };
+    ai.getIndices.and.returnValue(of(payload));
+    const { el } = createDom();
+
+    // #407 — l'atome F4 rend la raison VERBATIM dans un bloc ambre (jamais confondu avec une lecture)
+    const pastille = Array.from(el.querySelectorAll('app-lecture-indice p')).find(
+      (p) => p.textContent?.trim() === 'non concluant — effectif insuffisant (n=4 < 10)',
+    );
+    expect(pastille).withContext('la raison du backend rendue telle quelle').toBeDefined();
+    const bloc = pastille!.closest('div[role="status"]')!;
+    expect(bloc.className).toContain('bg-amber-50');
+    expect(bloc.className).toContain('text-amber-800');
+  });
+
+  it('#359-bis : indices absents → AUCUN bloc sur les cartes, seule la note discrète', () => {
+    // Défaut du beforeEach : throwError 503 → absents.
+    const { c, el } = createDom();
+    expect(c.indicesEtat()).toBe('absents');
+
+    expect(el.textContent).not.toContain('Indices cohorte');
+    const note = Array.from(el.querySelectorAll('span[role="status"]')).find(
+      (s) => s.textContent?.trim() === 'Analyse statistique non disponible',
+    );
+    expect(note).withContext('le silence est interdit — la note discrète le dit').toBeDefined();
+    expect(note!.className).withContext('l\'état ABSENT, lui, reste discret').toContain('text-gray-400');
+  });
+  // ---- #399 (constat Feten) : « appliqué » seulement si une lecture délibérée est SERVIE ------
+
+  function createDom399(): { c: ResultatsComponent; el: HTMLElement } {
+    const fixture = TestBed.createComponent(ResultatsComponent);
+    (fixture.componentInstance as unknown as { id: () => string }).id = () => '77';
+    fixture.detectChanges();
+    fixture.detectChanges();
+    return { c: fixture.componentInstance, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('#399 : version existante mais totaux délibérés NULS (barème figé incomplet) → pastille « non servie », pas de colonne', () => {
+    scoring.getExamenResults.and.returnValue(
+      of(results.map((r) => ({ ...r, baremeVersion: 1, totalDelibere: null, denominateurDelibere: null }))),
+    );
+    const { c, el } = createDom399();
+    expect(c.baremeVersion()).toBe(1);
+    expect(c.delibereServi()).toBeFalse();
+    const t = el.textContent ?? '';
+    expect(t).toContain('Barème v1 enregistré mais non appliqué');
+    expect(t).not.toContain('Barème de délibération v1 appliqué');
+    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.trim())).not.toContain('Délibéré /20');
+  });
+
+  it('#399/#401 : totaux délibérés servis → badge « appliqué » et colonne « Origine /20 »', () => {
+    scoring.getExamenResults.and.returnValue(
+      // #401 — la forme RÉELLE servie par scoring : délibéré PAR STATION + total sommé.
+      of(results.map((r) => ({
+        ...r,
+        baremeVersion: 1,
+        stations: r.stations.map((s) => ({ ...s, maxOriginal: s.stationId === 101 ? 20 : 10, scoreDelibere: s.score, maxDelibere: s.stationId === 101 ? 20 : 10 })),
+        totalDelibere: r.totalScore,
+        denominateurDelibere: 30,
+      }))),
+    );
+    const { c, el } = createDom399();
+    expect(c.delibereServi()).toBeTrue();
+    const t = el.textContent ?? '';
+    expect(t).toContain('Barème de délibération v1 appliqué');
+    expect(t).not.toContain('non servie');
+    expect(Array.from(el.querySelectorAll('th')).map((th) => th.textContent?.replace(/\s+/g, ' ').trim())).toContain('Origine /20');
   });
 });

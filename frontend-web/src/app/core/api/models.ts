@@ -254,6 +254,24 @@ export interface BulkEnrolLigne {
  * /participations/bulk?examenId=X). Same honesty contract as {@link ImportResult}:
  * ALREADY_ENROLLED is never counted as an error.
  */
+/** #435 — une ligne du bilan de retrait groupé (miroir de BulkEnrolLigne). */
+export interface BulkRetraitLigne {
+  participationId: number;
+  nom: string | null;
+  prenom: string | null;
+  statut: 'RETIRE' | 'INTROUVABLE' | 'REFUSE' | 'ERREUR';
+  message: string;
+}
+
+/** #435 — bilan d'un POST /participations/retrait?examenId=X. */
+export interface BulkRetraitResult {
+  total: number;
+  retires: number;
+  introuvables: number;
+  erreurs: number;
+  lignes: BulkRetraitLigne[];
+}
+
 export interface BulkEnrolResult {
   total: number;
   enrolled: number;
@@ -649,6 +667,13 @@ export interface StationScore {
   grilleId: number | null;
   score: number | null;
   verrouillee: boolean | null;
+  /** #361/#363 — les DEUX dénominateurs (ADR-0030 D4) : max déclaré au snapshot
+   * V19 (null pré-V19) ; score/max sous le barème de délibération COURANT
+   * (null sans barème, ou station exclue). Servis BRUTS — la reconversion /20
+   * est un choix d'écran. */
+  maxOriginal?: number | null;
+  scoreDelibere?: number | null;
+  maxDelibere?: number | null;
 }
 
 /**
@@ -670,6 +695,155 @@ export interface ExamenResult {
   totalScore: number;
   stationsNotees: number;
   stations: StationScore[];
+  /** #361/#363 — Σ note_max des stations snapshotées (null si couverture
+   * incomplète / pré-V19) ; total et dénominateur sous le barème de délibération
+   * COURANT, null sans barème ; numéro de la version appliquée. Toujours les
+   * deux lectures (ADR-0030 D4). */
+  denominateurOriginal?: number | null;
+  totalDelibere?: number | null;
+  denominateurDelibere?: number | null;
+  baremeVersion?: number | null;
+}
+
+// ─── Barème de délibération (#361 N7 / #363 N9, ADR-0030) — camelCase (DTO Résultats) ───
+
+/** L'énumération FERMÉE de scoring (TypeOperationBareme) — les 3 opérations d'ADR-0021 D8. */
+export type TypeOperationBareme = 'EXCLURE_CRITERE' | 'EXCLURE_STATION' | 'REPONDERER';
+
+/**
+ * Une opération, forme EXACTE du fil scoring (`BaremeDeliberationRequest.OperationRequest`).
+ * ai-service rend la même forme dans `operations_a_soumettre` : le client la
+ * POSTe telle quelle. Exactement une cible : `cibleItemId` (critère) OU
+ * `cibleStationId` (station) ; `nouvelleEchelle` seulement pour REPONDERER.
+ */
+export interface OperationBareme {
+  type: TypeOperationBareme;
+  cibleItemId: number | null;
+  cibleStationId: number | null;
+  nouvelleEchelle: number | null;
+}
+
+/** POST /notations/examen/{id}/bareme-deliberation — motif OBLIGATOIRE, versions COMPLÈTES (vide = retour à l'origine). */
+export interface BaremeDeliberationRequest {
+  motif: string;
+  operations: OperationBareme[];
+}
+
+/** Une version du barème (BaremeDeliberationDTO) — immuable, historique visible. */
+export interface BaremeDeliberation {
+  id: number;
+  examenId: number;
+  version: number;
+  motif: string;
+  creePar: number | null;
+  createdAt: string | null;
+  operations: OperationBareme[];
+}
+
+// ─── Propositions du module IA (#362 N8, ADR-0021 D8/D10) — snake_case verbatim, opérations en camelCase (fil scoring) ───
+
+/** Le résumé d'une distribution de totaux (médiane, taux de réussite = fraction 0–1, dénominateur brut). */
+export interface ResumeEffetAi {
+  n_etudiants: number;
+  denominateur: number | null;
+  mediane: number | null;
+  moyenne: number | null;
+  taux_reussite: number | null;
+}
+
+/** L'effet PROJETÉ avant décision (D10) : à l'origine, au barème courant, au barème proposé. */
+export interface EffetProjeteAi {
+  origine: ResumeEffetAi;
+  avant: ResumeEffetAi;
+  apres: ResumeEffetAi;
+}
+
+/** Un déclencheur chiffré : l'indice, sa valeur, le seuil de NOTRE choix, la règle. */
+export interface DeclencheurAi {
+  code: string;
+  valeur: number | null;
+  ic: [number, number] | null;
+  n: number | null;
+  seuil: number;
+  regle: string;
+  [k: string]: unknown;
+}
+
+export interface DecisionPropositionAi {
+  decision: 'ACCEPTER' | 'REFUSER';
+  motif: string | null;
+  decide_par: number | null;
+  decide_a: string | null;
+  bareme_version_resultat: number | null;
+  /** L'id de la ligne qui porte l'acte (≠ id courant si la version de base a changé). */
+  proposition_id: string;
+}
+
+export interface CibleAi {
+  item_id?: number;
+  libelle?: string | null;
+  type?: string | null;
+  grille_id?: number;
+  station_id?: number | null;
+  max?: number | null;
+}
+
+export interface PropositionAi {
+  proposition_id: string;
+  rang_defendabilite: number;
+  lecture_code: string;
+  operation: OperationBareme;
+  /** La version COMPLÈTE à POSTer à scoring (courante + opération). */
+  operations_a_soumettre: OperationBareme[];
+  cible: CibleAi;
+  declencheur: DeclencheurAi[];
+  /** null quand la couverture snapshot est incomplète (rien de tenable à projeter). */
+  effet_projete: EffetProjeteAi | null;
+  deja_appliquee: boolean;
+  decision: DecisionPropositionAi | null;
+}
+
+/** Le silence est dit : ce que le module n'a PAS proposé, et pourquoi (raison backend VERBATIM). */
+export interface LectureSansPropositionAi {
+  code: string;
+  lecture_code?: string;
+  operation?: OperationBareme;
+  cible?: CibleAi;
+  declencheur?: DeclencheurAi[];
+  station_id?: number | null;
+  grille_id?: number | null;
+  details: Record<string, unknown>;
+  raison: string;
+}
+
+/** GET /ai/examens/{id}/propositions */
+export interface PropositionsExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  bareme_courant: { version: number; operations: OperationBareme[] } | null;
+  couverture_snapshot_complete: boolean;
+  seuils: Record<string, number>;
+  propositions: PropositionAi[];
+  lectures_sans_proposition: LectureSansPropositionAi[];
+}
+
+/** POST /ai/examens/{id}/propositions/{pid}/decision */
+export interface DecisionRequestAi {
+  decision: 'ACCEPTER' | 'REFUSER';
+  motif: string;
+  bareme_version_resultat: number | null;
+}
+
+/** POST /ai/examens/{id}/projection — prévisualisation D10 d'une composition manuelle. */
+export interface ProjectionAi {
+  examen_id: number;
+  bareme_courant: { version: number; operations: OperationBareme[] } | null;
+  operations: OperationBareme[];
+  couverture_snapshot_complete: boolean;
+  max_delibere_par_station: Record<string, number>;
+  max_original_par_station: Record<string, number>;
+  effet_projete: EffetProjeteAi | null;
 }
 
 /**
@@ -868,18 +1042,220 @@ export interface UserResponse {
   deactivationMotif?: string | null;
   /** Full grant list — a person holds SEVERAL roles on one account (auth doctrine). */
   roles: RoleAssignment[];
+  /** #389 — renseigné UNIQUEMENT sur la réponse de création (absent des listes). */
+  invitation?: InvitationStatus | null;
 }
 
 /**
- * Body for POST /users (auth-service UserCreateRequest). Password policy is
- * validated server-side too: min 8, at least one uppercase and one digit.
- * There is NO email infrastructure — the creator hands the password to the
- * person directly, which is why the UI generates and displays it once.
+ * #389 — ce qui s'est passé côté messagerie après la création ou le renvoi.
+ * `simulee` = messagerie désactivée (`app.mail.enabled=false`) : RIEN n'est
+ * parti, l'écran doit le dire (précédent scoring : `EnvoiConvocationsResult.simule`).
+ */
+export interface InvitationStatus {
+  envoyee: boolean;
+  simulee: boolean;
+}
+
+/**
+ * Body for POST /users (auth-service UserCreateRequest). #389 : `password` est
+ * OPTIONNEL — omis, le serveur pose un jetable et envoie une invitation
+ * « choisissez votre mot de passe » (lien 7 jours, usage unique). Le web ne
+ * génère ni n'affiche plus jamais de mot de passe. S'il est fourni, la
+ * politique serveur s'applique (min 8, une majuscule, un chiffre).
  */
 export interface UserCreateRequest {
   email: string;
-  password: string;
+  password?: string;
   nom: string;
   prenom: string;
   roles: RoleAssignment[];
+}
+
+// ─── Module IA/BI (#359, ADR-0029) — snake_case verbatim du fil (convention scoring) ───
+
+/**
+ * Le résultat d'UN indice psychométrique, contrat de refus compris (ADR-0021 D2,
+ * ADR-0029 D6) : sous les effectifs minimaux, `statut` est NON_CONCLUANT et
+ * `raison` porte le gabarit français EXACT du backend — l'écran l'affiche
+ * VERBATIM, il ne compose jamais son propre texte (les seuils vivent côté
+ * moteur, le client ne les re-dérive pas).
+ */
+export interface IndiceAi {
+  code: string;
+  statut: 'CONCLUANT' | 'NON_CONCLUANT';
+  /** L'effectif de CET indice — généralement < nVerrouillees de la carte (les
+   * notations sans détail complet en sortent) : toujours affiché avec la valeur. */
+  n: number;
+  valeur: number | null;
+  /** IC 95 % bootstrap [lo, hi], null quand refusé ou inestimable. */
+  ic: [number, number] | null;
+  raison: string | null;
+  details: Record<string, unknown>;
+}
+
+/** Ce que le moteur a écarté — compté et DIT, jamais silencieux (#269). */
+export interface ExclusionsAi {
+  saisi_par_null: number;
+  detail_incomplet: number;
+  notations_analysees: number;
+  /** Notations verrouillées SANS AUCUN item — invisibles des vues (V23). */
+  sans_aucun_item: number;
+}
+
+export interface IndiceCritereAi {
+  item_id: number;
+  libelle: string;
+  type: string;
+  grille_id: number;
+  station_id: number;
+  difficulte: IndiceAi;
+  discrimination: IndiceAi;
+}
+
+export interface IndiceGrilleAi {
+  grille_id: number;
+  station_id: number;
+  alpha_cronbach: IndiceAi;
+}
+
+export interface IndiceStationAi {
+  station_id: number;
+  concentration_echec: IndiceAi;
+}
+
+/** GET /ai/examens/{id}/indices — servi depuis le cache ai_db (clé = entrees_hash). */
+export interface IndicesExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  exclusions: ExclusionsAi;
+  par_critere: IndiceCritereAi[];
+  par_grille: IndiceGrilleAi[];
+  par_station: IndiceStationAi[];
+}
+
+// ── BI (#365 / N10) — la face transversale : mêmes agrégats, autre échelle ──
+
+/** Une lecture BI fermée (ai-service `app/bi.py`) — la `raison` s'affiche VERBATIM. */
+export interface LectureBiAi {
+  code: string;
+  raison: string;
+}
+
+/** `projection.resume` côté ai-service : réussite = total >= dénominateur / 2. */
+export interface ResumeBiAi {
+  n_etudiants: number;
+  denominateur: number | null;
+  mediane: number | null;
+  moyenne: number | null;
+  taux_reussite: number | null;
+}
+
+export interface HistogrammeBinAi {
+  label: string;
+  count: number;
+  pct: number;
+  sousSeuil: boolean;
+}
+
+export interface StationTendanceAi {
+  station_id: number;
+  n: number;
+  echecs: number;
+  taux_echec: number;
+  mediane: number;
+  note_max: number;
+}
+
+/** Une session CLOSE d'une matière — la carte BI (jamais de ligne par étudiant). */
+export interface ExamenTendanceAi {
+  examen_id: number;
+  nom: string | null;
+  date_examen: string | null;
+  statut: string;
+  entrees_hash: string;
+  moteur_version: string;
+  n_notations_verrouillees: number;
+  couverture_snapshot_complete: boolean;
+  origine: ResumeBiAi;
+  delibere: ResumeBiAi | null;
+  /** #401 — la lecture qui FAIT le résultat : `delibere` quand une version est servie, `origine` sinon. */
+  lecture: ResumeBiAi;
+  lecture_officielle: 'DELIBERE' | 'ORIGINE';
+  bareme_version: number | null;
+  /** Classes sur les totaux de la lecture effective. */
+  bins: HistogrammeBinAi[];
+  /** Échec par station sous le barème effectif ; les stations exclues sont listées à part. */
+  par_station: StationTendanceAi[];
+  stations_exclues: number[];
+  exclusions: ExclusionsAi & { sans_aucun_item: number };
+  lectures: LectureBiAi[];
+}
+
+/** GET /ai/matieres/{id}/tendances — sessions closes dans l'ordre des dates. */
+export interface TendancesMatiere {
+  matiere_id: number;
+  examens: ExamenTendanceAi[];
+  exclusions: { non_clos: number; sans_snapshot: number; hors_snapshot: number };
+  lectures: LectureBiAi[];
+}
+
+/** Agrégat poolé (/20) — sous l'effectif minimal, `statut` NON_CONCLUANT + `raison`. */
+export interface AgregatBiAi {
+  n_etudiants: number;
+  mediane_sur_20: number | null;
+  taux_reussite: number | null;
+  statut: 'CONCLUANT' | 'NON_CONCLUANT';
+  raison: string | null;
+}
+
+export interface SessionSyntheseAi {
+  examen_id: number;
+  nom: string | null;
+  date_examen: string | null;
+  n_etudiants: number;
+  taux_reussite: number | null;
+  mediane_sur_20: number | null;
+  bareme_version: number | null;
+  lecture_officielle: 'DELIBERE' | 'ORIGINE';
+  lectures: LectureBiAi[];
+}
+
+export interface MatiereSyntheseAi extends AgregatBiAi {
+  matiere_id: number;
+  nb_examens_clos: number;
+  nb_avec_bareme_delibere: number;
+  dernier_examen: { examen_id: number; nom: string | null; date_examen: string | null } | null;
+  hors_snapshot: number;
+  sessions: SessionSyntheseAi[];
+}
+
+/** GET /ai/faculte/synthese — SUPER_ADMIN, agrégé d'abord (ADR-0021 D5). */
+export interface SyntheseFaculte {
+  faculte: AgregatBiAi & { nb_matieres: number; nb_examens_clos: number };
+  matieres: MatiereSyntheseAi[];
+  exclusions: { sans_snapshot: number };
+}
+
+// ── Sévérité des évaluateurs (#359 backend, #407 premier client web) ──────────
+
+export interface SeveriteEvaluateurAi {
+  evaluateur_id: number;
+  n: number;
+  severite: IndiceAi;
+}
+
+export interface StationEvaluateursAi {
+  station_id: number;
+  nb_evaluateurs: number;
+  evaluateurs: SeveriteEvaluateurAi[];
+}
+
+/** GET /ai/examens/{id}/evaluateurs — écart INTRA-station uniquement (ADR-0021 D2), ids seuls : les noms se résolvent via /users. */
+export interface EvaluateursExamen {
+  examen_id: number;
+  entrees_hash: string;
+  moteur_version: string;
+  exclusions: ExclusionsAi;
+  par_station: StationEvaluateursAi[];
 }

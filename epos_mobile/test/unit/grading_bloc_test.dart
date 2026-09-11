@@ -16,6 +16,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:epos_mobile/features/grading/data/models/grading_models.dart';
 import 'package:epos_mobile/features/grading/domain/entities/grille.dart';
 import 'package:epos_mobile/features/grading/domain/entities/item_evaluation.dart';
 import 'package:epos_mobile/features/grading/domain/entities/lot.dart';
@@ -64,6 +65,17 @@ class _FakeGradingRepository implements GradingRepository {
 
   @override
   Future<void> saveNotations(List<Notation> notations) async {}
+
+  // #417 — journalise les effacements pour les assertions.
+  final List<(int, int)> effaces = [];
+  @override
+  Future<void> effacerNotationItem({
+    required int etudiantId,
+    required int stationId,
+    required int itemId,
+  }) async {
+    effaces.add((etudiantId, itemId));
+  }
 
   @override
   Future<void> validerEtudiant(
@@ -145,6 +157,7 @@ GradingLoaded _seedState({
   bool lotValide = false,
   bool groupeSuivantDisponible = false,
   List<Etudiant> etudiants = const [_etudiant1, _etudiant2],
+  Lot? lot,
 }) =>
     GradingLoaded(
       rotationId: 141,
@@ -152,7 +165,7 @@ GradingLoaded _seedState({
       grilleId: 10,
       stationNom: 'Station test',
       grille: Grille(id: 10, nom: 'Grille test', noteMax: 20, items: items),
-      lot: Lot(
+      lot: lot ?? Lot(
         id: 28, numero: 1, total: 2, etudiants: etudiants,
         valide: lotValide, groupeSuivantDisponible: groupeSuivantDisponible,
       ),
@@ -303,6 +316,59 @@ void main() {
         });
   });
 
+  // #417 (recette du 05/09) — une cellule VIDÉE ramène le critère à « non
+  // noté ». Avant, l'écran envoyait GradingNumericUpdated(valeur: 0) : le
+  // critère non noté devenait un zéro noté, passait la garde « il reste N
+  // critère(s) » et pesait dans le total.
+  group('GradingNumericCleared (#417)', () {
+    late _FakeGradingRepository repo;
+    late GradingBloc bloc;
+
+    setUp(() {
+      repo = _FakeGradingRepository();
+      bloc = GradingBloc(repository: repo);
+    });
+    tearDown(() => bloc.close());
+
+    test('retire la notation locale ET demande l\'effacement au dépôt', () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(notations: {
+        1: {2: const Notation(etudiantId: 1, itemId: 2, valeur: 3.0)},
+      }));
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+
+      final s = bloc.state as GradingLoaded;
+      expect(s.notations[1]!.containsKey(2), isFalse,
+          reason: 'la cellule vidée n\'est plus une notation (ni 0, ni rien)');
+      expect(repo.effaces, [(1, 2)]);
+      // La garde de complétude compte désormais ce critère comme manquant.
+      expect(s.etudiantComplet(1), isFalse);
+    });
+
+    test('rien à effacer (cellule déjà vide) → aucun appel au dépôt', () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState());
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+      expect(repo.effaces, isEmpty);
+    });
+
+    test('étudiant verrouillé → ignoré (le verrou protège aussi l\'effacement)',
+        () async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(
+        notations: {1: {2: const Notation(etudiantId: 1, itemId: 2, valeur: 3.0)}},
+        etudiantsValides: {1},
+      ));
+      bloc.add(const GradingNumericCleared(etudiantId: 1, itemId: 2));
+      await _settle();
+      final s = bloc.state as GradingLoaded;
+      expect(s.notations[1]!.containsKey(2), isTrue);
+      expect(repo.effaces, isEmpty);
+    });
+  });
+
   group('GradingNumericUpdated', () {
     late _FakeGradingRepository repo;
     late GradingBloc bloc;
@@ -360,6 +426,40 @@ void main() {
           expect(repo.validerEtudiantCalls, 0);
           await bloc.close();
         });
+
+    test('#383 — lot issu du JSON réseau (List<EtudiantModel>) : le refus '
+        's\'affiche au lieu de crasher', () async {
+      // Le test « critères manquants » ci-dessus passait déjà sur le code
+      // cassé : sa fixture construit une List<Etudiant> littérale. En
+      // production, LotModel.fromJson produit une List<EtudiantModel> derrière
+      // l'interface List<Etudiant>, et l'ancien firstWhere(orElse: ...) y
+      // échouait en TypeError (vérification de covariance réifiée — VM ET
+      // Web) : aucun messageErreur n'était jamais émis. On seed donc le lot
+      // par le VRAI chemin de désérialisation.
+      final lotReseau = LotModel.fromJson({
+        'id': 28, 'numero': 1, 'total': 2, 'valide': false,
+        'etudiants': [
+          {'id': 1, 'nom': 'Karoui', 'prenom': 'Sonia',
+            'numeroInscription': '21/0001'},
+          {'id': 2, 'nom': 'Ben Ali', 'prenom': 'Nour',
+            'numeroInscription': '21/0002'},
+        ],
+      });
+      final repo = _FakeGradingRepository();
+      final bloc = GradingBloc(repository: repo);
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(lot: lotReseau)); // aucune notation saisie
+
+      bloc.add(const GradingEtudiantValide(1));
+      await _settle();
+
+      final s = bloc.state as GradingLoaded;
+      expect(s.messageErreur, contains('Sonia Karoui'),
+          reason: 'le refus doit nommer l\'étudiant, pas crasher');
+      expect(s.etudiantsValides, isNot(contains(1)));
+      expect(repo.validerEtudiantCalls, 0);
+      await bloc.close();
+    });
 
     test('tous les critères saisis → validation envoyée et acceptée', () async {
       final repo = _FakeGradingRepository()
@@ -500,6 +600,70 @@ void main() {
           expect(s.lotValide, isFalse);
           expect(s.lotEnCoursDeValidation, isFalse);
           expect(s.messageErreur, 'Groupe incomplet.');
+          await bloc.close();
+        });
+  });
+
+  group('GradingGroupeValide(puisAvancer) — #423 « Valider puis passer »', () {
+    test('succès de la validation → la suite part et le nouveau groupe est chargé',
+            () async {
+          final repo = _FakeGradingRepository()
+            ..onValiderGroupe = (_) async {}
+            ..onGroupeSuivant = (rotationId) async => const Lot(
+              id: 29, numero: 2, total: 2,
+              etudiants: [_etudiant1, _etudiant2],
+              valide: false,
+            );
+          final bloc = GradingBloc(repository: repo);
+          // ignore: invalid_use_of_visible_for_testing_member
+          bloc.emit(_seedState(groupeSuivantDisponible: true, etudiantsValides: {1, 2}));
+
+          bloc.add(const GradingGroupeValide(puisAvancer: true));
+          await _settle();
+          await _settle();
+
+          expect(repo.validerGroupeCalls, 1);
+          expect(repo.groupeSuivantCalls, 1, reason: 'validé, PUIS avancé');
+          final s = bloc.state as GradingLoaded;
+          expect(s.lot.id, 29);
+          expect(s.lotValide, isFalse, reason: 'le nouveau groupe est non validé');
+          await bloc.close();
+        });
+
+    test('refus serveur de la validation → AUCUNE avance, motif affiché', () async {
+      final repo = _FakeGradingRepository()
+        ..onValiderGroupe = (_) async => throw Exception('Groupe incomplet.');
+      final bloc = GradingBloc(repository: repo);
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(_seedState(groupeSuivantDisponible: true));
+
+      bloc.add(const GradingGroupeValide(puisAvancer: true));
+      await _settle();
+      await _settle();
+
+      expect(repo.groupeSuivantCalls, 0,
+          reason: 'jamais une avance par-dessus un groupe non validé');
+      final s = bloc.state as GradingLoaded;
+      expect(s.lotValide, isFalse);
+      expect(s.messageErreur, 'Groupe incomplet.');
+      await bloc.close();
+    });
+
+    test('pas de groupe suivant → validation seule, vagueTerminee, aucune avance appelée',
+            () async {
+          final repo = _FakeGradingRepository()..onValiderGroupe = (_) async {};
+          final bloc = GradingBloc(repository: repo);
+          // ignore: invalid_use_of_visible_for_testing_member
+          bloc.emit(_seedState(groupeSuivantDisponible: false));
+
+          bloc.add(const GradingGroupeValide(puisAvancer: true));
+          await _settle();
+          await _settle();
+
+          expect(repo.groupeSuivantCalls, 0);
+          final s = bloc.state as GradingLoaded;
+          expect(s.lotValide, isTrue);
+          expect(s.vagueTerminee, isTrue);
           await bloc.close();
         });
   });

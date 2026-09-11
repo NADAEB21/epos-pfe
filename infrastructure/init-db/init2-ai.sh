@@ -12,14 +12,16 @@
 #
 # Idempotent : re-exécutable sans dégât.
 #
-# Périmètre VOLONTAIREMENT réduit : la base ai_db + le rôle ai_reader.
-# Les vues v_ai_* et leurs GRANT vivent dans les migrations Flyway des
-# services propriétaires (scoring V20, exam V10) — sur un volume neuf les
-# tables n'existent pas encore au moment où ce script tourne.
+# Périmètre VOLONTAIREMENT réduit : la base ai_db + les rôles ai_reader et
+# ai_writer. Les vues v_ai_* et leurs GRANT vivent dans les migrations Flyway
+# des services propriétaires (scoring V20/V23, exam V10/V12) — sur un volume
+# neuf les tables n'existent pas encore au moment où ce script tourne.
+# Le SCHÉMA d'ai_db (cache + journal), lui, est posé par ai-service (#359).
 # =============================================================
 set -euo pipefail
 
 : "${AI_READER_PASSWORD:?AI_READER_PASSWORD manquant — le renseigner dans infrastructure/.env}"
+: "${AI_WRITER_PASSWORD:?AI_WRITER_PASSWORD manquant — le renseigner dans infrastructure/.env}"
 : "${POSTGRES_USER:?}"
 
 PSQL="psql -v ON_ERROR_STOP=1 -U ${POSTGRES_USER} -d postgres"
@@ -46,4 +48,28 @@ ALTER ROLE ai_reader SET default_transaction_read_only = on;
 ALTER ROLE ai_reader SET statement_timeout = '5s';
 SQL
 
-echo "init2-ai: ai_db + ai_reader prêts (vues : scoring V20 / exam V10 au démarrage des services)."
+# 3. ai_writer (#359, ADR-0029 D3) — le rôle qui ÉCRIT dans ai_db (cache des
+#    indices + journal), et NULLE PART AILLEURS. La propriété de robustesse
+#    D2 (« un module qui ne peut pas écrire ne peut pas corrompre le cœur
+#    gelé ») tient par les GRANTs : ai_writer ne reçoit AUCUN droit sur
+#    scoring_db ni exam_db — pas de CONNECT, rien. Sentinelle du protocole
+#    live : un SELECT d'ai_writer sur scoring_db doit ÉCHOUER.
+$PSQL <<SQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ai_writer') THEN
+        CREATE ROLE ai_writer LOGIN;
+    END IF;
+END \$\$;
+ALTER ROLE ai_writer PASSWORD '${AI_WRITER_PASSWORD}';
+ALTER ROLE ai_writer SET statement_timeout = '5s';
+GRANT CONNECT ON DATABASE ai_db TO ai_writer;
+SQL
+
+# Droits de schéma DANS ai_db : CREATE (poser les tables au premier démarrage
+# d'ai-service) + USAGE. Les tables créées par ai_writer lui appartiennent.
+psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d ai_db <<SQL
+GRANT USAGE, CREATE ON SCHEMA public TO ai_writer;
+SQL
+
+echo "init2-ai: ai_db + ai_reader + ai_writer prêts (vues : scoring V20/V23 / exam V10/V12 au démarrage des services ; schéma ai_db posé par ai-service)."

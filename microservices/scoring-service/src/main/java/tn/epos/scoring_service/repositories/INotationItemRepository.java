@@ -32,4 +32,12 @@ public interface INotationItemRepository extends JpaRepository<NotationItem, Lon
     Optional<NotationItem> findByNotationIdAndItemId(
             @Param("notationId") Long notationId,
             @Param("itemId") Long itemId);
+
+    /**
+     * #361 — chargement groupé des items de TOUTES les notations d'un examen
+     * (recalcul délibéré à la lecture, ADR-0030 D4) : une requête pour l'écran
+     * Résultats entier, pas une par notation.
+     */
+    @Query("SELECT ni FROM NotationItem ni WHERE ni.notation.id IN :notationIds")
+    List<NotationItem> findByNotationIdIn(@Param("notationIds") java.util.Collection<Long> notationIds);
 }

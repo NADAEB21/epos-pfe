@@ -29,8 +29,12 @@ const TABS_LIVE: WorkspaceTab[] = [
 ];
 const TABS_DONE: WorkspaceTab[] = [
   { label: 'Résultats', segment: 'resultats' },
-  // « Analyses IA » retiré (W2, S39) : l'onglet rendait un bouchon sur CHAQUE
-  // examen fini. Il revient avec le volet IA — pas avant.
+  // #407 — ce que l'analyse a lu, en français, avant de décider.
+  { label: 'Analyse', segment: 'analyse' },
+  // #363 (N9) — le volet IA existe désormais (N8 #362) : l'onglet revient,
+  // vivant — propositions, effet projeté AVANT décision, acte motivé (D10),
+  // barème de délibération versionné (ADR-0030).
+  { label: 'Délibération', segment: 'deliberation' },
   { label: 'Stations & Grilles', segment: 'stations-grilles' },
   { label: 'Étudiants', segment: 'etudiants' },
 ];
@@ -96,6 +100,11 @@ export class ExamenWorkspaceComponent {
   /** Date-aware status for the header chip — CONFIGURE + future date → "À venir". */
   displayStatut(e: ExamenResponse): string {
     return statutDisplayLabel(e.statut, e.dateExamen);
+  }
+
+  /** #378 — libellé from the catalog, numeric fallback while it loads / on outage. */
+  matiereLabel(matiereId: number): string {
+    return this.store.matiereLabels()[matiereId] ?? `Matiere ${matiereId}`;
   }
 
   isReached(current: StatutExamen, step: StatutExamen): boolean {

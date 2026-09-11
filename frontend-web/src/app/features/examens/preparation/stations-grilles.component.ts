@@ -385,7 +385,7 @@ export class StationsGrillesComponent {
 
   evalLabel(s: StationSummary): string {
     const n = this.evalCount(s);
-    return n === 0 ? 'Aucun evaluateur' : `${n} evaluateur(s)`;
+    return n === 0 ? 'Aucun évaluateur' : `${n} évaluateur(s)`;
   }
 
   evalName(id: number): string {

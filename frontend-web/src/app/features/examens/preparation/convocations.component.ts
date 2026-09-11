@@ -5,6 +5,7 @@ import { forkJoin } from 'rxjs';
 import { ExamApiService } from '../../../core/api/exam-api.service';
 import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import { EnvoiConvocationsResult, ExamenResponse } from '../../../core/api/models';
+import { todayStr } from '../../../core/api/exam-status';
 import { ExamenWorkspaceStore } from '../workspace/examen-workspace.store';
 
 /** Default when a station count is missing — display only, never a schedule. */
@@ -102,6 +103,32 @@ export class ConvocationsComponent {
     this.convocations().filter((c) => !c.email?.trim() && c.etudiantId != null),
   );
 
+  // ---- #433 date passée ------------------------------------------------------
+  /**
+   * Le DERNIER jour de l'examen (multi-jour #147 : le plus tardif des jours de lot portés
+   * par les convocations, sinon la date de l'examen), au format yyyy-MM-dd.
+   */
+  readonly dernierJour = computed<string | null>(() => {
+    const jours = this.convocations().map((c) => c.jour).filter((j): j is string => !!j);
+    if (jours.length > 0) return [...jours].sort().at(-1) ?? null;
+    return this.exam()?.dateExamen ?? null;
+  });
+  /**
+   * #433 — la date est révolue : on le DIT avant le clic, et on ne convoque pas. Jusqu'ici
+   * le responsable ne l'apprenait qu'à l'étape Lancer, après l'envoi. Le serveur porte la
+   * même garde (ConvocationService) ; celle-ci évite juste l'aller-retour et nomme le remède.
+   */
+  readonly datePassee = computed(() => {
+    const d = this.dernierJour();
+    return !!d && d < todayStr();
+  });
+  readonly dernierJourLabel = computed(() => {
+    const d = this.dernierJour();
+    if (!d) return '';
+    const [y, m, j] = d.slice(0, 10).split('-');
+    return y && m && j ? `${j}/${m}/${y}` : d;
+  });
+
   // ---- #227 envoi ----------------------------------------------------------
   readonly envoiEnCours = signal(false);
   readonly envoiResult = signal<EnvoiConvocationsResult | null>(null);
@@ -120,6 +147,13 @@ export class ConvocationsComponent {
    * that back. The stored send date is what lets us ask the question at all.
    */
   envoyer(): void {
+    // #433 — même refus que le serveur, sans aller-retour ni e-mail.
+    if (this.datePassee()) {
+      this.envoiError.set(
+        `La date de l'examen (${this.dernierJourLabel()}) est passée : dans Vue d'ensemble, revenez au brouillon et corrigez la date avant d'envoyer les convocations.`,
+      );
+      return;
+    }
     const deja = this.dejaEnvoyeesCount();
     if (deja > 0) {
       const ok = window.confirm(
@@ -140,9 +174,11 @@ export class ConvocationsComponent {
         this.load(Number(this.id()));
         this.store.marquerConvocationsFaites();
       },
-      error: () => {
+      error: (err: { error?: { message?: string } }) => {
         this.envoiEnCours.set(false);
-        this.envoiError.set("Échec de l'envoi des convocations. Réessayez.");
+        // #433 — un refus du serveur (date passée sur une page obsolète, périmètre…) est
+        // nominatif : on l'affiche mot pour mot plutôt qu'un « Réessayez » qui ment.
+        this.envoiError.set(err?.error?.message ?? "Échec de l'envoi des convocations. Réessayez.");
       },
     });
   }

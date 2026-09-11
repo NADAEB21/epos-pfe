@@ -171,6 +171,13 @@ class MockGradingRepository implements GradingRepository {
   }
 
   @override
+  Future<void> effacerNotationItem({
+    required int etudiantId,
+    required int stationId,
+    required int itemId,
+  }) async {}
+
+  @override
   Future<void> validerEtudiant(
   int etudiantId,
   int stationId, {

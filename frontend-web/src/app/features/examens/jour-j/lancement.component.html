@@ -4,27 +4,27 @@
     <div class="h-40 rounded-xl bg-gray-200"></div>
   </div>
 } @else if (error()) {
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
+  <div class="card p-8 text-center">
     <p class="text-gray-700 mb-1">Impossible de charger le lancement.</p>
-    <p class="text-sm text-gray-500 mb-4">Verifiez votre connexion puis reessayez.</p>
+    <p class="text-sm text-gray-500 mb-4">Vérifiez votre connexion puis réessayez.</p>
     <button
       type="button"
       (click)="reload()"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors"
+      class="btn-primary"
     >
-      Reessayer
+      Réessayer
     </button>
   </div>
 } @else if (statut() === 'EN_COURS' || statut() === 'TERMINE' || statut() === 'ARCHIVE') {
   <!-- Defensive: the tab is normally hidden once launched. -->
-  <div class="rounded-xl bg-white border border-gray-200 p-8 text-center shadow-card">
-    <p class="text-gray-800 font-medium mb-1">Examen deja lance.</p>
+  <div class="card p-8 text-center">
+    <p class="text-gray-800 font-medium mb-1">Examen déjà lance.</p>
     <p class="text-sm text-gray-500 mb-4">Le suivi se fait desormais en direct.</p>
     <a [routerLink]="['../suivi']" class="text-sm text-brand hover:underline">Aller au suivi en direct</a>
   </div>
 } @else {
   <!-- Intro -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+  <section class="card p-5 mb-6">
     <h2 class="font-semibold text-gray-900 mb-1">Lancer l'examen</h2>
     <p class="text-sm text-gray-500">
       Démarrez l'examen le jour J. Une fois lancé, les évaluateurs notent les étudiants
@@ -33,7 +33,7 @@
   </section>
 
   <!-- Pre-flight checklist -->
-  <section class="rounded-xl bg-white border border-gray-200 shadow-card p-5 mb-6">
+  <section class="card p-5 mb-6">
     <div class="flex items-center justify-between gap-4 mb-4">
       <h3 class="font-semibold text-gray-900">Verifications avant lancement</h3>
       <span
@@ -75,8 +75,8 @@
       </p>
     } @else {
       <p class="text-sm text-gray-700 mb-3">
-        Tout est pret. Le lancement notifie les evaluateurs : ils pourront noter les
-        etudiants depuis l'application mobile. <span class="font-medium">Cette action est irreversible.</span>
+        Tout est prêt. Le lancement notifie les évaluateurs : ils pourront noter les
+        étudiants depuis l'application mobile. <span class="font-medium">Cette action est irréversible.</span>
       </p>
     }
 

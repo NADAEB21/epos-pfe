@@ -109,7 +109,8 @@ export class GrilleEditorComponent {
   readonly itemFormGroup = this.fb.nonNullable.group({
     libelle: ['', [Validators.required, Validators.maxLength(300)]],
     type: ['BINAIRE' as TypeItem, [Validators.required]],
-    ponderation: [1, [Validators.required, Validators.min(0.5), Validators.max(20)]],
+    // #418 — quart de point autorisé (aligné sur ItemRequest côté exam-service).
+    ponderation: [1, [Validators.required, Validators.min(0.25), Validators.max(20)]],
     valeurMax: [null as number | null],
     categorie: ['', [Validators.maxLength(100)]],
     // Réponse attendue / corrigé (#162) — champ libre optionnel, tous types.

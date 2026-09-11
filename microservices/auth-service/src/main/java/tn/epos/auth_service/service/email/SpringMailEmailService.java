@@ -75,4 +75,52 @@ public class SpringMailEmailService implements EmailService {
         mailSender.send(msg);
         log.info("Password-reset email dispatched to {}", recipientEmail);
     }
+
+    /**
+     * #389 — invitation à la création d'un compte. Le lien porte {@code bienvenue=1}
+     * pour que la page web s'intitule « Bienvenue » plutôt que « Réinitialiser » ;
+     * le code brut reste copiable (mobile sans deep-linking). Validité 7 jours,
+     * usage unique (PasswordResetToken).
+     */
+    @Override
+    public void sendInvitationEmail(String recipientEmail, String rawToken, String prenom, String nom) {
+        String url = resetBaseUrl + "?token="
+                + URLEncoder.encode(rawToken, StandardCharsets.UTF_8) + "&bienvenue=1";
+
+        SimpleMailMessage msg = new SimpleMailMessage();
+        msg.setFrom(fromAddress);
+        msg.setTo(recipientEmail);
+        msg.setSubject("EPOS — Votre compte est créé : choisissez votre mot de passe");
+        msg.setText("""
+                Bonjour %s %s,
+
+                Un compte EPOS (Faculté de Pharmacie de Monastir — évaluation des
+                travaux pratiques) vient d'être créé pour vous, avec l'identifiant :
+
+                    %s
+
+                Pour l'activer, choisissez votre mot de passe en suivant ce lien :
+                %s
+
+                Sur l'application mobile, saisissez plutôt ce code dans l'écran
+                "Mot de passe oublié" :
+
+                    %s
+
+                Ce lien et ce code sont valables 7 jours et à usage unique. Passé
+                ce délai, demandez un renvoi à la personne qui a créé votre compte.
+
+                Si vous n'attendiez pas ce compte, ignorez cet e-mail.
+
+                — EPOS
+                """.formatted(prenom, nom, recipientEmail, url, rawToken));
+
+        mailSender.send(msg);
+        log.info("Invitation email dispatched to {}", recipientEmail);
+    }
+
+    @Override
+    public boolean estSimule() {
+        return false;
+    }
 }

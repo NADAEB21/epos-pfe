@@ -599,6 +599,80 @@ class ExamServiceClientTest {
     }
 
     // =========================================================================
+    // getStatutStrict (#361, ADR-0030) — le statut d'une GARDE, jumeau de
+    // getMatiereIdStrict : jamais getExamTiming (son fail-soft rendrait la garde
+    // « examen clos » ouvrante par défaut). En panne : refuser, jamais deviner.
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getStatutStrict (#361, ADR-0030)")
+    class GetStatutStrict {
+
+        @Test
+        @DisplayName("Lit data.statut et appelle /api/examens/{id}")
+        void happyPath() {
+            List<ClientRequest> captured = new ArrayList<>();
+            ExamServiceClient client = clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"id\":42,\"statut\":\"TERMINE\"}}"),
+                    captured);
+
+            assertThat(client.getStatutStrict(42L)).isEqualTo("TERMINE");
+            assertThat(captured).hasSize(1);
+            assertThat(captured.get(0).url().getPath()).isEqualTo("/api/examens/42");
+        }
+
+        @Test
+        @DisplayName("statut ABSENT → échoue, ne devine jamais un état")
+        void statutAbsent_echoue() {
+            assertThatThrownBy(() -> clientReturning(
+                    okJson("{\"success\":true,\"data\":{\"id\":42,\"nom\":\"x\"}}"),
+                    new ArrayList<>()).getStatutStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("n'a pas fourni de statut");
+        }
+
+        @Test
+        @DisplayName("403 amont → AccessDeniedException (réponse d'autorisation, pas de transport)")
+        void refusAmont_devient403() {
+            ClientResponse forbidden = ClientResponse.create(HttpStatus.FORBIDDEN)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false,\"message\":\"Accès refusé\"}")
+                    .build();
+
+            assertThatThrownBy(() -> clientReturning(forbidden, new ArrayList<>())
+                    .getStatutStrict(42L))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("ne relève pas de vos matières");
+        }
+
+        @Test
+        @DisplayName("Erreur amont non-auth (404/500) → erreur métier, statut invérifiable")
+        void erreurAmont_resteUneErreurMetier() {
+            ClientResponse notFound = ClientResponse.create(HttpStatus.NOT_FOUND)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"success\":false}")
+                    .build();
+
+            assertThatThrownBy(() -> clientReturning(notFound, new ArrayList<>())
+                    .getStatutStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("statut invérifiable");
+        }
+
+        @Test
+        @DisplayName("exam-service injoignable → échoue BRUYAMMENT (la garde reste fermée)")
+        void injoignable_echoue() {
+            ExchangeFunction failing = req -> Mono.error(new RuntimeException("connexion refusée"));
+            ExamServiceClient client = new ExamServiceClient(
+                    WebClient.builder().exchangeFunction(failing).build());
+
+            assertThatThrownBy(() -> client.getStatutStrict(42L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("injoignable");
+        }
+    }
+
+    // =========================================================================
     // getMatiereIdStrict (#274) — la source de la matière figée
     //
     // STRICT au sens d'ADR-0015 : en cas d'échec on ne devine RIEN. Une matière devinée serait

@@ -70,17 +70,21 @@ public class EvaluateurSubstitutionService {
      */
     private final ILotRepository lotRepository;
     private final MatiereAccessGuard matiereAccessGuard;
+    /** #431 — la reprise ouvre un rang hors synchronisation : même garde que « Groupe suivant ». */
+    private final GroupeOccupationGuard groupeOccupationGuard;
 
     public EvaluateurSubstitutionService(IRotationRepository rotationRepository,
                                          IEvaluateurSubstitutionRepository substitutionRepository,
                                          Clock clock,
                                          ILotRepository lotRepository,
-                                         MatiereAccessGuard matiereAccessGuard) {
+                                         MatiereAccessGuard matiereAccessGuard,
+                                         GroupeOccupationGuard groupeOccupationGuard) {
         this.rotationRepository = rotationRepository;
         this.substitutionRepository = substitutionRepository;
         this.clock = clock;
         this.lotRepository = lotRepository;
         this.matiereAccessGuard = matiereAccessGuard;
+        this.groupeOccupationGuard = groupeOccupationGuard;
     }
 
     @Transactional
@@ -162,6 +166,11 @@ public class EvaluateurSubstitutionService {
                             Comparator.nullsLast(Comparator.naturalOrder())))
                     .orElse(null);
             if (ouverte != null) {
+                // #431 — le groupe à recevoir est peut-être encore noté à une autre station.
+                // On refuse TOUTE la suppléance plutôt que d'ouvrir un groupe absent : le
+                // responsable relance le remplacement une fois ce groupe validé là-bas. La
+                // transaction annule les transferts déjà écrits — rien n'est à moitié fait.
+                groupeOccupationGuard.refuserSiOccupeAilleurs(ouverte);
                 ouverte.setStatut(RotationStatus.EN_COURS);
                 rotationRepository.save(ouverte);
                 log.info("Suppléance lot {} station {} : rotation {} (rang {}) OUVERTE pour le "

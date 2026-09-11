@@ -6,7 +6,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -23,11 +22,15 @@ public class UserCreateRequest {
     @JsonDeserialize(using = TrimmedEmailDeserializer.class)
     private String email;
 
-    @NotBlank
-    @Size(min = 8, message = "Password must be at least 8 characters")
+    /**
+     * #389 — OPTIONNEL. Absent ou vide : le serveur pose un mot de passe jetable
+     * aléatoire, jamais rendu ni envoyé — la personne choisit le sien via le
+     * lien d'invitation reçu par e-mail. Présent : la politique s'applique
+     * (min 8, une majuscule, un chiffre — la même que PasswordResetConfirmDto).
+     */
     @Pattern(
-        regexp = "^(?=.*[A-Z])(?=.*\\d).+$",
-        message = "Password must contain at least one uppercase letter and one digit"
+        regexp = "^$|^(?=.*[A-Z])(?=.*\\d).{8,}$",
+        message = "Password must be at least 8 characters, with at least one uppercase letter and one digit"
     )
     private String password;
 

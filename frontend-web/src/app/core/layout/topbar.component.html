@@ -1,38 +1,57 @@
-<header class="h-16 px-6 flex items-center justify-end bg-surface border-b border-gray-200 relative">
+<header class="h-16 px-4 lg:px-8 flex items-center justify-between gap-4 bg-surface/90 backdrop-blur border-b border-gray-200 relative">
+  <div class="flex items-center gap-3 min-w-0">
+    <!-- #405 — ouverture du tiroir sous lg -->
+    <button
+      type="button"
+      (click)="layout.toggleSidebar()"
+      class="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg text-gray-600 hover:bg-gray-100"
+      aria-label="Ouvrir le menu"
+    >
+      <app-icon name="menu" cls="w-6 h-6" />
+    </button>
+    @if (pageTitle(); as t) {
+      <h2 class="text-sm font-semibold text-gray-700 truncate" data-testid="topbar-title">{{ t }}</h2>
+    }
+  </div>
+
   <button
     type="button"
     (click)="toggleMenu()"
-    class="flex items-center gap-3 group focus:outline-none"
+    class="flex items-center gap-3 group focus:outline-none rounded-lg px-2 py-1 hover:bg-gray-100/70"
+    [attr.aria-expanded]="menuOpen()"
   >
-    <div class="text-right">
+    <div class="text-right hidden sm:block">
       <div class="text-sm font-medium text-gray-900">Dr. {{ displayName() }}</div>
       <div class="text-xs text-gray-500">{{ roleLabel() }}</div>
     </div>
     <div
-      class="w-10 h-10 rounded-full bg-brand text-white flex items-center justify-center text-sm font-semibold group-hover:bg-brand-dark transition-colors"
+      class="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center text-sm font-semibold shadow-sm group-hover:bg-brand-dark transition-colors"
     >
       {{ initials() }}
     </div>
+    <app-icon name="chevron" cls="w-4 h-4 text-gray-400 rotate-90" />
   </button>
 
   @if (menuOpen()) {
     <div class="fixed inset-0 z-10" (click)="closeMenu()"></div>
     <div
-      class="absolute right-6 top-14 z-20 w-56 rounded-lg bg-white shadow-lg border border-gray-200 py-1"
+      class="absolute right-4 lg:right-8 top-14 z-20 w-56 rounded-xl bg-white shadow-pop border border-gray-200 py-1"
     >
       <button
         type="button"
         (click)="goToProfile()"
-        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+        class="w-full flex items-center gap-2 text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
       >
+        <app-icon name="user" cls="w-4 h-4 text-gray-400" />
         Mon profil
       </button>
       <div class="border-t border-gray-100 my-1"></div>
       <button
         type="button"
         (click)="logout()"
-        class="w-full text-left px-4 py-2 text-sm text-status-danger hover:bg-red-50"
+        class="w-full flex items-center gap-2 text-left px-4 py-2 text-sm text-status-danger hover:bg-red-50"
       >
+        <app-icon name="logout" cls="w-4 h-4" />
         Déconnexion
       </button>
     </div>

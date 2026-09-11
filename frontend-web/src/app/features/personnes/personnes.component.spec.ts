@@ -23,6 +23,7 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
     reactivateUser: jasmine.createSpy('reactivateUser'),
     createUser: jasmine.createSpy('createUser'),
     addRoles: jasmine.createSpy('addRoles'),
+    resendInvitation: jasmine.createSpy('resendInvitation'),
   };
 
   const user = (over: Partial<UserResponse>): UserResponse => ({
@@ -65,6 +66,68 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
   beforeEach(() => {
     api.deactivateUser.calls.reset();
     api.reactivateUser.calls.reset();
+  });
+
+  describe('#389 — la création invite, elle ne fabrique plus de mot de passe', () => {
+    beforeEach(() => {
+      api.createUser.calls.reset();
+      api.resendInvitation.calls.reset();
+    });
+
+    it('envoie la demande SANS mot de passe et lit « envoyée »', () => {
+      const cmp = build('evaluateurs', []);
+      api.createUser.and.returnValue(
+        of(user({ id: 5, prenom: 'Rania', nom: 'Aouina', email: 'rania@epos.tn',
+                  invitation: { envoyee: true, simulee: false } })),
+      );
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'Rania', nom: 'Aouina', email: 'rania@epos.tn' });
+
+      cmp.submitCreate();
+
+      const body = api.createUser.calls.mostRecent().args[0];
+      expect(body.password).toBeUndefined();
+      expect(Object.keys(body)).not.toContain('password');
+      expect(cmp.created()?.nomComplet).toBe('Rania Aouina');
+      expect(cmp.invitationEtat(cmp.created()?.invitation)).toBe('envoyee');
+    });
+
+    it('messagerie désactivée : lit « simulée », jamais « envoyée »', () => {
+      const cmp = build('evaluateurs', []);
+      api.createUser.and.returnValue(
+        of(user({ id: 5, email: 'r@epos.tn', invitation: { envoyee: true, simulee: true } })),
+      );
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'R', nom: 'A', email: 'r@epos.tn' });
+
+      cmp.submitCreate();
+
+      expect(cmp.invitationEtat(cmp.created()?.invitation)).toBe('simulee');
+    });
+
+    it('panne SMTP : lit « échec » — le compte existe, le mail non', () => {
+      const cmp = build('evaluateurs', []);
+      expect(cmp.invitationEtat({ envoyee: false, simulee: false })).toBe('echec');
+      expect(cmp.invitationEtat(null)).toBe('inconnu');
+    });
+
+    it('renvoyer l’invitation : le résultat est attaché à la ligne, le 403 est nominatif', () => {
+      const target = user({ id: 5, email: 'r@epos.tn' });
+      const cmp = build('evaluateurs', [target]);
+      api.resendInvitation.and.returnValue(of({ envoyee: true, simulee: false }));
+
+      cmp.renvoyerInvitation(target);
+
+      expect(api.resendInvitation).toHaveBeenCalledWith(5);
+      expect(cmp.renvoiResultat()).toEqual({ userId: 5, statut: { envoyee: true, simulee: false } });
+      expect(cmp.renvoiEnCours()).toBeNull();
+
+      api.resendInvitation.and.returnValue(
+        throwError(() => new HttpErrorResponse({ status: 403, error: null })),
+      );
+      cmp.renvoyerInvitation(target);
+      expect(cmp.renvoiErreur()?.message).toContain('périmètre');
+    });
   });
 
   describe('le motif est une condition, pas une décoration', () => {
@@ -167,13 +230,111 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
       expect(cmp.rows().map((u) => u.nom)).toEqual(['Eval']);
     });
 
-    it('« admin » liste tout le monde, désactivés compris', () => {
+    it('« admin » liste tout le monde — désactivés sur demande (#437 : actifs par défaut)', () => {
       const cmp = build('admin', [
         user({ id: 1, nom: 'Actif' }),
         user({ id: 2, nom: 'Retire', isActive: false }),
       ]);
 
+      expect(cmp.rows().map((u) => u.nom)).toEqual(['Actif']);
+      cmp.etatFilter.set('tous');
       expect(cmp.rows().length).toBe(2);
+      cmp.etatFilter.set('retires');
+      expect(cmp.rows().map((u) => u.nom)).toEqual(['Retire']);
+      expect(cmp.totalScoped()).toBe(2);
+    });
+  });
+
+  // ---- #436 / #437 -------------------------------------------------------------------
+
+  describe('#437 — filtres de l’écran Utilisateurs', () => {
+    const RESP_CT = user({ id: 3, nom: 'Resp', roles: [{ role: 'RESPONSABLE_MATIERE', matiereId: 1 }] });
+    const RESP_AUTRE = user({ id: 4, nom: 'Autre', roles: [{ role: 'RESPONSABLE_MATIERE', matiereId: 2 }] });
+    const EVAL = user({ id: 5, nom: 'Eval' });
+
+    it('rôle puis matière : ne garde que les responsables de la matière choisie', () => {
+      const cmp = build('admin', [RESP_CT, RESP_AUTRE, EVAL]);
+      cmp.onRoleFilterChange('RESPONSABLE_MATIERE');
+      expect(cmp.rows().map((u) => u.nom)).toEqual(['Autre', 'Resp']);
+      cmp.onMatiereFilterChange('1');
+      expect(cmp.rows().map((u) => u.nom)).toEqual(['Resp']);
+      // changer de rôle efface le filtre matière (il n'a plus de sens)
+      cmp.onRoleFilterChange('EVALUATEUR');
+      expect(cmp.matiereFilter()).toBeNull();
+      expect(cmp.rows().map((u) => u.nom)).toEqual(['Eval']);
+      cmp.reinitialiserFiltres();
+      expect(cmp.rows().length).toBe(3);
+      expect(cmp.filtresActifs()).toBeFalse();
+    });
+  });
+
+  describe('#436 — nommer une personne existante / ajouter un rôle', () => {
+    beforeEach(() => api.addRoles.calls.reset());
+
+    it('« évaluateurs » : les candidats sont les actifs SANS le rôle, la nomination ajoute EVALUATEUR', () => {
+      const dejaEval = user({ id: 1, nom: 'Deja' });
+      const resp = user({ id: 2, nom: 'Resp', roles: [{ role: 'RESPONSABLE_MATIERE', matiereId: 1 }] });
+      const retire = user({ id: 3, nom: 'Ferme', isActive: false, roles: [] });
+      api.addRoles.and.returnValue(of(void 0));
+      const cmp = build('evaluateurs', [dejaEval, resp, retire]);
+
+      expect(cmp.appointRole()).toBe('EVALUATEUR');
+      expect(cmp.appointCandidates().map((u) => u.nom)).toEqual(['Resp']);
+
+      cmp.openAppoint();
+      cmp.submitAppoint();
+      expect(cmp.appointError()).toBe('Choisissez la personne.');
+      expect(api.addRoles).not.toHaveBeenCalled();
+
+      cmp.onAppointUserChange('2');
+      cmp.submitAppoint();
+      expect(api.addRoles).toHaveBeenCalledWith(2, [{ role: 'EVALUATEUR', matiereId: null }]);
+    });
+
+    it('« co-responsables » : la nomination ajoute RESPONSABLE_MATIERE sur la matière choisie (inchangé)', () => {
+      const cible = user({ id: 2, nom: 'Cible' });
+      api.addRoles.and.returnValue(of(void 0));
+      const cmp = build('co-responsables', [cible]);
+      cmp.openAppoint();
+      cmp.onAppointMatiereChange('1');
+      cmp.onAppointUserChange('2');
+      cmp.submitAppoint();
+      expect(api.addRoles).toHaveBeenCalledWith(2, [{ role: 'RESPONSABLE_MATIERE', matiereId: 1 }]);
+    });
+
+    it('admin : « Ajouter un rôle » n’envoie que les rôles cochés NON déjà portés', () => {
+      const u = user({ id: 7, nom: 'Compte', roles: [{ role: 'EVALUATEUR', matiereId: null }] });
+      api.addRoles.and.returnValue(of(void 0));
+      const cmp = build('admin', [u]);
+
+      cmp.openRoleAdd(u);
+      expect(cmp.roleAddUserId()).toBe(7);
+      cmp.roleAddForm.patchValue({ evaluateur: true }); // déjà porté → ignoré
+      cmp.submitRoleAdd(u);
+      expect(api.addRoles).not.toHaveBeenCalled();
+      expect(cmp.roleAddError()).toContain('déjà');
+
+      cmp.roleAddForm.patchValue({ responsable: true, respMatiereId: null });
+      cmp.submitRoleAdd(u);
+      expect(cmp.roleAddError()).toContain('matière');
+
+      cmp.roleAddForm.patchValue({ responsable: true, respMatiereId: 1 });
+      cmp.submitRoleAdd(u);
+      expect(api.addRoles).toHaveBeenCalledWith(7, [{ role: 'RESPONSABLE_MATIERE', matiereId: 1 }]);
+      expect(cmp.roleAddUserId()).toBeNull();
+    });
+
+    it('admin : le refus du serveur est affiché mot pour mot', () => {
+      const u = user({ id: 7, nom: 'Compte', roles: [] });
+      api.addRoles.and.returnValue(
+        throwError(() => new HttpErrorResponse({ status: 400, error: { message: 'La matière « Chimie » est retirée du catalogue.' } })),
+      );
+      const cmp = build('admin', [u]);
+      cmp.openRoleAdd(u);
+      cmp.roleAddForm.patchValue({ superAdmin: true });
+      cmp.submitRoleAdd(u);
+      expect(cmp.roleAddError()).toContain('retirée du catalogue');
+      expect(cmp.roleAddUserId()).toBe(7);
     });
   });
 });

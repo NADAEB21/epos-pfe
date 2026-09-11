@@ -11,7 +11,7 @@
     [formGroup]="form"
     (ngSubmit)="onSubmit()"
     novalidate
-    class="rounded-xl bg-white border border-gray-200 shadow-card p-6 space-y-5"
+    class="card p-6 space-y-5"
   >
     <!-- Nom -->
     <div>
@@ -182,13 +182,13 @@
     <div class="flex items-center justify-end gap-3 pt-2">
       <a
         [routerLink]="['/examens']"
-        class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+        class="btn-secondary"
         >Annuler</a
       >
       <button
         type="submit"
         [disabled]="form.invalid || submitting()"
-        class="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        class="btn-primary"
       >
         {{ submitting() ? 'Création…' : "Créer l'examen" }}
       </button>

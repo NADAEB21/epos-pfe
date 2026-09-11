@@ -1,3 +1,4 @@
+import { isDevMode } from '@angular/core';
 import { Routes } from '@angular/router';
 import { ExamenWorkspaceStore } from './features/examens/workspace/examen-workspace.store';
 import {
@@ -9,13 +10,8 @@ import {
   webAccessGuard,
 } from './core/auth/auth.guard';
 
-const stub = (title: string, figmaRef = '(a venir)') => ({
-  loadComponent: () => import('./shared/stub-page.component').then((m) => m.StubPageComponent),
-  data: { title, figmaRef },
-});
-
-// Per-exam workspace tabs all render the stub for now (Phase B ships the shell
-// + status-aware tab list only; tab content is a session each).
+// Per-exam workspace tabs (each a real screen). `data.title` (#405) feeds the
+// topbar + browser title; children inherit the workspace title.
 const workspaceTabs: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'vue-ensemble' },
   {
@@ -65,20 +61,44 @@ const workspaceTabs: Routes = [
     loadComponent: () =>
       import('./features/examens/resultats/resultats.component').then((m) => m.ResultatsComponent),
   },
-  // W2/ADR-0028 — l'onglet « Analyses IA » ne revient que lorsque le volet IA
-  // existera : un onglet vivant qui rend un bouchon est une promesse vide.
+  // #407 — l'onglet « Analyse » : indices lus en français + évaluateurs.
+  {
+    path: 'analyse',
+    loadComponent: () =>
+      import('./features/examens/analyse/analyse.component').then((m) => m.AnalyseComponent),
+  },
+  // #363 (N9) — le volet IA existe (N8 #362) : l'onglet « Délibération »
+  // rend des propositions vivantes, jamais un bouchon (W2/ADR-0028 respecté).
+  {
+    path: 'deliberation',
+    loadComponent: () =>
+      import('./features/examens/deliberation/deliberation.component').then(
+        (m) => m.DeliberationComponent,
+      ),
+  },
 ];
 
 export const routes: Routes = [
   {
     path: 'login',
+    data: { title: 'Connexion' },
     canActivate: [guestGuard],
     loadComponent: () =>
       import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
   {
+    // #356 — harnais de vérification des composants de graphe, DEV SEULEMENT :
+    // en build de prod, canMatch écarte la route (404) — un bac à sable visible
+    // en prod serait une promesse vide de plus (doctrine W2/ADR-0028).
+    path: 'dev/graphes',
+    canMatch: [() => isDevMode()],
+    loadComponent: () =>
+      import('./shared/graphes/graphes-harness.component').then((m) => m.GraphesHarnessComponent),
+  },
+  {
     // W10 — mot de passe oublié, étape 1 (email). Public, hors shell.
     path: 'forgot-password',
+    data: { title: 'Mot de passe oublié' },
     canActivate: [guestGuard],
     loadComponent: () =>
       import('./features/auth/forgot-password/forgot-password.component').then(
@@ -91,6 +111,7 @@ export const routes: Routes = [
     // connecté est renvoyé chez lui par guestGuard : son chemin à lui est
     // « Mon profil » (W1), pas le flux oublié.
     path: 'reset-password',
+    data: { title: 'Nouveau mot de passe' },
     canActivate: [guestGuard],
     loadComponent: () =>
       import('./features/auth/reset-password/reset-password.component').then(
@@ -101,6 +122,7 @@ export const routes: Routes = [
     // Authenticated but role-less for the web (pure EVALUATEUR) — sent here by
     // webAccessGuard. Rendered outside the shell (no sidebar).
     path: 'acces-refuse',
+    data: { title: 'Accès refusé' },
     canActivate: [authGuard],
     loadComponent: () =>
       import('./features/access/acces-refuse.component').then((m) => m.AccesRefuseComponent),
@@ -125,12 +147,14 @@ export const routes: Routes = [
           // Espace de travail
           {
             path: 'accueil',
+    data: { title: 'Accueil' },
             loadComponent: () =>
               import('./features/home/accueil.component').then((m) => m.AccueilComponent),
           },
           {
             path: 'examens',
             pathMatch: 'full',
+            data: { title: 'Mes examens' },
             loadComponent: () =>
               import('./features/examens/examens-list.component').then(
                 (m) => m.ExamensListComponent,
@@ -139,6 +163,7 @@ export const routes: Routes = [
           {
             // MUST precede 'examens/:id' — otherwise 'nouveau' is captured as an id.
             path: 'examens/nouveau',
+    data: { title: 'Nouvel examen' },
             loadComponent: () =>
               import('./features/examens/examen-create.component').then(
                 (m) => m.ExamenCreateComponent,
@@ -146,6 +171,7 @@ export const routes: Routes = [
           },
           {
             path: 'examens/:id',
+    data: { title: 'Examen' },
             // Route-scoped: one store instance shared by the workspace shell and
             // every tab, so a lifecycle change in Lancement reactively updates the
             // parent's status-aware tabs + lifecycle bar.
@@ -158,6 +184,7 @@ export const routes: Routes = [
           },
           {
             path: 'bibliotheque',
+    data: { title: 'Bibliothèque' },
             loadComponent: () =>
               import('./features/bibliotheque/bibliotheque.component').then(
                 (m) => m.BibliothequeComponent,
@@ -169,24 +196,34 @@ export const routes: Routes = [
             path: 'equipe/evaluateurs',
             loadComponent: () =>
               import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
-            data: { scope: 'evaluateurs' },
+            data: { scope: 'evaluateurs', title: 'Évaluateurs' },
           },
           {
             path: 'equipe/co-responsables',
             loadComponent: () =>
               import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
-            data: { scope: 'co-responsables' },
+            data: { scope: 'co-responsables', title: 'Co-responsables' },
           },
 
           // « Ma matière » : supprimée (W2/D3, S39) — aucun contenu légitime
           // tant que les modèles de grilles ne sont pas « de matière »
           // (ADR-0027). La recréer alors, avec un vrai contenu.
+
+          // #365 (N10) — BI de la matière : sessions closes dans le temps,
+          // par station. Périmètre tenu par ai-service (403 nominatif).
+          {
+            path: 'tendances',
+    data: { title: 'Tendances' },
+            loadComponent: () =>
+              import('./features/tendances/tendances.component').then((m) => m.TendancesComponent),
+          },
         ],
       },
 
       // Parametres (any web user)
       {
         path: 'parametres/profil',
+    data: { title: 'Mon profil' },
         loadComponent: () =>
           import('./features/profil/profil.component').then((m) => m.ProfilComponent),
       },
@@ -199,6 +236,7 @@ export const routes: Routes = [
           {
             path: '',
             pathMatch: 'full',
+            data: { title: "Console d'administration" },
             loadComponent: () =>
               import('./features/admin/admin-home.component').then((m) => m.AdminHomeComponent),
           },
@@ -206,16 +244,46 @@ export const routes: Routes = [
             path: 'utilisateurs',
             loadComponent: () =>
               import('./features/personnes/personnes.component').then((m) => m.PersonnesComponent),
-            data: { scope: 'admin' },
+            data: { scope: 'admin', title: 'Utilisateurs' },
           },
           {
             path: 'matieres',
+    data: { title: 'Matières' },
             loadComponent: () =>
               import('./features/admin/matieres.component').then((m) => m.MatieresComponent),
           },
           // « Templates globaux » : supprimé (W2/ADR-0027) — rédiger un modèle
           // est une autorité PÉDAGOGIQUE (ADR-0018 D5), pas administrative.
-          { path: 'examens', ...stub('Examens (oversight)') }, // W13 (P1) — supervision lecture seule à construire
+          // #390 — supervision LECTURE SEULE de tous les examens (ADR-0018 D5) :
+          // un écran distinct de « Mes examens », qui ne mène jamais au workspace.
+          {
+            path: 'examens',
+    data: { title: 'Examens de la faculté' },
+            loadComponent: () =>
+              import('./features/admin/admin-examens.component').then((m) => m.AdminExamensComponent),
+          },
+          {
+            path: 'examens/:id',
+    data: { title: 'Examen' },
+            loadComponent: () =>
+              import('./features/admin/admin-examen-detail.component').then(
+                (m) => m.AdminExamenDetailComponent,
+              ),
+          },
+          // #365 (N10) — synthèse facultaire AGRÉGÉE (ADR-0021 D5 : jamais par
+          // étudiant) + tendances d'une matière en lecture (ADR-0018 D5).
+          {
+            path: 'synthese',
+    data: { title: 'Synthèse de la faculté' },
+            loadComponent: () =>
+              import('./features/admin/admin-synthese.component').then((m) => m.AdminSyntheseComponent),
+          },
+          {
+            path: 'tendances/:matiereId',
+    data: { title: 'Tendances' },
+            loadComponent: () =>
+              import('./features/tendances/tendances.component').then((m) => m.TendancesComponent),
+          },
         ],
       },
     ],

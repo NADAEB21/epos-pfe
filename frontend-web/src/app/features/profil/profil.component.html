@@ -1,5 +1,5 @@
 <div class="max-w-3xl">
-  <h1 class="text-2xl font-semibold text-gray-900 mb-1">Mon profil</h1>
+  <h1 class="page-title mb-1">Mon profil</h1>
   <p class="text-sm text-gray-500 mb-6">Votre identité, vos rôles et la sécurité de votre compte.</p>
 
   @if (loading()) {
@@ -95,7 +95,7 @@
           <button
             type="submit"
             [disabled]="pwSubmitting()"
-            class="rounded-lg bg-brand text-white px-4 py-2 text-sm font-medium hover:bg-brand-dark transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            class="btn-primary"
           >
             {{ pwSubmitting() ? 'Modification…' : 'Modifier le mot de passe' }}
           </button>

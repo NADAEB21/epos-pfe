@@ -1,0 +1,58 @@
+<div
+  class="min-h-screen p-6 transition-colors"
+  [class.bg-white]="theme() === 'light'"
+  [class.text-gray-900]="theme() === 'light'"
+  [class.bg-gray-900]="theme() === 'dark'"
+  [class.text-gray-100]="theme() === 'dark'"
+>
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-semibold">Composants de graphe — harnais #356</h1>
+    <button
+      type="button"
+      (click)="toggleTheme()"
+      class="rounded-lg border px-3 py-1.5 text-sm font-medium"
+      [class.border-gray-300]="theme() === 'light'"
+      [class.border-gray-600]="theme() === 'dark'"
+    >
+      Thème : {{ theme() === 'light' ? 'clair' : 'sombre' }} (basculer)
+    </button>
+  </div>
+
+  <!-- HistogrammeStation ---------------------------------------------- -->
+  <section class="mb-10">
+    <h2 class="text-sm font-medium mb-3 opacity-70">HistogrammeStation</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="rounded-xl border p-4" [class.border-gray-200]="theme() === 'light'" [class.border-gray-700]="theme() === 'dark'">
+        <p class="text-xs opacity-60 mb-2">Nominal</p>
+        <app-histogramme-station
+          [bins]="binsNominal"
+          [n]="nNominal"
+          seuilLabel="échec = note < 50 % du barème"
+          [theme]="theme()"
+        />
+      </div>
+      <div class="rounded-xl border p-4" [class.border-gray-200]="theme() === 'light'" [class.border-gray-700]="theme() === 'dark'">
+        <p class="text-xs opacity-60 mb-2">État vide (n = 0)</p>
+        <app-histogramme-station [bins]="binsVide" [n]="nVide" seuilLabel="échec = note < 50 % du barème" [theme]="theme()" />
+      </div>
+      <div class="rounded-xl border p-4" [class.border-gray-200]="theme() === 'light'" [class.border-gray-700]="theme() === 'dark'">
+        <p class="text-xs opacity-60 mb-2">Entrée malformée (bins non fourni)</p>
+        <app-histogramme-station [n]="5" seuilLabel="échec = note < 50 % du barème" [theme]="theme()" />
+        <p class="text-xs italic opacity-50 mt-2">
+          (rien ne s'affiche ci-dessus — c'est le comportement attendu)
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- BarresConcentration ------------------------------------------------ -->
+  <section>
+    <h2 class="text-sm font-medium mb-3 opacity-70">BarresConcentration</h2>
+    <div class="rounded-xl border p-4 max-w-xl" [class.border-gray-200]="theme() === 'light'" [class.border-gray-700]="theme() === 'dark'">
+      <p class="text-xs opacity-60 mb-2">
+        Nominal + les deux formes de la ligne « rien à lire » (sans / avec texte de refus)
+      </p>
+      <app-barres-concentration [lignes]="lignesNominal" titreValeur="Taux d'échec" [theme]="theme()" />
+    </div>
+  </section>
+</div>

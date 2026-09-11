@@ -49,6 +49,7 @@ class EvaluateurSubstitutionServiceTest {
     /** #274 — le lot n'est chargé que pour résoudre la matière ; permissif ici. */
     @Mock private ILotRepository lotRepository;
     @Mock private MatiereAccessGuard matiereAccessGuard;
+    @Mock private GroupeOccupationGuard groupeOccupationGuard;
 
     private EvaluateurSubstitutionService service;
 
@@ -56,7 +57,7 @@ class EvaluateurSubstitutionServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-29T10:00:00Z"), ZoneId.of("Africa/Tunis"));
         service = new EvaluateurSubstitutionService(rotationRepository, substitutionRepository,
-                clock, lotRepository, matiereAccessGuard);
+                clock, lotRepository, matiereAccessGuard, groupeOccupationGuard);
     }
 
     private Rotation rotation(long id, Long stationId, Long evaluateurId, RotationStatus statut) {
@@ -223,6 +224,29 @@ class EvaluateurSubstitutionServiceTest {
         assertThat(rang2.getDebutReel()).isNull();
         // Le responsable est prévenu dans le bilan (affiché verbatim sur le Suivi).
         assertThat(r.message()).contains("ouvert pour le remplaçant");
+    }
+
+    /**
+     * #431 — le rang à ouvrir pour le remplaçant reçoit un groupe encore noté à une
+     * AUTRE station : la suppléance entière est refusée (la transaction annule les
+     * transferts), et le responsable relance une fois ce groupe validé là-bas.
+     */
+    @Test
+    @DisplayName("#431 — groupe à rouvrir encore EN_COURS ailleurs : la suppléance est refusée, rien n'est ouvert")
+    void remplacer_surLeSeam_refuseSiGroupeOccupeAilleurs() {
+        Rotation validee = rotation(1L, STATION, PARTANT, RotationStatus.TERMINE, 1);
+        Rotation rang2   = rotation(2L, STATION, PARTANT, RotationStatus.EN_ATTENTE, 2);
+        when(rotationRepository.findByStudentGroup_Lot_Id(LOT))
+                .thenReturn(List.of(validee, rang2));
+        doThrow(new BusinessException("Le groupe 2 est encore en cours d'évaluation à une autre station."))
+                .when(groupeOccupationGuard).refuserSiOccupeAilleurs(rang2);
+
+        assertThatThrownBy(() -> service.remplacer(LOT, STATION, REMPLACANT, MOTIF, RESPONSABLE))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("autre station");
+
+        assertThat(rang2.getStatut()).isEqualTo(RotationStatus.EN_ATTENTE);
+        verify(substitutionRepository, never()).save(any());
     }
 
     /**

@@ -1,3 +1,11 @@
+// #405 — Inter auto-hébergée (@fontsource) : la police déclarée dans tailwind
+// n'était jamais chargée, tout l'écran tombait sur Segoe UI. Auto-hébergée
+// parce que le poste facultaire tourne hors ligne (aucun appel Google Fonts).
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,6 +18,130 @@ body {
 
 body {
   @apply bg-surface text-gray-900 font-sans antialiased;
+  // Variantes stylistiques d'Inter : « a » et « g » à une étage, chiffres alignés.
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+// ── Composants partagés (#405) — UNE définition pour chaque forme récurrente.
+// Les gabarits ne réécrivent plus 45 variantes de bouton et 20 de carte : ils
+// composent ces classes. Comportement inchangé, seule la forme est centralisée.
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-dark shadow-sm;
+  }
+  .btn-secondary {
+    @apply btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50;
+  }
+  .btn-ghost {
+    @apply btn text-brand hover:bg-brand-50;
+  }
+  .btn-danger {
+    @apply btn bg-status-danger text-white hover:bg-red-700;
+  }
+  .btn-warning {
+    @apply btn bg-amber-600 text-white hover:bg-amber-700;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+  .btn-xs {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  .card {
+    @apply rounded-xl bg-white border border-gray-200 shadow-card;
+  }
+  .card-pad {
+    @apply card p-5;
+  }
+
+  .kpi {
+    @apply card p-4;
+  }
+  .kpi-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-gray-500;
+  }
+  .kpi-value {
+    @apply mt-1 text-2xl font-semibold text-gray-900 tabular-nums;
+  }
+  .kpi-hint {
+    @apply mt-0.5 text-xs text-gray-400;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+  }
+  .badge-neutral {
+    @apply badge bg-gray-100 text-gray-600;
+  }
+  .badge-brand {
+    @apply badge bg-brand-50 text-brand-dark;
+  }
+  .badge-success {
+    @apply badge bg-green-50 text-green-800 border border-green-200;
+  }
+  .badge-warning {
+    @apply badge bg-amber-50 text-amber-800 border border-amber-200;
+  }
+  .badge-danger {
+    @apply badge bg-red-50 text-red-800 border border-red-200;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-gray-900;
+  }
+  .page-subtitle {
+    @apply mt-1 text-sm text-gray-500;
+  }
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-wide text-gray-500;
+  }
+  .breadcrumb {
+    @apply inline-flex items-center gap-1 text-sm text-gray-500 hover:text-brand;
+  }
+
+  .table {
+    @apply w-full text-sm;
+  }
+  .table thead th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200 whitespace-nowrap;
+  }
+  .table tbody td {
+    @apply px-4 py-3 align-middle;
+  }
+  .table tbody tr {
+    @apply border-b border-gray-100 last:border-0;
+  }
+  .table-hover tbody tr {
+    @apply hover:bg-gray-50/60;
+  }
+
+  .empty-state {
+    @apply card p-8 text-center text-gray-500;
+  }
+  .empty-state-title {
+    @apply text-gray-700 font-medium;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25;
+  }
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+
+  .banner-warning {
+    @apply flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800;
+  }
+  .banner-success {
+    @apply flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800;
+  }
+  .banner-danger {
+    @apply flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800;
+  }
 }
 
 // Print isolation for the Convocations sheet. Scoped to a body class the

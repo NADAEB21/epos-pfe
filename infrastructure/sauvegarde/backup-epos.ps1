@@ -1,5 +1,9 @@
 # =============================================================
-# EPOS - Sauvegarde des trois bases (auth_db, exam_db, scoring_db)
+# EPOS - Sauvegarde des quatre bases (auth_db, exam_db, scoring_db, ai_db)
+#
+# ai_db (#359/#366) : le cache des indices est reconstructible, mais le
+# journal de suggestions est une TRACE D'AUDIT (ADR-0029 D3) - il se
+# sauvegarde comme le reste.
 #
 # Usage :  .\backup-epos.ps1
 #          .\backup-epos.ps1 -OutRoot "E:\sauvegardes-epos"
@@ -20,7 +24,7 @@
 param(
     [string]   $Container = "epos-postgres",
     [string]   $User      = "admin",
-    [string[]] $Databases = @("auth_db", "exam_db", "scoring_db"),
+    [string[]] $Databases = @("auth_db", "exam_db", "scoring_db", "ai_db"),
     [string]   $OutRoot   = (Join-Path $PSScriptRoot "backups")
 )
 

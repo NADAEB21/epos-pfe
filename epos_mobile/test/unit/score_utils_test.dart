@@ -25,22 +25,32 @@ void main() {
 
     test('LE defaut de #310 : un demi-point n\'est plus tronque', () {
       // Avant : `1.5.toInt()` => « 1 ».
-      expect(ScoreUtils.fmtPoints(1.5), '1.5');
+      expect(ScoreUtils.fmtPoints(1.5), '1,5');
       // Avant : « 3 ».
-      expect(ScoreUtils.fmtPoints(3.5), '3.5');
+      expect(ScoreUtils.fmtPoints(3.5), '3,5');
       // Et le parent 1,5 + 3,5 s'affichait « 4 » au lieu de « 5 ».
       expect(ScoreUtils.fmtPoints(1.5 + 3.5), '5');
     });
 
-    test('les decimales autres que ,5 sont rendues a un chiffre', () {
-      expect(ScoreUtils.fmtPoints(0.5), '0.5');
-      expect(ScoreUtils.fmtPoints(2.25), '2.3'); // arrondi de toStringAsFixed(1)
-      expect(ScoreUtils.fmtPoints(9.99), '10.0');
+    // #417 (recette du 05/09) — le QUART DE POINT s'affiche tel qu'il est
+    // stocké. Avant : toStringAsFixed(1) rendait 1,75 → « 1.8 » et 2,25 →
+    // « 2.3 » : la note stockée était juste, l'écran mentait d'un dixième.
+    test('#417 : le quart de point n\'est plus arrondi', () {
+      expect(ScoreUtils.fmtPoints(1.75), '1,75');
+      expect(ScoreUtils.fmtPoints(2.25), '2,25');
+      expect(ScoreUtils.fmtPoints(0.25), '0,25');
+      expect(ScoreUtils.fmtPoints(0.5), '0,5');
+    });
+
+    test('au-dela de deux decimales, arrondi a deux (jamais de « 20.0 »)', () {
+      expect(ScoreUtils.fmtPoints(9.99), '9,99');
+      expect(ScoreUtils.fmtPoints(9.999), '10');
+      expect(ScoreUtils.fmtPoints(20.0), '20');
     });
 
     test('ne perd pas le signe negatif (score reajuste vers le bas)', () {
       expect(ScoreUtils.fmtPoints(-2), '-2');
-      expect(ScoreUtils.fmtPoints(-1.5), '-1.5');
+      expect(ScoreUtils.fmtPoints(-1.5), '-1,5');
     });
   });
 }

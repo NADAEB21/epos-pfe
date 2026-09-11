@@ -70,6 +70,11 @@ class NotationServiceTest {
     @Mock
     private ExamGrilleSnapshotRepository grilleSnapshotRepository;
 
+    // #361 — permissif : le recalcul délibéré a ses propres tests
+    // (BaremeDeliberationEngineTest) ; sans snapshot stubé il n'est jamais appelé.
+    @Mock
+    private BaremeDeliberationEngine baremeDeliberationEngine;
+
     // Réel (pas un mock) : le parsing de items_json fait partie du comportement testé.
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -669,6 +674,47 @@ class NotationServiceTest {
             when(repository.findByExamenIdWithGraph(99L)).thenReturn(List.of());
 
             assertThat(notationService.getResultatsByExamen(99L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("#361 : couverture snapshot COMPLÈTE → dénominateur original servi")
+        void getResultats_couvertureComplete_sertLeDenominateur() {
+            when(repository.findByExamenIdWithGraph(16L)).thenReturn(List.of(
+                    scored(1L, "Alpha", "E-01", 100L, 1L, 12f),
+                    scored(1L, "Alpha", "E-01", 100L, 2L, 8f)));
+            when(grilleSnapshotRepository.findByExamenId(16L)).thenReturn(List.of(
+                    grilleSnap(1L, 20.0), grilleSnap(2L, 10.0)));
+
+            ExamenResultDTO r = notationService.getResultatsByExamen(16L).get(0);
+
+            assertThat(r.denominateurOriginal()).isEqualTo(30.0);
+            assertThat(r.stations()).extracting("maxOriginal").containsExactly(20.0, 10.0);
+            // pas de barème de délibération → la paire délibérée reste nulle
+            assertThat(r.totalDelibere()).isNull();
+            assertThat(r.baremeVersion()).isNull();
+        }
+
+        @Test
+        @DisplayName("#361 : couverture PARTIELLE → jamais un dénominateur d'examen partiel")
+        void getResultats_couverturePartielle_denominateurNul() {
+            when(repository.findByExamenIdWithGraph(16L)).thenReturn(List.of(
+                    scored(1L, "Alpha", "E-01", 100L, 1L, 12f),
+                    scored(1L, "Alpha", "E-01", 100L, 2L, 8f)));
+            // seule la station 1 a été notée par le flux → un seul snapshot V19
+            when(grilleSnapshotRepository.findByExamenId(16L))
+                    .thenReturn(List.of(grilleSnap(1L, 20.0)));
+
+            ExamenResultDTO r = notationService.getResultatsByExamen(16L).get(0);
+
+            assertThat(r.denominateurOriginal()).isNull();
+            assertThat(r.stations()).extracting("maxOriginal").containsExactly(20.0, null);
+        }
+
+        private ExamGrilleSnapshot grilleSnap(long stationId, double noteMax) {
+            return ExamGrilleSnapshot.builder()
+                    .examenId(16L).stationId(stationId).grilleId(stationId + 100)
+                    .nom("Station " + stationId).noteMax(noteMax).itemsJson("[]")
+                    .build();
         }
 
         @Test

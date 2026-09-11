@@ -91,4 +91,15 @@ describe('LoginComponent — le motif du refus vient du serveur (#294)', () => {
     expect(cmp.lockedMessage()).toBeNull();
     expect(cmp.errorKind()).toBeNull();
   });
+  it('#405 : deux volets — le formulaire garde ses identifiants, le volet de marque nomme la faculté', () => {
+    build();
+    const fixture = TestBed.createComponent(LoginComponent);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('#email')).not.toBeNull();
+    expect(el.querySelector('#password')).not.toBeNull();
+    expect(el.querySelector('button[type=submit]')?.textContent).toContain('Se connecter');
+    expect(el.textContent).toContain('Faculté de Pharmacie de Monastir');
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe('Connexion');
+  });
 });

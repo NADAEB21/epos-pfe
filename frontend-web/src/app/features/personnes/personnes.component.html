@@ -21,13 +21,18 @@
       </p>
     </div>
     <div class="flex items-center gap-2">
-      @if (scope === 'co-responsables') {
+      <!-- #436 — les deux annuaires du responsable nomment une personne EXISTANTE ;
+           l'admin ajoute ses rôles ligne par ligne (« Ajouter un rôle »). -->
+      @if (scope !== 'admin') {
         <button
           type="button"
           (click)="openAppoint()"
           class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium border border-brand text-brand hover:bg-brand-50 transition-colors"
         >
-          Nommer une personne existante
+          @switch (scope) {
+            @case ('evaluateurs') { Nommer un évaluateur existant }
+            @case ('co-responsables') { Nommer une personne existante }
+          }
         </button>
       }
       <button
@@ -188,16 +193,30 @@
     </section>
   }
 
-  <!-- Appoint existing person (co-responsables) -->
+  <!-- Appoint existing person (évaluateurs + co-responsables) — #436 -->
   @if (appointOpen()) {
     <section class="card p-5 mb-6">
-      <h2 class="font-semibold text-gray-900 mb-1">Nommer une personne existante</h2>
+      <h2 class="font-semibold text-gray-900 mb-1">
+        @switch (scope) {
+          @case ('evaluateurs') { Nommer un évaluateur existant }
+          @default { Nommer une personne existante }
+        }
+      </h2>
       <p class="text-sm text-gray-500 mb-4">
-        La personne garde son compte et ses rôles actuels — elle devient en plus co-responsable
-        de la matière choisie, avec les mêmes droits que vous.
+        @switch (scope) {
+          @case ('evaluateurs') {
+            La personne garde son compte et ses rôles actuels — elle peut en plus noter aux
+            stations, depuis l'application mobile, dans toutes les matières. Un compte déjà
+            évaluateur n'est pas proposé.
+          }
+          @default {
+            La personne garde son compte et ses rôles actuels — elle devient en plus co-responsable
+            de la matière choisie, avec les mêmes droits que vous.
+          }
+        }
       </p>
       <div class="flex flex-wrap items-end gap-3">
-        @if (myMatieres().length > 1) {
+        @if (scope === 'co-responsables' && myMatieres().length > 1) {
           <label class="block text-sm">
             <span class="text-gray-700">Matière</span>
             <select
@@ -231,7 +250,7 @@
           [disabled]="appointSubmitting()"
           class="btn-primary"
         >
-          {{ appointSubmitting() ? 'Nomination…' : 'Nommer co-responsable' }}
+          {{ appointSubmitting() ? 'Nomination…' : (scope === 'evaluateurs' ? 'Nommer évaluateur' : 'Nommer co-responsable') }}
         </button>
         <button type="button" (click)="appointOpen.set(false)" class="text-sm text-gray-500 hover:text-gray-700 pb-2">
           Annuler
@@ -263,20 +282,61 @@
     </div>
   } @else {
     <section class="card">
-      <div class="p-4 border-b border-gray-100">
+      <!-- #437 — filtres : rôle / matière (admin), état (toutes portées), compteur -->
+      <div class="p-4 border-b border-gray-100 flex flex-wrap items-center gap-2">
         <input
           type="search"
           placeholder="Rechercher par nom ou e-mail…"
-          class="w-full sm:w-80 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+          class="w-full sm:w-72 text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
           [value]="search()"
           (input)="search.set($any($event.target).value)"
         />
+        @if (scope === 'admin') {
+          <select
+            aria-label="Filtrer par rôle"
+            (change)="onRoleFilterChange($any($event.target).value)"
+            class="text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+          >
+            <option value="all" [selected]="roleFilter() === 'all'">Rôle : tous</option>
+            <option value="EVALUATEUR" [selected]="roleFilter() === 'EVALUATEUR'">Évaluateurs</option>
+            <option value="RESPONSABLE_MATIERE" [selected]="roleFilter() === 'RESPONSABLE_MATIERE'">Responsables de matière</option>
+            <option value="SUPER_ADMIN" [selected]="roleFilter() === 'SUPER_ADMIN'">Super-admins</option>
+          </select>
+          @if (roleFilter() === 'RESPONSABLE_MATIERE') {
+            <select
+              aria-label="Filtrer par matière"
+              (change)="onMatiereFilterChange($any($event.target).value)"
+              class="text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="" [selected]="matiereFilter() === null">Matière : toutes</option>
+              @for (m of matieres(); track m.id) {
+                <option [value]="m.id" [selected]="matiereFilter() === m.id">{{ m.libelle }}</option>
+              }
+            </select>
+          }
+        }
+        <select
+          aria-label="Filtrer par état"
+          (change)="onEtatFilterChange($any($event.target).value)"
+          class="text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand"
+        >
+          <option value="actifs" [selected]="etatFilter() === 'actifs'">Comptes actifs</option>
+          <option value="retires" [selected]="etatFilter() === 'retires'">Accès retiré</option>
+          <option value="tous" [selected]="etatFilter() === 'tous'">Tous les comptes</option>
+        </select>
+        <span class="text-xs text-gray-500 ml-auto">
+          {{ rows().length }} affiché(s) sur {{ totalScoped() }}
+          @if (filtresActifs()) {
+            · <button type="button" (click)="reinitialiserFiltres()" class="text-brand hover:underline">Réinitialiser</button>
+          }
+        </span>
       </div>
 
       @if (rows().length === 0) {
         <p class="p-8 text-center text-sm text-gray-500">
-          @if (search()) {
-            Personne ne correspond à « {{ search() }} ».
+          @if (filtresActifs()) {
+            Personne ne correspond aux filtres.
+            <button type="button" (click)="reinitialiserFiltres()" class="text-brand hover:underline">Réinitialiser</button>
           } @else {
             @switch (scope) {
               @case ('evaluateurs') { Aucun évaluateur pour l'instant — créez le premier compte. }
@@ -288,19 +348,29 @@
       } @else {
         <ul class="divide-y divide-gray-100">
           @for (u of rows(); track u.id) {
-            <li class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-              <div class="min-w-48">
-                <p class="text-sm font-medium text-gray-900">
+            <!-- #437 — une ligne = identité · rôles · actions (à droite), pas un bloc empilé -->
+            <li class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
+              <div class="w-64 min-w-0">
+                <p class="text-sm font-medium text-gray-900 truncate">
                   {{ u.nom }} {{ u.prenom }}
                   @if (u.id === myUserId()) {
                     <span class="text-xs text-gray-400">(vous)</span>
                   }
                 </p>
-                <p class="text-xs text-gray-500">{{ u.email }}</p>
+                <p class="text-xs text-gray-500 truncate">{{ u.email }}</p>
               </div>
-              <div class="flex flex-wrap gap-1.5 flex-1">
+              <div class="flex flex-wrap gap-1.5 flex-1 min-w-48">
                 @for (r of u.roles; track $index) {
                   <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{{ roleChip(r) }}</span>
+                }
+                @if (scope === 'admin' && u.isActive) {
+                  <button
+                    type="button"
+                    (click)="roleAddUserId() === u.id ? closeRoleAdd() : openRoleAdd(u)"
+                    class="text-xs px-2 py-0.5 rounded-full border border-dashed border-brand text-brand hover:bg-brand-50"
+                  >
+                    + Ajouter un rôle
+                  </button>
                 }
               </div>
               @if (!u.isActive) {
@@ -314,7 +384,7 @@
                 </span>
                 <span class="text-xs text-gray-500 basis-full">{{ retraitLabel(u) }}</span>
               }
-              <span class="text-xs text-gray-400">Créé le {{ frDate(u.createdAt) }}</span>
+              <span class="text-xs text-gray-400 hidden lg:inline">Créé le {{ frDate(u.createdAt) }}</span>
               @if (u.isActive) {
                 <!-- #389 — mail perdu, lien expiré, messagerie activée après coup -->
                 <button
@@ -363,6 +433,54 @@
                 >
                   Rétablir l'accès
                 </button>
+              }
+
+              <!-- #436 — ajouter un rôle à CE compte : additif (POST /users/{id}/roles),
+                   les rôles déjà portés sont grisés, les refus serveur sont affichés tels quels. -->
+              @if (scope === 'admin' && roleAddUserId() === u.id) {
+                <section class="basis-full rounded-lg border border-brand bg-brand-50 p-4 mt-2" role="dialog">
+                  <p class="text-sm font-medium text-gray-900 mb-1">
+                    Ajouter un rôle à {{ u.prenom }} {{ u.nom }}
+                  </p>
+                  <p class="text-xs text-gray-600 mb-3">
+                    Le compte garde ses rôles actuels ; un rôle ajouté agit dès la prochaine connexion
+                    (les sessions ouvertes sont invalidées).
+                  </p>
+                  <form [formGroup]="roleAddForm" (ngSubmit)="submitRoleAdd(u)" class="text-sm space-y-2">
+                    <label class="flex items-center gap-2" [class.opacity-50]="hasRole(u, 'EVALUATEUR')">
+                      <input type="checkbox" formControlName="evaluateur" class="rounded border border-gray-300" />
+                      <span>Évaluateur @if (hasRole(u, 'EVALUATEUR')) { <span class="text-xs text-gray-500">(déjà porté)</span> }</span>
+                    </label>
+                    <label class="flex items-center gap-2" [class.opacity-50]="matieresAjoutables(u).length === 0">
+                      <input type="checkbox" formControlName="responsable" class="rounded border border-gray-300" />
+                      <span>Responsable de matière @if (matieresAjoutables(u).length === 0) { <span class="text-xs text-gray-500">(toutes les matières actives déjà portées)</span> }</span>
+                    </label>
+                    @if (roleAddForm.controls.responsable.value) {
+                      <label class="block max-w-xs pl-6">
+                        <span class="text-gray-700">Matière</span>
+                        <select formControlName="respMatiereId" class="mt-1 w-full text-sm rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent">
+                          <option [ngValue]="null">— choisir —</option>
+                          @for (m of matieresAjoutables(u); track m.id) {
+                            <option [ngValue]="m.id">{{ m.libelle }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                    <label class="flex items-center gap-2" [class.opacity-50]="hasRole(u, 'SUPER_ADMIN')">
+                      <input type="checkbox" formControlName="superAdmin" class="rounded border border-gray-300" />
+                      <span>Super-admin @if (hasRole(u, 'SUPER_ADMIN')) { <span class="text-xs text-gray-500">(déjà porté)</span> }</span>
+                    </label>
+                    @if (roleAddError(); as err) {
+                      <p class="text-sm text-status-danger">{{ err }}</p>
+                    }
+                    <div class="flex items-center gap-3 pt-1">
+                      <button type="submit" [disabled]="roleAddSubmitting()" class="btn-primary">
+                        {{ roleAddSubmitting() ? 'Ajout…' : 'Ajouter' }}
+                      </button>
+                      <button type="button" (click)="closeRoleAdd()" class="text-sm text-gray-500 hover:text-gray-700">Annuler</button>
+                    </div>
+                  </form>
+                </section>
               }
 
               <!-- #289 (retour de Nada) — la confirmation s'ouvre SOUS la ligne

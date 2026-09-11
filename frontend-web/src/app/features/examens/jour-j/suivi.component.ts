@@ -194,6 +194,16 @@ export class SuiviComponent {
   // ---- #185 — le conducteur « Présence & démarrer » ------------------------
   /** L'acte combiné présence + génération est en vol. */
   readonly demarrageEnCours = signal(false);
+  /**
+   * #434 — le lot dont le démarrage attend une CONFIRMATION. Le bouton disait « Présence &
+   * démarrer » et se lisait « aller faire la présence » : un responsable qui avait des absents
+   * à déclarer cliquait… et la vague partait, tous présents, sans retour (#432 : une vague
+   * démarrée ne se régénère pas). Le clic ouvre donc un panneau qui nomme la conséquence et
+   * les deux sorties ; rien n'est bloqué (ADR-0014), c'est une confirmation.
+   */
+  readonly confirmDemarrage = signal<number | null>(null);
+  /** #434 — inscrits par lot, pour dire « les 12 étudiants du lot 1 » dans la confirmation. */
+  private readonly participationsCache = signal<ParticipationSummary[]>([]);
   /** Refus du backend, montré tel quel (déjà nominatif et actionnable). */
   readonly demarrageError = signal<string | null>(null);
   /** Avertissement non bloquant (capacité…) du dernier démarrage réussi. */
@@ -213,6 +223,31 @@ export class SuiviComponent {
 
   // Conservés pour pouvoir recharger les passages seuls (#208) sans refaire tout le load.
   private readonly stationsCache = signal<StationSummary[]>([]);
+
+  /** #434 — nombre d'inscrits du lot (0 si la répartition n'est pas connue ici). */
+  effectifLot(lotId: number): number {
+    return this.participationsCache().filter((p) => p.lotId === lotId).length;
+  }
+
+  /** #434 — ouvre la confirmation ; aucun appel serveur avant « Oui, tous présents ». */
+  demanderDemarrage(lotId: number): void {
+    if (this.demarrageEnCours()) return;
+    this.demarrageError.set(null);
+    this.demarrageInfo.set(null);
+    this.confirmDemarrage.set(lotId);
+  }
+
+  annulerDemarrage(): void {
+    this.confirmDemarrage.set(null);
+  }
+
+  /** #434 — la confirmation : l'acte lui-même (#185) n'a pas changé. */
+  confirmerDemarrage(): void {
+    const lotId = this.confirmDemarrage();
+    if (lotId == null) return;
+    this.confirmDemarrage.set(null);
+    this.demarrerLot(lotId);
+  }
   private readonly evaluateursCache = signal<UserResponse[]>([]);
 
   /**
@@ -512,6 +547,7 @@ export class SuiviComponent {
     }).subscribe({
       next: ({ stations, evaluateurs, annuaire, participations, etudiants, progression }) => {
         this.annuaireCache.set(annuaire);
+        this.participationsCache.set(participations);
         this.indexNames(participations, etudiants);
         this.progression.set(progression);
         const sorted = [...stations].sort(

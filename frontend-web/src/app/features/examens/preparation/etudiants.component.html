@@ -591,6 +591,95 @@
       </select>
     </div>
 
+    <!-- #435 — retrait groupé : la barre de sélection du listing, symétrique de
+         « Tout sélectionner » de l'ajout depuis l'annuaire (#186). Elle n'existe
+         que tant que le listing est éditable (BROUILLON / CONFIGURE). -->
+    @if (editable() && rows().length > 0) {
+      <div class="flex flex-wrap items-center gap-3 mb-3 text-xs">
+        <label class="flex items-center gap-2 text-gray-600">
+          <input
+            type="checkbox"
+            [checked]="allRosterFilteredSelected()"
+            [disabled]="bulkRemoving()"
+            (change)="toggleSelectAllRosterFiltered()"
+            class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+          />
+          Tout sélectionner ({{ filteredRows().length }} affiché(s))
+        </label>
+        @if (rosterSelectedCount() > 0) {
+          <span class="text-gray-500">{{ rosterSelectedCount() }} sélectionné(s)</span>
+          <button
+            type="button"
+            [disabled]="bulkRemoving()"
+            (click)="askBulkRemove()"
+            class="px-3 py-1.5 rounded-lg border border-status-danger text-status-danger font-medium hover:bg-red-50 disabled:opacity-40"
+          >
+            Retirer les {{ rosterSelectedCount() }} sélectionné(s)
+          </button>
+          <button type="button" (click)="clearRosterSelection()" class="text-gray-500 hover:text-gray-700">
+            Tout décocher
+          </button>
+        }
+      </div>
+
+      @if (confirmBulkRemove()) {
+        <section role="alertdialog" class="rounded-lg border border-status-danger bg-red-50 p-4 mb-3">
+          <p class="text-sm font-medium text-gray-900 mb-1">
+            Retirer {{ rosterSelectedCount() }} étudiant(s) de cet examen ?
+          </p>
+          <p class="text-sm text-gray-700 mb-3">
+            Ils restent dans le répertoire et pourront être réinscrits. L'ordre du fichier importé
+            est conservé pour les étudiants qui restent.
+          </p>
+          @if (bulkRemoveError(); as err) {
+            <p role="alert" class="text-sm text-status-danger mb-3">{{ err }}</p>
+          }
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              [disabled]="bulkRemoving()"
+              (click)="retirerSelection()"
+              class="px-4 py-2 rounded-lg bg-status-danger text-white text-sm font-medium hover:opacity-90 disabled:opacity-40"
+            >
+              {{ bulkRemoving() ? 'Retrait…' : 'Retirer ' + rosterSelectedCount() + ' étudiant(s)' }}
+            </button>
+            <button type="button" [disabled]="bulkRemoving()" (click)="cancelBulkRemove()" class="text-sm text-gray-500 hover:text-gray-700">
+              Annuler
+            </button>
+          </div>
+        </section>
+      }
+
+      @if (bulkRemoveResult(); as r) {
+        <div
+          class="rounded-lg border px-3 py-2 text-xs space-y-1.5 mb-3"
+          [class.border-emerald-200]="r.erreurs === 0"
+          [class.bg-emerald-50]="r.erreurs === 0"
+          [class.text-emerald-800]="r.erreurs === 0"
+          [class.border-amber-200]="r.erreurs > 0"
+          [class.bg-amber-50]="r.erreurs > 0"
+          [class.text-amber-800]="r.erreurs > 0"
+        >
+          <p>
+            {{ r.retires }} retiré(s)
+            @if (r.introuvables > 0) {, {{ r.introuvables }} déjà retiré(s)}
+            @if (r.erreurs > 0) {, <strong>{{ r.erreurs }} non retiré(s)</strong>}.
+          </p>
+          @if (r.erreurs > 0) {
+            <ul class="list-disc pl-4 space-y-0.5">
+              @for (l of bulkRemoveLignesEchec(r); track l.participationId) {
+                <li>
+                  @if (l.nom || l.prenom) { {{ l.prenom }} {{ l.nom }} } @else { Inscription #{{ l.participationId }} }
+                  — {{ l.message }}
+                </li>
+              }
+            </ul>
+          }
+          <button type="button" (click)="bulkRemoveResult.set(null)" class="underline hover:no-underline">Fermer</button>
+        </div>
+      }
+    }
+
     <div
       class="card overflow-hidden"
     >
@@ -599,6 +688,18 @@
           <tr
             class="text-left text-xs text-gray-400 border-b border-gray-100"
           >
+            @if (editable()) {
+              <th class="px-3 py-2.5 w-8">
+                <input
+                  type="checkbox"
+                  aria-label="Tout sélectionner"
+                  [checked]="allRosterFilteredSelected()"
+                  [disabled]="bulkRemoving()"
+                  (change)="toggleSelectAllRosterFiltered()"
+                  class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                />
+              </th>
+            }
             <th class="px-4 py-2.5 font-medium w-8">#</th>
             <th class="px-4 py-2.5 font-medium">Étudiant</th>
             <th class="px-4 py-2.5 font-medium">N&deg; inscription</th>
@@ -621,7 +722,19 @@
             track r.participationId;
             let i = $index
           ) {
-            <tr class="hover:bg-surface">
+            <tr class="hover:bg-surface" [class.bg-red-50]="editable() && isRosterSelected(r.participationId)">
+              @if (editable()) {
+                <td class="px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    [attr.aria-label]="'Sélectionner ' + displayName(r)"
+                    [checked]="isRosterSelected(r.participationId)"
+                    [disabled]="bulkRemoving()"
+                    (change)="toggleRosterSelect(r.participationId)"
+                    class="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                </td>
+              }
               <td class="px-4 py-2.5 text-gray-400">{{ i + 1 }}</td>
               <td class="px-4 py-2.5 text-gray-800 font-medium">
                 {{ displayName(r) }}

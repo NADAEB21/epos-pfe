@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.epos.common.exception.ResourceNotFoundException;
 import tn.epos.scoring_service.dto.BulkEnrolResult;
+import tn.epos.scoring_service.dto.BulkRetraitResult;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.repositories.IEtudiantRepository;
@@ -91,6 +92,61 @@ public class ExamenParticipationService {
             matiereAccessGuard.checkExamenAccess(p.getExamen_id());
             repository.delete(p);
         });
+    }
+
+    /**
+     * #435 — retrait groupé, symétrique de {@link #enrolBulk} : la sélection du listing
+     * (« tout sélectionner », cases à cocher) se retire en UN appel.
+     *
+     * <p>La garde de matière est posée AVANT la boucle, sur l'examen annoncé — jamais dans
+     * le catch par ligne (#274). Une participation qui n'appartient pas à cet examen est
+     * REFUSÉE ligne à ligne, sans révéler à quel examen elle appartient : l'appelant a été
+     * autorisé sur SON examen, pas sur les autres.
+     *
+     * <p><b>Volontairement NON {@code @Transactional}</b>, comme {@code enrolBulk} : chaque
+     * suppression porte sa propre transaction, pour qu'une ligne en échec (l'étudiant est
+     * déjà dans un circuit généré : FK {@code rotation_assignment.participation_id}) ne fasse
+     * pas annuler au commit les retraits déjà réussis du même lot.
+     *
+     * <p>Le retrait ne touche pas {@code ordre_import} des lignes restantes : l'ordre du
+     * fichier importé (#256) est préservé tel quel, avec des trous que l'écran ne montre pas
+     * (le rang affiché est l'index du listing trié).
+     */
+    public BulkRetraitResult retirerBulk(Long examenId, List<Long> participationIds) {
+        matiereAccessGuard.checkExamenAccess(examenId);
+
+        Set<Long> ids = participationIds == null ? Set.of() : new LinkedHashSet<>(participationIds);
+        List<BulkRetraitResult.BulkRetraitLigne> lignes = new ArrayList<>();
+
+        int retires = 0, introuvables = 0, erreurs = 0;
+        for (Long id : ids) {
+            Optional<ExamenParticipation> trouvee = repository.findById(id);
+            if (trouvee.isEmpty()) {
+                introuvables++;
+                lignes.add(new BulkRetraitResult.BulkRetraitLigne(
+                        id, null, null, "INTROUVABLE", "Inscription introuvable (déjà retirée ?)."));
+                continue;
+            }
+            ExamenParticipation p = trouvee.get();
+            String nom = p.getEtudiant() == null ? null : p.getEtudiant().getNom();
+            String prenom = p.getEtudiant() == null ? null : p.getEtudiant().getPrenom();
+            if (!examenId.equals(p.getExamen_id())) {
+                erreurs++;
+                lignes.add(new BulkRetraitResult.BulkRetraitLigne(
+                        id, nom, prenom, "REFUSE", "Cette inscription n'appartient pas à cet examen."));
+                continue;
+            }
+            try {
+                repository.delete(p);
+                retires++;
+                lignes.add(new BulkRetraitResult.BulkRetraitLigne(id, nom, prenom, "RETIRE", "Retiré."));
+            } catch (Exception ex) {
+                erreurs++;
+                lignes.add(new BulkRetraitResult.BulkRetraitLigne(
+                        id, nom, prenom, "ERREUR", "Échec du retrait : " + ex.getMessage()));
+            }
+        }
+        return new BulkRetraitResult(ids.size(), retires, introuvables, erreurs, lignes);
     }
 
     /**

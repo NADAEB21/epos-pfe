@@ -9,6 +9,8 @@ import tn.epos.common.dto.ApiResponse;
 import tn.epos.common.exception.BusinessException;
 import tn.epos.scoring_service.dto.BulkEnrolRequest;
 import tn.epos.scoring_service.dto.BulkEnrolResult;
+import tn.epos.scoring_service.dto.BulkRetraitRequest;
+import tn.epos.scoring_service.dto.BulkRetraitResult;
 import tn.epos.scoring_service.dto.ParticipationDTO;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.service.EtudiantService;
@@ -93,6 +95,20 @@ public class ExamenParticipationController {
             @RequestBody BulkEnrolRequest request) {
         BulkEnrolResult result = participationService.enrolBulk(examenId, request.etudiantIds());
         return ResponseEntity.ok(ApiResponse.ok("Inscription groupée terminée", result));
+    }
+
+    /**
+     * #435 — retrait groupé (POST, pas DELETE : un corps de requête sur DELETE est
+     * ignoré par certains intermédiaires). Même autorisation que le retrait unitaire ;
+     * la garde de matière est dans le service, AVANT la boucle. Bilan ligne à ligne.
+     */
+    @PostMapping("/retrait")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'RESPONSABLE_MATIERE')")
+    public ResponseEntity<ApiResponse<BulkRetraitResult>> retirerBulk(
+            @RequestParam Long examenId,
+            @RequestBody BulkRetraitRequest request) {
+        BulkRetraitResult result = participationService.retirerBulk(examenId, request.participationIds());
+        return ResponseEntity.ok(ApiResponse.ok("Retrait groupé terminé", result));
     }
 
     @PutMapping("/{id}")

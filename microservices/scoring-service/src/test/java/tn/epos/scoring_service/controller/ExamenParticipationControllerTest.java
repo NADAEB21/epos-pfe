@@ -14,6 +14,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.epos.scoring_service.config.TestSecurityConfig;
 import tn.epos.scoring_service.dto.BulkEnrolResult;
+import tn.epos.scoring_service.dto.BulkRetraitResult;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
@@ -236,6 +237,33 @@ class ExamenParticipationControllerTest {
                     .andExpect(jsonPath("$.data.alreadyEnrolled").value(1));
 
             verify(participationService, times(1)).enrolBulk(10L, List.of(20L, 21L));
+        }
+    }
+
+    // ─── POST /api/participations/retrait — #435 ───────────────────────────────
+
+    @Nested
+    @DisplayName("POST /api/participations/retrait — #435")
+    class RetirerBulk {
+
+        @Test
+        @DisplayName("200 - Retrait groupé effectué, bilan renvoyé")
+        void retirerBulk_devraitRetourner200AvecBilan() throws Exception {
+            var ligne = new BulkRetraitResult.BulkRetraitLigne(7L, "Karoui", "Sonia", "RETIRE", "Retiré.");
+            var result = new BulkRetraitResult(2, 1, 1, 0, List.of(ligne));
+            when(participationService.retirerBulk(eq(10L), eq(List.of(7L, 8L)))).thenReturn(result);
+
+            mockMvc.perform(post("/api/participations/retrait")
+                            .param("examenId", "10")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"participationIds\":[7,8]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.total").value(2))
+                    .andExpect(jsonPath("$.data.retires").value(1))
+                    .andExpect(jsonPath("$.data.introuvables").value(1));
+
+            verify(participationService, times(1)).retirerBulk(10L, List.of(7L, 8L));
         }
     }
 

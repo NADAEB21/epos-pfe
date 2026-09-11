@@ -9,6 +9,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
+import tn.epos.scoring_service.dto.BulkRetraitResult;
 import tn.epos.scoring_service.entities.Etudiant;
 import tn.epos.scoring_service.entities.ExamenParticipation;
 import tn.epos.scoring_service.entities.Lot;
@@ -209,6 +210,79 @@ class ExamenParticipationServiceTest {
             assertThat(service.update(404L, 1.0f, true)).isEmpty();
 
             verifyNoInteractions(matiereAccessGuard);
+        }
+    }
+
+    @Nested
+    @DisplayName("retirerBulk() — #435, retrait groupé")
+    class RetirerBulk {
+
+        @Test
+        @DisplayName("la garde de matière est vérifiée AVANT toute lecture ou suppression")
+        void retirerBulk_verifiePerimetreAvantEcriture() {
+            org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("hors matière"))
+                    .when(matiereAccessGuard).checkExamenAccess(10L);
+
+            assertThatThrownBy(() -> service.retirerBulk(10L, List.of(1L)))
+                    .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+            verify(repository, never()).findById(any());
+            verify(repository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("retire les inscriptions de l'examen, compte les introuvables, refuse celles d'un autre examen")
+        void retirerBulk_retireCompteEtRefuse() {
+            ExamenParticipation autreExamen = new ExamenParticipation();
+            autreExamen.setId(2L);
+            autreExamen.setExamen_id(99L);
+            autreExamen.setEtudiant(etudiantA);
+            when(repository.findById(1L)).thenReturn(Optional.of(participation));
+            when(repository.findById(2L)).thenReturn(Optional.of(autreExamen));
+            when(repository.findById(3L)).thenReturn(Optional.empty());
+
+            var result = service.retirerBulk(10L, List.of(1L, 2L, 3L));
+
+            assertThat(result.total()).isEqualTo(3);
+            assertThat(result.retires()).isEqualTo(1);
+            assertThat(result.erreurs()).isEqualTo(1);
+            assertThat(result.introuvables()).isEqualTo(1);
+            assertThat(result.lignes()).extracting(BulkRetraitResult.BulkRetraitLigne::statut)
+                    .containsExactly("RETIRE", "REFUSE", "INTROUVABLE");
+            assertThat(result.lignes().get(0).nom()).isEqualTo("Ben Ali");
+            verify(repository).delete(participation);
+            verify(repository, never()).delete(autreExamen);
+        }
+
+        @Test
+        @DisplayName("une contrainte en base sur une ligne n'arrête pas les autres (circuit déjà généré)")
+        void retirerBulk_erreurLigne_neBloquePasLeLot() {
+            ExamenParticipation dansUnCircuit = new ExamenParticipation();
+            dansUnCircuit.setId(4L);
+            dansUnCircuit.setExamen_id(10L);
+            dansUnCircuit.setEtudiant(etudiantB);
+            when(repository.findById(4L)).thenReturn(Optional.of(dansUnCircuit));
+            when(repository.findById(1L)).thenReturn(Optional.of(participation));
+            org.mockito.Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("fk"))
+                    .when(repository).delete(dansUnCircuit);
+
+            var result = service.retirerBulk(10L, List.of(4L, 1L));
+
+            assertThat(result.retires()).isEqualTo(1);
+            assertThat(result.erreurs()).isEqualTo(1);
+            assertThat(result.lignes().get(0).statut()).isEqualTo("ERREUR");
+            assertThat(result.lignes().get(0).prenom()).isEqualTo("Amine");
+            assertThat(result.lignes().get(1).statut()).isEqualTo("RETIRE");
+        }
+
+        @Test
+        @DisplayName("dédoublonne les ids : un double clic ne compte pas deux fois")
+        void retirerBulk_dedoublonne() {
+            when(repository.findById(1L)).thenReturn(Optional.of(participation));
+
+            var result = service.retirerBulk(10L, List.of(1L, 1L));
+
+            assertThat(result.total()).isEqualTo(1);
+            verify(repository, org.mockito.Mockito.times(1)).delete(participation);
         }
     }
 

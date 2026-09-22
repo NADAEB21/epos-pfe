@@ -70,15 +70,38 @@ Les destinations sont **paramétrées par identifiant** : un client ne s'abonne
 qu'aux stations et aux lots qui le concernent. Le périmètre reste vérifié côté
 serveur — l'abonnement ne fait pas autorité.
 
-## 4. Pourquoi pas de spécification OpenAPI générée
+## 4. OpenAPI : ce qui existe, et ce qui a été écarté
 
-C'est une décision écrite, pas un oubli : **ADR-0003** proposait une source unique
-OpenAPI avec génération des clients Dart et TypeScript. Elle est marquée
-**`LAPSED — never adopted`**, et son §0 consigne ce qui s'est réellement passé,
-le coût payé (dérive `ouvertA` → `ouverta`, une session de débogage, PR #258) et
-la règle : ne pas la reprendre sans écrire un ADR successeur qui cite ces
-incidents comme données d'entrée.
+Il faut distinguer deux choses que l'on confond souvent.
 
-À l'échelle du projet — deux clients, un seul développeur back-end — le coût
-d'installation du générateur n'a jamais trouvé sa fenêtre. Le présent document
-est le contrat tenu à la main que cette décision implique.
+**Ce qui existe — la documentation servie.** Chaque service applicatif expose sa
+propre spécification OpenAPI, engendrée à partir de ses déclarations Spring, et
+une page Swagger UI :
+
+| Service | Page | Opérations |
+|---|---|---|
+| auth-service | <http://localhost:8081/swagger-ui.html> | 22 |
+| exam-service | <http://localhost:8082/swagger-ui.html> | 42 |
+| scoring-service | <http://localhost:8083/swagger-ui.html> | 77 |
+
+Ces ports sont liés à `127.0.0.1` et n'existent qu'en développement. **En
+production, rien de tout cela n'est atteignable** : aucun service applicatif ne
+publie de port, la passerelle ne route que `/api/v1/**`, et
+`SPRINGDOC_API_DOCS_ENABLED=false` désactive les endpoints de toute façon.
+
+**Ce qui a été écarté — la chaîne de génération de clients.** **ADR-0003**
+proposait tout autre chose : une spécification **agrégée**, commitée dans
+`docs/openapi/epos.yaml` comme source de vérité du contrat, et une étape
+openapi-generator en CI produisant les modèles Dart et TypeScript des deux
+clients. Cette chaîne-là est marquée **`LAPSED — never adopted`** et n'a jamais
+été construite : les deux clients sont écrits à la main. Son §0 consigne le coût
+payé (dérive `ouvertA` → `ouverta`, une session de débogage, PR #258) et la
+règle : ne pas la reprendre sans écrire un ADR successeur qui cite ces incidents
+comme données d'entrée.
+
+**Pourquoi ce document existe malgré Swagger.** OpenAPI ne sait décrire que des
+échanges requête/réponse HTTP. Le canal temps réel décrit au §3 — le point
+d'entrée `/ws`, l'authentification portée par la trame STOMP `CONNECT`, la purge
+des sessions révoquées, les destinations publiées — lui est **invisible**. Les
+deux sources sont complémentaires : Swagger pour la surface REST, ce document
+pour le contrat d'ensemble.

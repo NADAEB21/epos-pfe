@@ -19,6 +19,16 @@ les DTO snake_case de scoring-service ont imposé des modèles frontend calqués
 le champ `ouvertA` → colonne `ouverta` a coûté une session de débogage (PR #258). Ces
 corrections ont été faites manuellement, au cas par cas.
 
+**Mise à jour du 2026-09-22 — springdoc adopté, le codegen non.** `auth-service`,
+`exam-service` et `scoring-service` servent désormais une spécification OpenAPI
+engendrée et une page Swagger UI (PR #451). Ce n'est **pas** une reprise de cet ADR :
+ce qu'il décrit — une spécification agrégée commitée dans `docs/openapi/epos.yaml`,
+source de vérité du contrat, et une étape openapi-generator en CI produisant les
+modèles Dart et TypeScript — reste entièrement non construit, et les deux clients
+restent écrits à la main. La documentation servie répond à un autre besoin : lire
+le contrat effectif. La phrase ci-dessus sur l'absence de `springdoc` ne vaut donc
+plus que pour le pom du gateway, qui n'expose aucun endpoint propre.
+
 Cet ADR reste dans le corpus comme trace du compromis assumé : à l'échelle d'un PFE à deux
 clients et un seul développeur backend, le coût d'installation du codegen n'a jamais trouvé
 sa fenêtre. **Ne pas le « reprendre » sans re-décider** — si le besoin revient (équipe

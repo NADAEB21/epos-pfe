@@ -5,9 +5,11 @@
 #   cp .env.example .env   # then fill in real values
 #   docker compose up -d   # builds images on first run
 #
-# Externally exposed: only the api-gateway (8080). postgres-db, pgAdmin and the
-# Eureka dashboard are bound to 127.0.0.1 as dev conveniences; the application
-# services have no host ports and are reachable only via the gateway.
+# Externally exposed: only the api-gateway (8080). postgres-db, pgAdmin, the
+# Eureka dashboard and the auth/exam Swagger UIs are bound to 127.0.0.1 as dev
+# conveniences, unreachable from outside this machine. In production
+# (docker-compose.prod.yml) no application service publishes a host port and
+# the OpenAPI endpoints are disabled outright.
 
 services:
   # ─── Infrastructure ──────────────────────────────────────────────────────
@@ -110,6 +112,10 @@ services:
         SERVICE_NAME: auth-service
     image: epos/auth-service
     container_name: epos-auth-service
+    # Swagger UI en dev : http://localhost:8081/swagger-ui.html
+    # Lié à 127.0.0.1 — jamais exposé hors de la machine.
+    ports:
+      - "127.0.0.1:8081:8081"
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/auth_db
       - DB_USERNAME=${DB_USERNAME}
@@ -148,6 +154,10 @@ services:
         SERVICE_NAME: exam-service
     image: epos/exam-service
     container_name: epos-exam-service
+    # Swagger UI en dev : http://localhost:8082/swagger-ui.html
+    # Lié à 127.0.0.1 — jamais exposé hors de la machine.
+    ports:
+      - "127.0.0.1:8082:8082"
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/exam_db
       - DB_USERNAME=${DB_USERNAME}
@@ -208,6 +218,10 @@ services:
       - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
       - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-true}
       - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-true}
+    # Swagger UI en dev : http://localhost:8083/swagger-ui.html
+    # Lié à 127.0.0.1 — jamais exposé hors de la machine.
+    ports:
+      - "127.0.0.1:8083:8083"
     depends_on:
       postgres-db:
         condition: service_healthy

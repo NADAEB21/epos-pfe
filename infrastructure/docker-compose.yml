@@ -218,6 +218,10 @@ services:
       - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
       - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-true}
       - MAIL_SMTP_STARTTLS=${MAIL_SMTP_STARTTLS:-true}
+    # Swagger UI en dev : http://localhost:8083/swagger-ui.html
+    # Lié à 127.0.0.1 — jamais exposé hors de la machine.
+    ports:
+      - "127.0.0.1:8083:8083"
     depends_on:
       postgres-db:
         condition: service_healthy

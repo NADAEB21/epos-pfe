@@ -35,3 +35,4 @@ infrastructure/sauvegarde/backups/
 
 # Local AI assistant instructions (not part of the delivered project)
 CLAUDE.md
+.github/copilot-instructions.md

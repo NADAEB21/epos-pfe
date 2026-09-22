@@ -45,7 +45,9 @@ Full walkthrough, including test execution outside Docker: [`docs/RUNNING_LOCALL
 | [`docs/adr/`](docs/adr/) | **32 architecture decision records** (Nygard format). Several carry a `SUPERSEDED` or `LAPSED` marker with a §0 section recording what actually happened. |
 | [`docs/besoins-et-cas-utilisation.md`](docs/besoins-et-cas-utilisation.md) | Requirements catalogue — 87 use cases, functional and non-functional requirements |
 | [`docs/api-et-protocoles.md`](docs/api-et-protocoles.md) | REST surface per service and the WebSocket/STOMP contract |
+| [`docs/etude-cycle-de-vie-du-compte.md`](docs/etude-cycle-de-vie-du-compte.md) | Cross-cutting study — what deactivating an account actually triggers (findings behind ADR-0023) |
 | [`docs/guide-utilisateur/`](docs/guide-utilisateur/) | End-user guides — reading indices, results and trends |
+| [`docs/ia-bi/`](docs/ia-bi/) | Analysis module — chart component specification and ground-truth fixtures |
 | [`docs/exploitation-sauvegarde-et-amorcage.md`](docs/exploitation-sauvegarde-et-amorcage.md) | Operations: backup, restore, bootstrapping |
 | [`docs/RUNNING_LOCALLY.md`](docs/RUNNING_LOCALLY.md) | Running the full stack locally |
 | [`infrastructure/README-vps.md`](infrastructure/README-vps.md) | VPS deployment runbook |

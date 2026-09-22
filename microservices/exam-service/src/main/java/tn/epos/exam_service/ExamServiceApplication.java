@@ -1,5 +1,7 @@
 package tn.epos.exam_service;
 
+import io.swagger.v3.oas.annotations.OpenAPIDefinition;
+import io.swagger.v3.oas.annotations.info.Info;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
@@ -7,6 +9,10 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 @SpringBootApplication
 @EnableDiscoveryClient
 // @EnableJpaRepositories(basePackages = "tn.epos.exam_service.repositories")   //deactivated for pipline tests
+@OpenAPIDefinition(info = @Info(
+        title = "EPOS — Examens, stations et grilles",
+        version = "1.0",
+        description = "Conception des examens : stations, grilles d'évaluation pondérées, critères et modèles réutilisables."))
 public class ExamServiceApplication {
 
 	public static void main(String[] args) {

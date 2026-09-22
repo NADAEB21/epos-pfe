@@ -109,6 +109,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # OpenAPI désactivé en production : la passerelle ne route ni
+      # /v3/api-docs ni /swagger-ui, et aucun port n'est publié ici —
+      # ce drapeau ferme la porte même si l'un des deux changeait.
+      - SPRINGDOC_API_DOCS_ENABLED=false
+      - SPRINGDOC_SWAGGER_UI_ENABLED=false
       - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
       # Actuator registers MailHealthIndicator whenever a JavaMailSender exists,
       # and application.yml sets spring.mail.host unconditionally (line 49). The
@@ -153,6 +158,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # OpenAPI désactivé en production : la passerelle ne route ni
+      # /v3/api-docs ni /swagger-ui, et aucun port n'est publié ici —
+      # ce drapeau ferme la porte même si l'un des deux changeait.
+      - SPRINGDOC_API_DOCS_ENABLED=false
+      - SPRINGDOC_SWAGGER_UI_ENABLED=false
       - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
       # ADR-0010: the exam clock follows Tunisian wall time wherever the server runs.
       - APP_TIMEZONE=${APP_TIMEZONE:-Africa/Tunis}
@@ -186,6 +196,11 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - EUREKA_URI=http://discovery-server:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
+      # OpenAPI désactivé en production : la passerelle ne route ni
+      # /v3/api-docs ni /swagger-ui, et aucun port n'est publié ici —
+      # ce drapeau ferme la porte même si l'un des deux changeait.
+      - SPRINGDOC_API_DOCS_ENABLED=false
+      - SPRINGDOC_SWAGGER_UI_ENABLED=false
       - JAVA_TOOL_OPTIONS=-Xmx288m -XX:+UseSerialGC
       - EXAM_SERVICE_BASE_URL=http://exam-service:8082
       - TZ=${APP_TIMEZONE:-Africa/Tunis}

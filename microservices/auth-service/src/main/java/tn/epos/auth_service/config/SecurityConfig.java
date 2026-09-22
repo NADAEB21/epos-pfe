@@ -56,6 +56,10 @@ public class SecurityConfig {
                     ).permitAll()
                     // Actuator health check (used by Eureka / Docker health probes)
                     .requestMatchers("/actuator/health").permitAll()
+                    // OpenAPI / Swagger UI — même règle que exam-service et
+                    // scoring-service. Ces deux chemins seulement : la passerelle ne
+                    // les route pas et aucun port n'est publié en production.
+                    .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                     // #306 — inter-services : permitAll ICI parce que la décision
                     // appartient à InternalAuthFilter (preuve dérivée de JWT_SECRET),
                     // enregistré AVANT cette chaîne. Non routé par la gateway.

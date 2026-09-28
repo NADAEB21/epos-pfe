@@ -113,7 +113,7 @@ par »), jamais des associations d'acteur.
 | Réf. | Acteur | État |
 |:--:|---|---|
 | **A6** | Service de messagerie (SMTP) | ⚠️ intégré, **désactivé par défaut** (`app.mail.enabled`) |
-| **A7** | Service d'analyse (`ai-service`) | 📐 **le service n'existe pas** : ni `microservices/ai-service`, ni `ai-modules/` — ADR-0008, ADR-0021 |
+| **A7** | Service d'analyse (`ai-service`) | ✅ **livré** (mise à jour 2026-09-28) : `ai-service/` à la racine du dépôt — FastAPI, lecture seule derrière la gateway, 199 tests, CI dédiée (`ai-ci.yml`) — ADR-0008, ADR-0021, ADR-0029 |
 | **A8** | Horloge du serveur | ✅ zone épinglée `Africa/Tunis` — ADR-0010 |
 
 ---
@@ -434,10 +434,11 @@ verdict.
    système *peut* et ce qu'un enseignant *peut faire*.
 4. **Le plan administratif est entièrement arbitré et entièrement à construire** : ADR-0018 à
    ADR-0021 sont fusionnés, aucun n'a de code.
-5. **Le volet IA — l'argument de valeur du projet — n'a aucune surface.** Le service `ai-service`
-   **n'existe pas dans le dépôt** (`microservices/` en compte six, sans lui ; `ai-modules/` a
-   disparu). ⚠️ Or `chap2.tex:340` le liste dans le tableau d'architecture **avec son port 8084**,
-   et `chap2.tex:258` annonce Python/FastAPI dans la pile technique — voir §6.8.
+5. ✅ **Résolu (mise à jour 2026-09-28) — le volet IA a désormais une surface.** Le service
+   `ai-service` existe à la racine du dépôt (FastAPI, lecture seule derrière la gateway,
+   199 tests, CI dédiée) — livré via #352/#357/#359, indices affichés sur les cartes de
+   l'écran A (#374/#375). Les mentions du rapport (`chap2.tex:340` port 8084, `chap2.tex:258`
+   Python/FastAPI) décrivent maintenant un état réel — voir §6.8 (résolu).
 
 ---
 
@@ -505,6 +506,11 @@ sortir par l'interface. Lié à UC-10 (#134).
 ---
 
 ### 6.8 Le rapport annonce un service qui n'existe pas
+
+> ✅ **Résolu (2026-09-28)** : `ai-service` existe désormais à la racine du dépôt (FastAPI,
+> 199 tests, workflow CI `ai-ci.yml`, exposé en lecture seule derrière la gateway — ADR-0029).
+> Les tableaux du chapitre 2 ne décrivent plus « une cible comme un état » sur ce point.
+> Le constat ci-dessous est conservé comme trace de l'audit.
 
 Vérifié ce jour, et à corriger **dans le rapport** autant que dans le code :
 

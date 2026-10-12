@@ -5,6 +5,9 @@ The same application layer as the AWS and Azure recipes (`docker-compose.prod.ym
 ordered by hand, bootstrapped once with `scripts/bootstrap-vps.sh`, then
 deployed to with `scripts/deploy.sh` exactly like the cloud targets.
 
+For the faculty's own Windows PC (no public IP, exposed through a Tailscale
+Funnel tunnel), see `README-windows-server.md` instead.
+
 ```
 Internet
    │  :80 (ACME challenge + redirect)  :443

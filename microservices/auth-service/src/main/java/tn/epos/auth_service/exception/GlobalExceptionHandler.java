@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tn.epos.common.dto.ApiResponse;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -111,6 +112,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(EmailAlreadyExistsException.class)
     public ResponseEntity<ApiResponse<Void>> handleEmailConflict(EmailAlreadyExistsException ex) {
         return error(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /**
+     * L'adresse appartient à un compte RETIRÉ : même 409, mais la réponse dit
+     * lequel ({@code data.code} + {@code data.userId}) pour que l'écran propose
+     * « Rétablir l'accès » au lieu d'un refus sans issue. Plus spécifique que
+     * le gestionnaire ci-dessus, c'est lui que Spring retient pour cette sous-classe.
+     */
+    @ExceptionHandler(CompteRetireException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleCompteRetire(
+            CompteRetireException ex) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("code", CompteRetireException.CODE);
+        data.put("userId", ex.getUserId());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ex.getMessage(), data));
     }
 
     /** #134 — code de matière déjà pris, ou état déjà acquis (déjà retirée / déjà active). */

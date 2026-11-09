@@ -25,6 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -186,6 +187,26 @@ class UserControllerTest {
 
         verify(userService).reactivateUser(eq(2L), eq("Homonyme, retrait par erreur"),
                 org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ROLE_SUPER_ADMIN")
+    void createUser_adresseDUnCompteRetire_409AvecLeCompteARetablir() throws Exception {
+        // Le gestionnaire spécifique doit l'emporter sur celui d'EmailAlreadyExists :
+        // sans data.code, l'écran ne peut pas proposer « Rétablir l'accès ».
+        when(userService.createUser(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new tn.epos.auth_service.exception.CompteRetireException(
+                        7L, "Un compte existe déjà pour jeanne.exemple@epos.tn, mais son accès a été retiré."));
+
+        mockMvc.perform(post("/api/v1/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"jeanne.exemple@epos.tn\",\"nom\":\"Exemple\",\"prenom\":\"Jeanne\","
+                                + "\"roles\":[{\"role\":\"EVALUATEUR\"}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data.code").value("COMPTE_RETIRE"))
+                .andExpect(jsonPath("$.data.userId").value(7));
     }
 
     @Test

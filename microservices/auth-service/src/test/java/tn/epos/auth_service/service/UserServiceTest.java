@@ -18,6 +18,8 @@ import tn.epos.auth_service.entity.Matiere;
 import tn.epos.auth_service.entity.RoleType;
 import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
+import tn.epos.auth_service.exception.CompteRetireException;
+import tn.epos.auth_service.exception.EmailAlreadyExistsException;
 import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
 import tn.epos.auth_service.repository.MatiereRepository;
@@ -810,6 +812,66 @@ class UserServiceTest {
 
         verify(auditService).logAttribue(eq(1L), anyString(), eq(AuditAction.USER_REACTIVATED),
                 anyString(), isNull(), eq(99L));
+    }
+
+    // =========================================================================
+    // Re-créer l'adresse d'un compte RETIRÉ : le refus nomme le compte et le remède
+    // =========================================================================
+
+    @Test
+    void createUser_adresseDUnCompteRetire_refuseEnNommantLeCompteARetablir() {
+        // Cas réel : l'accès a été retiré, puis l'administration a voulu recréer
+        // le compte — et n'a reçu qu'un 409 technique, en anglais, sans issue.
+        User retire = existingUser(7L);
+        retire.setEmail("jeanne.exemple@test.com");
+        retire.setIsActive(false);
+        retire.setDeactivatedAt(java.time.LocalDateTime.of(2026, 11, 5, 10, 30));
+        when(userRepository.existsByEmail("Jeanne.Exemple@Test.com")).thenReturn(true);
+        when(userRepository.findByEmail("Jeanne.Exemple@Test.com")).thenReturn(Optional.of(retire));
+        var req = createRequest("Jeanne.Exemple@Test.com", List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()));
+
+        Throwable thrown = catchThrowable(() ->
+                userService.createUser(req, mock(Authentication.class)));
+
+        assertThat(thrown).isInstanceOf(CompteRetireException.class)
+                .hasMessageContaining("jeanne.exemple@test.com")
+                .hasMessageContaining("retiré le 05/11/2026")
+                .hasMessageContaining("Rétablir l'accès");
+        assertThat(((CompteRetireException) thrown).getUserId()).isEqualTo(7L);
+        verify(userRepository, never()).save(any());
+        verify(userRoleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void createUser_compteRetireAvantLaTracabilite_refuseSansInventerDeDate() {
+        User retire = existingUser(8L);
+        retire.setIsActive(false); // deactivatedAt null : fermé avant la V3
+        when(userRepository.existsByEmail("user8@test.com")).thenReturn(true);
+        when(userRepository.findByEmail("user8@test.com")).thenReturn(Optional.of(retire));
+        var req = createRequest("user8@test.com", List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()));
+
+        assertThatThrownBy(() -> userService.createUser(req, mock(Authentication.class)))
+                .isInstanceOf(CompteRetireException.class)
+                .hasMessageContaining("son accès a été retiré.")
+                .hasMessageNotContaining("null");
+    }
+
+    @Test
+    void createUser_adresseDUnCompteActif_gardeLeRefusExistant() {
+        // Non-régression : un compte ACTIF garde son 409 « ajoutez-lui le rôle ».
+        User actif = existingUser(3L);
+        when(userRepository.existsByEmail("user3@test.com")).thenReturn(true);
+        when(userRepository.findByEmail("user3@test.com")).thenReturn(Optional.of(actif));
+        var req = createRequest("user3@test.com", List.of(
+                RoleAssignmentDto.builder().role(RoleType.EVALUATEUR).build()));
+
+        assertThatThrownBy(() -> userService.createUser(req, mock(Authentication.class)))
+                .isInstanceOf(EmailAlreadyExistsException.class)
+                .isNotInstanceOf(CompteRetireException.class)
+                .hasMessageContaining("Email already in use");
+        verify(userRepository, never()).save(any());
     }
 
     // =========================================================================

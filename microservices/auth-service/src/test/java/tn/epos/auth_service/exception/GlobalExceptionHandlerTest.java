@@ -7,6 +7,8 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import tn.epos.common.dto.ApiResponse;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -30,6 +32,20 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getMessage()).isEqualTo("Invalid email or password");
         assertThat(response.getBody().isSuccess()).isFalse();
+    }
+
+    @Test
+    void handleCompteRetire_409_porteLeCodeEtLIdDuCompteARetablir() {
+        ResponseEntity<ApiResponse<Map<String, Object>>> response =
+                handler.handleCompteRetire(new CompteRetireException(7L, "accès retiré"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isFalse();
+        assertThat(response.getBody().getMessage()).isEqualTo("accès retiré");
+        assertThat(response.getBody().getData())
+                .containsEntry("code", "COMPTE_RETIRE")
+                .containsEntry("userId", 7L);
     }
 
     @Test

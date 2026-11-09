@@ -220,6 +220,111 @@ describe('PersonnesComponent — retrait d’accès et portées', () => {
     });
   });
 
+  describe('recréer l’adresse d’un compte retiré — on propose de le rétablir', () => {
+    const RETIRE = user({
+      id: 4, prenom: 'Jeanne', nom: 'Exemple', email: 'jeanne.exemple@epos.tn', isActive: false,
+      deactivatedAt: '2026-11-05T10:30:00', deactivatedBy: 9, deactivationMotif: 'Départ de la faculté',
+    });
+    const MESSAGE_SERVEUR =
+      'Un compte existe déjà pour jeanne.exemple@epos.tn, mais son accès a été retiré le 05/11/2026.';
+
+    const conflitCompteRetire = () =>
+      throwError(() => new HttpErrorResponse({
+        status: 409,
+        error: { success: false, message: MESSAGE_SERVEUR, data: { code: 'COMPTE_RETIRE', userId: 4 } },
+      }));
+
+    beforeEach(() => api.createUser.calls.reset());
+
+    it('admin : affiche le message du serveur et ouvre le panneau « Rétablir l’accès » de CE compte', () => {
+      const cmp = build('admin', [ADMIN, RETIRE]);
+      api.createUser.and.returnValue(conflitCompteRetire());
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'Jeanne', nom: 'Exemple', email: 'jeanne.exemple@epos.tn', roleEvaluateur: true });
+
+      cmp.submitCreate();
+
+      expect(cmp.submitError()).toBe(MESSAGE_SERVEUR);
+      expect(cmp.compteRetire()?.id).toBe(4);
+
+      cmp.retablirCompteRetire();
+
+      expect(cmp.formOpen()).toBeFalse();
+      expect(cmp.etatFilter()).toBe('tous');
+      expect(cmp.rows().map((u) => u.id)).toEqual([4]);
+      expect(cmp.confirmingReactivation()?.id).toBe(4);
+      // Le rétablissement reste un acte motivé : rien ne part sans motif.
+      expect(api.reactivateUser).not.toHaveBeenCalled();
+    });
+
+    it('admin : le bouton s’affiche sous le message, au nom de la personne', () => {
+      build('admin', [ADMIN, RETIRE]); // configure le module de test
+      const fixture = TestBed.createComponent(PersonnesComponent);
+      const cmp = fixture.componentInstance;
+      api.createUser.and.returnValue(conflitCompteRetire());
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'Jeanne', nom: 'Exemple', email: 'jeanne.exemple@epos.tn', roleEvaluateur: true });
+
+      cmp.submitCreate();
+      fixture.detectChanges();
+
+      const page: HTMLElement = fixture.nativeElement;
+      expect(page.textContent).toContain(MESSAGE_SERVEUR);
+      const bouton = Array.from(page.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Rétablir l\'accès de Jeanne Exemple'));
+      expect(bouton).withContext('bouton « Rétablir l’accès » sous le message').toBeTruthy();
+
+      bouton!.click();
+      fixture.detectChanges();
+
+      expect(cmp.confirmingReactivation()?.id).toBe(4);
+      expect(page.textContent).toContain('Rétablir l\'accès de Jeanne Exemple ?');
+
+      // Une fois rétabli, le compte reste sous les yeux, actif, avec « Renvoyer l'invitation ».
+      api.reactivateUser.and.returnValue(of(undefined));
+      api.listUsers.and.returnValue(of([ADMIN, { ...RETIRE, isActive: true, deactivatedAt: null }]));
+      cmp.motifRetrait.set('Accès retiré par erreur');
+      cmp.confirmReactivate();
+      fixture.detectChanges();
+
+      expect(api.reactivateUser).toHaveBeenCalledWith(4, 'Accès retiré par erreur');
+      expect(cmp.rows().map((u) => [u.id, u.isActive])).toEqual([[4, true]]);
+      const renvoi = Array.from(page.querySelectorAll('button'))
+        .find((b) => b.textContent?.trim() === 'Renvoyer l\'invitation');
+      expect(renvoi).withContext('« Renvoyer l’invitation » sur la ligne rétablie').toBeTruthy();
+    });
+
+    it('un 409 sur un compte ACTIF ne change pas : message du serveur, aucun raccourci', () => {
+      const cmp = build('admin', [ADMIN]);
+      api.createUser.and.returnValue(throwError(() => new HttpErrorResponse({
+        status: 409,
+        error: { success: false, message: 'Email already in use: admin@epos.tn.' },
+      })));
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'A', nom: 'B', email: 'admin@epos.tn', roleEvaluateur: true });
+
+      cmp.submitCreate();
+
+      expect(cmp.submitError()).toBe('Email already in use: admin@epos.tn.');
+      expect(cmp.compteRetire()).toBeNull();
+    });
+
+    it('hors écran admin : le message suffit — le rétablissement est réservé au super-admin', () => {
+      const cmp = build('evaluateurs', [RETIRE]);
+      api.createUser.and.returnValue(conflitCompteRetire());
+      cmp.openCreate();
+      cmp.createForm.patchValue({ prenom: 'Jeanne', nom: 'Exemple', email: 'jeanne.exemple@epos.tn' });
+
+      cmp.submitCreate();
+      cmp.retablirCompteRetire();
+
+      expect(cmp.submitError()).toBe(MESSAGE_SERVEUR);
+      expect(cmp.compteRetire()).toBeNull();
+      expect(cmp.confirmingReactivation()).toBeNull();
+      expect(cmp.formOpen()).toBeTrue();
+    });
+  });
+
   describe('portées (#259) — chacun voit ce qui le regarde', () => {
     it('« évaluateurs » ne liste que les évaluateurs', () => {
       const cmp = build('evaluateurs', [

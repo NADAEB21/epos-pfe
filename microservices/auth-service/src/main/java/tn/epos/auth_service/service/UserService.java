@@ -19,6 +19,7 @@ import tn.epos.auth_service.entity.User;
 import tn.epos.auth_service.entity.UserRole;
 import tn.epos.auth_service.entity.Matiere;
 import tn.epos.auth_service.entity.PasswordResetToken;
+import tn.epos.auth_service.exception.CompteRetireException;
 import tn.epos.auth_service.exception.EmailAlreadyExistsException;
 import tn.epos.auth_service.exception.MatiereNonAssignableException;
 import tn.epos.auth_service.exception.UnauthorizedDelegationException;
@@ -31,10 +32,12 @@ import tn.epos.auth_service.repository.UserRoleRepository;
 import tn.epos.auth_service.service.email.EmailService;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -52,6 +55,9 @@ public class UserService {
      * à usage unique, et l'expiration est lue sur la ligne — aucune migration.
      */
     static final long INVITATION_VALIDITY_DAYS = 7;
+
+    /** Date lisible d'un retrait d'accès, dans le refus de re-création. */
+    private static final DateTimeFormatter DATE_FR = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     /** Privilège décroissant — sert à choisir le rôle principal exposé par /auth/me. */
     private static final List<RoleType> ROLE_PRECEDENCE = List.of(
@@ -132,6 +138,14 @@ public class UserService {
     @Transactional
     public UserResponse createUser(UserCreateRequest request, Authentication authentication) {
         if (userRepository.existsByEmail(request.getEmail())) {
+            // L'adresse est celle d'un compte RETIRÉ (#289) : le retrait n'efface
+            // rien, l'adresse reste prise — mais le remède est de RÉTABLIR ce
+            // compte, pas de lui ajouter un rôle. Le refus le dit et nomme le compte.
+            Optional<User> retire = userRepository.findByEmail(request.getEmail())
+                    .filter(u -> !Boolean.TRUE.equals(u.getIsActive()));
+            if (retire.isPresent()) {
+                throw compteRetire(retire.get());
+            }
             // Une adresse e-mail identifie UNE personne, pas UN rôle. Un
             // responsable qui doit aussi évaluer ne se recrée pas : on lui ajoute
             // le rôle EVALUATEUR sur son compte existant.
@@ -172,6 +186,25 @@ public class UserService {
         return toResponse(user, roles).toBuilder()
                 .invitation(inviter(user))
                 .build();
+    }
+
+    /**
+     * Le refus qui dit QUOI faire quand l'adresse est celle d'un compte retiré :
+     * le rétablir (super-administrateur, avec motif — ADR-0023), pas en créer un
+     * second. Un compte fermé avant la traçabilité n'a pas de date : on n'en
+     * invente pas.
+     */
+    private CompteRetireException compteRetire(User retire) {
+        String quand = retire.getDeactivatedAt() != null
+                ? " le " + retire.getDeactivatedAt().format(DATE_FR)
+                : "";
+        return new CompteRetireException(retire.getId(),
+                "Un compte existe déjà pour " + retire.getEmail()
+                + ", mais son accès a été retiré" + quand + ". "
+                + "Une adresse e-mail désigne une seule personne : au lieu d'en créer un "
+                + "second, rétablissez l'accès de ce compte — son historique est conservé. "
+                + "Seul un super-administrateur peut le faire (Utilisateurs → filtre "
+                + "« Accès retiré » → « Rétablir l'accès »).");
     }
 
     // -------------------------------------------------------------------------

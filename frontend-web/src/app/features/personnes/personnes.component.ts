@@ -72,6 +72,12 @@ export class PersonnesComponent {
   readonly formOpen = signal(false);
   readonly submitting = signal(false);
   readonly submitError = signal<string | null>(null);
+  /**
+   * L'adresse saisie est celle d'un compte dont l'accès a été RETIRÉ (409
+   * `COMPTE_RETIRE`) : le retrait n'efface rien, l'adresse reste prise. Plutôt
+   * qu'un refus sans issue, l'admin se voit proposer de rétablir CE compte.
+   */
+  readonly compteRetire = signal<UserResponse | null>(null);
   /** #389 — success banner: what happened to the invitation e-mail (never a password). */
   readonly created = signal<{ nomComplet: string; email: string; invitation: InvitationStatus | null } | null>(null);
 
@@ -327,6 +333,7 @@ export class PersonnesComponent {
 
   openCreate(): void {
     this.submitError.set(null);
+    this.compteRetire.set(null);
     this.created.set(null);
     this.formOpen.set(true);
   }
@@ -408,6 +415,7 @@ export class PersonnesComponent {
     const v = this.createForm.getRawValue();
     this.submitting.set(true);
     this.submitError.set(null);
+    this.compteRetire.set(null);
     this.api
       // #389 — no password: the server issues the invitation link.
       .createUser({ email: v.email.trim(), nom: v.nom.trim(), prenom: v.prenom.trim(), roles })
@@ -421,6 +429,15 @@ export class PersonnesComponent {
         },
         error: (e: HttpErrorResponse) => {
           this.submitting.set(false);
+          // Adresse d'un compte RETIRÉ : le serveur nomme le compte. Seul le
+          // super-admin peut le rétablir — ailleurs, son message suffit.
+          const retireId =
+            e.status === 409 && e.error?.data?.code === 'COMPTE_RETIRE' ? Number(e.error.data.userId) : null;
+          this.compteRetire.set(
+            this.scope === 'admin' && retireId != null
+              ? this.users().find((x) => x.id === retireId && !x.isActive) ?? null
+              : null,
+          );
           this.submitError.set(
             e.error?.message ??
               (e.status === 409
@@ -429,6 +446,26 @@ export class PersonnesComponent {
           );
         },
       });
+  }
+
+  /**
+   * Depuis le formulaire de création : l'adresse saisie est celle d'un compte
+   * retiré. On ferme le formulaire, on montre CE compte dans la liste (état
+   * « Tous les comptes » + recherche sur son adresse, pour qu'il reste visible
+   * une fois rétabli — « Renvoyer l'invitation » y apparaît alors) et on ouvre
+   * le panneau « Rétablir l'accès » existant : le motif reste obligatoire (ADR-0023).
+   */
+  retablirCompteRetire(): void {
+    const u = this.compteRetire();
+    if (!u || this.scope !== 'admin') return;
+    this.cancelCreate();
+    this.submitError.set(null);
+    this.compteRetire.set(null);
+    this.roleFilter.set('all');
+    this.matiereFilter.set(null);
+    this.etatFilter.set('tous');
+    this.search.set(u.email);
+    this.askReactivate(u);
   }
 
   // ---- appoint existing (co-responsables) -----------------------------------------

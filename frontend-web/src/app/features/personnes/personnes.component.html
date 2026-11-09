@@ -175,6 +175,14 @@
 
         @if (submitError(); as err) {
           <p class="text-sm text-status-danger">{{ err }}</p>
+          <!-- Adresse d'un compte retiré (409 COMPTE_RETIRE) : le rétablir plutôt que le recréer. -->
+          @if (scope === 'admin') {
+            @if (compteRetire(); as r) {
+              <button type="button" (click)="retablirCompteRetire()" class="text-sm font-medium text-brand hover:underline">
+                Rétablir l'accès de {{ r.prenom }} {{ r.nom }}
+              </button>
+            }
+          }
         }
 
         <div class="flex items-center gap-3">
